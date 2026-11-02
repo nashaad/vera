@@ -88,7 +88,8 @@ function storedFact(entry: TranscriptEntry): UntimedFact | undefined {
         case "user":
             return { kind: "user", text: entry.text };
         case "assistant":
-            return entry.text.length === 0 ? undefined : { kind: "assistant", text: entry.text };
+            // The model opens tool-calling steps with bare newlines; those carry no row.
+            return entry.text.trim().length === 0 ? undefined : { kind: "assistant", text: entry.text };
         case "tool":
             return { kind: "tool_call", tool: entry.tool, args: entry.args };
         case "tool_result":
@@ -126,7 +127,11 @@ function appendLive(facts: ThreadFacts, entry: VeraClientThreadEntry): ThreadFac
 
 function appendAssistantText(facts: ThreadFacts, text: string, now: number): ThreadFacts {
     const last = facts.live.at(-1);
-    if (last?.kind !== "assistant") return appendLive(facts, { kind: "assistant", text, at: now });
+    if (last?.kind !== "assistant") {
+        return text.trim().length === 0
+            ? facts
+            : appendLive(facts, { kind: "assistant", text, at: now });
+    }
     return { ...facts, live: [...facts.live.slice(0, -1), { ...last, text: last.text + text }] };
 }
 

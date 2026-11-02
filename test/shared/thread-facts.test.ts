@@ -32,6 +32,7 @@ test("a checkpoint becomes stored facts with ids, write times and turn length", 
                 recordedAt: 3_000,
             },
             { kind: "assistant", text: "", id: "m4#0", recordedAt: 4_000 },
+            { kind: "assistant", text: "\n\n", id: "m4#2", recordedAt: 4_000 },
             {
                 kind: "harness",
                 text: "noted",
@@ -49,6 +50,23 @@ test("a checkpoint becomes stored facts with ids, write times and turn length", 
         { kind: "tool_result", tool: "bash", output: "a chest", isError: false, id: "m3#0", at: 3_000 },
         { kind: "edit", path: "map.md", id: "m3#1", at: 3_000, turnDurationMs: 3_500 },
     ]);
+});
+
+test("a live step that sends only newlines adds no assistant fact", () => {
+    const blank = apply(EMPTY_THREAD_FACTS, [
+        { type: "user_prompt", content: "dig", seq: 1 },
+        { type: "assistant_delta", text: "\n\n", seq: 2 },
+        { type: "tool_started", tool: "bash", args: { command: "dig --deep" }, seq: 3 },
+    ], 1_000);
+    expect(threadFactEntries(blank).map((entry) => entry.kind)).toEqual(["user", "tool_call"]);
+
+    const answered = apply(blank, [
+        { type: "tool_finished", tool: "bash", output: "a chest", seq: 4 },
+        { type: "assistant_delta", text: "\n\n", seq: 5 },
+        { type: "assistant_delta", text: "Nothing yet", seq: 6 },
+    ], 2_000);
+    expect(threadFactEntries(answered).map((entry) => entry.kind))
+        .toEqual(["user", "tool_call", "tool_result", "assistant"]);
 });
 
 test("the running turn streams in with client times and no ids", () => {

@@ -177,6 +177,8 @@ export interface TuiState {
     readonly sessionUsage?: SessionModelUsage;
     readonly extensionState?: import("../../src/extensions/session-state.ts").ExtensionSessionStates;
     readonly pendingThinking?: string;
+    // Whitespace-only text held back so a blank step never opens an assistant row.
+    readonly pendingAssistantText?: string;
     readonly effortSubstitution?: TuiEffortSubstitution;
     readonly turnSubstituted?: boolean;
     readonly modelFallback?: { readonly from: string; readonly to: string };
@@ -349,7 +351,11 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
 }
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
-    const next = applyTuiUpdate(state, update);
+    // Text deltas build on held whitespace; every other update ends that run.
+    const current = update.type === "assistant_delta"
+        ? state
+        : dropPendingAssistantText(state);
+    const next = applyTuiUpdate(current, update);
     const before = state.threadFacts ?? EMPTY_THREAD_FACTS;
     const threadFacts = applyThreadUpdate(before, update, Date.now());
     return threadFacts === before ? next : { ...next, threadFacts };
@@ -2426,7 +2432,11 @@ function toTuiTranscriptEntries(
     let converted: TuiTranscriptEntry[] = [];
     const withheld = withheldToolEntries(entries);
     for (const entry of entries) {
-        converted = entry.kind === "tool"
+        // A body that was only whitespace never opened a row live, so a rebuild drops it.
+        const blankAssistant = entry.kind === "assistant" && entry.text.trim().length === 0;
+        converted = blankAssistant
+            ? converted
+            : entry.kind === "tool"
             ? withToolEntry(converted, entry.tool, entry.args, false, withheld.has(entry))
             : entry.kind === "tool_result"
             ? withHistoricalToolResult(
@@ -2778,19 +2788,33 @@ function userEntry(
 }
 
 function appendAssistantText(state: TuiState, text: string): TuiState {
+    const combined = (state.pendingAssistantText ?? "") + text;
+    if (combined.trim().length === 0) {
+        // Nothing to draw yet; hold it in case this message sends real text next.
+        return combined.length === 0
+            ? state
+            : { ...state, pendingAssistantText: combined };
+    }
+
     const entries = [...state.entries];
     const lastEntry = entries.at(-1);
 
     if (lastEntry?.kind === "assistant") {
         entries[entries.length - 1] = {
             kind: "assistant",
-            text: lastEntry.text + text,
+            text: lastEntry.text + combined,
         };
     } else {
-        entries.push({ kind: "assistant", text });
+        entries.push({ kind: "assistant", text: combined });
     }
 
-    return { ...state, entries };
+    return { ...state, entries, pendingAssistantText: undefined };
+}
+
+function dropPendingAssistantText(state: TuiState): TuiState {
+    return state.pendingAssistantText === undefined
+        ? state
+        : { ...state, pendingAssistantText: undefined };
 }
 
 function appendThinkingText(state: TuiState, text: string): TuiState {

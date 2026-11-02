@@ -3733,3 +3733,67 @@ test("a turn_ending continuation says the extension continued the turn, live and
     });
     expect(replayed.entries).toEqual(live.entries);
 });
+
+/** Assistant bodies in the transcript, in order. */
+function assistantBodies(state: TuiState): readonly string[] {
+    return state.entries.flatMap((entry) => entry.kind === "assistant" ? [entry.text] : []);
+}
+
+test("a step that sends only newlines opens no assistant row", () => {
+    // Models open a tool-calling step with bare newlines. Those used to draw a
+    // row with nothing but the gutter marker on it.
+    let state = beginTuiTurn(createTuiState(), "run the suite");
+    state = applyAgentUpdate(state, { type: "assistant_delta", text: "\n", seq: 1 });
+    state = applyAgentUpdate(state, { type: "assistant_delta", text: "\n", seq: 2 });
+    expect(assistantBodies(state)).toEqual([]);
+    expect(state.entries.map(entryLine)).toEqual(["run the suite"]);
+
+    // The held whitespace dies with the tool call, so the next answer is not padded.
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun test" },
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, { type: "tool_finished", tool: "bash", seq: 4 });
+    state = applyAgentUpdate(state, { type: "assistant_delta", text: "Watching it.", seq: 5 });
+
+    expect(assistantBodies(state)).toEqual(["Watching it."]);
+});
+
+test("newlines held before real text stay in the same row", () => {
+    let state = beginTuiTurn(createTuiState(), "run the suite");
+    state = applyAgentUpdate(state, { type: "assistant_delta", text: "\n", seq: 1 });
+    state = applyAgentUpdate(state, { type: "assistant_delta", text: "Watching it.", seq: 2 });
+
+    expect(assistantBodies(state)).toEqual(["\nWatching it."]);
+});
+
+test("a checkpoint body of only newlines draws no row", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [
+            { kind: "user", text: "run the suite" },
+            { kind: "assistant", text: "\n\n" },
+            { kind: "tool", tool: "bash", args: { command: "bun test" } },
+            { kind: "tool_result", tool: "bash", output: "216 pass", isError: false },
+            { kind: "assistant", text: "All green." },
+        ],
+    });
+
+    expect(assistantBodies(state)).toEqual(["All green."]);
+});
+
+test("a checkpoint turn that ends on a blank body keeps its worked divider", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [
+            { kind: "user", text: "run the suite" },
+            { kind: "assistant", text: "\n\n", turnTiming: { durationMs: 301_000, finishedAt: 9_000 } },
+        ],
+    });
+
+    expect(state.entries.some((entry) => entry.kind === "worked")).toBe(true);
+});
