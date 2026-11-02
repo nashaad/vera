@@ -1,7 +1,7 @@
 import { readModelCatalog } from "../../../src/providers/read-model-catalog.ts";
 import { normalizeOpenRouterModels } from "../../../src/model/openrouter-catalog.ts";
 import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
-import { isProviderConnected } from "../../../src/providers/registry.ts";
+import { isProviderConnected, type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { modelBrowse } from "../model-browse.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
@@ -25,7 +25,7 @@ import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
 import { startTuiSecretPrompt, type TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
-import { MODEL_ASSIGNMENT_ALL_VALUE, mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_ALL_VALUE, mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormInitial, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -127,18 +127,28 @@ export function openProviderEndpointForm(rt: TuiRuntime,
     } catch {
         apiKey = undefined;
     }
-    rt.providerForm = startTuiProviderForm(parent, {
-        id: providerId,
-        baseUrl: provider.baseUrl ?? "",
-        protocol: "openai-chat",
-        credential: provider.credential === "none" ? "none" : "api_key",
-        shipped: true,
-        ...(apiKey === undefined ? {} : { apiKey }),
-    });
+    rt.providerForm = startTuiProviderForm(parent, endpointFormDeclaration(providerId, provider, apiKey));
     rt.settingsPicker = undefined;
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);
+}
+
+// Shipped forms show only the endpoint and the key, so the descriptor has to supply the protocol
+// the catalog read will use. Getting it wrong sends Anthropic headers to the wrong protocol.
+export function endpointFormDeclaration(
+    providerId: string,
+    provider: ProviderDescriptor,
+    apiKey: string | undefined,
+): TuiProviderFormInitial {
+    return {
+        id: providerId,
+        baseUrl: provider.baseUrl ?? "",
+        protocol: provider.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+        credential: provider.credential === "none" ? "none" : "api_key",
+        shipped: true,
+        ...(apiKey === undefined ? {} : { apiKey }),
+    };
 }
 
 export function openRequestOptionsEditor(rt: TuiRuntime, 

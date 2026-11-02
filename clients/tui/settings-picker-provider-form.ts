@@ -149,16 +149,18 @@ export interface TuiProviderFormView {
     update(state: TuiProviderFormState): void;
 }
 
+export interface TuiProviderFormInitial {
+    readonly id: string;
+    readonly baseUrl: string;
+    readonly protocol: VeraProviderProtocol;
+    readonly credential: VeraProviderCredential;
+    readonly apiKey?: string;
+    readonly shipped?: boolean;
+}
+
 export function startTuiProviderForm(
     parent?: TuiSettingsPickerState,
-    existing?: {
-        readonly id: string;
-        readonly baseUrl: string;
-        readonly protocol: VeraProviderProtocol;
-        readonly credential: VeraProviderCredential;
-        readonly apiKey?: string;
-        readonly shipped?: boolean;
-    },
+    existing?: TuiProviderFormInitial,
 ): TuiProviderFormState {
     return {
         editorSession: nextProviderFormEditorSession++,
@@ -448,6 +450,8 @@ export const PROVIDER_FORM_PLACEHOLDERS: Readonly<
     api_key: "paste or type API key",
 };
 
+export const PROVIDER_FORM_ERROR_ROWS = 3;
+
 export function createTuiProviderFormView(
     renderer: RenderContext,
 ): TuiProviderFormView {
@@ -509,12 +513,14 @@ export function createTuiProviderFormView(
         row.add(value);
         return { field, row, label, value, editor, editorBox };
     });
+    // Fixed height keeps the card and footer still whether or not an error shows.
     const error = new TextRenderable(renderer, {
         content: "",
         fg: TUI_ACCENT,
         width: "100%",
-        height: "auto",
+        height: PROVIDER_FORM_ERROR_ROWS,
         wrapMode: "word",
+        overflow: "hidden",
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
