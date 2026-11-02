@@ -25,13 +25,16 @@ import { readStampedRelease } from "./stamp.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     defaultHostLockPath,
+    HOST_STARTUP_RACE_EXIT_CODE,
     HostLockUnreadableError,
     readHostLockRecordFile,
     type HostLockRecord,
 } from "../host/lockfile.ts";
 import {
+    forceStopHostProcess,
     gracefulStopResidentHost,
     unverifiedHostMessage,
+    type ForceStopOptions,
 } from "../host/force-stop.ts";
 import { checkRecordIdentity } from "../host/process-identity.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
@@ -51,11 +54,21 @@ function unchangedReleaseNote(operation: UpgradeOperation): string {
         : "The previous release is still active.";
 }
 
+// Same two fields as a host lock record, so the same identity check applies.
+export interface SurvivingHost {
+    readonly pid: number;
+    readonly started_at: string;
+}
+
 export interface UpgradeJournal {
     readonly phase: UpgradePhase;
     readonly from_build_id: string | null;
     readonly to_build_id: string;
     readonly host_was_running: boolean;
+    // Starting the new host failed: recovery restores the previous release.
+    readonly start_failed?: boolean;
+    // A host this install started and could not stop.
+    readonly surviving_host?: SurvivingHost;
 }
 
 export interface UpgradeLocalOptions {
@@ -136,12 +149,38 @@ export async function readUpgradeJournal(
     if (typeof record.host_was_running !== "boolean") {
         throw new Error(`Upgrade journal at ${path} has a bad host_was_running`);
     }
+    if (record.start_failed !== undefined && typeof record.start_failed !== "boolean") {
+        throw new Error(`Upgrade journal at ${path} has a bad start_failed`);
+    }
+    const survivor = parseSurvivingHost(record.surviving_host);
+    if (survivor === null) {
+        throw new Error(`Upgrade journal at ${path} has a bad surviving_host`);
+    }
     return {
         phase: record.phase as UpgradePhase,
         from_build_id: record.from_build_id,
         to_build_id: record.to_build_id,
         host_was_running: record.host_was_running,
+        ...(record.start_failed === true ? { start_failed: true } : {}),
+        ...(survivor === undefined ? {} : { surviving_host: survivor }),
     };
+}
+
+// undefined: absent. null: present but not a pid and a start time.
+function parseSurvivingHost(value: unknown): SurvivingHost | undefined | null {
+    if (value === undefined) return undefined;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+    const host = value as Record<string, unknown>;
+    if (
+        typeof host.pid !== "number"
+        || !Number.isInteger(host.pid)
+        || host.pid <= 0
+        || typeof host.started_at !== "string"
+        || Number.isNaN(Date.parse(host.started_at))
+    ) {
+        return null;
+    }
+    return { pid: host.pid, started_at: host.started_at };
 }
 
 export function writeUpgradeJournal(
@@ -158,6 +197,15 @@ export function writeUpgradeJournal(
             from_build_id: journal.from_build_id,
             to_build_id: journal.to_build_id,
             host_was_running: journal.host_was_running,
+            ...(journal.start_failed === true ? { start_failed: true } : {}),
+            ...(journal.surviving_host === undefined
+                ? {}
+                : {
+                    surviving_host: {
+                        pid: journal.surviving_host.pid,
+                        started_at: journal.surviving_host.started_at,
+                    },
+                }),
         }, null, 2)}\n`,
         { encoding: "utf8", mode: 0o644 },
     );
@@ -212,14 +260,24 @@ export interface EnsureHostOptions {
     readonly publishTimeoutMs?: number;
     readonly exitGraceMs?: number;
     readonly operation?: UpgradeOperation;
+    readonly stopStartedHost?: (child: ChildProcess, graceMs: number) => Promise<boolean>;
 }
 
 // Thrown when the host this command started cannot be stopped. Rolling back must
-// not start the previous host next to it.
+// not start the previous host next to it; host goes in the journal for the next run.
 export class StartedHostSurvivedError extends Error {
-    constructor(message: string) {
+    constructor(message: string, readonly host?: SurvivingHost) {
         super(message);
         this.name = "StartedHostSurvivedError";
+    }
+}
+
+// A live host on another build blocks the start. Recovery leaves state untouched;
+// an install still undoes the activation it made.
+export class HostStartRefusedError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "HostStartRefusedError";
     }
 }
 
@@ -323,7 +381,7 @@ export async function defaultEnsureHost(
     const existing = await liveHostRecord(lockPath);
     if (existing !== undefined) {
         if (existing.build_id === expected) return;
-        throw new Error(
+        throw new HostStartRefusedError(
             `Resident Vera host PID ${existing.pid} is running ${describeBuild(existing)}, `
                 + `not ${expected}. Stop it with 'vera host stop' and run `
                 + `${retry} again.`,
@@ -341,28 +399,47 @@ export async function defaultEnsureHost(
         });
         child.once("error", reject);
     });
+    const spawnedAt = new Date().toISOString();
+    const childPid = child.pid;
+    if (childPid === undefined) {
+        throw new Error(`The host from ${releaseRoot} has no process id after it started.`);
+    }
     const timeoutMs = options.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMs;
     let published: HostLockRecord | undefined;
     while (Date.now() < deadline) {
         published = await liveHostRecord(lockPath);
-        if (published?.build_id === expected) return;
+        if (published?.build_id === expected) {
+            if (published.pid === childPid) return;
+            // A rival on this build took the lock first and the child yielded to it.
+            if (child.exitCode === HOST_STARTUP_RACE_EXIT_CODE) return;
+        }
         await waitFor(50);
     }
-    const stopped = await stopUnpublishedHost(
+    // Still running at the deadline beside a same-build host: it never yielded.
+    const waitingOnRival = !hasExited(child)
+        && published?.build_id === expected
+        && published.pid !== childPid;
+    const stopped = await (options.stopStartedHost ?? stopUnpublishedHost)(
         child,
         options.exitGraceMs ?? UNPUBLISHED_HOST_EXIT_MS,
     );
+    if (waitingOnRival && stopped) {
+        const serving = await liveHostRecord(lockPath);
+        if (serving?.build_id === expected && serving.pid !== childPid) return;
+    }
     const shows = published === undefined
         ? "no live host"
-        : `host PID ${published.pid} on ${describeBuild(published)}`;
+        : `host PID ${published.pid} on ${describeBuild(published)}`
+            + (published.pid === childPid ? "" : `, not the host started here (PID ${childPid})`);
     const message = `The host from ${releaseRoot} did not publish build ${expected} in `
         + `${lockPath} within ${timeoutMs} ms; the lock shows ${shows}. `;
     if (stopped) throw new Error(`${message}The host it started was stopped.`);
     throw new StartedHostSurvivedError(
-        `${message}The host it started (PID ${child.pid}) is still running; `
-            + `stop it with 'vera host stop --force'. The next ${retry} starts `
+        `${message}The host it started (PID ${child.pid}) is still running and is `
+            + `recorded in the upgrade journal; the next ${retry} stops it and starts `
             + "the host again.",
+        { pid: childPid, started_at: spawnedAt },
     );
 }
 
@@ -371,6 +448,7 @@ export async function recoverInterruptedUpgrade(
         readonly prefix?: string;
         readonly startHost?: (releaseRoot: string) => Promise<void>;
         readonly operation?: UpgradeOperation;
+        readonly forceStop?: ForceStopOptions;
     } = {},
 ): Promise<{ readonly recovered: boolean; readonly buildId: string | undefined }> {
     const prefix = options.prefix ?? defaultInstallPrefix();
@@ -379,20 +457,104 @@ export async function recoverInterruptedUpgrade(
     if (journal === undefined) {
         return { recovered: false, buildId: currentReleaseBuildId(prefix) };
     }
+    // Before anything changes: a refusal from inside the start would read as a failed start.
+    if (options.startHost === undefined) assertPrefixMayManageHost(prefix, operation);
+    const startHost = options.startHost
+        ?? ((releaseRoot: string) => defaultEnsureHost(releaseRoot, { operation }));
+    if (journal.surviving_host !== undefined) {
+        await stopRecordedSurvivor(journal.surviving_host, operation, options.forceStop);
+    }
+    if (journal.phase === "starting" && journal.start_failed === true) {
+        await restorePreviousRelease(
+            prefix,
+            journal.from_build_id,
+            journal.host_was_running,
+            startHost,
+            false,
+        );
+        return { recovered: true, buildId: currentReleaseBuildId(prefix) };
+    }
     const current = currentReleaseBuildId(prefix)
         ?? (journal.phase === "starting" ? journal.to_build_id : journal.from_build_id)
         ?? undefined;
     if (journal.host_was_running && current !== undefined) {
-        const releaseRoot = releaseDirectory(current, prefix);
-        if (options.startHost === undefined) {
-            assertPrefixMayManageHost(prefix, operation);
-            await defaultEnsureHost(releaseRoot, { operation });
-        } else {
-            await options.startHost(releaseRoot);
+        try {
+            await startHost(releaseDirectory(current, prefix));
+        } catch (error) {
+            if (journal.phase !== "starting" || error instanceof HostStartRefusedError) {
+                throw error;
+            }
+            // The new release's host will not start: undo the switch like the install would.
+            writeUpgradeJournal(startFailedJournal(journal, error), prefix);
+            const survived = error instanceof StartedHostSurvivedError;
+            await restorePreviousRelease(
+                prefix,
+                journal.from_build_id,
+                journal.host_was_running,
+                startHost,
+                survived,
+            );
+            if (survived) throw error;
+            return { recovered: true, buildId: currentReleaseBuildId(prefix) };
         }
     }
     await clearUpgradeJournal(prefix);
     return { recovered: true, buildId: current };
+}
+
+// The survivor is recorded only for a host this run started and could not stop.
+function startFailedJournal(journal: UpgradeJournal, error: unknown): UpgradeJournal {
+    return {
+        phase: "starting",
+        from_build_id: journal.from_build_id,
+        to_build_id: journal.to_build_id,
+        host_was_running: journal.host_was_running,
+        start_failed: true,
+        ...(error instanceof StartedHostSurvivedError && error.host !== undefined
+            ? { surviving_host: error.host }
+            : {}),
+    };
+}
+
+async function stopRecordedSurvivor(
+    host: SurvivingHost,
+    operation: UpgradeOperation,
+    options: ForceStopOptions | undefined,
+): Promise<void> {
+    const outcome = await forceStopHostProcess(host, options);
+    switch (outcome.endedBy) {
+        case "sigterm":
+        case "sigkill":
+        case "already_dead":
+        case "not_ours":
+            return;
+        case "unverified":
+            throw new Error(
+                `Could not confirm PID ${host.pid} is the host an earlier install or `
+                    + "rollback started (its start time is unreadable); left it running. "
+                    + `Run ${retryCommand(operation)} again. Nothing was changed.`,
+            );
+        case "survived":
+            throw new Error(
+                `The host an earlier install or rollback started (PID ${host.pid}) is `
+                    + "still running after SIGTERM and SIGKILL. Stop it with "
+                    + `'kill -9 ${host.pid}' or wait for it to exit, then run `
+                    + `${retryCommand(operation)} again. Nothing was changed.`,
+            );
+        default: {
+            const unhandled: never = outcome.endedBy;
+            throw new Error(`Unhandled stop outcome ${String(unhandled)}`);
+        }
+    }
+}
+
+async function recordSurvivingHost(
+    prefix: string,
+    host: SurvivingHost,
+): Promise<void> {
+    const journal = await readUpgradeJournal(prefix);
+    if (journal === undefined) return;
+    writeUpgradeJournal({ ...journal, surviving_host: host }, prefix);
 }
 
 async function restorePreviousRelease(
@@ -409,7 +571,14 @@ async function restorePreviousRelease(
     // The journal stays, so the next install starts the host once the survivor is gone.
     if (startedHostSurvived) return;
     if (hostWasRunning && fromBuildId !== null) {
-        await startHost(releaseDirectory(fromBuildId, prefix));
+        try {
+            await startHost(releaseDirectory(fromBuildId, prefix));
+        } catch (error) {
+            if (error instanceof StartedHostSurvivedError && error.host !== undefined) {
+                await recordSurvivingHost(prefix, error.host);
+            }
+            throw error;
+        }
     }
     await clearUpgradeJournal(prefix);
 }
@@ -435,6 +604,7 @@ export async function upgradeLocalInstall(
     verify(packed.releaseRoot);
 
     let hostWasRunning = false;
+    let startFailed = false;
     try {
         const existing = await readHostLockRecordFile();
         if (existing !== undefined && processIsAlive(existing.pid)) {
@@ -461,7 +631,12 @@ export async function upgradeLocalInstall(
             host_was_running: hostWasRunning,
         }, prefix);
         if (hostWasRunning) {
-            await startHost(packed.releaseRoot);
+            try {
+                await startHost(packed.releaseRoot);
+            } catch (error) {
+                startFailed = true;
+                throw error;
+            }
         }
         await clearUpgradeJournal(prefix);
         return {
@@ -474,6 +649,16 @@ export async function upgradeLocalInstall(
         };
     } catch (error) {
         try {
+            // Written before the restore: if the restore dies, recovery must not
+            // read this journal as a start that is still in progress.
+            if (startFailed) {
+                writeUpgradeJournal(startFailedJournal({
+                    phase: "starting",
+                    from_build_id: fromBuildId,
+                    to_build_id: packed.manifest.build_id,
+                    host_was_running: hostWasRunning,
+                }, error), prefix);
+            }
             await restorePreviousRelease(
                 prefix,
                 fromBuildId,

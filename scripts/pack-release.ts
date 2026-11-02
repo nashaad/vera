@@ -2,12 +2,24 @@
 
 import {
     existsSync,
+    lstatSync,
     mkdirSync,
     readdirSync,
+    readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
+    statSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import {
+    basename,
+    dirname,
+    isAbsolute,
+    join,
+    relative,
+    resolve,
+    sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { processIsAlive } from "../src/host/process-identity.ts";
@@ -16,6 +28,8 @@ import { activateRelease } from "../src/release/activate.ts";
 import { assembleRunnableRelease } from "../src/release/assemble.ts";
 import { releaseSourceIdentity } from "../src/release/build-id.ts";
 import {
+    RELEASE_CLI_NAME,
+    RELEASE_HOST_NAME,
     defaultInstallPrefix,
     launcherPath,
     packedAnnexRoot,
@@ -33,6 +47,7 @@ import {
 import { readStampedRelease } from "../src/release/stamp.ts";
 import { digestPackedAnnex } from "../src/release/verify.ts";
 import {
+    CHECKOUT_PACK_WRAPPER_NAMES,
     releaseSourceEntries,
     writeCheckoutPackWrappers,
 } from "../src/release/wrappers.ts";
@@ -66,14 +81,119 @@ export async function packRelease(
     outputDirectory: string,
     options: PackReleaseOptions = {},
 ): Promise<PackReleaseResult> {
-    const target = resolve(outputDirectory);
-    const staged = await stageRelease(target, options);
-    await stampRelease(target, staged.manifest);
-    return {
-        outputDirectory: target,
-        manifest: staged.manifest,
-        packed: staged.packed,
-    };
+    const requested = resolve(outputDirectory);
+    const target = checkedOutputTarget(requested, options);
+    const parent = dirname(target);
+    mkdirSync(parent, { recursive: true, mode: 0o755 });
+    // An unfinished tree is never worth restoring here: the next pack rebuilds it.
+    removeAbandonedPackDirectories(parent, {
+        restoreStaging: () => false,
+        onlyNamed: basename(target),
+    });
+    let packed = false;
+    // The annex is rebuilt in the empty staging tree every run, so force skips nothing.
+    const manifest = await buildThenSwap(target, async (staging) => {
+        const staged = await stageRelease(staging, options);
+        await stampRelease(staging, staged.manifest);
+        packed = staged.packed;
+        return staged.manifest;
+    });
+    return { outputDirectory: requested, manifest, packed };
+}
+
+// The swap deletes what the target holds. Only a pack, an empty directory or
+// nothing may be there, and never an installed release or a directory in use.
+function checkedOutputTarget(requested: string, options: PackReleaseOptions): string {
+    try {
+        lstatSync(requested);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return requested;
+        throw error;
+    }
+    let real: string;
+    try {
+        real = realpathSync(requested);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new Error(`${requested} is a symbolic link to a path that does not exist.`);
+        }
+        throw new Error(
+            `Cannot resolve ${requested}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    if (!statSync(real).isDirectory()) {
+        throw new Error(`${requested} exists and is not a directory.`);
+    }
+    const inUse: ReadonlyArray<readonly [string, string]> = [
+        ["the current directory", process.cwd()],
+        ["the checkout being packed", options.cwd ?? REPO_ROOT],
+        ["the source root", options.sourceRoot ?? REPO_ROOT],
+    ];
+    for (const [label, path] of inUse) {
+        if (isSameOrInside(real, realpathOrSelf(path))) {
+            throw new Error(
+                `Refusing to replace ${requested}: it is or contains ${label}, ${path}. `
+                    + "Nothing was deleted.",
+            );
+        }
+    }
+    if (isInstalledRelease(real)) {
+        throw new Error(
+            `Refusing to replace ${requested}: it is an installed release (${real}). `
+                + "Nothing was deleted.",
+        );
+    }
+    if (!hasPackStamp(real)) {
+        const foreign = readdirSync(real).filter((name) => !packWritesName(name));
+        if (foreign.length > 0) {
+            throw new Error(
+                `Refusing to replace ${requested}: it is not empty and has no release `
+                    + `stamp, so it is not a pack (it holds ${foreign.join(", ")}). `
+                    + "Nothing was deleted. Choose another output directory, or "
+                    + "remove this one yourself.",
+            );
+        }
+    }
+    return real;
+}
+
+// An unstamped directory holding only these is pack:web output or a pack that died before its
+// stamp. The stamp's own name is left out: a manifest.json that names no build is not a pack's.
+function packWritesName(name: string): boolean {
+    return name === basename(packedAnnexRoot(""))
+        || CHECKOUT_PACK_WRAPPER_NAMES.includes(name);
+}
+
+// A checkout pack has no CLI or host wrapper, and installs live under releases/.
+function isInstalledRelease(directory: string): boolean {
+    return basename(dirname(directory)) === "releases"
+        || existsSync(join(directory, RELEASE_CLI_NAME))
+        || existsSync(join(directory, RELEASE_HOST_NAME));
+}
+
+// Any stamp that names a build counts, so a pack from another layout version is still replaceable.
+function hasPackStamp(directory: string): boolean {
+    try {
+        const stamp: unknown = JSON.parse(readFileSync(releaseManifestPath(directory), "utf8"));
+        if (stamp === null || typeof stamp !== "object" || Array.isArray(stamp)) return false;
+        const buildId = (stamp as Record<string, unknown>).build_id;
+        return typeof buildId === "string" && buildId.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+function realpathOrSelf(path: string): string {
+    try {
+        return realpathSync(path);
+    } catch {
+        return resolve(path);
+    }
+}
+
+function isSameOrInside(directory: string, candidate: string): boolean {
+    const path = relative(directory, candidate);
+    return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 // Writes everything but the stamp. The stamp is what marks a directory as a
@@ -171,7 +291,9 @@ export async function packRunnableRelease(
     const target = releaseDirectory(identity.buildId, prefix);
     const releasesRoot = dirname(target);
     mkdirSync(releasesRoot, { recursive: true, mode: 0o755 });
-    removeAbandonedPackDirectories(releasesRoot);
+    removeAbandonedPackDirectories(releasesRoot, {
+        restoreStaging: (path, name) => stampedBuildId(path) === name,
+    });
     let existing: ReleaseManifest | undefined;
     try {
         existing = readStampedRelease(target);
@@ -181,13 +303,7 @@ export async function packRunnableRelease(
     if (existing?.build_id === identity.buildId && options.force !== true) {
         return { prefix, releaseRoot: target, manifest: existing };
     }
-    // Built beside the target and moved in whole: copying over an existing
-    // tree would nest each directory inside itself.
-    const staging = join(releasesRoot, `${STAGING_PREFIX}${process.pid}-${identity.buildId}`);
-    rmSync(staging, { recursive: true, force: true });
-    mkdirSync(staging, { recursive: true, mode: 0o755 });
-    let manifest: ReleaseManifest;
-    try {
+    const manifest = await buildThenSwap(target, async (staging) => {
         const staged = await stageRelease(staging, {
             cwd,
             force: options.force ?? true,
@@ -195,17 +311,50 @@ export async function packRunnableRelease(
         });
         assembleRunnableRelease(staging, sourceRoot);
         await stampRelease(staging, staged.manifest);
-        manifest = staged.manifest;
-    } catch (error) {
-        rmSync(staging, { recursive: true, force: true });
-        throw error;
-    }
-    replaceReleaseDirectory(
-        target,
-        staging,
-        join(releasesRoot, `${RETIRED_PREFIX}${process.pid}-${identity.buildId}`),
-    );
+        return staged.manifest;
+    });
     return { prefix, releaseRoot: target, manifest };
+}
+
+// Built beside the target and moved in whole: building in place leaves a mixed tree
+// when the build fails, and copying over an existing tree nests each directory in itself.
+export async function buildThenSwap(
+    target: string,
+    build: (staging: string) => Promise<ReleaseManifest>,
+    rename: (from: string, to: string) => void = renameSync,
+): Promise<ReleaseManifest> {
+    const parent = dirname(target);
+    const name = basename(target);
+    const staging = join(parent, `${STAGING_PREFIX}${process.pid}-${name}`);
+    rmSync(staging, { recursive: true, force: true });
+    mkdirSync(staging, { recursive: true, mode: 0o755 });
+    try {
+        const manifest = await build(staging);
+        const retired = join(parent, `${RETIRED_PREFIX}${process.pid}-${name}`);
+        try {
+            replaceReleaseDirectory(target, staging, retired, rename);
+        } catch (error) {
+            settleFailedSwap(target, retired);
+            // A concurrent pack of the same build won the swap; its tree is as good as ours.
+            if (!lostSwapToSameBuild(error, target, manifest.build_id)) throw error;
+        }
+        return manifest;
+    } finally {
+        rmSync(staging, { recursive: true, force: true });
+    }
+}
+
+// The old tree is back in place unless another pack took the slot; then it is dropped.
+function settleFailedSwap(target: string, retired: string): void {
+    if (!existsSync(retired)) return;
+    if (existsSync(target)) rmSync(retired, { recursive: true, force: true });
+    else renameSync(retired, target);
+}
+
+function lostSwapToSameBuild(error: unknown, target: string, buildId: string): boolean {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST") return false;
+    return stampedBuildId(target) === buildId;
 }
 
 const STAGING_PREFIX = ".staging-";
@@ -220,25 +369,46 @@ export function replaceReleaseDirectory(
     rename: (from: string, to: string) => void = renameSync,
 ): void {
     rmSync(retired, { recursive: true, force: true });
-    if (existsSync(target)) rename(target, retired);
+    if (existsSync(target)) {
+        try {
+            rename(target, retired);
+        } catch (error) {
+            // A concurrent pack moved the target aside first. Take the empty slot,
+            // or lose to its staging tree with ENOTEMPTY or EEXIST.
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+    }
     rename(staging, target);
-    rmSync(retired, { recursive: true, force: true });
+    try {
+        rmSync(retired, { recursive: true, force: true });
+    } catch {
+        // The new tree is in place; the next pack removes this directory.
+    }
 }
 
-// The pid in the name says which pack made the directory; a live pid's pack
-// may still be running.
-function removeAbandonedPackDirectories(releasesRoot: string): void {
-    for (const name of readdirSync(releasesRoot)) {
-        const match = /^\.(staging|retired)-(\d+)-(.+)$/.exec(name);
+// The pid in the name says which pack made the directory; a live pid's pack may still run.
+// restoreStaging says whether a staging tree is a finished pack a crashed swap left behind.
+function removeAbandonedPackDirectories(
+    parent: string,
+    options: {
+        readonly restoreStaging: (path: string, name: string) => boolean;
+        // The parent may hold other packs' directories: leave those alone.
+        readonly onlyNamed?: string;
+    },
+): void {
+    for (const entry of readdirSync(parent)) {
+        const match = /^\.(staging|retired)-(\d+)-(.+)$/.exec(entry);
         if (match === null) continue;
+        const name = match[3] ?? "";
+        if (options.onlyNamed !== undefined && name !== options.onlyNamed) continue;
         const pid = Number(match[2]);
         if (pid > 0 && processIsAlive(pid)) continue;
-        const path = join(releasesRoot, name);
-        const target = join(releasesRoot, match[3] ?? "");
+        const path = join(parent, entry);
+        const target = join(parent, name);
         if (
             match[1] === "staging"
             && !existsSync(target)
-            && stampedBuildId(path) === match[3]
+            && options.restoreStaging(path, name)
         ) {
             renameSync(path, target);
             continue;

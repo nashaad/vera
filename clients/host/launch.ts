@@ -17,6 +17,7 @@ import {
 } from "../../src/host/discovery.ts";
 import {
     createHostLockfile,
+    HOST_STARTUP_RACE_EXIT_CODE,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import {
@@ -96,7 +97,7 @@ function insideLinkedWorktree(cwd: string): boolean {
 const BOOT_FAILURE_WINDOW_MS = 30_000;
 const BOOT_FAILURE_LIMIT = 2;
 
-export const HOST_STARTUP_RACE_EXIT_CODE = 75;
+export { HOST_STARTUP_RACE_EXIT_CODE };
 
 export class HostBootLoopError extends Error {
     constructor(count: number) {
