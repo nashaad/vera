@@ -653,6 +653,17 @@ test("only a model listed more than once names its provider", () => {
         .toEqual(["openai-codex", "openrouter", undefined]);
 });
 
+test("a model two routes spell differently names both providers", () => {
+    const allRows = [
+        { provider: "deepseek", model: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", identity: "deepseek-flash" },
+        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017", label: "DeepSeek: DeepSeek V4.1 Flash 1017", identity: "deepseek-flash" },
+        { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna", identity: "gpt-5.6-luna" },
+    ];
+    const state = { ...startTuiModelSwitcher(allRows), rows: allRows };
+    expect(allRows.map((row) => switcherRowProvider(state, row)))
+        .toEqual(["deepseek", "openrouter", undefined]);
+});
+
 test("a twin left off the list does not count", () => {
     const allRows = [
         { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },

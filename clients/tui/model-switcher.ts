@@ -39,6 +39,8 @@ export interface TuiModelSwitcherRow {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    /** The same model under whatever spelling a route uses; the host reconciles them. */
+    readonly identity?: string;
     readonly providerLabel?: string;
     readonly favorite?: boolean;
     readonly unavailable?: boolean;
@@ -783,15 +785,20 @@ export function switcherUnlistedHint(
     return `${named} are connected. Ctrl+K lists their models.`;
 }
 
-/** A model listed twice names its provider on each row; catalogs spell names differently, so compare ids. */
+/** A model listed twice names its provider on each row. Routes spell one model differently, so compare identity first, then ids. */
 export function switcherRowProvider(
     state: TuiModelSwitcherState,
     row: TuiModelSwitcherRow,
 ): string | undefined {
-    const id = bareModelId(row.model);
     const listedTwice = state.rows.some((other) =>
-        other.provider !== row.provider && bareModelId(other.model) === id);
+        other.provider !== row.provider && sameModel(other, row));
     return listedTwice ? row.providerLabel ?? row.provider : undefined;
+}
+
+/** Curation reconciles the spellings; a model it has never seen falls back to its id's last segment. */
+function sameModel(a: TuiModelSwitcherRow, b: TuiModelSwitcherRow): boolean {
+    if (a.identity !== undefined && a.identity === b.identity) return true;
+    return bareModelId(a.model) === bareModelId(b.model);
 }
 
 /** "openai/gpt-5.6-luna" and "gpt-5.6-luna" are one model. */

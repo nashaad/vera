@@ -44,6 +44,7 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
                 provider: model.provider,
                 model: model.model,
                 label: model.label,
+                ...(model.identity === undefined ? {} : { identity: model.identity }),
                 providerLabel: findConfiguredProvider(model.provider, config)?.label
                     ?? model.provider,
                 ...(favorites.has(key) ? { favorite: true } : {}),
