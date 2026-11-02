@@ -22,6 +22,9 @@ import { thisProcessBuildId } from "../release/stamp.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 3;
 
+// Exit code of a host that found another host already serving; not a boot failure.
+export const HOST_STARTUP_RACE_EXIT_CODE = 75;
+
 export interface HostLockRecord {
     readonly schema_version: 1 | 2 | 3;
     readonly pid: number;

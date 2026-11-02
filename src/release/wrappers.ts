@@ -74,6 +74,13 @@ export function writeExternalWrappers(
     );
 }
 
+// The top-level wrapper files writeCheckoutPackWrappers creates.
+export const CHECKOUT_PACK_WRAPPER_NAMES: readonly string[] = [
+    RELEASE_WORKER_NAME,
+    RELEASE_ANNEX_NAME,
+    RELEASE_SUPERVISOR_NAME,
+];
+
 export function writeCheckoutPackWrappers(
     releaseRoot: string,
     bunPath: string,

@@ -1,17 +1,20 @@
 import { expect, test } from "bun:test";
 import {
+    chmodSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { releaseBuildId } from "../../src/release/build-id.ts";
@@ -21,13 +24,22 @@ import {
     releaseDirectory,
     releaseManifestPath,
 } from "../../src/release/layout.ts";
-import { parseReleaseManifest } from "../../src/release/manifest.ts";
-import { verifyPackedRelease } from "../../src/release/verify.ts";
 import {
+    parseReleaseManifest,
+    RELEASE_ARTIFACT_NAMES,
+    RELEASE_LAYOUT_VERSION,
+    serializeReleaseManifest,
+    VERA_PRODUCT_VERSION,
+    type ReleaseManifest,
+} from "../../src/release/manifest.ts";
+import { digestPackedAnnex, verifyPackedRelease } from "../../src/release/verify.ts";
+import {
+    buildThenSwap,
     packRelease,
     packRunnableRelease,
     replaceReleaseDirectory,
 } from "../../scripts/pack-release.ts";
+import { packWebAssets } from "../../scripts/pack-web.ts";
 
 const packer = resolve(import.meta.dir, "..", "..", "scripts", "pack-release.ts");
 const repoRoot = resolve(import.meta.dir, "..", "..");
@@ -378,3 +390,679 @@ test("a pack moves a finished release left in staging by a pack that died betwee
         rmSync(prefix, { recursive: true, force: true });
     }
 }, 60_000);
+
+test("a re-pack into an output directory that fails midway leaves the finished pack whole", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-output-"));
+    try {
+        const output = join(parent, "release");
+        const first = await packRelease(output, { cwd: repo });
+        const stamp = readFileSync(releaseManifestPath(output), "utf8");
+        writeFileSync(join(repo, "file.txt"), "dirty working tree\n");
+
+        await expect(packRelease(output, {
+            cwd: repo,
+            now: () => {
+                throw new Error("clock failed");
+            },
+        })).rejects.toThrow("clock failed");
+
+        expect(readFileSync(releaseManifestPath(output), "utf8")).toBe(stamp);
+        expect(digestPackedAnnex(packedAnnexRoot(output)))
+            .toBe(first.manifest.asset_digest);
+        expect(readFileSync(join(packedAnnexRoot(output), "build-id"), "utf8").trim())
+            .toBe(first.manifest.build_id);
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a re-pack into an output directory replaces the tree whole, with a fresh stamp", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-output-"));
+    try {
+        const output = join(parent, "release");
+        const first = await packRelease(output, { cwd: repo });
+        const marker = join(output, "old-tree-marker");
+        writeFileSync(marker, "old tree\n");
+        await Bun.sleep(5);
+
+        const second = await packRelease(output, { cwd: repo });
+
+        expect(existsSync(marker)).toBe(false);
+        expect(second.manifest.built_at).not.toBe(first.manifest.built_at);
+        expect(parseReleaseManifest(readFileSync(releaseManifestPath(output), "utf8")))
+            .toEqual(second.manifest);
+        expect(digestPackedAnnex(packedAnnexRoot(output)))
+            .toBe(second.manifest.asset_digest);
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack into an output directory removes only its own staging left by a pack that died, and keeps a live pack's", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-output-"));
+    try {
+        const output = join(parent, "release");
+        const exited = Bun.spawn(["true"]);
+        await exited.exited;
+        const dead = [
+            `.staging-${exited.pid}-release`,
+            `.retired-${exited.pid}-release`,
+        ];
+        const live = `.staging-${process.pid}-other`;
+        // Left by a dead pack, but named for a different directory in the same parent.
+        const deadOther = `.staging-${exited.pid}-other`;
+        for (const name of [...dead, live, deadOther]) {
+            mkdirSync(join(parent, name, "annex"), { recursive: true });
+        }
+
+        await packRelease(output, { cwd: repo });
+
+        expect(packLeftovers(output).sort()).toEqual([deadOther, live].sort());
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+function stamp(directory: string, buildId: string): void {
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(releaseManifestPath(directory), serializeReleaseManifest(fakeManifest(buildId)));
+}
+
+function fakeManifest(buildId: string): ReleaseManifest {
+    return {
+        layout_version: RELEASE_LAYOUT_VERSION,
+        product_version: VERA_PRODUCT_VERSION,
+        source_revision: "abc",
+        build_id: buildId,
+        protocol_version: 1,
+        platform: "darwin",
+        arch: "arm64",
+        asset_digest: `sha256:${"ab".repeat(32)}`,
+        built_at: "2026-08-31T00:00:00.000Z",
+        artifacts: [...RELEASE_ARTIFACT_NAMES],
+    };
+}
+
+test("a pack refuses a non-empty output directory that is not a pack and deletes nothing", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-notapack-"));
+    const output = join(parent, "release");
+    mkdirSync(output);
+    try {
+        writeFileSync(join(output, "notes.txt"), "keep\n");
+        mkdirSync(join(output, ".git"));
+
+        await expect(packRelease(output, { cwd: repo }))
+            .rejects.toThrow(/not empty and has no release stamp/);
+
+        expect(readFileSync(join(output, "notes.txt"), "utf8")).toBe("keep\n");
+        expect(existsSync(join(output, ".git"))).toBe(true);
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack replaces unstamped pack:web output", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-webonly-"));
+    const output = join(parent, "release");
+    try {
+        await packWebAssets(packedAnnexRoot(output), { cwd: repo });
+        expect(existsSync(releaseManifestPath(output))).toBe(false);
+
+        const result = await packRelease(output, { cwd: repo });
+
+        expect(readFileSync(releaseManifestPath(output), "utf8"))
+            .toBe(serializeReleaseManifest(result.manifest));
+        expect(existsSync(join(output, "worker"))).toBe(true);
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack replaces a pack that died before its stamp, so every name a pack writes is replaceable", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-nostamp-"));
+    const output = join(parent, "release");
+    try {
+        await packRelease(output, { cwd: repo });
+        rmSync(releaseManifestPath(output));
+        expect(readdirSync(output).sort())
+            .toEqual(["annex", "vera-annex", "vera-supervisor", "worker"]);
+
+        await packRelease(output, { cwd: repo });
+
+        expect(existsSync(releaseManifestPath(output))).toBe(true);
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an unstamped directory that holds a pack's names and one other file, and keeps both", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-mixed-"));
+    const output = join(parent, "release");
+    try {
+        mkdirSync(join(output, "annex"), { recursive: true });
+        writeFileSync(join(output, "annex", "index.html"), "web\n");
+        writeFileSync(join(output, "worker"), "wrapper\n");
+        writeFileSync(join(output, "notes.txt"), "keep\n");
+
+        await expect(packRelease(output, { cwd: repo }))
+            .rejects.toThrow(/not empty and has no release stamp.*holds notes\.txt/);
+
+        expect(readFileSync(join(output, "annex", "index.html"), "utf8")).toBe("web\n");
+        expect(readFileSync(join(output, "worker"), "utf8")).toBe("wrapper\n");
+        expect(readFileSync(join(output, "notes.txt"), "utf8")).toBe("keep\n");
+        expect(packLeftovers(output)).toEqual([]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an output path that is a file", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-file-"));
+    try {
+        const output = join(parent, "release");
+        writeFileSync(output, "a file\n");
+
+        await expect(packRelease(output, { cwd: repo }))
+            .rejects.toThrow(`${output} exists and is not a directory.`);
+
+        expect(readFileSync(output, "utf8")).toBe("a file\n");
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an output directory that is or contains the checkout, even a stamped one", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-contains-"));
+    try {
+        const repo = join(parent, "checkout");
+        mkdirSync(repo);
+        git(repo, ["init", "-q"]);
+        writeFileSync(join(repo, "file.txt"), "clean\n");
+        stamp(parent, "vera-stamped");
+
+        await expect(packRelease(repo, { cwd: repo }))
+            .rejects.toThrow(/is or contains the checkout being packed/);
+        await expect(packRelease(parent, { cwd: repo }))
+            .rejects.toThrow(/is or contains the checkout being packed/);
+
+        expect(readFileSync(join(repo, "file.txt"), "utf8")).toBe("clean\n");
+        expect(existsSync(join(repo, ".git"))).toBe(true);
+        expect(existsSync(releaseManifestPath(parent))).toBe(true);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an output directory that is or contains the current directory", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-cwd-"));
+    const start = process.cwd();
+    try {
+        const inner = join(parent, "inner");
+        mkdirSync(inner);
+        process.chdir(inner);
+
+        await expect(packRelease(inner, { cwd: repo }))
+            .rejects.toThrow(/is or contains the current directory/);
+        await expect(packRelease("..", { cwd: repo }))
+            .rejects.toThrow(/is or contains the current directory/);
+
+        expect(existsSync(inner)).toBe(true);
+    } finally {
+        process.chdir(start);
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("the CLI refuses '.' in a directory that is not a pack and exits non-zero", () => {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "vera-pack-cli-refuse-")));
+    try {
+        writeFileSync(join(directory, "notes.txt"), "keep\n");
+        mkdirSync(join(directory, ".git"));
+
+        const ran = Bun.spawnSync(["bun", packer, "."], {
+            cwd: directory,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+
+        expect(ran.exitCode).toBe(1);
+        expect(ran.stderr.toString()).toMatch(/Refusing to replace .*Nothing was deleted/);
+        expect(readFileSync(join(directory, "notes.txt"), "utf8")).toBe("keep\n");
+        expect(existsSync(join(directory, ".git"))).toBe(true);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("a pack creates a missing output directory and its parents", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-missing-"));
+    try {
+        const output = join(parent, "a", "b", "release");
+
+        const packed = await packRelease(output, { cwd: repo });
+
+        expect(packed.outputDirectory).toBe(output);
+        expect(parseReleaseManifest(readFileSync(releaseManifestPath(output), "utf8")))
+            .toEqual(packed.manifest);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack into a symlinked output directory replaces the tree it points at and keeps the link", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-link-"));
+    try {
+        const real = join(parent, "real-pack");
+        const link = join(parent, "release");
+        const first = await packRelease(real, { cwd: repo });
+        symlinkSync(real, link);
+        writeFileSync(join(real, "old-tree-marker"), "old tree\n");
+        await Bun.sleep(5);
+
+        const second = await packRelease(link, { cwd: repo });
+
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(second.outputDirectory).toBe(link);
+        expect(existsSync(join(real, "old-tree-marker"))).toBe(false);
+        expect(parseReleaseManifest(readFileSync(releaseManifestPath(real), "utf8")))
+            .toEqual(second.manifest);
+        expect(second.manifest.built_at).not.toBe(first.manifest.built_at);
+        expect(readdirSync(parent).sort()).toEqual(["real-pack", "release"]);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an output symlink that points nowhere", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-dangling-"));
+    try {
+        const link = join(parent, "release");
+        symlinkSync(join(parent, "missing"), link);
+
+        await expect(packRelease(link, { cwd: repo })).rejects.toThrow(/does not exist/);
+
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack reports why an output symlink cannot be resolved", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-loop-"));
+    try {
+        const loop = join(parent, "release");
+        symlinkSync(join(parent, "other"), loop);
+        symlinkSync(loop, join(parent, "other"));
+
+        await expect(packRelease(loop, { cwd: repo })).rejects.toThrow(/Cannot resolve .*ELOOP/);
+
+        expect(lstatSync(loop).isSymbolicLink()).toBe(true);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses an output directory that is or contains the source root, even a stamped one", async () => {
+    const repo = initRepo();
+    const output = mkdtempSync(join(tmpdir(), "vera-pack-srcroot-"));
+    try {
+        stamp(output, "vera-stamped");
+        const sourceRoot = join(output, "source");
+        mkdirSync(sourceRoot);
+        writeFileSync(join(sourceRoot, "keep.txt"), "keep\n");
+
+        await expect(packRelease(output, { cwd: repo, sourceRoot }))
+            .rejects.toThrow(/is or contains the source root/);
+        await expect(packRelease(sourceRoot, { cwd: repo, sourceRoot }))
+            .rejects.toThrow(/is or contains the source root/);
+
+        expect(readFileSync(join(sourceRoot, "keep.txt"), "utf8")).toBe("keep\n");
+        expect(existsSync(releaseManifestPath(output))).toBe(true);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(output, { recursive: true, force: true });
+    }
+}, 60_000);
+
+// A stamped directory that a checkout pack must never replace, built under a temp prefix.
+function installedRelease(prefix: string, buildId = "vera-installed"): string {
+    const release = join(prefix, "share", "vera", "releases", buildId);
+    stamp(release, buildId);
+    writeFileSync(join(release, "vera"), "#!/bin/sh\n", { mode: 0o755 });
+    writeFileSync(join(release, "host"), "#!/bin/sh\n", { mode: 0o755 });
+    return release;
+}
+
+test("a pack refuses an installed release, also through the current link", async () => {
+    const repo = initRepo();
+    const prefix = mkdtempSync(join(tmpdir(), "vera-pack-installed-"));
+    try {
+        const release = installedRelease(prefix);
+        const current = join(prefix, "share", "vera", "current");
+        symlinkSync(release, current);
+
+        await expect(packRelease(release, { cwd: repo })).rejects.toThrow(/is an installed release/);
+        await expect(packRelease(current, { cwd: repo })).rejects.toThrow(/is an installed release/);
+
+        expect(readdirSync(release).sort()).toEqual(["host", "manifest.json", "vera"]);
+        expect(lstatSync(current).isSymbolicLink()).toBe(true);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses a stamped directory directly under releases, even without wrappers", async () => {
+    const repo = initRepo();
+    const prefix = mkdtempSync(join(tmpdir(), "vera-pack-releases-"));
+    try {
+        const release = join(prefix, "releases", "vera-bare");
+        stamp(release, "vera-bare");
+
+        await expect(packRelease(release, { cwd: repo })).rejects.toThrow(/is an installed release/);
+
+        expect(existsSync(releaseManifestPath(release))).toBe(true);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses a stamped directory that holds the installed wrappers outside releases", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-wrappers-"));
+    try {
+        for (const wrapper of ["vera", "host"]) {
+            const directory = join(parent, `has-${wrapper}`);
+            stamp(directory, "vera-copy");
+            writeFileSync(join(directory, wrapper), "#!/bin/sh\n");
+
+            await expect(packRelease(directory, { cwd: repo }))
+                .rejects.toThrow(/is an installed release/);
+
+            expect(existsSync(join(directory, wrapper))).toBe(true);
+        }
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack replaces a pack stamped by another layout version", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-oldstamp-"));
+    try {
+        const output = join(parent, "release");
+        mkdirSync(output);
+        writeFileSync(
+            releaseManifestPath(output),
+            `${JSON.stringify({ layout_version: 999, build_id: "vera-future" })}\n`,
+        );
+        writeFileSync(join(output, "old-layout-marker"), "old\n");
+
+        const packed = await packRelease(output, { cwd: repo });
+
+        expect(existsSync(join(output, "old-layout-marker"))).toBe(false);
+        expect(parseReleaseManifest(readFileSync(releaseManifestPath(output), "utf8")))
+            .toEqual(packed.manifest);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a pack refuses a directory whose stamp does not name a build", async () => {
+    const repo = initRepo();
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-badstamp-"));
+    try {
+        const stamps: Record<string, string> = {
+            "not-json": "layout_version 1\n",
+            "an-array": "[]\n",
+            "no-build": `${JSON.stringify({ layout_version: 1 })}\n`,
+            "empty-build": `${JSON.stringify({ build_id: "" })}\n`,
+            "number-build": `${JSON.stringify({ build_id: 7 })}\n`,
+        };
+        for (const [name, text] of Object.entries(stamps)) {
+            const output = join(parent, name);
+            mkdirSync(output);
+            writeFileSync(releaseManifestPath(output), text);
+
+            await expect(packRelease(output, { cwd: repo }), name)
+                .rejects.toThrow(/not empty and has no release stamp/);
+
+            expect(readFileSync(releaseManifestPath(output), "utf8")).toBe(text);
+        }
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(parent, { recursive: true, force: true });
+    }
+}, 60_000);
+
+function stagedBy(buildId: string): (staging: string) => Promise<ReleaseManifest> {
+    return async (staging) => {
+        stamp(staging, buildId);
+        return fakeManifest(buildId);
+    };
+}
+
+// Stands in for a second pack that finished its swap between this pack's two renames.
+function rivalWins(buildId: string): (from: string, to: string) => void {
+    return (_from, to) => {
+        stamp(to, buildId);
+        writeFileSync(join(to, "rival-marker"), "rival\n");
+        throw Object.assign(new Error(`ENOTEMPTY: directory not empty, rename '${to}'`), {
+            code: "ENOTEMPTY",
+        });
+    };
+}
+
+test("a pack that loses the swap to a concurrent pack of the same build succeeds and removes its staging", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-race-"));
+    try {
+        const target = join(parent, "release");
+
+        const manifest = await buildThenSwap(target, stagedBy("vera-same"), rivalWins("vera-same"));
+
+        expect(manifest.build_id).toBe("vera-same");
+        expect(existsSync(join(target, "rival-marker"))).toBe(true);
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+test("a pack that loses the swap to a pack of another build fails and removes its staging", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-race-other-"));
+    try {
+        const target = join(parent, "release");
+
+        await expect(buildThenSwap(target, stagedBy("vera-mine"), rivalWins("vera-theirs")))
+            .rejects.toThrow(/ENOTEMPTY/);
+
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+test("a pack whose swap fails for another reason removes its staging", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-swap-fail-"));
+    try {
+        const target = join(parent, "release");
+        stamp(target, "vera-same");
+
+        await expect(buildThenSwap(target, stagedBy("vera-same"), () => {
+            throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+        })).rejects.toThrow(/EACCES/);
+
+        expect(packLeftovers(target)).toEqual([]);
+        expect(existsSync(releaseManifestPath(target))).toBe(true);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+// Stands in for a rival that took the slot after this pack moved the old tree aside.
+function rivalWinsAfterRetire(buildId: string): (from: string, to: string) => void {
+    return (from, to) => {
+        if (basename(to).startsWith(".retired-")) {
+            renameSync(from, to);
+            return;
+        }
+        rivalWins(buildId)(from, to);
+    };
+}
+
+test("a pack that loses the swap to a rival of the same build removes the old tree it moved aside", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-race-retired-"));
+    try {
+        const target = join(parent, "release");
+        stamp(target, "vera-same");
+        writeFileSync(join(target, "old-marker"), "old\n");
+
+        await buildThenSwap(target, stagedBy("vera-same"), rivalWinsAfterRetire("vera-same"));
+
+        expect(existsSync(join(target, "rival-marker"))).toBe(true);
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+// Stands in for a rival that moved the old tree aside before this pack's first rename ran.
+function rivalMovedTargetAside(): (from: string, to: string) => void {
+    let renames = 0;
+    return (from, to) => {
+        renames += 1;
+        if (renames === 1) {
+            rmSync(from, { recursive: true, force: true });
+            throw Object.assign(new Error(`ENOENT: no such file or directory, rename '${from}'`), {
+                code: "ENOENT",
+            });
+        }
+        renameSync(from, to);
+    };
+}
+
+test("a pack whose first rename finds the target already moved aside takes the empty slot", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-race-enoent-"));
+    try {
+        const target = join(parent, "release");
+        stamp(target, "vera-same");
+        writeFileSync(join(target, "old-marker"), "old\n");
+
+        const manifest = await buildThenSwap(target, stagedBy("vera-same"), rivalMovedTargetAside());
+
+        expect(manifest.build_id).toBe("vera-same");
+        expect(existsSync(releaseManifestPath(target))).toBe(true);
+        expect(existsSync(join(target, "old-marker"))).toBe(false);
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+test("a pack whose first rename finds the target moved aside and then loses the slot to a rival of the same build succeeds", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-race-enoent-lost-"));
+    try {
+        const target = join(parent, "release");
+        stamp(target, "vera-same");
+        let renames = 0;
+
+        await buildThenSwap(target, stagedBy("vera-same"), (from, to) => {
+            renames += 1;
+            if (renames === 1) {
+                rmSync(from, { recursive: true, force: true });
+                throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+            }
+            stamp(to, "vera-same");
+            writeFileSync(join(to, "rival-marker"), "rival\n");
+            throw Object.assign(new Error("EEXIST: file already exists"), { code: "EEXIST" });
+        });
+
+        expect(existsSync(join(target, "rival-marker"))).toBe(true);
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+test("a pack whose old tree cannot be deleted after the swap still succeeds with the new tree in place", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-cleanup-"));
+    const target = join(parent, "release");
+    const locked = join(parent, `.retired-${process.pid}-release`, "locked");
+    try {
+        stamp(target, "vera-old");
+        mkdirSync(join(target, "locked"));
+        writeFileSync(join(target, "locked", "file"), "old\n");
+        // A read-only directory stops rmSync from emptying the retired tree.
+        chmodSync(join(target, "locked"), 0o500);
+
+        const manifest = await buildThenSwap(target, stagedBy("vera-new"));
+
+        expect(manifest.build_id).toBe("vera-new");
+        expect(parseReleaseManifest(readFileSync(releaseManifestPath(target), "utf8")).build_id)
+            .toBe("vera-new");
+        expect(existsSync(join(target, "locked"))).toBe(false);
+        expect(existsSync(locked), "the retired tree was deleted despite the lock").toBe(true);
+
+        chmodSync(locked, 0o700);
+        await buildThenSwap(target, stagedBy("vera-newer"));
+        expect(packLeftovers(target), "the next pack left the retired tree").toEqual([]);
+    } finally {
+        if (existsSync(locked)) chmodSync(locked, 0o700);
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
+
+test("a pack whose second rename fails puts the old tree back", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-pack-restore-"));
+    try {
+        const target = join(parent, "release");
+        stamp(target, "vera-old");
+        writeFileSync(join(target, "old-marker"), "old\n");
+        let renames = 0;
+
+        await expect(buildThenSwap(target, stagedBy("vera-new"), (from, to) => {
+            renames += 1;
+            if (renames > 1) throw Object.assign(new Error("EACCES: denied"), { code: "EACCES" });
+            renameSync(from, to);
+        })).rejects.toThrow(/EACCES/);
+
+        expect(readFileSync(join(target, "old-marker"), "utf8")).toBe("old\n");
+        expect(packLeftovers(target)).toEqual([]);
+    } finally {
+        rmSync(parent, { recursive: true, force: true });
+    }
+});
