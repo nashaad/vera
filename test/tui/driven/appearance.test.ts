@@ -52,7 +52,7 @@ test("persisted TUI appearance config controls transcript and composer layout", 
 
         expect(pane).toMatch(/^ {5}Ran/m);
         expect(pane).not.toMatch(/^ {5}─{20}/m);
-        expect(pane).toMatch(/^ {2}• {2}TOOL DETAILS COMPLETED$/m);
+        expect(pane).toMatch(/^ {2}● {2}TOOL DETAILS COMPLETED$/m);
         expect(pane).toMatch(/^ {5}Tip /m);
         expect(pane).toMatch(/^ {4}╭─{20}/m);
 

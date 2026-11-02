@@ -28,7 +28,7 @@ test("long tool output folds and Ctrl-T reveals it", async () => {
         // An instant reasoning phase earns no verb row at all.
         expect(pane).not.toContain("Reasoning summary:");
         expect(pane).toMatch(/^ {2}─{20}/m);
-        expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
+        expect(pane).toMatch(/^● TOOL DETAILS COMPLETED$/m);
         expect(pane).toMatch(/^ {3}Tip /m);
         expect(pane).toMatch(/^ {2}╭─{20}/m);
 
