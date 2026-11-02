@@ -116,6 +116,12 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
         rt.quietSince = Date.now();
         rt.activity = `retrying ${update.model}`;
         rt.reasoning = false;
+    } else if (
+        update.type === "compaction"
+        && update.phase === "started"
+        && update.trigger === "automatic"
+    ) {
+        rt.workingSince ??= Date.now();
     } else if (update.type === "user_prompt") {
         rt.workingSince ??= Date.now();
         rt.phaseSince = Date.now();
