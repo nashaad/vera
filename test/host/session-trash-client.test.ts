@@ -3,10 +3,15 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { AgentAttachError, attachAgent } from "../../src/host/attached-client.ts";
-import { startResidentHost } from "../../src/host/runtime.ts";
+import {
+    startResidentHost,
+    type ResidentHost,
+    type StartResidentHostOptions,
+} from "../../src/host/runtime.ts";
 import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { emptyUsage } from "../../src/model/types.ts";
@@ -282,6 +287,209 @@ async function trashParentOfFinishedChild(
                 join(root, "missing.sock"),
                 "saved",
             )).toEqual({ status: "rejected", reason: "failed" });
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+interface TreeHost {
+    readonly socketPath: string;
+    readonly sessionDirectory: string;
+    readonly host: ResidentHost;
+}
+
+// Parent, then a child at the conventional path, then a grandchild whose file sits elsewhere.
+async function withFinishedTree(
+    root: string,
+    trashSessionArtifactsOption: StartResidentHostOptions["trashSessionArtifacts"],
+    run: (tree: TreeHost) => Promise<void>,
+): Promise<void> {
+    const socketPath = join(root, "host.sock");
+    const sessionDirectory = join(root, "sessions");
+    const host = await startResidentHost({
+        config: {
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+        },
+        createAdapter: () => new FauxAdapter(
+            Array.from({ length: 6 }, () => ({
+                role: "assistant" as const,
+                content: [{
+                    type: "text" as const,
+                    text: "The crow is done.",
+                }],
+                source: {
+                    provider: "faux",
+                    api: "scripted",
+                    model: "test",
+                },
+                usage: emptyUsage(),
+                stopReason: "stop" as const,
+            })),
+        ),
+        socketPath,
+        lockPath: join(root, "host.json"),
+        sessionDirectory,
+        eventLogDirectory: join(root, "logs"),
+        ...(trashSessionArtifactsOption === undefined
+            ? {}
+            : { trashSessionArtifacts: trashSessionArtifactsOption }),
+    });
+    try {
+        await host.registry.create({ id: "parent", workspace: root });
+        for (
+            const [id, parentId, sessionPath] of [
+                ["middle", "parent", undefined],
+                ["leaf", "middle", join(root, "elsewhere", "leaf.jsonl")],
+            ] as const
+        ) {
+            await host.registry.createWithKind(
+                {
+                    id,
+                    workspace: root,
+                    ...(sessionPath === undefined ? {} : { sessionPath }),
+                },
+                "background",
+                { approvalMode: "auto", parentId },
+            );
+            host.registry.find(id)!.sendPrompt(`bury the treasure for ${id}`);
+            host.registry.trackAsyncSubagentTurn(id);
+        }
+        const deadline = Date.now() + 3_000;
+        while (
+            !host.registry.list().every((agent) =>
+                host.registry.find(agent.id)?.idleForShutdown() === true
+            )
+            || host.registry.list().filter((agent) =>
+                    agent.status === "completed"
+                ).length !== 2
+        ) {
+            if (Date.now() > deadline) {
+                throw new Error("the children did not finish");
+            }
+            await Bun.sleep(10);
+        }
+        await run({ socketPath, sessionDirectory, host });
+    } finally {
+        await host.close();
+    }
+}
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a child that stays closed after a failed trash is listed by its own session path and resumes",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-failed-trash-index-"));
+        try {
+            await withFinishedTree(
+                root,
+                async () => {
+                    // The middle session cannot start again, so the leaf stays closed too.
+                    await rm(join(root, "sessions", "middle.jsonl"));
+                    throw new Error("trash unavailable");
+                },
+                async ({ socketPath, host }) => {
+                    expect(await trashSessionThroughHost(socketPath, "parent"))
+                        .toEqual({ status: "rejected", reason: "failed" });
+
+                    expect(host.registry.list().map((agent) => agent.id))
+                        .toEqual(["parent"]);
+                    const listed = await listAgentsThroughHost(socketPath);
+                    expect(listed.find((agent) => agent.id === "leaf"))
+                        .toMatchObject({
+                            live: false,
+                            parent_id: "middle",
+                            session_path: join(root, "elsewhere", "leaf.jsonl"),
+                        });
+                    const client = await attachAgent({
+                        socketPath,
+                        agentId: "leaf",
+                    });
+                    expect(client.agentId).toBe("leaf");
+                    client.close();
+                },
+            );
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "closing a parent lists its children by their own session paths",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-index-"));
+        try {
+            await withFinishedTree(
+                root,
+                undefined,
+                async ({ socketPath, sessionDirectory }) => {
+                    expect(await closeAgentThroughHost(socketPath, "parent"))
+                        .toEqual({ status: "closed", sessionRetained: true });
+
+                    const listed = await listAgentsThroughHost(socketPath);
+                    expect(listed.map((agent) => agent.id).sort())
+                        .toEqual(["leaf", "middle", "parent"]);
+                    expect(listed.find((agent) => agent.id === "leaf"))
+                        .toMatchObject({
+                            live: false,
+                            session_path: join(root, "elsewhere", "leaf.jsonl"),
+                        });
+                    expect(listed.find((agent) => agent.id === "middle"))
+                        .toMatchObject({
+                            session_path: join(sessionDirectory, "middle.jsonl"),
+                        });
+                },
+            );
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "closing a parent lists a child that registered while the close waited",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-late-index-"));
+        try {
+            await withFinishedTree(
+                root,
+                undefined,
+                async ({ socketPath, host }) => {
+                    const parent = host.registry.agents.get("parent")!;
+                    const originalRun = parent.run;
+                    let release: () => void = () => {};
+                    const gate = new Promise<void>((resolve) => {
+                        release = resolve;
+                    });
+                    parent.run = gate.then(() => originalRun);
+
+                    const closing = closeAgentThroughHost(socketPath, "parent");
+                    while (!parent.agent.closed) await Bun.sleep(5);
+                    await host.registry.createWithKind(
+                        {
+                            id: "late",
+                            workspace: root,
+                            sessionPath: join(root, "elsewhere", "late.jsonl"),
+                        },
+                        "background",
+                        { approvalMode: "auto", parentId: "parent" },
+                    );
+                    release();
+                    expect(await closing)
+                        .toEqual({ status: "closed", sessionRetained: true });
+
+                    expect(host.registry.agents.has("late")).toBe(false);
+                    const listed = await listAgentsThroughHost(socketPath);
+                    expect(listed.find((agent) => agent.id === "late"))
+                        .toMatchObject({
+                            live: false,
+                            session_path: join(root, "elsewhere", "late.jsonl"),
+                        });
+                },
+            );
         } finally {
             await rm(root, { recursive: true, force: true });
         }

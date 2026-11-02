@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import type { SessionEndHookPayload } from "../../src/sdk/hooks.ts";
@@ -17,6 +17,7 @@ import {
     trashSessionArtifacts,
     type SessionArtifacts,
 } from "../../src/host/session-trash.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 interface TrashHarness {
@@ -934,5 +935,127 @@ test("a restart that registers after the host closed is closed again", async () 
             expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(true);
         },
         { moveToTrash: failingMove },
+    );
+});
+
+async function recordFailure(root: string, id: string): Promise<void> {
+    const store = await SessionStore.open(join(root, `${id}.jsonl`));
+    await store.appendAgentFailure(
+        "failure-1",
+        "Resident agent stopped unexpectedly",
+    );
+}
+
+test("a child is not started again under a parent that came back failed", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+
+            expect(await harness.registry.trashSession("parent"))
+                .toBe("failed");
+
+            expect(harness.registry.agents.get("middle")?.failure)
+                .toBeDefined();
+            expect(harness.registry.agents.has("leaf")).toBe(false);
+            expect(harness.registry.list().map((agent) => agent.id).sort())
+                .toEqual(["middle", "parent"]);
+            expect(existsSync(join(harness.root, "leaf.jsonl"))).toBe(true);
+            await harness.registry.resume({
+                sessionPath: join(harness.root, "leaf.jsonl"),
+            });
+            expect(harness.registry.find("leaf")).toBeDefined();
+        },
+        {
+            // The middle session reads as failed when it starts again.
+            moveToTrash: async (root) => {
+                await recordFailure(root, "middle");
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a child under a parent that was already failed stays closed after a failed trash", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            harness.registry.agents.get("middle")!.agent.fail(
+                "failure-1",
+                "Resident agent stopped unexpectedly",
+            );
+
+            expect(await harness.registry.trashSession("parent"))
+                .toBe("failed");
+
+            expect(harness.registry.list().map((agent) => agent.id))
+                .toEqual(["parent"]);
+            expect(harness.registry.agents.has("middle")).toBe(false);
+            expect(harness.registry.agents.has("leaf")).toBe(false);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+            expect(existsSync(join(harness.root, "leaf.jsonl"))).toBe(true);
+            await harness.registry.resume({
+                sessionPath: join(harness.root, "leaf.jsonl"),
+            });
+            expect(harness.registry.find("leaf")).toBeDefined();
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("a child that registers after its parent failed is closed again", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const held = holdIdentity(harness.registry, ["leaf"]);
+
+            const trashing = harness.registry.trashSession("parent");
+            await held.started.promise;
+            harness.registry.agents.get("middle")!.agent.fail(
+                "failure-1",
+                "Resident agent stopped unexpectedly",
+            );
+            held.release.resolve();
+            expect(await trashing).toBe("failed");
+
+            expect(harness.registry.agents.has("leaf")).toBe(false);
+            expect(harness.registry.agents.has("middle")).toBe(true);
+            expect(existsSync(join(harness.root, "leaf.jsonl"))).toBe(true);
+            await harness.registry.resume({
+                sessionPath: join(harness.root, "leaf.jsonl"),
+            });
+            expect(harness.registry.find("leaf")).toBeDefined();
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("closing a tree and parking an idle tree return the sessions they closed", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const sorted = (members: readonly { id: string }[]) =>
+                members.map((member) => member.id).sort();
+
+            const parked = await harness.registry.parkExpiredIdle(
+                Date.now() + 11 * 60 * 1_000,
+            );
+            expect(sorted(parked)).toEqual(["leaf", "middle", "parent"]);
+            expect(parked.find((member) => member.id === "leaf")?.sessionPath)
+                .toBe(join(harness.root, "leaf.jsonl"));
+            expect(harness.registry.list()).toEqual([]);
+
+            await harness.registry.resume({
+                sessionPath: join(harness.root, "parent.jsonl"),
+            });
+            const outcome = await harness.registry.closeAgentTree("parent");
+            expect(outcome.status).toBe("closed");
+            expect(sorted(outcome.closed)).toEqual(["parent"]);
+            expect(basename(outcome.closed[0]?.sessionPath ?? ""))
+                .toBe("parent.jsonl");
+        },
     );
 });

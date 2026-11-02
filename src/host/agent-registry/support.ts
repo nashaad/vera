@@ -429,9 +429,16 @@ export interface AgentRegistryOptions {
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
+export interface ClosedMember {
+    readonly id: string;
+    readonly sessionPath: string;
+}
+
 export interface CloseAgentTreeResult {
     readonly status: "closed" | "not_found";
     readonly sessionRetained: boolean;
+    // Every member the close reaped, including one that registered while it waited. Ephemeral sessions are left out: their files are removed.
+    readonly closed: readonly ClosedMember[];
 }
 
 export interface CloseDescendantNotOwnedResult {

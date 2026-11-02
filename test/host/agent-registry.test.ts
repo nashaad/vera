@@ -756,8 +756,11 @@ test("closing a tree is idempotent and leaves unrelated agents alone", async () 
             sessionPath: join(root, "bystander.jsonl"),
         });
 
-        expect(await registry.closeAgentTree("target"))
-            .toEqual({ status: "closed", sessionRetained: true });
+        expect(await registry.closeAgentTree("target")).toEqual({
+            status: "closed",
+            sessionRetained: true,
+            closed: [{ id: "target", sessionPath: join(root, "target.jsonl") }],
+        });
         expect(registry.find("target")).toBeUndefined();
         expect(await registry.closeAgentTree("target"))
             .toMatchObject({ status: "not_found" });
@@ -788,7 +791,7 @@ test("closing an ephemeral agent reports that its session did not survive", asyn
         });
 
         expect(await registry.closeAgentTree("temporary"))
-            .toEqual({ status: "closed", sessionRetained: false });
+            .toEqual({ status: "closed", sessionRetained: false, closed: [] });
         // Nothing to resume, which is the fact the acknowledgement carries.
         expect(existsSync(join(root, "temporary", "session.jsonl")))
             .toBe(false);
@@ -856,8 +859,10 @@ test("closing a tree closes a real background child and spares a bystander", asy
         );
         expect(child).toMatchObject({ kind: "background", parent_id: "parent" });
 
-        expect(await registry.closeAgentTree("parent"))
-            .toEqual({ status: "closed", sessionRetained: true });
+        const closed = await registry.closeAgentTree("parent");
+        expect(closed).toMatchObject({ status: "closed", sessionRetained: true });
+        expect(closed.closed.map((member) => member.id).sort())
+            .toEqual(["parent", child!.id].sort());
         expect(registry.find("parent")).toBeUndefined();
         expect(registry.find(child!.id)).toBeUndefined();
         expect(registry.list().map((agent) => agent.id)).toEqual(["bystander"]);
