@@ -4,6 +4,7 @@ import { routeTuiAgentMessage } from "../agent-message-routing.ts";
 import type { TuiAgentPane } from "../agent-pane.ts";
 import type { TuiCommandCatalogEntry } from "../commands.ts";
 import { materializeDroppedImage } from "../dropped-image.ts";
+import { pastedImagePaths } from "../image-path.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { focusActiveSurface, renderCommandSuggestions, renderState, renderStatus, sendCommand } from "../main.ts";
 import { hostOwnsPromptQueue, setSidebarFocused } from "../main/agents-dials.ts";
@@ -241,6 +242,7 @@ export function attachPastedImage(rt: TuiRuntime, path: string): void {
     const requestId = randomUUID();
     rt.pendingImages.push({ requestId, path });
     rt.composer.attachImageChip(requestId);
+    focusActiveSurface(rt);
     renderState(rt);
     void materializeDroppedImage(path).then(({ path: taken, source, release }) => {
         if (!rt.pendingImages.some((image) => image.requestId === requestId)) {
@@ -255,6 +257,19 @@ export function attachPastedImage(rt: TuiRuntime, path: string): void {
             ...(source === taken ? {} : { sourcePath: source }),
         });
     });
+}
+
+/**
+ * A dropped file arrives as a paste. The composer's own paste handler only
+ * runs while the composer holds focus, and a drag over the transcript leaves
+ * focus on the transcript, so the drop would otherwise be lost.
+ */
+export function attachPastedImages(rt: TuiRuntime, text: string): boolean {
+    if (rt.composer.onImagePathPaste === undefined) return false;
+    const paths = pastedImagePaths(text);
+    if (paths.length === 0) return false;
+    for (const path of paths) rt.composer.onImagePathPaste(path);
+    return true;
 }
 
 export function releaseDroppedImage(rt: TuiRuntime, requestId: string): void {
