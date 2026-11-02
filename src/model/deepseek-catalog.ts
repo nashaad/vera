@@ -26,8 +26,8 @@ const MODELS: readonly CatalogModel[] = [
         levels: REASONING_LEVELS,
     },
     {
-        id: "deepseek-v4-flash",
-        label: "DeepSeek V4 Flash",
+        id: "deepseek-flash",
+        label: "DeepSeek V4.1 Flash 1017",
         description: "native DeepSeek fast reasoning model",
         context_window: 1_000_000,
         tool_support: true,

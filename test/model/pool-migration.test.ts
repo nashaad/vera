@@ -127,6 +127,87 @@ test("a record already flagged for reverification brings no learned facts", () =
         .toEqual({});
 });
 
+test("the legacy DeepSeek Flash pool id moves to the current id", () => {
+    const legacyId = "deepseek/deepseek-v4-flash";
+    const currentId = "deepseek/deepseek-flash";
+    const scope = paths(undefined, {
+        untouched: "root",
+        defaults: { subagent: legacyId, untouched: "default" },
+        models: {
+            [legacyId]: {
+                added: true,
+                untouched: "legacy",
+                learned: { probe: { ok: true, seen: "old", wire: "legacy" } },
+            },
+            [currentId]: {
+                displayName: "Current",
+                learned: { "efforts.max": { ok: true, seen: "new", wire: "max" } },
+            },
+            "deepseek/other": { fallback: [legacyId, currentId] },
+        },
+    });
+
+    const outcome = migrateConfigPool(scope);
+
+    expect(outcome.migrated).toEqual([currentId]);
+    expect(outcome.notice).toContain(`Updated ${legacyId} to ${currentId}`);
+    const raw = JSON.parse(readFileSync(scope.poolPath, "utf8")) as {
+        readonly untouched: string;
+        readonly defaults: Readonly<Record<string, unknown>>;
+        readonly models: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+    };
+    expect(raw.untouched).toBe("root");
+    expect(raw.defaults).toEqual({ subagent: currentId, untouched: "default" });
+    expect(raw.models[legacyId]).toBeUndefined();
+    expect(raw.models[currentId]).toEqual({
+        added: true,
+        untouched: "legacy",
+        displayName: "Current",
+        learned: {
+            probe: { ok: true, seen: "old", wire: "legacy" },
+            "efforts.max": { ok: true, seen: "new", wire: "max" },
+        },
+    });
+    expect(raw.models["deepseek/other"]?.fallback).toEqual([currentId]);
+    expect(migrateConfigPool(scope).migrated).toEqual([]);
+});
+
+test("saved DeepSeek Flash config references move to the current id", () => {
+    const legacyId = "deepseek/deepseek-v4-flash";
+    const currentId = "deepseek/deepseek-flash";
+    const scope = paths({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        fallback: { model: "deepseek-v4-flash", after_failures: 2 },
+        subagent: { provider: "deepseek", model: "deepseek-v4-flash" },
+        model_routes: { [legacyId]: [legacyId] },
+        model_assignments: {
+            subagents: {
+                models: [{ provider: "deepseek", model: "deepseek-v4-flash" }],
+            },
+        },
+        note: "keep deepseek-v4-flash when it is part of prose",
+    });
+
+    const outcome = migrateConfigPool(scope);
+
+    expect(outcome.migrated).toEqual([currentId]);
+    expect(JSON.parse(readFileSync(scope.configPath, "utf8"))).toEqual({
+        provider: "deepseek",
+        model: "deepseek-flash",
+        fallback: { model: "deepseek-flash", after_failures: 2 },
+        subagent: { provider: "deepseek", model: "deepseek-flash" },
+        model_routes: { [currentId]: [currentId] },
+        model_assignments: {
+            subagents: {
+                models: [{ provider: "deepseek", model: "deepseek-flash" }],
+            },
+        },
+        note: "keep deepseek-v4-flash when it is part of prose",
+    });
+    expect(migrateConfigPool(scope).migrated).toEqual([]);
+});
+
 test("no config file at all migrates nothing", () => {
     const scope = paths(undefined);
 

@@ -1,7 +1,7 @@
 
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { isEffortLevel } from "./effort-ladder.ts";
 import {
@@ -26,6 +26,9 @@ export interface PoolMigrationOutcome {
     readonly notice?: string;
 }
 
+const LEGACY_DEEPSEEK_FLASH_ID = "deepseek/deepseek-v4-flash";
+const DEEPSEEK_FLASH_ID = "deepseek/deepseek-flash";
+
 export function defaultConfigPath(): string {
     return join(veraProfileDirectory(), "config.json");
 }
@@ -35,19 +38,39 @@ export function migrateConfigPool(
 ): PoolMigrationOutcome {
     const configPath = options.configPath ?? defaultConfigPath();
     const poolPath = options.poolPath ?? userPoolFilePath();
+    const configModels = migrateLegacyConfigPool(configPath, poolPath);
+    const migrated = [...configModels];
+    const renamedDeepSeekFlash = migrateDeepSeekFlashPoolId(poolPath);
+    const updatedDeepSeekConfig = migrateDeepSeekFlashConfigId(configPath);
+    if (renamedDeepSeekFlash || updatedDeepSeekConfig) {
+        if (!migrated.includes(DEEPSEEK_FLASH_ID)) {
+            migrated.push(DEEPSEEK_FLASH_ID);
+        }
+    }
+    if (migrated.length === 0) {
+        return { migrated };
+    }
+
+    const notices: string[] = [];
+    if (configModels.length > 0) {
+        notices.push(
+            `Moved ${configModels.length} pooled `
+            + `${configModels.length === 1 ? "model" : "models"} from ${configPath}`
+            + ` to ${poolPath}. The old entries were left in place.`,
+        );
+    }
+    if (renamedDeepSeekFlash || updatedDeepSeekConfig) {
+        notices.push(`Updated ${LEGACY_DEEPSEEK_FLASH_ID} to ${DEEPSEEK_FLASH_ID}.`);
+    }
+    return { migrated, notice: notices.join(" ") };
+}
+
+function migrateLegacyConfigPool(configPath: string, poolPath: string): string[] {
     if (existsSync(poolPath)) {
-        return { migrated: [] };
+        return [];
     }
-
     const config = readConfig(configPath);
-    if (config === undefined) {
-        return { migrated: [] };
-    }
-    const entries = legacyEntries(config);
-    if (entries.length === 0) {
-        return { migrated: [] };
-    }
-
+    const entries = config === undefined ? [] : legacyEntries(config);
     const migrated: string[] = [];
     for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index] as LegacyEntry;
@@ -57,13 +80,140 @@ export function migrateConfigPool(
         }
         migrated.unshift(entry.id);
     }
+    return migrated;
+}
 
-    return {
-        migrated,
-        notice: `Moved ${migrated.length} pooled `
-            + `${migrated.length === 1 ? "model" : "models"} from ${configPath}`
-            + ` to ${poolPath}. The old entries were left in place.`,
+function migrateDeepSeekFlashPoolId(path: string): boolean {
+    const pool = readConfig(path);
+    const models = recordValue(pool?.models);
+    const legacy = recordValue(models?.[LEGACY_DEEPSEEK_FLASH_ID]);
+    if (pool === undefined || models === undefined || legacy === undefined) {
+        return false;
+    }
+    const current = recordValue(models[DEEPSEEK_FLASH_ID]);
+    const renamed: Record<string, unknown> = {};
+    for (const [id, value] of Object.entries(models)) {
+        if (id === LEGACY_DEEPSEEK_FLASH_ID) {
+            if (current === undefined) {
+                renamed[DEEPSEEK_FLASH_ID] = updateModelReferences(legacy);
+            }
+            continue;
+        }
+        if (id === DEEPSEEK_FLASH_ID && current !== undefined) {
+            renamed[id] = updateModelReferences(mergeModelEntries(legacy, current));
+            continue;
+        }
+        renamed[id] = updateModelReferences(value);
+    }
+    const defaults = recordValue(pool.defaults);
+    const updatedDefaults = defaults?.subagent === LEGACY_DEEPSEEK_FLASH_ID
+        ? { ...defaults, subagent: DEEPSEEK_FLASH_ID }
+        : defaults;
+    const updated = {
+        ...pool,
+        ...(updatedDefaults === undefined ? {} : { defaults: updatedDefaults }),
+        models: renamed,
     };
+    writeJsonAtomically(path, updated, "pool");
+    return true;
+}
+
+function migrateDeepSeekFlashConfigId(path: string): boolean {
+    const config = readConfig(path);
+    if (config === undefined) {
+        return false;
+    }
+    const replaced = replaceDeepSeekFlashIds(config);
+    if (!replaced.changed) {
+        return false;
+    }
+    writeJsonAtomically(path, replaced.value, "config");
+    return true;
+}
+
+interface ReplacedValue {
+    readonly value: unknown;
+    readonly changed: boolean;
+}
+
+function replaceDeepSeekFlashIds(value: unknown): ReplacedValue {
+    if (typeof value === "string") {
+        const canonical = canonicalDeepSeekFlashId(value);
+        return { value: canonical, changed: canonical !== value };
+    }
+    if (Array.isArray(value)) {
+        const items = value.map(replaceDeepSeekFlashIds);
+        return {
+            value: items.map((item) => item.value),
+            changed: items.some((item) => item.changed),
+        };
+    }
+    const record = recordValue(value);
+    if (record === undefined) {
+        return { value, changed: false };
+    }
+    const entries = Object.entries(record).map(([key, item]) => {
+        const canonicalKey = canonicalDeepSeekFlashId(key);
+        const replaced = replaceDeepSeekFlashIds(item);
+        return {
+            key: canonicalKey,
+            value: replaced.value,
+            changed: replaced.changed || canonicalKey !== key,
+            shadowed: canonicalKey !== key
+                && Object.hasOwn(record, canonicalKey),
+        };
+    });
+    return {
+        value: Object.fromEntries(entries
+            .filter((entry) => !entry.shadowed)
+            .map((entry) => [entry.key, entry.value])),
+        changed: entries.some((entry) => entry.changed),
+    };
+}
+
+function canonicalDeepSeekFlashId(value: string): string {
+    if (value === "deepseek-v4-flash") {
+        return "deepseek-flash";
+    }
+    return value === LEGACY_DEEPSEEK_FLASH_ID ? DEEPSEEK_FLASH_ID : value;
+}
+
+function writeJsonAtomically(path: string, value: unknown, name: string): void {
+    const temporaryPath = join(dirname(path), `.${name}-migration-${randomUUID()}.tmp`);
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, path);
+}
+
+function mergeModelEntries(
+    legacy: Record<string, unknown>,
+    current: Record<string, unknown>,
+): Record<string, unknown> {
+    const legacyLearned = recordValue(legacy.learned);
+    const currentLearned = recordValue(current.learned);
+    return {
+        ...legacy,
+        ...current,
+        ...(legacyLearned === undefined && currentLearned === undefined
+            ? {}
+            : { learned: { ...legacyLearned, ...currentLearned } }),
+    };
+}
+
+function updateModelReferences(value: unknown): unknown {
+    const model = recordValue(value);
+    if (model === undefined || !Array.isArray(model.fallback)) {
+        return value;
+    }
+    const fallback = [...new Set(model.fallback.map((id) => (
+        id === LEGACY_DEEPSEEK_FLASH_ID ? DEEPSEEK_FLASH_ID : id
+    )))];
+    return { ...model, fallback };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
 }
 
 interface LegacyEntry {

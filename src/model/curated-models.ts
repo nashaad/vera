@@ -130,10 +130,13 @@ export function writeCuratedCache(
  */
 export function curatedKey(id: string): string {
     const tail = id.replace(/^~/, "").split("/").at(-1) ?? id;
-    return tail
+    const key = tail
         .toLowerCase()
         .replace(/:.*$/, "")
         .replace(/-\d{4,}$/, "");
+    return /^deepseek-v4(?:\.1)?-flash$/.test(key)
+        ? "deepseek-flash"
+        : key;
 }
 
 export function curatedKeys(models: readonly CuratedModel[]): ReadonlySet<string> {

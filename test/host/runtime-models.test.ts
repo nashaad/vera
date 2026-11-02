@@ -193,9 +193,9 @@ test("DeepSeek discovery publishes native models and levels after connection", (
             authStorage: stubAuth("stored-deepseek-key"),
         });
 
-        expect(models.map((model) => model.model)).toEqual([
-            "deepseek-v4-pro",
-            "deepseek-v4-flash",
+        expect(models.map((model) => [model.model, model.label])).toEqual([
+            ["deepseek-v4-pro", "DeepSeek V4 Pro"],
+            ["deepseek-flash", "DeepSeek V4.1 Flash 1017"],
         ]);
         expect(availableModelsWithLevels(models, {
             cacheDir: directory,

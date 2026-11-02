@@ -88,7 +88,7 @@ test("DeepSeek off explicitly disables native thinking", async () => {
     });
 
     await adapter.stream({
-        model: "deepseek-v4-flash",
+        model: "deepseek-flash",
         reasoningEffort: "off",
         messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     }).result();
@@ -170,9 +170,9 @@ test("DeepSeek tolerates a null usage field on a stream chunk", async () => {
         apiKey: "sk-deepseek-test",
         fetch: async () => {
             const source = [
-                'data: {"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}],"usage":null}',
+                'data: {"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}],"usage":null}',
                 "",
-                'data: {"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}',
+                'data: {"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}',
                 "",
                 "data: [DONE]",
                 "",
@@ -184,7 +184,7 @@ test("DeepSeek tolerates a null usage field on a stream chunk", async () => {
     });
 
     const result = await adapter.stream({
-        model: "deepseek-v4-flash",
+        model: "deepseek-flash",
         messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     }).result();
 
