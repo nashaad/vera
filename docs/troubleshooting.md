@@ -78,6 +78,23 @@ conversation, so a reopened conversation shows it too. The provider's full
 response is in `/diagnostics`: open the **Vera** report and look under
 **MODEL FAILURES**.
 
+## A change could not be saved
+
+Changing the permission mode or selecting an agent is saved to the session
+file before it takes effect. If the save fails, for example because the disk
+is full, the file is put back as it was, the change is refused with the error,
+and the conversation keeps working. Try again once the disk has room.
+
+If the file cannot be put back, the conversation refuses further changes and
+says to reopen the session. Run `/close`, then choose the conversation
+again from `/resume`. Vera then reads the file as it stands, including any
+record the failed save did write.
+
+A save that fails while a turn is running stops the conversation instead. It
+shows "Resident agent stopped unexpectedly" and takes no further messages.
+The failure is recorded in the file, so resuming the conversation starts it in
+the failed state. Everything saved before the failure is kept.
+
 ## Capture a model failure
 
 Use `/failure-report` for a shareable report of recorded model failures.

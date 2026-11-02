@@ -266,6 +266,17 @@ export interface AppendCompactionRequest {
     readonly billed?: SessionCompactionBilled;
 }
 
+/** The part of a file handle that appending a record uses. */
+export interface SessionAppendFile {
+    stat(): Promise<{ readonly size: number }>;
+    writeFile(data: string, encoding: "utf8"): Promise<void>;
+    truncate(length: number): Promise<void>;
+    sync(): Promise<void>;
+    close(): Promise<void>;
+}
+
+export type OpenSessionAppendFile = (path: string) => Promise<SessionAppendFile>;
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -276,6 +287,7 @@ export interface CreateSessionStoreOptions {
     readonly importedFrom?: SessionImportProvenance;
     readonly now?: () => Date;
     readonly createId?: () => string;
+    readonly openAppendFile?: OpenSessionAppendFile;
     readonly onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
@@ -291,6 +303,7 @@ export interface SessionCreationMetadata {
 export interface OpenSessionStoreOptions {
     readonly now?: () => Date;
     readonly createId?: () => string;
+    readonly openAppendFile?: OpenSessionAppendFile;
     readonly onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
@@ -345,6 +358,8 @@ export class SessionStore {
 
     private readonly now: () => Date;
     private readonly createId: () => string;
+    private readonly openAppendFile: OpenSessionAppendFile;
+    private writeFault: Error | undefined;
     private pendingAppend: Promise<void> = Promise.resolve();
     private lineCount: number;
     private onRecordAppended?: (
@@ -366,6 +381,8 @@ export class SessionStore {
         this.projection = state;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
+        this.openAppendFile = options.openAppendFile
+            ?? ((appendPath) => open(appendPath, "a", 0o600));
         this.lineCount = lineCount;
         if (options.onRecordAppended !== undefined) {
             this.onRecordAppended = options.onRecordAppended;
@@ -427,6 +444,9 @@ export class SessionStore {
                 ...(options.createId === undefined
                     ? {}
                     : { createId: options.createId }),
+                ...(options.openAppendFile === undefined
+                    ? {}
+                    : { openAppendFile: options.openAppendFile }),
                 ...(options.onRecordAppended === undefined
                     ? {}
                     : { onRecordAppended: options.onRecordAppended }),
@@ -1389,16 +1409,57 @@ export class SessionStore {
         return result;
     }
 
+    // Every append runs behind pendingAppend, so this store's own writes cannot race the rollback.
     private async writeRecordLine(record: object): Promise<number> {
-        const file = await open(this.path, "a", 0o600);
+        if (this.writeFault !== undefined) {
+            throw this.writeFault;
+        }
+        const line = jsonLine(record);
+        const file = await this.openAppendFile(this.path);
         try {
-            await file.writeFile(jsonLine(record), "utf8");
-            await file.sync();
+            const { size: lengthBefore } = await file.stat();
+            try {
+                await file.writeFile(line, "utf8");
+                await file.sync();
+            } catch (error) {
+                const fault = await this.restoreLength(file, lengthBefore, Buffer.byteLength(line));
+                if (fault === undefined) {
+                    throw error;
+                }
+                const reason = error instanceof Error ? error.message : String(error);
+                throw new Error(`${reason}. ${fault.message}`, { cause: error });
+            }
         } finally {
-            await file.close();
+            // The line is durable or rolled back by now, so a failed close changes neither.
+            await file.close().catch(() => {});
         }
         this.lineCount += 1;
         return this.lineCount;
+    }
+
+    // A failed append must leave no unapplied line. Another writer (a rename) can append here,
+    // so a size outside what our line could add is left alone.
+    private async restoreLength(
+        file: SessionAppendFile,
+        length: number,
+        lineBytes: number,
+    ): Promise<Error | undefined> {
+        try {
+            const { size } = await file.stat();
+            if (size < length || size > length + lineBytes) {
+                throw new Error(`Session file length is ${size}, outside ${length} to ${length + lineBytes}`);
+            }
+            await file.truncate(length);
+            await file.sync();
+            return undefined;
+        } catch (error) {
+            this.writeFault = new Error(
+                `Session file ${this.path} may hold a record this session never applied `
+                    + "after a failed write. The session now refuses writes. Reopen the session to reload it.",
+                { cause: error },
+            );
+            return this.writeFault;
+        }
     }
 
     protected requireActive(): void {

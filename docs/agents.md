@@ -30,12 +30,16 @@ mode changes nothing. If the definition forbids the current mode with
 `forbidden_access`, it uses its posture when that is narrower and allowed, or
 the narrowest mode it allows. Neither path ever picks a mode wider than the
 current one. If no allowed mode fits, a selection with `/agent` is refused with
-a message and nothing changes, and a delegated launch is refused. Resuming a
-session whose definition now forbids its mode narrows it the same way and
-saves the new mode; if no allowed mode fits, the session switches to the
-default agent and keeps its mode. Only the four built-in modes can be
-compared, so a custom mode never counts as narrower and a custom posture never
-applies.
+a message and nothing changes, and a delegated launch is refused. If the
+narrower mode is saved but the selection itself cannot be saved, the selection
+is refused with the error, the conversation keeps its previous agent, and the
+narrower mode stays in force. If the selection is saved but the agent's
+default model cannot be saved, the agent is selected and a notice says the
+session kept its previous model. Resuming a session whose definition now
+forbids its mode narrows it the same way and saves the new mode; if no allowed
+mode fits, the session switches to the default agent and keeps its mode. Only
+the four built-in modes can be compared, so a custom mode never counts as
+narrower and a custom posture never applies.
 
 ## Use the explorer
 

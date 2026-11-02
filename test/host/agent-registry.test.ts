@@ -6177,7 +6177,7 @@ test("an agent with no allowed mode is refused and nothing changes", async () =>
     }
 });
 
-test("a failed write while selecting an agent leaves the selection and mode unchanged", async () => {
+test("a failed mode write while selecting an agent leaves the selection and mode unchanged", async () => {
     const root = await agentRoot("vera-agent-select-fail-", {
         plan: "---\nposture: readonly\n---\nPlan only.",
     });
@@ -6200,14 +6200,174 @@ test("a failed write while selecting an agent leaves the selection and mode unch
         expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
         expect((await SessionStore.open(join(root, "agent.jsonl"))).selectedAgent())
             .toBeUndefined();
+        expect((await SessionStore.open(join(root, "agent.jsonl"))).approvalMode())
+            .not.toBe("readonly");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
+test("a failed agent write after the mode write keeps the narrower mode in memory and tells the client", async () => {
+    const root = await agentRoot("vera-agent-select-half-", {
+        plan: "---\nposture: readonly\n---\nPlan only.",
+    });
+    const sessionPath = join(root, "agent.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({ workspace: root, sessionPath });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        const pushed = spyOn(registry, "pushWorkerState");
         const agentWrite = spyOn(SessionStore.prototype, "appendSelectedAgent")
             .mockRejectedValueOnce(new Error("disk full"));
-        await expect(registry.selectAgentFor(agent.id, "plan")).rejects.toThrow("disk full");
+
+        attachment.send({ type: "select_agent", requestId: "plan-1", name: "plan" });
+        const seen: AgentUpdate[] = [];
+        while (
+            !seen.some((update) => update.type === "agent_rejected")
+            || !seen.some((update) => update.type === "permissions")
+        ) {
+            const next = await Promise.race([attachment.receive(), Bun.sleep(1_000)]);
+            if (next === undefined) break;
+            seen.push(next);
+        }
         agentWrite.mockRestore();
-        expect(registry.approvalModeOf(agent.id)).toBe("auto");
+
+        expect(seen.find((update) => update.type === "agent_rejected")).toMatchObject({
+            requestId: "plan-1",
+            reason: "disk full",
+        });
+        expect(seen.find((update) => update.type === "permissions")).toMatchObject({
+            requestId: "plan-1",
+            mode: "readonly",
+            origin: "agent-default",
+        });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
         expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
+        expect(pushed).toHaveBeenCalledWith(agent.id);
+
+        const stored = await SessionStore.open(sessionPath);
+        expect(stored.approvalMode()).toBe("readonly");
+        expect(stored.selectedAgent()).toBeUndefined();
     } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+async function collectUntil(
+    attachment: { receive(): Promise<AgentUpdate> },
+    done: (seen: readonly AgentUpdate[]) => boolean,
+): Promise<AgentUpdate[]> {
+    const seen: AgentUpdate[] = [];
+    while (!done(seen)) {
+        const next = await Promise.race([attachment.receive(), Bun.sleep(1_000)]);
+        if (next === undefined) break;
+        seen.push(next);
+    }
+    return seen;
+}
+
+test("a failed model-pair write after the agent is saved still reports the selection", async () => {
+    const root = await agentRoot("vera-agent-select-pair-", {
+        plan: "---\nposture: readonly\ndefault_pair: { name: luna }\n---\nPlan only.",
+    });
+    const sessionPath = join(root, "agent.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPool: () => [{
+            provider: "faux",
+            model: "other",
+            label: "Other",
+            poolName: "luna",
+            available: true,
+            verified: true,
+            levels: [],
+        }],
+    });
+
+    try {
+        const agent = await registry.create({ workspace: root, sessionPath });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        const pushed = spyOn(registry, "pushWorkerState");
+        const pairWrite = spyOn(SessionStore.prototype, "appendModelSettings")
+            .mockRejectedValueOnce(new Error("disk full"));
+
+        attachment.send({ type: "select_agent", requestId: "plan-1", name: "plan" });
+        const seen = await collectUntil(attachment, (updates) =>
+            updates.some((update) => update.type === "agent_selected" || update.type === "agent_rejected")
+            && updates.some((update) => update.type === "permissions"));
+        pairWrite.mockRestore();
+
+        expect(seen.some((update) => update.type === "agent_rejected")).toBe(false);
+        expect(seen.find((update) => update.type === "agent_selected")).toMatchObject({
+            requestId: "plan-1",
+            name: "plan",
+            permissionChanged: true,
+        });
+        const selected = seen.find((update) => update.type === "agent_selected");
+        expect(selected).toMatchObject({ notice: expect.stringContaining("disk full") });
+        expect(seen.find((update) => update.type === "permissions")).toMatchObject({
+            mode: "readonly",
+        });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+        expect((await registry.listAgentsFor(agent.id)).selected).toBe("plan");
+        expect(pushed).toHaveBeenCalledWith(agent.id);
+
+        const stored = await SessionStore.open(sessionPath);
+        expect(stored.approvalMode()).toBe("readonly");
+        expect(stored.selectedAgent()?.name).toBe("plan");
+        expect(stored.modelSettings()?.model).not.toBe("other");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a worker push that rejects after a failed agent write adds no unhandled rejection", async () => {
+    const root = await agentRoot("vera-agent-select-push-", {
+        plan: "---\nposture: readonly\n---\nPlan only.",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        // The real push returns void; a rejecting double stands in for a transport that fails late.
+        const push = spyOn(registry, "pushWorkerState")
+            .mockImplementation((() => Promise.reject(new Error("worker gone"))) as never);
+        const agentWrite = spyOn(SessionStore.prototype, "appendSelectedAgent")
+            .mockRejectedValueOnce(new Error("disk full"));
+
+        await expect(registry.selectAgentFor(agent.id, "plan")).rejects.toThrow("disk full");
+        await Bun.sleep(20);
+        agentWrite.mockRestore();
+        push.mockRestore();
+
+        expect(unhandled).toEqual([]);
+    } finally {
+        process.off("unhandledRejection", onUnhandled);
         await registry.close();
         await rm(root, { recursive: true, force: true });
     }

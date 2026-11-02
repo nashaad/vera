@@ -201,9 +201,12 @@ export async function selectAgentFor(reg: AgentRegistry, id: string, name: strin
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        const result = await reg.applySelectedAgent(id, name);
-        reg.pushWorkerState(id);
-        return result;
+        try {
+            return await reg.applySelectedAgent(id, name);
+        } finally {
+            // A refused selection can still have saved a narrower mode, which the worker must follow.
+            pushWorkerStateQuietly(reg, id);
+        }
     }
 
 export async function applySelectedAgent(reg: AgentRegistry, id: string, name: string): Promise<{
@@ -236,15 +239,16 @@ export async function applySelectedAgent(reg: AgentRegistry, id: string, name: s
             );
         }
         // The mode is written first so a failed write never leaves a restricted
-        // agent selected under a wider mode. Memory changes after both writes.
+        // agent selected under a wider mode.
         const permissionChanged = mode !== entry.approvalMode;
         if (permissionChanged) {
             await entry.store.appendApprovalMode(mode, "agent-default");
+            // The store holds the narrower mode now, so memory follows even if the agent write fails.
+            entry.approvalMode = mode;
         }
         await entry.store.appendSelectedAgent(snapshot.name, snapshot);
         entry.selectedAgent = snapshot;
-        entry.approvalMode = mode;
-        const notice = await reg.adoptAgentDefaultPair(entry, found.definition);
+        const notice = await adoptDefaultPairOrExplain(reg, entry, found.definition);
         return {
             name: snapshot.name,
             ...(snapshot.tools === undefined ? {} : { tools: snapshot.tools }),
@@ -261,6 +265,27 @@ export async function applySelectedAgent(reg: AgentRegistry, id: string, name: s
             ...(notice === undefined ? {} : { notice }),
         };
     }
+
+// A push failure must not replace the selection's own result or error.
+function pushWorkerStateQuietly(reg: AgentRegistry, id: string): void {
+    try {
+        const pending: unknown = reg.pushWorkerState(id);
+        if (pending instanceof Promise) {
+            pending.catch(() => {});
+        }
+    } catch {
+    }
+}
+
+// The agent is saved by now, so a model-pair write that fails is a notice, not a refusal.
+async function adoptDefaultPairOrExplain(reg: AgentRegistry, entry: RegisteredAgentEntry, definition: AgentDefinition): Promise<string | undefined> {
+    try {
+        return await reg.adoptAgentDefaultPair(entry, definition);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return `${definition.name} was selected, but its default model could not be saved (${reason}). The session kept its previous model.`;
+    }
+}
 
 export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry, definition: AgentDefinition): Promise<string | undefined> {
         const origin = entry.store.modelSettingsOrigin();
