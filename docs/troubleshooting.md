@@ -42,6 +42,15 @@ the PID is a Vera host before you stop it; if it is not, deleting
 `runtime/host.json` in the home is safe. A lockfile with no valid start time
 whose PID runs another program is stale, and Reconnect host replaces it.
 
+A lockfile that exists but cannot be read as a whole, for example one that is
+cut off or has no socket path, is damaged, not absent. `vera host stop` reads
+its PID when it can. A damaged lockfile's start time is never trusted, so a PID
+that runs a Vera process is refused with the same message and its lockfile is
+kept; a PID that is gone or runs another program has the lockfile cleared. When
+no PID can be read, `vera host stop` prints the lockfile's path, says it
+cannot tell whether a host is running, and exits with status 1. Check for a
+running host with `vera doctor`; if there is none, delete the file.
+
 A socket file existing on disk does not prove the host is answering.
 
 ## Provider models look stale

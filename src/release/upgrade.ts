@@ -25,6 +25,7 @@ import { readStampedRelease } from "./stamp.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     defaultHostLockPath,
+    HostLockUnreadableError,
     readHostLockRecordFile,
     type HostLockRecord,
 } from "../host/lockfile.ts";
@@ -177,7 +178,13 @@ export async function clearUpgradeJournal(
 export async function defaultDrainHost(
     operation: UpgradeOperation = "install",
 ): Promise<"stopped" | "absent"> {
-    const outcome = await gracefulStopResidentHost();
+    const outcome = await gracefulStopResidentHost().catch((error: unknown) => {
+        if (!(error instanceof HostLockUnreadableError)) throw error;
+        throw new Error(
+            `${error.message} Run ${retryCommand(operation)} again. `
+                + unchangedReleaseNote(operation),
+        );
+    });
     if (outcome === undefined) return "absent";
     switch (outcome.endedBy) {
         case "unverified":

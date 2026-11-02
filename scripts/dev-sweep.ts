@@ -6,8 +6,13 @@ import {
     type DevInstanceRecord,
 } from "../src/dev-instances.ts";
 import {
+    checkListedProcess,
+    claimListedProcess,
     dropLiveProcessIn,
     listLiveProcessesIn,
+    signalListedProcess,
+    type ListedProcess,
+    type LiveProcessReads,
     type LiveProcessRecord,
 } from "../src/live-process.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
@@ -55,34 +60,87 @@ function formatAge(milliseconds: number): string {
     return `${Math.floor(hours / 24)}d`;
 }
 
-async function stopProcess(pid: number): Promise<boolean> {
-    try {
-        process.kill(pid, "SIGTERM");
-    } catch {
-        return !processIsAlive(pid);
+interface SweepSeams {
+    readonly reads?: LiveProcessReads;
+    readonly graceMs?: number;
+}
+
+type StopOutcome =
+    | { readonly kind: "stopped"; readonly note?: string }
+    | { readonly kind: "gone" }
+    | { readonly kind: "survived" }
+    // A signal went out but the exit could not be confirmed.
+    | { readonly kind: "unconfirmed" }
+    | {
+        readonly kind: "skipped";
+        readonly reason: "replaced" | "unverified";
+        // The listed process was seen to be gone, so its row is stale.
+        readonly dropRow: boolean;
+    };
+
+const NOT_SIGNALLED_NOTES = {
+    replaced: "another process now holds this PID; not signalled",
+    unverified: "could not confirm it is still the listed process; not signalled",
+} as const;
+
+// After a signal, "replaced" may be the dying process itself, not a new one.
+const SIGNALLED_REPLACED_NOTE =
+    "signalled; the PID no longer belongs to the listed process";
+const SIGNALLED_UNCONFIRMED_NOTE = "signalled; could not confirm it exited";
+
+// Identity is checked before SIGTERM and again before each SIGKILL, because a
+// PID can be reused during the wait. The wait polls liveness only.
+async function stopProcess(
+    listed: ListedProcess,
+    seams: SweepSeams,
+): Promise<StopOutcome> {
+    const pid = listed.record.pid;
+    const reads = seams.reads ?? {};
+    const isAlive = reads.isAlive ?? processIsAlive;
+    const first = signalListedProcess(listed, "SIGTERM", { reads });
+    if (first === "gone") return { kind: "gone" };
+    if (first === "replaced" || first === "unverified") {
+        return { kind: "skipped", reason: first, dropRow: first === "replaced" };
     }
-    const deadline = Date.now() + SIGTERM_GRACE_MS;
-    while (processIsAlive(pid) && Date.now() < deadline) {
+    let signalled = first === "sent";
+    const deadline = Date.now() + (seams.graceMs ?? SIGTERM_GRACE_MS);
+    while (isAlive(pid) && Date.now() < deadline) {
         await Bun.sleep(100);
     }
-    if (!processIsAlive(pid)) return true;
-    try {
-        process.kill(-pid, "SIGKILL");
-    } catch {
-        // A process that leads no group is killed on its own below.
-    }
-    try {
-        process.kill(pid, "SIGKILL");
-    } catch {
-        // Already gone between the check and the signal.
+    if (!isAlive(pid)) return { kind: "stopped" };
+    for (const group of [true, false]) {
+        const result = signalListedProcess(listed, "SIGKILL", { group, reads });
+        if (result === "sent") signalled = true;
+        if (result === "gone") return { kind: "stopped" };
+        if (result === "replaced") {
+            return signalled
+                ? { kind: "stopped", note: SIGNALLED_REPLACED_NOTE }
+                : { kind: "skipped", reason: "replaced", dropRow: true };
+        }
+        if (result === "unverified") {
+            return signalled
+                ? { kind: "unconfirmed" }
+                : { kind: "skipped", reason: "unverified", dropRow: false };
+        }
     }
     await Bun.sleep(100);
-    return !processIsAlive(pid);
+    // Only a process seen to be gone or replaced counts as stopped.
+    const state = checkListedProcess(listed, reads);
+    if (state === "same") return { kind: "survived" };
+    if (state === "unverified") {
+        return signalled
+            ? { kind: "unconfirmed" }
+            : { kind: "skipped", reason: "unverified", dropRow: false };
+    }
+    return state === "replaced" && signalled
+        ? { kind: "stopped", note: SIGNALLED_REPLACED_NOTE }
+        : { kind: "stopped" };
 }
 
 export async function sweepDevInstances(
     request: SweepRequest,
     write: (line: string) => void,
+    seams: SweepSeams = {},
 ): Promise<number> {
     const instances = listDevInstances(request.root).filter(
         (instance) => !homeIsDefault(instance.home, request.root),
@@ -94,6 +152,12 @@ export async function sweepDevInstances(
     const now = Date.now();
     let stopped = 0;
     let kept = 0;
+    // Every instance is listed and claimed before the first signal, so a PID
+    // reused while earlier processes shut down is not taken for a listed one.
+    const batches: {
+        readonly instance: DevInstanceRecord;
+        readonly stale: readonly ListedProcess[];
+    }[] = [];
     for (const instance of instances) {
         const live = listLiveProcessesIn(instance.home);
         // At the boundary the process goes, so --days 0 means everything.
@@ -102,23 +166,51 @@ export async function sweepDevInstances(
         );
         kept += live.length - stale.length;
         if (stale.length === 0) continue;
+        batches.push({
+            instance,
+            stale: stale.map((record) => claimListedProcess(record, seams.reads)),
+        });
+    }
+    for (const { instance, stale } of batches) {
         write(`${describe(instance)}\n`);
-        for (const record of stale) {
+        for (const listed of stale) {
+            const record = listed.record;
             const age = formatAge(ageMs(record, now));
+            const label = `${record.kind.padEnd(11)} pid ${record.pid}  ${age}`;
             if (request.dryRun) {
-                write(`  would stop  ${record.kind.padEnd(11)} pid ${record.pid}  ${age}\n`);
+                write(`  would stop  ${label}\n`);
                 continue;
             }
-            const gone = await stopProcess(record.pid);
-            if (gone) {
-                dropLiveProcessIn(instance.home, record.pid);
-                stopped += 1;
+            const outcome = await stopProcess(listed, seams);
+            switch (outcome.kind) {
+                case "stopped":
+                    dropLiveProcessIn(instance.home, record.pid);
+                    stopped += 1;
+                    write(`  stopped     ${label}${
+                        outcome.note === undefined ? "" : `  (${outcome.note})`
+                    }\n`);
+                    break;
+                case "gone":
+                    dropLiveProcessIn(instance.home, record.pid);
+                    write(`  gone        ${label}  (already exited)\n`);
+                    break;
+                case "survived":
+                    write(`  would not die ${label}\n`);
+                    break;
+                case "unconfirmed":
+                    write(`  unconfirmed ${label}  (${
+                        SIGNALLED_UNCONFIRMED_NOTE
+                    })\n`);
+                    break;
+                case "skipped":
+                    if (outcome.dropRow) {
+                        dropLiveProcessIn(instance.home, record.pid);
+                    }
+                    write(`  skipped     ${label}  (${
+                        NOT_SIGNALLED_NOTES[outcome.reason]
+                    })\n`);
+                    break;
             }
-            write(
-                `  ${gone ? "stopped    " : "would not die"} ${
-                    record.kind.padEnd(11)
-                } pid ${record.pid}  ${age}\n`,
-            );
         }
     }
     const listed = plural(instances.length, "instance");

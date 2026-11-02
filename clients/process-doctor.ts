@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { listAgentPageThroughHost } from "../src/host/agent-list-client.ts";
 import {
     createHostLockfile,
-    readHostLockRecordFile,
+    inspectHostLockFile,
 } from "../src/host/lockfile.ts";
 import {
     checkRecordIdentity,
     classifyVeraProcess,
+    parseElapsedTime,
     processIsAlive,
     type VeraProcessKind,
 } from "../src/host/process-identity.ts";
@@ -15,6 +16,13 @@ import {
     VERA_HOME_ENV,
     veraRuntimeDirectory,
 } from "../src/profile-paths.ts";
+import {
+    skippedProcessLine,
+    stopListedProcess,
+    type ListedProcess,
+    type LiveProcessReads,
+    type ProcessIdentityRecord,
+} from "../src/live-process.ts";
 import { sweepStaleTmuxSockets } from "./tmux-socket-doctor.ts";
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 750;
@@ -30,6 +38,9 @@ export interface VeraProcessSample {
     readonly elapsed: string;
     readonly cpuPercent: number;
     readonly startedAt: string;
+    // Epoch ms from the sample time and etime, the same source as the
+    // pre-signal check. Absent when etime or the sample time is unknown.
+    readonly startedAtMs?: number;
     readonly command: string;
     readonly kind: VeraProcessKind;
     readonly isolated?: boolean;
@@ -249,34 +260,53 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     return `${lines.join("\n")}\n`;
 }
 
+export interface StrayStopReport {
+    readonly onSkipped?: (line: string) => void;
+    readonly reads?: LiveProcessReads;
+}
+
+// Each stray is checked against the start time and command line the doctor
+// sampled, so a PID reused since then is left alone.
 export function stopStrayVeraProcesses(
     strays: readonly DiagnosedVeraProcess[],
+    report: StrayStopReport = {},
 ): number {
     let stopped = 0;
     for (const stray of strays) {
-        if (killProcessAndGroup(stray.pid, stray.pgid)) stopped += 1;
+        const result = stopListedProcess(listedFromSample(stray), {
+            group: stray.pgid === stray.pid,
+            ...(report.reads === undefined ? {} : { reads: report.reads }),
+        });
+        if (result === "stopped") {
+            stopped += 1;
+        } else {
+            report.onSkipped?.(skippedProcessLine(stray.pid, result));
+        }
     }
     return stopped;
 }
 
-function killProcessAndGroup(pid: number, pgid: number): boolean {
-    let signaled = false;
-    if (pgid === pid) {
-        try {
-            process.kill(-pgid, "SIGKILL");
-            signaled = true;
-        } catch {
-        }
-    }
-    try {
-        process.kill(pid, "SIGKILL");
-        signaled = true;
-    } catch {
-    }
-    return signaled;
+function listedFromSample(
+    sample: VeraProcessSample,
+): ListedProcess<ProcessIdentityRecord> {
+    // lstart is local time and its text depends on the locale and on DST, so
+    // it is only for display. A missing start time reads as unverifiable.
+    const startedAtMs = sample.startedAtMs;
+    return {
+        record: {
+            pid: sample.pid,
+            started_at: startedAtMs === undefined || !Number.isFinite(startedAtMs)
+                ? ""
+                : new Date(startedAtMs).toISOString(),
+        },
+        command: sample.command.trim(),
+    };
 }
 
-export function parseVeraProcessList(source: string): VeraProcessSample[] {
+export function parseVeraProcessList(
+    source: string,
+    sampledAtMs?: number,
+): VeraProcessSample[] {
     const samples: VeraProcessSample[] = [];
     for (const line of source.split("\n")) {
         const match = line.match(
@@ -286,13 +316,19 @@ export function parseVeraProcessList(source: string): VeraProcessSample[] {
         const command = match[7] ?? "";
         const kind = classifyVeraProcess(command);
         if (kind === undefined) continue;
+        const elapsed = match[4] ?? "unknown";
+        const elapsedMs = parseElapsedTime(elapsed);
+        const startedAtMs = sampledAtMs === undefined || elapsedMs === undefined
+            ? undefined
+            : sampledAtMs - elapsedMs;
         samples.push({
             pid: Number(match[1]),
             ppid: Number(match[2]),
             pgid: Number(match[3]),
-            elapsed: match[4] ?? "unknown",
+            elapsed,
             cpuPercent: Number(match[5]),
             startedAt: match[6] ?? "unknown",
+            ...(startedAtMs === undefined ? {} : { startedAtMs }),
             command,
             kind,
         });
@@ -354,12 +390,18 @@ function strayProcess(
     return false;
 }
 
+// Other locales reorder the fields of lstart, which the parser rejects.
+function psEnvironment(): Record<string, string | undefined> {
+    return { ...process.env, LC_ALL: "C", LANG: "C" };
+}
+
 async function sampleVeraProcesses(): Promise<readonly VeraProcessSample[]> {
     const child = Bun.spawn([
         "ps",
         "-axo",
         "pid=,ppid=,pgid=,etime=,%cpu=,lstart=,command=",
     ], {
+        env: psEnvironment(),
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -373,7 +415,7 @@ async function sampleVeraProcesses(): Promise<readonly VeraProcessSample[]> {
             `Could not inspect Vera processes: ${errorOutput.trim() || `ps exited ${exitCode}`}`,
         );
     }
-    return enrichRuntimeIdentity(parseVeraProcessList(output));
+    return enrichRuntimeIdentity(parseVeraProcessList(output, Date.now()));
 }
 
 async function enrichRuntimeIdentity(
@@ -388,6 +430,7 @@ async function enrichRuntimeIdentity(
         "-o",
         "pid=,command=",
     ], {
+        env: psEnvironment(),
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -451,7 +494,14 @@ async function hostOwnership(runtimeDir: string): Promise<VeraHostOwnership> {
 export async function livePidFromHostLockFile(
     path: string,
 ): Promise<number | undefined> {
-    const record = await readHostLockRecordFile(path);
+    const inspection = await inspectHostLockFile(path);
+    if (inspection.state === "absent") return undefined;
+    // A damaged lock keeps only its PID, with no trusted start time.
+    const record = inspection.state === "valid"
+        ? inspection.record
+        : inspection.pid === undefined
+            ? undefined
+            : { pid: inspection.pid, started_at: "" };
     if (record === undefined) return undefined;
     if (!processIsAlive(record.pid)) return undefined;
     // Unknown keeps the pid: the result only shields the host from being

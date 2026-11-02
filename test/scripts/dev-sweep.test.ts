@@ -10,16 +10,13 @@ import { processIsAlive } from "../../src/host/process-identity.ts";
 import { listLiveProcessesIn, postLiveProcess } from "../../src/live-process.ts";
 
 const temporaryDirectories: string[] = [];
-const spawned: number[] = [];
+const spawned: Bun.Subprocess[] = [];
 
-afterAll(() => {
-    for (const pid of spawned) {
-        try {
-            process.kill(pid, "SIGKILL");
-        } catch {
-            // Already stopped by the sweep under test.
-        }
-    }
+// kill() on a handle is a no-op once Bun has seen the child exit, so a PID the
+// sweep stopped and the system reused is never signalled here.
+afterAll(async () => {
+    for (const child of spawned) child.kill("SIGKILL");
+    await Promise.all(spawned.map((child) => child.exited));
     for (const directory of temporaryDirectories) {
         rmSync(directory, { recursive: true, force: true });
     }
@@ -38,7 +35,7 @@ function longRunningProcess(): number {
         stderr: "ignore",
     });
     child.unref();
-    spawned.push(child.pid);
+    spawned.push(child);
     return child.pid;
 }
 
@@ -68,11 +65,12 @@ function instanceWithOneProcess(
 
 async function sweep(
     request: Parameters<typeof sweepDevInstances>[0],
+    seams?: Parameters<typeof sweepDevInstances>[2],
 ): Promise<string> {
     let written = "";
     const code = await sweepDevInstances(request, (line) => {
         written += line;
-    });
+    }, seams);
     expect(code).toBe(0);
     return written;
 }
@@ -187,4 +185,283 @@ test("the default home is skipped while another registered home is swept", async
     expect(written).toContain("Stopped 1 process across 1 instance,");
     expect(processIsAlive(trial.pid)).toBe(false);
     expect(processIsAlive(daily.pid)).toBe(true);
+});
+
+// A start time inside and outside the tolerance of a process spawned just now.
+const sameStart = (): number => Date.now() - 1_000;
+const reusedStart = (): number => Date.now() - 3_600_000;
+
+/** Ignores SIGTERM, so a sweep has to follow up with SIGKILL. Resolves once the handler is installed. */
+async function stubbornProcess(): Promise<number> {
+    const child = Bun.spawn(
+        [
+            process.execPath,
+            "-e",
+            'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);',
+        ],
+        { stdout: "pipe", stderr: "ignore" },
+    );
+    child.unref();
+    spawned.push(child);
+    const reader = child.stdout.getReader();
+    await reader.read();
+    reader.releaseLock();
+    return child.pid;
+}
+
+function instanceWith(
+    root: string,
+    pid: number,
+): { readonly veraHome: string; readonly pid: number } {
+    const parent = tempDir("vera-sweep-");
+    const veraHome = join(parent, ".vera");
+    mkdirSync(veraHome, { recursive: true });
+    postLiveProcess("host", {
+        home: parent,
+        pid,
+        startedAt: new Date().toISOString(),
+        runtimeDir: join(veraHome, "runtime"),
+    });
+    registerDevInstance({
+        source: fileURLToPath(import.meta.url),
+        home: veraHome,
+        root,
+    });
+    return { veraHome, pid };
+}
+
+test("a PID reused after the listing is not signalled, and the sweep says so", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        reads: {
+            readStartedAt: reusedStart,
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                process.kill(pid, signal);
+            },
+        },
+    });
+
+    expect(signals).toEqual([]);
+    expect(processIsAlive(instance.pid)).toBe(true);
+    expect(written).toContain(
+        `skipped     host        pid ${instance.pid}`,
+    );
+    expect(written).toContain(
+        "another process now holds this PID; not signalled",
+    );
+    expect(written).toContain("Stopped 0 processes across 1 instance,");
+    expect(listLiveProcessesIn(instance.veraHome)).toEqual([]);
+});
+
+test("a PID with the same start time but another command line is not signalled", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+    const commands = [
+        "bun /work/vera/clients/host/main.ts",
+        "/usr/sbin/syslogd",
+    ];
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        reads: {
+            readStartedAt: sameStart,
+            // The first read is the one taken when the process is listed.
+            readCommand: () => commands.shift() ?? "/usr/sbin/syslogd",
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                process.kill(pid, signal);
+            },
+        },
+    });
+
+    expect(signals).toEqual([]);
+    expect(processIsAlive(instance.pid)).toBe(true);
+    expect(written).toContain(
+        "another process now holds this PID; not signalled",
+    );
+});
+
+test("a process whose start time cannot be read at signal time is left running", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        reads: {
+            readStartedAt: () => undefined,
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                process.kill(pid, signal);
+            },
+        },
+    });
+
+    expect(signals).toEqual([]);
+    expect(processIsAlive(instance.pid)).toBe(true);
+    expect(written).toContain(
+        "could not confirm it is still the listed process; not signalled",
+    );
+    expect(listLiveProcessesIn(instance.veraHome)).toHaveLength(1);
+});
+
+test("a PID reused while SIGTERM was pending is not sent SIGKILL", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWith(root, await stubbornProcess());
+    const signals: string[] = [];
+    let reused = false;
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 200,
+        reads: {
+            readStartedAt: () => reused ? reusedStart() : sameStart(),
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                if (signal === "SIGTERM") reused = true;
+                process.kill(pid, signal);
+            },
+        },
+    });
+
+    expect(signals).toEqual([`SIGTERM:${instance.pid}`]);
+    expect(processIsAlive(instance.pid)).toBe(true);
+    expect(written).toContain(
+        "signalled; the PID no longer belongs to the listed process",
+    );
+    expect(written).not.toContain("not signalled");
+    expect(written).toContain("Stopped 1 process across 1 instance,");
+});
+
+test("a process that ignores SIGTERM is still sent SIGKILL while it is the listed process", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWith(root, await stubbornProcess());
+    const signals: string[] = [];
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 200,
+        reads: {
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                process.kill(pid, signal);
+            },
+        },
+    });
+
+    expect(signals[0]).toBe(`SIGTERM:${instance.pid}`);
+    expect(signals).toContain(`SIGKILL:${instance.pid}`);
+    expect(processIsAlive(instance.pid)).toBe(false);
+    expect(written).toContain("Stopped 1 process across 1 instance,");
+});
+
+test("a skipped process does not stop the sweep from reaching the next one", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const reused = instanceWithOneProcess(root);
+    const genuine = instanceWithOneProcess(root);
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        reads: {
+            readStartedAt: (pid) =>
+                pid === reused.pid ? reusedStart() : sameStart(),
+        },
+    });
+
+    expect(processIsAlive(reused.pid)).toBe(true);
+    expect(processIsAlive(genuine.pid)).toBe(false);
+    expect(written).toContain("Stopped 1 process across 2 instances,");
+});
+
+/** Records signals without delivering them, so the process stays up for the next read. */
+function recordedSignals(
+    signals: string[],
+    onSignal: (pid: number, signal: NodeJS.Signals) => void,
+): (pid: number, signal: NodeJS.Signals) => void {
+    return (pid, signal) => {
+        signals.push(`${signal}:${pid}`);
+        onSignal(pid, signal);
+    };
+}
+
+test("a process that cannot be confirmed gone after SIGKILL is not counted as stopped", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+    let killed = false;
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 100,
+        reads: {
+            // The last read, after both SIGKILLs, comes back empty.
+            readStartedAt: () => killed ? undefined : sameStart(),
+            kill: recordedSignals(signals, (pid, signal) => {
+                if (signal === "SIGKILL" && pid > 0) killed = true;
+            }),
+        },
+    });
+
+    expect(signals).toEqual([
+        `SIGTERM:${instance.pid}`,
+        `SIGKILL:-${instance.pid}`,
+        `SIGKILL:${instance.pid}`,
+    ]);
+    expect(written).toContain(`unconfirmed host        pid ${instance.pid}`);
+    expect(written).toContain("signalled; could not confirm it exited");
+    expect(written).not.toContain("stopped     host");
+    expect(written).toContain("Stopped 0 processes across 1 instance,");
+    expect(listLiveProcessesIn(instance.veraHome)).toHaveLength(1);
+});
+
+test("a process that cannot be confirmed before SIGKILL says a signal already went out", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+    let termSent = false;
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 100,
+        reads: {
+            readStartedAt: () => termSent ? undefined : sameStart(),
+            kill: recordedSignals(signals, (_pid, signal) => {
+                if (signal === "SIGTERM") termSent = true;
+            }),
+        },
+    });
+
+    expect(signals).toEqual([`SIGTERM:${instance.pid}`]);
+    expect(written).toContain(`unconfirmed host        pid ${instance.pid}`);
+    expect(written).toContain("signalled; could not confirm it exited");
+    expect(written).not.toContain("not signalled");
+    expect(written).toContain("Stopped 0 processes across 1 instance,");
+    expect(listLiveProcessesIn(instance.veraHome)).toHaveLength(1);
+});
+
+test("a PID that stops matching after the group SIGKILL is not described as reused", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const signals: string[] = [];
+    let groupKilled = false;
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 100,
+        reads: {
+            readStartedAt: () => groupKilled ? reusedStart() : sameStart(),
+            kill: recordedSignals(signals, (pid, signal) => {
+                if (signal === "SIGKILL" && pid < 0) groupKilled = true;
+            }),
+        },
+    });
+
+    expect(signals).toEqual([
+        `SIGTERM:${instance.pid}`,
+        `SIGKILL:-${instance.pid}`,
+    ]);
+    expect(written).toContain(
+        "signalled; the PID no longer belongs to the listed process",
+    );
+    expect(written).not.toContain("another process now holds");
+    expect(written).not.toContain("not signalled");
+    expect(written).toContain("Stopped 1 process across 1 instance,");
+    expect(listLiveProcessesIn(instance.veraHome)).toEqual([]);
 });

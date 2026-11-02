@@ -28,6 +28,7 @@ import {
     forceStopResidentHost,
     unverifiedHostMessage,
 } from "../src/host/force-stop.ts";
+import { HostLockUnreadableError } from "../src/host/lockfile.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
@@ -462,7 +463,14 @@ async function stopCandidate(
         stderr.write("No development instance host is running.\n");
         return 0;
     }
-    const outcome = await forceStopResidentHost({ lockPath });
+    let outcome: Awaited<ReturnType<typeof forceStopResidentHost>>;
+    try {
+        outcome = await forceStopResidentHost({ lockPath });
+    } catch (error) {
+        if (!(error instanceof HostLockUnreadableError)) throw error;
+        stderr.write(`${error.message}\n`);
+        return 1;
+    }
     if (outcome === undefined) {
         stderr.write("No development instance host is running.\n");
         return 0;
@@ -478,7 +486,7 @@ async function stopCandidate(
             stderr.write(`Development host PID ${outcome.pid} did not stop.\n`);
             return 1;
         case "unverified":
-            stderr.write(`${unverifiedHostMessage(outcome)}\n`);
+            stderr.write(`${unverifiedHostMessage(outcome, lockPath)}\n`);
             return 1;
     }
 }

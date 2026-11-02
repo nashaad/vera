@@ -300,7 +300,7 @@ test("a rollback drain refuses a Vera-looking host whose lockfile start time is 
             `threw Could not confirm PID ${host.pid} is the Vera host (its lockfile`
                 + " has no valid start time); left it running and kept its lockfile."
                 + ` Check that PID ${host.pid} is a Vera host before you stop it. If it`
-                + " is not, deleting runtime/host.json in the Vera home is safe."
+                + ` is not, deleting ${lockPath} is safe.`
                 + " Run 'vera rollback' again. Nothing was rolled back.",
         );
         expect(host.signalCode).toBeNull();
@@ -336,6 +336,53 @@ test("a drain clears a lockfile with no valid start time whose PID is not Vera, 
     } finally {
         bystander.kill("SIGKILL");
         await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a drain refuses a Vera-looking host whose lockfile is missing its socket path, without signalling it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-upgrade-damaged-"));
+    const veraHome = join(root, "home");
+    mkdirSync(join(veraHome, "runtime"), { recursive: true });
+    const lockPath = join(veraHome, "runtime", "host.json");
+    const host = spawnVeraLookingProcess(root);
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 3,
+            pid: host.pid,
+            started_at: new Date().toISOString(),
+            build_id: "vera-abc",
+        }));
+        expect(drainInSubprocess(root, veraHome, "install")).toBe(
+            `threw Could not confirm PID ${host.pid} is the Vera host (its lockfile`
+                + " is damaged); left it running and kept its lockfile."
+                + ` Check that PID ${host.pid} is a Vera host before you stop it. If it`
+                + ` is not, deleting ${lockPath} is safe.`
+                + " Run 'bun run install:local' again. The previous release is still active.",
+        );
+        expect(host.signalCode).toBeNull();
+        expect(host.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a drain refuses a lockfile with no readable PID instead of reporting no host", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-upgrade-unreadable-"));
+    const veraHome = join(root, "home");
+    mkdirSync(join(veraHome, "runtime"), { recursive: true });
+    const lockPath = join(veraHome, "runtime", "host.json");
+    try {
+        writeFileSync(lockPath, '{ "schema_version": 3, "pid": 51');
+        const result = drainInSubprocess(root, veraHome, "rollback");
+        expect(result).toStartWith(`threw The host lockfile ${lockPath} exists`);
+        expect(result).toContain("cannot tell whether a Vera host is running");
+        expect(result).toEndWith("Run 'vera rollback' again. Nothing was rolled back.");
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
         rmSync(root, { recursive: true, force: true });
     }
 });

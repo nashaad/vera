@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
     chmod,
     mkdir,
@@ -39,6 +40,24 @@ export interface HostLockfile {
 export interface HostLockDiagnosis {
     readonly record?: HostLockRecord;
     readonly wedged?: boolean;
+}
+
+export type HostLockInspection =
+    | { readonly state: "absent" }
+    | { readonly state: "valid"; readonly record: HostLockRecord }
+    | { readonly state: "damaged"; readonly path: string; readonly pid?: number };
+
+// Thrown by the stop paths when a lockfile exists but names no readable PID.
+export class HostLockUnreadableError extends Error {
+    constructor(readonly lockPath: string) {
+        super(
+            `The host lockfile ${lockPath} exists but cannot be read, so Vera`
+                + " cannot tell whether a Vera host is running. Check for a"
+                + " running Vera host (vera doctor lists Vera processes). If"
+                + " there is none, delete the file.",
+        );
+        this.name = "HostLockUnreadableError";
+    }
 }
 
 export class HostUnresponsiveError extends Error {
@@ -252,6 +271,60 @@ export async function readHostLockRecordFile(
     const serialized = await readLockSource(path);
     if (serialized === undefined) return undefined;
     return parseHostLock(serialized);
+}
+
+// A lockfile that exists but does not parse as a whole is damaged, not
+// absent. Its PID, when still readable, lets the stop paths check the process.
+export async function inspectHostLockFile(
+    path: string = defaultHostLockPath(),
+): Promise<HostLockInspection> {
+    return inspectLockSource(path, await readLockSource(path));
+}
+
+// For callers that cannot be async, such as release reference checks.
+export function inspectHostLockFileSync(
+    path: string = defaultHostLockPath(),
+): HostLockInspection {
+    let serialized: string | undefined;
+    try {
+        serialized = readFileSync(path, "utf8");
+    } catch (error) {
+        if (!isMissingFileError(error)) throw error;
+    }
+    return inspectLockSource(path, serialized);
+}
+
+function inspectLockSource(
+    path: string,
+    serialized: string | undefined,
+): HostLockInspection {
+    if (serialized === undefined) return { state: "absent" };
+    const record = parseHostLock(serialized);
+    if (record !== undefined) return { state: "valid", record };
+    const pid = salvageLockPid(serialized);
+    return pid === undefined
+        ? { state: "damaged", path }
+        : { state: "damaged", path, pid };
+}
+
+function salvageLockPid(source: string): number | undefined {
+    let candidate: unknown;
+    try {
+        const value: unknown = JSON.parse(source);
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return undefined;
+        }
+        candidate = (value as Record<string, unknown>).pid;
+    } catch {
+        // Cut-off JSON: accept a number only when a delimiter follows it, so
+        // a PID truncated mid-digits is not mistaken for another process.
+        const match = /"pid"\s*:\s*(\d+)\s*[,}]/.exec(source);
+        candidate = match === null ? undefined : Number(match[1]);
+    }
+    return typeof candidate === "number" && Number.isSafeInteger(candidate)
+        && candidate > 0
+        ? candidate
+        : undefined;
 }
 
 function isCompatibleHostProtocol(identity: HostIdentity): boolean {

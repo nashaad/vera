@@ -33,6 +33,7 @@ import type {
 import {
     createHostLockfile,
     HostBuildMismatchError,
+    HostLockUnreadableError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
     assertMatchingHostBuild,
@@ -126,12 +127,18 @@ import {
     colorizeVeraDoctor,
     stopStrayVeraProcesses,
     type DiagnosedVeraProcess,
+    type StrayStopReport,
     type VeraDoctorReport,
 } from "../process-doctor.ts";
 import {
+    claimListedProcess,
     listLiveProcesses,
     renderVeraPrune,
-    stopLivePid,
+    skippedProcessLine,
+    stopListedLiveProcess,
+    type ListedProcess,
+    type ListedStopResult,
+    type LiveProcessReads,
     type LiveProcessRecord,
 } from "../../src/live-process.ts";
 import {
@@ -281,6 +288,8 @@ export interface CliDependencies {
         currentHostPid?: number,
     ) => boolean | Promise<boolean>;
     readonly stopPruneProcess?: (pid: number) => number | Promise<number>;
+    // Reads and signals used by the default prune stop to confirm each process.
+    readonly liveProcessReads?: LiveProcessReads;
     readonly tmuxSockets?: () => Promise<TmuxSocketReport>;
     readonly confirmStopStrayProcesses?: (
         strays: readonly DiagnosedVeraProcess[],
@@ -288,6 +297,7 @@ export interface CliDependencies {
     ) => boolean | Promise<boolean>;
     readonly stopStrayProcesses?: (
         strays: readonly DiagnosedVeraProcess[],
+        report: StrayStopReport,
     ) => number | Promise<number>;
     readonly sweepTmuxSockets?: (
         report: TmuxSocketReport,
@@ -668,18 +678,32 @@ export async function runCli(
             );
             return 1;
         }
+        // Claimed now, before any prompt, so a PID reused while the user
+        // deliberates is caught by the check made just before each signal.
+        const claims = records.map((record) =>
+            claimListedProcess(record, dependencies.liveProcessReads)
+        );
         let stopped = 0;
-        for (const candidate of records) {
+        for (const listed of claims) {
+            const candidate = listed.record;
             const approved = await (confirm ?? confirmPruneProcess)(
                 candidate,
                 currentHostPid,
             );
             if (!approved) continue;
-            const didStop = await (
-                dependencies.stopPruneProcess ?? ((pid: number) =>
-                    stopLivePid(pid) ? 1 : 0)
-            )(candidate.pid);
-            stopped += didStop;
+            if (dependencies.stopPruneProcess !== undefined) {
+                stopped += await dependencies.stopPruneProcess(candidate.pid);
+                continue;
+            }
+            const result = stopListedLiveProcess(
+                listed,
+                dependencies.liveProcessReads,
+            );
+            if (result === "stopped") {
+                stopped += 1;
+                continue;
+            }
+            output.write(skippedProcessLine(candidate.pid, result));
         }
         output.write(
             stopped === 0
@@ -717,7 +741,7 @@ export async function runCli(
                 if (strays.length > 0) {
                     const stopped = await (
                         dependencies.stopStrayProcesses ?? stopStrayVeraProcesses
-                    )(strays);
+                    )(strays, { onSkipped: (line) => output.write(line) });
                     output.write(
                         `Stopped ${stopped} stray process${stopped === 1 ? "" : "es"}.\n`,
                     );
@@ -845,26 +869,36 @@ export async function runCli(
             output.write("Resident Vera host was not stopped.\n");
             return 0;
         }
-        if (force) {
+        try {
+            if (force) {
+                const outcome = await (
+                    dependencies.forceStopHost ?? forceStopResidentHost
+                )();
+                if (outcome === undefined) {
+                    output.write("No resident Vera host is recorded.\n");
+                    return 0;
+                }
+                const rendered = renderForceStopOutcome(outcome);
+                output.write(rendered.text);
+                return rendered.exitCode;
+            }
             const outcome = await (
-                dependencies.forceStopHost ?? forceStopResidentHost
+                dependencies.stopHost ?? gracefulStopResidentHost
             )();
             if (outcome === undefined) {
-                output.write("No resident Vera host is recorded.\n");
+                output.write("No resident Vera host is running.\n");
                 return 0;
             }
-            const rendered = renderForceStopOutcome(outcome);
+            const rendered = renderGracefulStopOutcome(outcome);
             output.write(rendered.text);
             return rendered.exitCode;
+        } catch (error) {
+            if (error instanceof HostLockUnreadableError) {
+                errorOutput.write(`${error.message}\n`);
+                return 1;
+            }
+            throw error;
         }
-        const outcome = await (dependencies.stopHost ?? gracefulStopResidentHost)();
-        if (outcome === undefined) {
-            output.write("No resident Vera host is running.\n");
-            return 0;
-        }
-        const rendered = renderGracefulStopOutcome(outcome);
-        output.write(rendered.text);
-        return rendered.exitCode;
     }
 
     if (
@@ -1086,18 +1120,24 @@ interface StopRendering {
     readonly exitCode: number;
 }
 
-function clearedExitedHostLockfile(pid: number): StopRendering {
+function clearedExitedHostLockfile(outcome: ForceStopOutcome): StopRendering {
+    const lockfile = outcome.lockDamaged === true
+        ? "damaged lockfile"
+        : "lockfile";
     return {
-        text: `Resident Vera host PID ${pid} had already exited; cleared its`
-            + " lockfile.\n",
+        text: `Resident Vera host PID ${outcome.pid} had already exited;`
+            + ` cleared its ${lockfile}.\n`,
         exitCode: 0,
     };
 }
 
-function clearedStaleLockfile(pid: number): StopRendering {
+function clearedStaleLockfile(outcome: ForceStopOutcome): StopRendering {
+    const lockfile = outcome.lockDamaged === true
+        ? "damaged lockfile"
+        : "stale lockfile";
     return {
-        text: `PID ${pid} is no longer a Vera host; cleared its stale`
-            + " lockfile.\n",
+        text: `PID ${outcome.pid} is no longer a Vera host; cleared its`
+            + ` ${lockfile}.\n`,
         exitCode: 0,
     };
 }
@@ -1114,9 +1154,9 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
         case "sigkill":
             return stopped("killed after it ignored SIGTERM");
         case "already_dead":
-            return clearedExitedHostLockfile(outcome.pid);
+            return clearedExitedHostLockfile(outcome);
         case "not_ours":
-            return clearedStaleLockfile(outcome.pid);
+            return clearedStaleLockfile(outcome);
         case "survived":
             return {
                 text: `Resident Vera host PID ${outcome.pid} is still running`
@@ -1142,9 +1182,9 @@ function renderGracefulStopOutcome(outcome: ForceStopOutcome): StopRendering {
                 exitCode: 0,
             };
         case "already_dead":
-            return clearedExitedHostLockfile(outcome.pid);
+            return clearedExitedHostLockfile(outcome);
         case "not_ours":
-            return clearedStaleLockfile(outcome.pid);
+            return clearedStaleLockfile(outcome);
         case "survived":
             return {
                 text: `Resident Vera host PID ${outcome.pid} is still running. `
