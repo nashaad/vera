@@ -59,7 +59,7 @@ import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
 import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
 
-import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
+import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type ClosedMember, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
 import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
 import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
@@ -153,7 +153,7 @@ export class AgentRegistry {
         return registryLifecycle.closeAgentTree(this, id, reason);
     }
 
-    async parkExpiredIdle(now = Date.now()): Promise<void> {
+    async parkExpiredIdle(now = Date.now()): Promise<readonly ClosedMember[]> {
         return registryLifecycle.parkExpiredIdle(this, now);
     }
 

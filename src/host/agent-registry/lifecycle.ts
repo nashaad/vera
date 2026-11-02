@@ -9,7 +9,7 @@ import { copySessionMessageAttachments, createSessionBranch } from "../../store/
 import { SessionStore, defaultSessionPath } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publishBranchAttachments, removePublishedBranchAttachments, type PublishedBranchAttachments } from "./helpers.ts";
-import { LIVE_IDLE_WINDOW_MS, entryIsLive, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
+import { LIVE_IDLE_WINDOW_MS, entryIsLive, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type ClosedMember, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
 import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
@@ -71,9 +71,13 @@ export async function closeAgentTree(reg: AgentRegistry, id: string, reason: Ses
                 quiesced.set(memberId, entry);
             }
         }
+        const closed: ClosedMember[] = [];
         for (const [memberId, entry] of quiesced) {
             announceSessionEnd(reg, entry, reason);
             await reg.reapClosedAgent(memberId, entry);
+            if (!entry.ephemeral) {
+                closed.push({ id: memberId, sessionPath: entry.store.path });
+            }
         }
         if (quiesced.size > 0) {
             reg.notifyRosterChanged();
@@ -81,11 +85,13 @@ export async function closeAgentTree(reg: AgentRegistry, id: string, reason: Ses
         return {
             status: present || quiesced.size > 0 ? "closed" : "not_found",
             sessionRetained,
+            closed,
         };
     }
 
-export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Promise<void> {
-        if (reg.isClosed) return;
+export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Promise<readonly ClosedMember[]> {
+        const closed: ClosedMember[] = [];
+        if (reg.isClosed) return closed;
         const expiredRoots: string[] = [];
         for (const [id, entry] of reg.agents) {
             if (reg.startingIds.has(id)) continue;
@@ -101,11 +107,12 @@ export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Pro
         for (const id of expiredRoots) {
             if (reg.isClosed || !reg.agents.has(id)) continue;
             try {
-                await closeAgentTree(reg, id, "idle");
+                closed.push(...(await closeAgentTree(reg, id, "idle")).closed);
             } catch {
                 // A failed park must not stop the rest of the sweep.
             }
         }
+        return closed;
     }
 
 function treeIdleForPark(reg: AgentRegistry, id: string): boolean {
@@ -135,7 +142,7 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
             || target.agent.failed
             || target.failure !== undefined
         ) {
-            return { status: "not_found", sessionRetained: true };
+            return { status: "not_found", sessionRetained: true, closed: [] };
         }
         const caller = reg.agents.get(callerId);
         if (
@@ -558,7 +565,7 @@ function restartPlan(reg: AgentRegistry, entry: RegisteredAgentEntry): RestartPl
         };
     }
 
-// A child is restarted only when its parent in the plan restarted, so no child links to a missing parent.
+// A child whose parent is in the plan restarts only after that parent restarted and is still live.
 async function restartClosedAgents(reg: AgentRegistry, plans: readonly RestartPlan[]): Promise<void> {
         const planned = new Set(plans.map((plan) => plan.id));
         const restarted = new Set<string>();
@@ -597,7 +604,11 @@ function parentAcceptsRestart(
             return true;
         }
         if (planned.has(parentId)) {
-            return restarted.has(parentId) && reg.agents.has(parentId);
+            // A restart can register a session that already failed, or fail once its loop starts.
+            const parent = reg.agents.get(parentId);
+            return restarted.has(parentId)
+                && parent !== undefined
+                && entryIsLive(parent);
         }
         if (reg.trashingIds.has(parentId)) {
             return false;
