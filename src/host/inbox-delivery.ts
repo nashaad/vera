@@ -6,6 +6,8 @@ import { RETIRED_PEER_READ_KIND } from "./local-participation.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 
 export const MAX_INBOX_NOTICE_COUNT = 99;
+// Waits before each retry of a start that failed; after the last one the entry is reported once.
+const START_RETRY_DELAYS_MS: readonly number[] = [500, 2_000, 8_000];
 export const UNCOUNTED_INBOX_KINDS: readonly string[] = [SOURCE_GAP_KIND, RETIRED_PEER_READ_KIND];
 
 export interface InboxNotice {
@@ -35,12 +37,14 @@ export interface AttachInboxConsumerRequest {
     readonly projectRoot?: string;
     readonly notify: (notice: InboxNotice) => void;
     readonly canStartTurn?: () => boolean;
-    readonly startTurn?: (candidate: InboxAdmissionCandidate) => void;
+    // A rejection or throw is retried with backoff, then reported through onStartFailure.
+    readonly startTurn?: (candidate: InboxAdmissionCandidate) => void | Promise<void>;
     readonly requestAdmission?: (
         candidate: InboxAdmissionCandidate,
         signal: AbortSignal,
     ) => Promise<InboxAdmissionDecision | undefined>;
     readonly onAdmissionFailure?: (candidate: InboxAdmissionCandidate) => void;
+    readonly onStartFailure?: (candidate: InboxAdmissionCandidate) => void;
 }
 
 export class InboxDeliverySession {
@@ -49,16 +53,24 @@ export class InboxDeliverySession {
     private readonly notify: (notice: InboxNotice) => void;
     private readonly admission?: InboxAdmissionPolicy;
     private readonly canStartTurn: () => boolean;
-    private readonly startTurn: (candidate: InboxAdmissionCandidate) => void;
+    private readonly startTurn: (candidate: InboxAdmissionCandidate) => void | Promise<void>;
     private readonly requestAdmission:
         AttachInboxConsumerRequest["requestAdmission"];
     private readonly onAdmissionFailure:
         AttachInboxConsumerRequest["onAdmissionFailure"];
+    private readonly onStartFailure:
+        AttachInboxConsumerRequest["onStartFailure"];
     private queue: Promise<void> = Promise.resolve();
     private released = false;
     private readonly sessionFamilies = new Set<string>();
     private readonly onceEntries = new Set<number>();
-    private readonly lastWoken = new Map<string, number>();
+    // Entries whose turn was asked for and not yet acknowledged, so a pump does not ask twice.
+    private readonly woken = new Set<number>();
+    private readonly startFailures = new Map<number, number>();
+    private readonly reportedStartFailures = new Set<number>();
+    private readonly retryTimers = new Set<ReturnType<typeof setTimeout>>();
+    // Bumped when the client detaches, so a start from the old attachment cannot undo the new one's marks.
+    private attachmentEpoch = 0;
     private readonly lastAdmissionAttempt = new Map<string, number>();
     // Newest visible entry when a family's question was dismissed; only a later arrival asks again.
     private readonly dismissedThrough = new Map<string, number>();
@@ -83,6 +95,7 @@ export class InboxDeliverySession {
         this.startTurn = request.startTurn ?? (() => undefined);
         this.requestAdmission = request.requestAdmission;
         this.onAdmissionFailure = request.onAdmissionFailure;
+        this.onStartFailure = request.onStartFailure;
     }
 
     get consumer(): ConsumerHandle {
@@ -99,6 +112,8 @@ export class InboxDeliverySession {
     release(): void {
         if (this.released) return;
         this.released = true;
+        this.clearRetries();
+        this.abortPendingQuestions();
         this.handle.release();
         this.coordinator.forget(this);
     }
@@ -107,26 +122,26 @@ export class InboxDeliverySession {
         if (attached) return;
         this.sessionFamilies.clear();
         this.onceEntries.clear();
-        this.lastWoken.clear();
+        this.attachmentEpoch += 1;
+        this.woken.clear();
+        this.reportedStartFailures.clear();
+        this.clearRetries();
         this.lastAdmissionAttempt.clear();
         this.dismissedThrough.clear();
-        for (const controller of this.pendingAdmissionFamilies.values()) {
-            controller.abort();
-        }
-        this.pendingAdmissionFamilies.clear();
+        this.abortPendingQuestions();
     }
 
     hasAdmittedPending(): boolean {
         if (this.released || !this.canStartTurn()) return false;
-        const entries = this.handle.read({
-            limit: MAX_INBOX_NOTICE_COUNT,
-            addresses: [this.handle.label],
-            excludeKinds: UNCOUNTED_INBOX_KINDS,
-        });
-        return entries.some((entry) =>
-            !this.deliveredAhead.has(entry.seq)
-            && this.isAdmitted(candidateFor(entry))
-        );
+        for (const entry of this.unreadEntries()) {
+            if (
+                !this.deliveredAhead.has(entry.seq)
+                && this.isAdmitted(candidateFor(entry))
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The entry's text is in the conversation: acknowledge it now if it is next, else when it becomes next. */
@@ -166,6 +181,7 @@ export class InboxDeliverySession {
 
     private inspect(): void {
         if (this.released) return;
+        this.forgetAcknowledged();
         const unread = this.handle.unreadStatus({
             limit: MAX_INBOX_NOTICE_COUNT,
             addresses: [this.handle.label],
@@ -175,16 +191,13 @@ export class InboxDeliverySession {
         this.notify({
             unreadCount: Math.min(MAX_INBOX_NOTICE_COUNT, unread.count),
         });
+        // Starting a turn and asking a question both need an attached client.
+        if (!this.canStartTurn()) return;
 
-        const entries = this.handle.read({
-            limit: MAX_INBOX_NOTICE_COUNT,
-            addresses: [this.handle.label],
-            excludeKinds: UNCOUNTED_INBOX_KINDS,
-        });
         // Only the first unadmitted entry is asked about; admitted entries behind it still start turns.
         let questionOffered = false;
-        const newestSeq = entries.at(-1)?.seq ?? 0;
-        for (const entry of entries) {
+        const newestSeq = unread.newestSeq ?? 0;
+        for (const entry of this.unreadEntries()) {
             if (this.deliveredAhead.has(entry.seq)) continue;
             const candidate = candidateFor(entry);
             if (this.isAdmitted(candidate)) {
@@ -197,13 +210,36 @@ export class InboxDeliverySession {
         }
     }
 
+    /** Every unread entry for this conversation, oldest first, read one window at a time. */
+    private *unreadEntries(): Generator<InboxEntry> {
+        let afterSeq = 0;
+        while (!this.released) {
+            const page = this.handle.read({
+                limit: MAX_INBOX_NOTICE_COUNT,
+                afterSeq,
+                addresses: [this.handle.label],
+                excludeKinds: UNCOUNTED_INBOX_KINDS,
+            });
+            yield* page;
+            const last = page.at(-1);
+            if (last === undefined || page.length < MAX_INBOX_NOTICE_COUNT) return;
+            afterSeq = last.seq;
+        }
+    }
+
+    private abortPendingQuestions(): void {
+        for (const controller of this.pendingAdmissionFamilies.values()) {
+            controller.abort();
+        }
+        this.pendingAdmissionFamilies.clear();
+    }
+
     private newestVisibleSeq(): number {
-        const entries = this.handle.read({
+        return this.handle.unreadStatus({
             limit: MAX_INBOX_NOTICE_COUNT,
             addresses: [this.handle.label],
             excludeKinds: UNCOUNTED_INBOX_KINDS,
-        });
-        return entries.at(-1)?.seq ?? 0;
+        }, this.coordinator.now()).newestSeq ?? 0;
     }
 
     private isAdmitted(candidate: InboxAdmissionCandidate): boolean {
@@ -214,14 +250,59 @@ export class InboxDeliverySession {
     }
 
     private maybeStartTurn(candidate: InboxAdmissionCandidate): void {
-        if (!this.canStartTurn()) return;
-        const previous = this.lastWoken.get(candidate.sourceFamily) ?? 0;
-        if (candidate.seq <= previous) return;
-        this.lastWoken.set(candidate.sourceFamily, candidate.seq);
+        if (this.released || !this.canStartTurn() || this.woken.has(candidate.seq)) return;
+        this.woken.add(candidate.seq);
+        const epoch = this.attachmentEpoch;
+        const failed = (): void => {
+            if (epoch === this.attachmentEpoch) this.startFailed(candidate);
+        };
         try {
-            this.startTurn(candidate);
+            Promise.resolve(this.startTurn(candidate)).catch(failed);
         } catch {
-            this.lastWoken.delete(candidate.sourceFamily);
+            failed();
+        }
+    }
+
+    private startFailed(candidate: InboxAdmissionCandidate): void {
+        // Only this entry's mark is dropped: a later entry that did start must not start again.
+        this.woken.delete(candidate.seq);
+        if (this.released) return;
+        const failures = (this.startFailures.get(candidate.seq) ?? 0) + 1;
+        this.startFailures.set(candidate.seq, failures);
+        const delay = this.coordinator.retryDelaysMs()[failures - 1];
+        if (delay !== undefined) {
+            const timer = setTimeout(() => {
+                this.retryTimers.delete(timer);
+                void this.pump();
+            }, delay);
+            timer.unref?.();
+            this.retryTimers.add(timer);
+            return;
+        }
+        if (this.reportedStartFailures.has(candidate.seq)) return;
+        this.reportedStartFailures.add(candidate.seq);
+        try {
+            this.onStartFailure?.(candidate);
+        } catch {
+        }
+    }
+
+    private clearRetries(): void {
+        for (const timer of this.retryTimers) clearTimeout(timer);
+        this.retryTimers.clear();
+        this.startFailures.clear();
+    }
+
+    private forgetAcknowledged(): void {
+        const offset = this.handle.offset();
+        for (const seq of this.woken) {
+            if (seq <= offset) this.woken.delete(seq);
+        }
+        for (const seq of this.startFailures.keys()) {
+            if (seq <= offset) this.startFailures.delete(seq);
+        }
+        for (const seq of this.reportedStartFailures) {
+            if (seq <= offset) this.reportedStartFailures.delete(seq);
         }
     }
 
@@ -300,6 +381,7 @@ export class InboxDeliverySession {
 
 export interface InboxDeliveryOptions {
     readonly now?: () => number;
+    readonly retryDelaysMs?: readonly number[];
     readonly admission?: InboxAdmissionPolicy;
     readonly admissionFor?: (
         projectRoot?: string,
@@ -310,6 +392,7 @@ export class InboxDeliveryCoordinator {
     private readonly consumers: ConsumerRegistry;
     private readonly sessions = new Set<InboxDeliverySession>();
     private readonly clock: () => number;
+    private readonly startRetryDelaysMs: readonly number[];
     private readonly admission?: InboxAdmissionPolicy;
     private readonly admissionFor?: InboxDeliveryOptions["admissionFor"];
     // In memory only: after a host restart an unread entry falls back to the admission prompt.
@@ -318,6 +401,7 @@ export class InboxDeliveryCoordinator {
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
         this.clock = options.now ?? (() => Date.now());
+        this.startRetryDelaysMs = options.retryDelaysMs ?? START_RETRY_DELAYS_MS;
         this.admission = options.admission;
         this.admissionFor = options.admissionFor;
     }
@@ -402,6 +486,10 @@ export class InboxDeliveryCoordinator {
 
     now(): number {
         return this.clock();
+    }
+
+    retryDelaysMs(): readonly number[] {
+        return this.startRetryDelaysMs;
     }
 
     forget(session: InboxDeliverySession): void {

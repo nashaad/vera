@@ -220,7 +220,9 @@ without asking the user, because installing an extension that declares
 `sessions.send` is the consent. If a turn is running, the new one starts after
 it, and the transcript shows your text. A question about another message in
 the same inbox that the user has not answered does not delay yours. Your
-message is marked read once the messages before it have been read.
+message is marked read once the messages before it have been read. If Vera
+cannot record the turn, it tries again a few times, then shows a notice that
+the message is still held in the inbox.
 
 If the host restarts before the message is read, it waits in the inbox and
 Vera asks whether to admit its source: the last part of your extension ID, so

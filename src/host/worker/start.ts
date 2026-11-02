@@ -4,7 +4,7 @@ import type { ModelReasoningEffort } from "../../model/types.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { HostBoundaryOffers } from "../../engine/host-boundary.ts";
-import type { LoopState } from "../../engine/host-protocol.ts";
+import type { LoopState, PendingDeliveryTurnReply } from "../../engine/host-protocol.ts";
 import type { CompactionWireSpec } from "../../engine/compaction-binding.ts";
 import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
 import type { RunHeadlessLoopData } from "../../engine/loop-services.ts";
@@ -69,4 +69,16 @@ export interface ClientCommandNotification {
 export interface WorkerFinishedNotification {
     readonly method: "worker.finished";
     readonly error?: string;
+}
+
+/** The worker asks whether the host still holds an admitted inbox entry for a queued delivery turn. */
+export interface DeliveryPendingRequest {
+    readonly method: "delivery.pending";
+}
+
+export type DeliveryPendingReply = PendingDeliveryTurnReply;
+
+/** The worker dropped a delivery turn the host had started, so the host stops counting it as running. */
+export interface DeliveryDiscardedNotification {
+    readonly method: "delivery.discarded";
 }

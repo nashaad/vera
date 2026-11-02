@@ -100,7 +100,9 @@ conversation, or always. Dismissing the question with Escape is not an
 answer: the note stays unread, and Vera asks again when another message
 arrives for this conversation or when you reattach. A note that starts a turn
 while an earlier one is still waiting is marked read after the earlier one is
-read, and the model is not shown it twice. A conversation running in the
+read, and the model is not shown it twice. If Vera cannot record the turn,
+it tries again a few times, then shows a notice that the note is still held
+in the inbox. A conversation running in the
 background with auto or full access permissions starts a turn on its own. One
 with ask permissions keeps the message until you return to it.
 

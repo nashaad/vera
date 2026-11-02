@@ -7,9 +7,17 @@ import { EngineEventBus } from "../../src/engine/events.ts";
 import { rewindConversationBefore } from "../../src/engine/conversation-rewind.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
-import { createInProcessChannel } from "../../src/engine/message-channel.ts";
-import { createProtocolEncoder } from "../../src/engine/protocol.ts";
-import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import {
+    createInProcessChannel,
+    type MessageChannel,
+} from "../../src/engine/message-channel.ts";
+import { createProtocolEncoder, type AgentUpdate } from "../../src/engine/protocol.ts";
+import type { EngineCommand } from "../../src/engine/timeline-control.ts";
+import {
+    runHeadlessLoop,
+    runTurn,
+    type RunTurnState,
+} from "../../src/engine/run-turn.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -126,6 +134,70 @@ test("the next real prompt drains a delivery preserved across restart", async ()
         expect(store.pendingDeliveries()).toEqual([]);
         expect((await SessionStore.open(path)).pendingDeliveries()).toEqual([]);
     } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a delivery wake starts its turn when the entry reaches the session while the host is asked", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-delivery-late-"));
+    const store = await SessionStore.create(join(root, "late.jsonl"), {
+        sessionId: "late-1",
+        cwd: root,
+    });
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "The note is read." }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([response]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    void runHeadlessLoop(channel.engine, adapter, "test", "high", {}, {
+        sessionStore: store,
+        router: {
+            // The answer predates the entry: it is recorded while the host replies.
+            hasPendingDeliveryTurn: async () => {
+                await store.recordDelivery({
+                    id: "late-1",
+                    sourceAgentId: "background-1",
+                    content: "Late note.",
+                });
+                return false;
+            },
+            onDeliveryTurnDiscarded: () => {
+                discarded += 1;
+            },
+        },
+    });
+
+    try {
+        internalClient.send({ type: "trigger_delivery_turn" });
+        const finished = (async (): Promise<boolean> => {
+            while ((await channel.client.receive()).type !== "turn_finished") {
+                // Drain protocol updates until the turn completes.
+            }
+            return true;
+        })();
+        const timedOut = Bun.sleep(3_000).then(() => false);
+        expect(await Promise.race([finished, timedOut])).toBe(true);
+        expect(requests).toHaveLength(1);
+        expect(discarded).toBe(0);
+        expect(store.pendingDeliveries()).toEqual([]);
+    } finally {
+        channel.client.send({ type: "abort" });
         await rm(root, { recursive: true, force: true });
     }
 });

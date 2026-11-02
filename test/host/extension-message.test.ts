@@ -378,6 +378,99 @@ test("an extension's message stays in the transcript as its own text after the t
     }
 });
 
+test("a message whose notice cannot be recorded is delivered at the next arrival, not lost", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-extension-message-retry-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("Noted."), textResponse("Noted again.")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        const store = registry.agents.get("deck")!.store;
+        const record = store.recordDelivery.bind(store);
+        let failures = 1;
+        store.recordDelivery = async (delivery) => {
+            if (failures > 0) {
+                failures -= 1;
+                throw new Error("the session file could not be written");
+            }
+            return record(delivery);
+        };
+
+        expect(await registry.sendExtensionMessage("example.scout", "deck", "Scout report: gulls ahead.")).toBe("queued");
+        expect(await receiveTypeWithin(attachment, "task_notification", 200)).toBeUndefined();
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+
+        expect(await registry.sendExtensionMessage("example.scout", "deck", "Scout report: fog bank.")).toBe("queued");
+        const notified: string[] = [];
+        while (notified.length < 2) {
+            notified.push((await receiveType(attachment, "task_notification")).content);
+        }
+
+        expect(notified.sort()).toEqual(["Scout report: fog bank.", "Scout report: gulls ahead."]);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("a message whose notice keeps failing to record is retried, then reported once and still held", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-extension-message-retry-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+        retryDelaysMs: [5, 5],
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("Noted.")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        const store = registry.agents.get("deck")!.store;
+        let attempts = 0;
+        store.recordDelivery = async () => {
+            attempts += 1;
+            throw new Error("the session file could not be written");
+        };
+
+        expect(await registry.sendExtensionMessage("example.scout", "deck", "Scout report: gulls ahead.")).toBe("queued");
+        const notice = await receiveType(attachment, "task_notification");
+
+        expect(notice).toMatchObject({ kind: "attention", deliveryId: "inbox-start:1" });
+        expect(notice.content).toContain("Could not record a message from scout");
+        expect(attempts).toBe(3);
+        await Bun.sleep(100);
+        expect(attempts).toBe(3);
+        expect(await receiveTypeWithin(attachment, "task_notification", 100)).toBeUndefined();
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
 test("an extension's admission family is its id's last segment, never a host family", () => {
     expect(extensionMessageFamily("vera.artifacts")).toBe("artifacts");
     expect(extensionMessageFamily("acme.schedule")).toBeUndefined();

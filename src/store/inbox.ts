@@ -35,6 +35,8 @@ export interface InboxEntry {
 
 export interface InboxReadOptions {
     readonly limit: number;
+    // Skips entries up to this seq on top of the consumer offset, so a caller can page past a full window.
+    readonly afterSeq?: number;
     readonly addresses?: readonly string[];
     readonly excludeOrigin?: {
         readonly actor: string | null;
@@ -46,6 +48,7 @@ export interface InboxReadOptions {
 export interface InboxUnreadStats {
     readonly count: number;
     readonly oldestTs: string | null;
+    readonly newestSeq: number | null;
 }
 
 export interface InboxAcknowledgement {
@@ -210,16 +213,9 @@ export class Inbox {
     }
 
     readAfter(after: number, options: InboxReadOptions): InboxEntry[] {
-        const { clauses, parameters } = readPredicate(after, options);
-        parameters.push(Math.max(0, options.limit));
+        const { sql, parameters } = orderedReadQuery(after, options);
         return this.database
-            .query<EntryRow, (string | number | null)[]>(
-                `SELECT seq, source, kind, actor, session, address, payload, ts
-                 FROM entries
-                 WHERE ${clauses.join(" AND ")}
-                 ORDER BY seq
-                 LIMIT ?`,
-            )
+            .query<EntryRow, (string | number | null)[]>(sql)
             .all(...parameters);
     }
 
@@ -232,8 +228,11 @@ export class Inbox {
         }
         const { clauses, parameters } = readPredicate(after, options);
         const row = this.database
-            .query<{ count: number; oldest_ts: string | null }, (string | number | null)[]>(
-                `SELECT COUNT(*) AS count, MIN(ts) AS oldest_ts
+            .query<
+                { count: number; oldest_ts: string | null; newest_seq: number | null },
+                (string | number | null)[]
+            >(
+                `SELECT COUNT(*) AS count, MIN(ts) AS oldest_ts, MAX(seq) AS newest_seq
                  FROM entries
                  WHERE ${clauses.join(" AND ")}`,
             )
@@ -241,6 +240,7 @@ export class Inbox {
         return {
             count: row?.count ?? 0,
             oldestTs: row?.oldest_ts ?? null,
+            newestSeq: row?.newest_seq ?? null,
         };
     }
 
@@ -326,21 +326,40 @@ export class Inbox {
     }
 }
 
-function readPredicate(
+export function orderedReadQuery(
+    after: number,
+    options: InboxReadOptions,
+): { sql: string; parameters: (string | number | null)[] } {
+    // One index arm per address, merged in seq order: an IN list or an OR would scan seq or sort a union.
+    const filters = readFilters(after, options);
+    const addressArms: { clause: string | null; parameters: string[] }[] =
+        options.addresses === undefined
+            ? [{ clause: null, parameters: [] }]
+            : [
+                { clause: "address IS NULL", parameters: [] },
+                ...[...new Set(options.addresses)].map((address) => ({
+                    clause: "address = ?",
+                    parameters: [address],
+                })),
+            ];
+    const parameters: (string | number | null)[] = [];
+    const selects = addressArms.map((arm) => {
+        const clauses = arm.clause === null ? filters.clauses : [arm.clause, ...filters.clauses];
+        parameters.push(...arm.parameters, ...filters.parameters);
+        return `SELECT seq, source, kind, actor, session, address, payload, ts
+                FROM entries
+                WHERE ${clauses.join(" AND ")}`;
+    });
+    parameters.push(Math.max(0, options.limit));
+    return { sql: `${selects.join("\nUNION ALL\n")}\nORDER BY seq\nLIMIT ?`, parameters };
+}
+
+function readFilters(
     after: number,
     options: InboxReadOptions,
 ): { clauses: string[]; parameters: (string | number | null)[] } {
     const clauses = ["seq > ?"];
-    const parameters: (string | number | null)[] = [after];
-    if (options.addresses !== undefined) {
-        const placeholders = options.addresses.map(() => "?").join(", ");
-        clauses.push(
-            options.addresses.length === 0
-                ? "address IS NULL"
-                : `(address IS NULL OR address IN (${placeholders}))`,
-        );
-        parameters.push(...options.addresses);
-    }
+    const parameters: (string | number | null)[] = [Math.max(after, options.afterSeq ?? 0)];
     if (options.excludeOrigin !== undefined) {
         clauses.push("NOT (actor IS ? AND session IS ?)");
         parameters.push(options.excludeOrigin.actor, options.excludeOrigin.session);
@@ -350,6 +369,22 @@ function readPredicate(
             `kind NOT IN (${options.excludeKinds.map(() => "?").join(", ")})`,
         );
         parameters.push(...options.excludeKinds);
+    }
+    return { clauses, parameters };
+}
+
+function readPredicate(
+    after: number,
+    options: InboxReadOptions,
+): { clauses: string[]; parameters: (string | number | null)[] } {
+    const { clauses, parameters } = readFilters(after, options);
+    if (options.addresses !== undefined) {
+        clauses.push(
+            options.addresses.length === 0
+                ? "address IS NULL"
+                : `(address IS NULL OR address IN (${options.addresses.map(() => "?").join(", ")}))`,
+        );
+        parameters.push(...options.addresses);
     }
     return { clauses, parameters };
 }

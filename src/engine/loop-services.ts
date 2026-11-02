@@ -71,7 +71,7 @@ export interface RunHeadlessLoopData {
 
 export interface InboundRouterHostHooks {
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
-    readonly hasPendingDeliveryTurn?: () => boolean;
+    readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
     readonly onDeliveryTurnDiscarded?: () => void;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,

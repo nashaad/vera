@@ -119,7 +119,8 @@ export class ResidentAgent {
     private isClosed = false;
     private pendingCommandCount = 0;
     private unstartedPrompts = 0;
-    private deliveryTurnStarting = false;
+    // Wakes the engine took that neither started a turn nor reported a discard.
+    private outstandingDeliveryWakes = 0;
     private startedTurnActive = false;
     private deliveryTurnQueued = false;
     private readonly maxPendingCommands: number;
@@ -150,7 +151,7 @@ export class ResidentAgent {
                     }
                     if (queued.command.type === "trigger_delivery_turn") {
                         this.deliveryTurnQueued = false;
-                        this.deliveryTurnStarting = true;
+                        this.outstandingDeliveryWakes += 1;
                     }
                     return queued.command;
                 });
@@ -367,9 +368,11 @@ export class ResidentAgent {
     }
 
     deliveryTurnDiscarded(): void {
-        if (this.deliveryTurnStarting) {
-            this.deliveryTurnStarting = false;
-            this.notifyRunStateChanged();
+        if (this.outstandingDeliveryWakes > 0) {
+            this.outstandingDeliveryWakes -= 1;
+            if (this.outstandingDeliveryWakes === 0) {
+                this.notifyRunStateChanged();
+            }
         }
     }
 
@@ -534,7 +537,7 @@ export class ResidentAgent {
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
-                this.deliveryTurnStarting = false;
+                this.outstandingDeliveryWakes = 0;
                 this.startedTurnActive = true;
             }
         } else if (snapshot.type === "user_prompt") {
@@ -574,14 +577,14 @@ export class ResidentAgent {
             } else if (this.unstartedPrompts > 0) {
                 this.unstartedPrompts -= 1;
             }
-            this.deliveryTurnStarting = false;
+            this.outstandingDeliveryWakes = 0;
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
             this.currentTool = undefined;
             this.openRequests.clear();
             this.outOfBandRequests.clear();
             this.unstartedPrompts = 0;
-            this.deliveryTurnStarting = false;
+            this.outstandingDeliveryWakes = 0;
             this.startedTurnActive = false;
         }
         if (snapshot.type === "history") {
@@ -688,7 +691,7 @@ export class ResidentAgent {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"
             && this.unstartedPrompts === 0
-            && !this.deliveryTurnStarting
+            && this.outstandingDeliveryWakes === 0
             && !this.deliveryTurnQueued
             && this.pendingCommandCount === 0
         );

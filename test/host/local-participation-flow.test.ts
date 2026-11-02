@@ -519,6 +519,58 @@ test("an auto-mode recipient is woken with the whole message and can reply to it
     }
 });
 
+test("a peer message whose notice cannot be recorded stays unread and is reported once", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-retry-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        { retryDelaysMs: [5, 5] },
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("must not run")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    try {
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: join(root, "right.jsonl"),
+        });
+        const attachment = right.attach();
+        await attachment.receive();
+        const store = registry.agents.get("right")!.store;
+        let attempts = 0;
+        store.recordDelivery = async () => {
+            attempts += 1;
+            throw new Error("the session file could not be written");
+        };
+
+        await coordinator.appendAdmitted({
+            source: "vera",
+            kind: "peer.message",
+            actor: "left",
+            session: "left",
+            address: "right",
+            payload: JSON.stringify({ version: 1, from: "left", to: "right", text: "ahoy" }),
+        });
+        const notice = await Promise.race([
+            receiveType(attachment, "task_notification"),
+            Bun.sleep(3_000).then(() => undefined),
+        ]);
+
+        expect(notice).toMatchObject({ kind: "attention", deliveryId: "inbox-start:1" });
+        expect(attempts).toBe(3);
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "right" })).toBe(0);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
 test("peer messages use inbox admission before waking a recipient", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-local-admission-"));
     temporaryDirectories.push(root);

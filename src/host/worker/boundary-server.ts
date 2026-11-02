@@ -12,6 +12,7 @@ import type { RegisteredTool } from "../../tools/types.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import { skillScriptTool } from "../../skills/script.ts";
 import type { JsonPipe } from "./pipe.ts";
+import type { DeliveryPendingReply } from "./start.ts";
 import { CompletionUnavailableError } from "../../engine/completion-service.ts";
 
 export interface WorkerBoundaryServerOptions {
@@ -99,6 +100,11 @@ export function createWorkerBoundaryServer(
                             request.name,
                         ),
                     };
+                }
+                case "delivery.pending": {
+                    const pending = await services.router?.hasPendingDeliveryTurn?.();
+                    const reply: DeliveryPendingReply = { pending: pending === true };
+                    return reply;
                 }
                 case "approval.update": {
                     const request = body as { readonly mode: never };
@@ -381,6 +387,10 @@ export function createWorkerBoundaryServer(
                     readonly payload: SubagentFinishedHookPayload;
                 };
                 services.hooks?.notifySubagentFinished(payload);
+                return;
+            }
+            if (message.method === "delivery.discarded") {
+                services.router?.onDeliveryTurnDiscarded?.();
                 return;
             }
             if (message.method === "reviewLog.append") {

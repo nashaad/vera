@@ -1077,6 +1077,152 @@ test("a user turn that drains a delivery cancels its queued wake", async () => {
     router.finishTurn();
 });
 
+test("a delivery wake that a worker reports as not pending is discarded and reported", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: async () => false,
+        onDeliveryTurnDiscarded: () => {
+            discarded += 1;
+        },
+    });
+
+    const turn = router.startTurn();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    channel.client.send({ type: "prompt", content: "user work" });
+    const started = await turn;
+    expect(started.prompt.content).toBe("user work");
+    expect(started.triggeredByDelivery).toBeUndefined();
+    expect(discarded).toBe(1);
+    router.finishTurn();
+});
+
+test("a delivery wake that a worker reports as pending starts its turn", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: async () => true,
+        onDeliveryTurnDiscarded: () => {
+            discarded += 1;
+        },
+    });
+
+    const turn = router.startTurn();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    const started = await turn;
+    expect(started.triggeredByDelivery).toBe(true);
+    expect(discarded).toBe(0);
+    router.finishTurn();
+});
+
+test("a delivery wake that finds nothing pending is reported as discarded", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => false,
+        onDeliveryTurnDiscarded: () => {
+            discarded += 1;
+        },
+    });
+
+    const turn = router.startTurn();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    channel.client.send({ type: "prompt", content: "user work" });
+    expect((await turn).prompt.content).toBe("user work");
+    expect(discarded).toBe(1);
+    router.finishTurn();
+});
+
+async function settle(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+}
+
+test("a wake that arrives while the host is asked is checked again before the turn is discarded", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    const answers: Array<(pending: boolean) => void> = [];
+    let discarded = 0;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => new Promise<boolean>((resolve) => {
+            answers.push(resolve);
+        }),
+        onDeliveryTurnDiscarded: () => {
+            discarded += 1;
+        },
+    });
+
+    const turn = router.startTurn();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    expect(answers).toHaveLength(1);
+
+    // A second entry is recorded and woken while the first answer is on its way.
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    answers[0]!(false);
+    await settle();
+
+    expect(answers).toHaveLength(2);
+    answers[1]!(true);
+    const started = await turn;
+    expect(started.triggeredByDelivery).toBe(true);
+    router.finishTurn();
+    // The folded wake is reported once; the turn that started is not reported.
+    expect(discarded).toBe(1);
+});
+
+test("a wake folded into a claimed one that finds nothing pending is reported with it", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    const answers: Array<(pending: boolean) => void> = [];
+    let discarded = 0;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => new Promise<boolean>((resolve) => {
+            answers.push(resolve);
+        }),
+        onDeliveryTurnDiscarded: () => {
+            discarded += 1;
+        },
+    });
+
+    const turn = router.startTurn();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    answers[0]!(false);
+    await settle();
+    answers[1]!(false);
+    await settle();
+    channel.client.send({ type: "prompt", content: "user work" });
+
+    expect((await turn).prompt.content).toBe("user work");
+    expect(answers).toHaveLength(2);
+    // One report for the folded wake and one for the claimed wake.
+    expect(discarded).toBe(2);
+    router.finishTurn();
+});
+
 test("the approval warning names the authority the tool takes", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

@@ -30,6 +30,9 @@ import type {
 import type { JsonPipe } from "./pipe.ts";
 import { WorkerSessionStore } from "./session.ts";
 import type {
+    DeliveryDiscardedNotification,
+    DeliveryPendingReply,
+    DeliveryPendingRequest,
     WorkerHostCapabilities,
     WorkerSessionSeed,
 } from "./start.ts";
@@ -342,8 +345,23 @@ export function createRemoteHostBoundary(
                     }
                     : {}),
                 ...(capabilities.hasPendingDeliveryTurn
-                    ? { hasPendingDeliveryTurn: (): boolean => false }
+                    ? {
+                        hasPendingDeliveryTurn: async (): Promise<boolean> => {
+                            try {
+                                const reply = await pipe.request({
+                                    method: "delivery.pending",
+                                } satisfies DeliveryPendingRequest) as DeliveryPendingReply;
+                                return reply.pending;
+                            } catch {
+                                // A host built before this request drops the turn, as it always did.
+                                return false;
+                            }
+                        },
+                    }
                     : {}),
+                onDeliveryTurnDiscarded: (): void => {
+                    pipe.notify({ method: "delivery.discarded" } satisfies DeliveryDiscardedNotification);
+                },
                 sendTimelineReply: (ownerId, update): void => {
                     pipe.notify({
                         method: "client.update",

@@ -598,8 +598,10 @@ export const SERVICES_THAT_DO_NOT_CROSS = {
     modelFailureLedger: "derived from events",
     /**
      * Owner-side. Its hooks stay with it, and the client endpoint it holds
-     * never reaches the worker. `agent.select` is the one exception: selection is
-     * queued FIFO with the prompts, so the loop has to be the one that asks.
+     * never reaches the worker. Two hooks cross: `agent.select`, which is queued
+     * FIFO with the prompts so the loop has to ask, and the delivery wake, which
+     * the worker asks about and reports through the worker-internal
+     * `delivery.pending` and `delivery.discarded` messages in `worker/start.ts`.
      */
     router: "host-owned",
 } as const;

@@ -52,6 +52,18 @@ describe("consumer handles", () => {
         inbox.close();
     });
 
+    test("read pages past afterSeq while unreadStatus counts the whole unread run", () => {
+        const { inbox, registry } = fixture();
+        const handle = registry.hello({ label: "reviewer" });
+        inbox.appendAll([entry("a"), entry("b"), entry("c")]);
+
+        expect(handle.read({ limit: 10, afterSeq: 2 }).map((row) => row.kind)).toEqual(["c"]);
+        // @ts-expect-error a count that skipped part of the run would misreport it
+        const status = handle.unreadStatus({ limit: 10, afterSeq: 2 });
+        expect(status).toMatchObject({ count: 3, newestSeq: 3 });
+        inbox.close();
+    });
+
     test("a brand new consumer starts at the tail", () => {
         const { inbox, registry } = fixture();
         inbox.appendAll([entry("a"), entry("b")]);
