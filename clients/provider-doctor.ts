@@ -16,6 +16,7 @@ import {
     REDACTED,
 } from "../src/providers/failed-request-capture.ts";
 import { veraRuntimeDirectory } from "../src/profile-paths.ts";
+import { providerHttpReason } from "../src/providers/http-error.ts";
 
 const DEFAULT_CAPTURES_PER_PROVIDER = 3;
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
@@ -34,6 +35,8 @@ export interface ProviderProbeResult {
     readonly url: string;
     readonly status?: number;
     readonly error?: string;
+    // The provider's own explanation of a failed status, when its body carried one.
+    readonly reason?: string;
 }
 
 export interface ProviderEndpoint {
@@ -234,10 +237,12 @@ async function probeEndpoint(
             headers: probeHeaders(endpoint, descriptor, options, env),
             signal: controller.signal,
         });
+        const reason = response.ok ? undefined : await providerHttpReason(response);
         return {
             reachability: classifyStatus(response.status),
             url,
             status: response.status,
+            ...(reason === undefined ? {} : { reason }),
         };
     } catch (error) {
         return {
@@ -490,19 +495,20 @@ function describeCredential(provider: ProviderDiagnosis): string {
 
 function describeProbe(probe: ProviderProbeResult): string {
     const target = sanitizeUrlForReport(probe.url);
+    const said = probe.reason === undefined ? "" : `: ${sanitizeUrlsInText(probe.reason)}`;
     if (probe.reachability === "unreachable") {
         return `unreachable ${target} (${
             sanitizeUrlsInText(probe.error ?? "no response")
         })`;
     }
     if (probe.reachability === "rejected") {
-        return `reached ${target}, which rejected the credential (HTTP ${probe.status})`;
+        return `reached ${target}, which rejected the credential (HTTP ${probe.status})${said}`;
     }
     if (probe.reachability === "authenticated") {
         return `reached ${target}, which accepted the credential (HTTP ${probe.status}); model listing only, a real request is not tested`;
     }
     if (probe.reachability === "models_unlisted") {
-        return `reached ${target}, which does not list models (HTTP ${probe.status}); not a fault, and the credential was not tested`;
+        return `reached ${target}, which does not list models (HTTP ${probe.status})${said}; not a fault, and the credential was not tested`;
     }
-    return `reached ${target}, unexpected HTTP ${probe.status}; the credential was not tested`;
+    return `reached ${target}, unexpected HTTP ${probe.status}${said}; the credential was not tested`;
 }

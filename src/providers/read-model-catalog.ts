@@ -1,4 +1,5 @@
 import type { ProviderCatalog } from "../model/catalog-shape.ts";
+import { providerHttpReason } from "./http-error.ts";
 
 export function providerEndpointError(value: string): string | undefined {
     let url: URL;
@@ -34,7 +35,10 @@ export async function readModelCatalog(options: ReadModelCatalogOptions): Promis
         try {
             response = await (options.fetch ?? fetch)(next, { headers, signal: AbortSignal.timeout(15_000), redirect: "error" });
         } catch { throw new Error("No response from that host"); }
-        if (!response.ok) throw new Error(`Catalog request returned HTTP ${response.status}`);
+        if (!response.ok) {
+            const reason = await providerHttpReason(response);
+            throw new Error(`Catalog request returned HTTP ${response.status}${reason === undefined ? "" : `: ${reason}`}`);
+        }
         let body: { data?: unknown; has_more?: boolean; last_id?: string };
         try { body = await response.json() as typeof body; } catch { throw new Error("The host returned an invalid model catalog"); }
         if (!Array.isArray(body.data)) throw new Error("The host returned an invalid model catalog");

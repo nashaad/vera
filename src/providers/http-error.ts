@@ -21,6 +21,25 @@ export async function providerHttpError(
     return error;
 }
 
+const REASON_LIMIT = 240;
+
+// The provider's own words for a failure, so a bare status code is not all the user sees.
+export async function providerHttpReason(response: Response): Promise<string | undefined> {
+    const body = (await response.text()).slice(0, BODY_LIMIT).trim();
+    if (body.length === 0) return undefined;
+    const { providerMessage } = providerHttpDiagnostics({ body });
+    const message = providerMessage ?? firstLine(body);
+    if (message === undefined) return undefined;
+    return message.length <= REASON_LIMIT ? message : `${message.slice(0, REASON_LIMIT)}…`;
+}
+
+// An error page is markup rather than a message, so it falls back to the status alone.
+function firstLine(body: string): string | undefined {
+    const line = body.split(/\r?\n/).map((part) => part.trim()).find((part) => part.length > 0);
+    if (line === undefined || line.startsWith("<")) return undefined;
+    return sanitizeDiagnosticText(line);
+}
+
 type HttpErrorDiagnostics = Pick<ProviderFailure, "providerMessage" | "providerCode">;
 
 // Reads the common {"error": {"message", "type" | "code"}} envelope, or a bare {"message"}.

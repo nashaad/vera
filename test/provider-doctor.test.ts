@@ -119,6 +119,40 @@ test("a 401 is reported as reached but rejected", async () => {
     })).toContain("which rejected the credential (HTTP 401)");
 });
 
+test("a failure status carries the provider's own words into the report", async () => {
+    const provider = await diagnose("my-endpoint", base({
+        checkNetwork: true,
+        env: { MY_ENDPOINT_KEY: "sk-env-value-5678" },
+        fetch: async () => new Response(
+            JSON.stringify({ error: { message: "the workspace header is required" } }),
+            { status: 400, headers: { "content-type": "application/json" } },
+        ),
+    }));
+
+    expect(provider.probe?.reachability).toBe("unexpected");
+    expect(provider.probe?.reason).toBe("the workspace header is required");
+    expect(renderProviderDoctor({
+        providers: [provider],
+        networkChecked: true,
+    })).toContain(
+        "unexpected HTTP 400: the workspace header is required; the credential was not tested",
+    );
+});
+
+test("an error page contributes markup-free silence rather than its HTML", async () => {
+    const provider = await diagnose("my-endpoint", base({
+        checkNetwork: true,
+        env: { MY_ENDPOINT_KEY: "sk-env-value-5678" },
+        fetch: async () => new Response("<html>\n<title>400 Bad Request</title>\n</html>", { status: 400 }),
+    }));
+
+    expect(provider.probe?.reason).toBeUndefined();
+    expect(renderProviderDoctor({
+        providers: [provider],
+        networkChecked: true,
+    })).not.toContain("<html>");
+});
+
 test("a 200 is reported as reached and authenticated", async () => {
     let seenHeaders: Record<string, string> = {};
     const provider = await diagnose("my-endpoint", base({

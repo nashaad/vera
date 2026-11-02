@@ -37,3 +37,27 @@ test("network and malformed responses fail without a catalog", async () => {
     await expect(readModelCatalog({ ...options, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch })).rejects.toThrow("No response from that host");
     await expect(readModelCatalog({ ...options, fetch: (async () => Response.json({ invalid: true })) as unknown as typeof fetch })).rejects.toThrow("invalid model catalog");
 });
+
+test("a rejected catalog carries the provider's own reason", async () => {
+    const options = { provider: "anthropic", baseUrl: "https://example/v1", protocol: "anthropic-messages", apiKey: "key" };
+    const failure = (async () => new Response(
+        JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "anthropic-version: header is required" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+    await expect(readModelCatalog({ ...options, fetch: failure }))
+        .rejects.toThrow("Catalog request returned HTTP 400: anthropic-version: header is required");
+});
+
+test("a rejected catalog redacts keys and skips an error page's markup", async () => {
+    const options = { provider: "anthropic", baseUrl: "https://example/v1", protocol: "anthropic-messages", apiKey: "sk-ant-usr-1234567890" };
+    const leaked = (async () => new Response(
+        JSON.stringify({ error: { message: "bad key sk-ant-usr-1234567890" } }),
+        { status: 401 },
+    )) as unknown as typeof fetch;
+    await expect(readModelCatalog({ ...options, fetch: leaked }))
+        .rejects.toThrow("[REDACTED_API_KEY]");
+
+    const page = (async () => new Response("<html>\n<title>400 Bad Request</title>\n</html>", { status: 400 })) as unknown as typeof fetch;
+    await expect(readModelCatalog({ ...options, fetch: page }))
+        .rejects.toThrow("Catalog request returned HTTP 400");
+});
