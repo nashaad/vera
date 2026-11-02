@@ -1,6 +1,8 @@
 import "./pin-home.ts";
 
+import { afterAll } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +24,7 @@ import {
     writeExternalWrappers,
 } from "../src/release/wrappers.ts";
 import { TEST_USER_HOME } from "./pin-home.ts";
+import { enterTestTempRoot, sweepStaleTestRoots } from "./support/temp-root.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -38,6 +41,14 @@ if (home.endsWith(".vera-test-home")) {
     rmSync(home, { recursive: true, force: true });
 }
 mkdirSync(home, { recursive: true });
+
+// Bun runs no `process.on("exit")` handlers at the end of a test run, but a
+// preload `afterAll` does fire, once per process.
+sweepStaleTestRoots(tmpdir());
+const tempRoot = enterTestTempRoot();
+afterAll(() => {
+    tempRoot.remove();
+});
 
 if (process.env.HOME !== TEST_USER_HOME) {
     throw new Error(

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 
@@ -63,7 +63,10 @@ export interface TuiTestSession {
 }
 
 export interface TuiTestSessionOptions {
-    /** Stands in for the tmux test's fake `$HOME`; `VERA_HOME` points into it. */
+    /**
+     * Stands in for the tmux test's fake `$HOME`; `VERA_HOME` points into it.
+     * Never deleted by `close()`: a quit TUI's loop can still write here.
+     */
     readonly home: string;
     readonly width?: number;
     readonly height?: number;
@@ -76,32 +79,6 @@ export interface TuiTestSessionOptions {
 // the poll together, and the enclosing tests budget 15s anyway.
 const WAIT_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 20;
-
-/**
- * Homes swept once the process ends rather than when their test does.
- *
- * A TUI quit mid-turn leaves its headless loop streaming for a few more
- * seconds, and that loop persists the session under the test's home when it
- * finishes. Deleting the home in the test's own finally block turned that
- * late write into an unhandled ENOENT charged to whichever test ran next.
- */
-const homesToSweep = new Set<string>();
-let sweepRegistered = false;
-
-function sweepHomeAtExit(home: string): void {
-    homesToSweep.add(home);
-    if (sweepRegistered) return;
-    sweepRegistered = true;
-    process.on("exit", () => {
-        for (const dir of homesToSweep) {
-            try {
-                rmSync(dir, { recursive: true, force: true });
-            } catch {
-                // The temp dir outlives the run; the OS owns it from here.
-            }
-        }
-    });
-}
 
 // VERA_HOME is process-global, so two live sessions would read and write
 // each other's homes. The suite runs sessions one at a time; hold that line.
@@ -118,7 +95,6 @@ export async function startTuiTestSession(
     activeSession = true;
     const veraHome = join(options.home, ".vera");
     mkdirSync(veraHome, { recursive: true });
-    sweepHomeAtExit(options.home);
     const previousVeraHome = process.env[VERA_HOME_ENV];
     process.env[VERA_HOME_ENV] = veraHome;
 
