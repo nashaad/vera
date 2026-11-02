@@ -1089,6 +1089,39 @@ test("an upgrade records the previous release's host when restarting it leaves a
     expect((await readUpgradeJournal(prefix))?.surviving_host).toEqual(host);
 });
 
+test("recovery of a drained install records the host it started but could not stop", async () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const prefix = join(root, "prefix");
+    const old = writeRelease(prefix, "vera-old", home, "publish");
+    activateRelease(old.root, prefix);
+    writeRelease(prefix, "vera-new", home, "publish");
+    const survivor = spawnDisposable();
+    const host = { pid: survivor.pid, started_at: new Date().toISOString() };
+    writeUpgradeJournal({
+        phase: "draining",
+        from_build_id: "vera-old",
+        to_build_id: "vera-new",
+        host_was_running: true,
+    }, prefix);
+
+    await expect(recoverInterruptedUpgrade({
+        prefix,
+        startHost: async () => {
+            throw new StartedHostSurvivedError("The started host is still running.", host);
+        },
+    })).rejects.toThrow(/still running/);
+
+    expect(currentReleaseBuildId(prefix)).toBe("vera-old");
+    expect(await readUpgradeJournal(prefix)).toEqual({
+        phase: "draining",
+        from_build_id: "vera-old",
+        to_build_id: "vera-new",
+        host_was_running: true,
+        surviving_host: host,
+    });
+});
+
 test("the next install stops a recorded survivor, restarts the previous host and clears the journal", async () => {
     const { prefix, old, survivor } = await journalWithSurvivor();
     const started: string[] = [];

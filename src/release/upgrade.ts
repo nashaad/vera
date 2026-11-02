@@ -482,6 +482,9 @@ export async function recoverInterruptedUpgrade(
             await startHost(releaseDirectory(current, prefix));
         } catch (error) {
             if (journal.phase !== "starting" || error instanceof HostStartRefusedError) {
+                if (error instanceof StartedHostSurvivedError && error.host !== undefined) {
+                    await recordSurvivingHost(prefix, error.host);
+                }
                 throw error;
             }
             // The new release's host will not start: undo the switch like the install would.
