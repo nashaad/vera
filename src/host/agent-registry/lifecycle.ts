@@ -325,12 +325,13 @@ export async function branch(reg: AgentRegistry, options: BranchRegisteredAgentO
         const ephemeralDirectory = options.ephemeral === true
             ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
             : undefined;
+        // A branch copies the source's completed entries, so a source that is
+        // mid-turn still branches: the unfinished turn is not in the copy.
         const source = reg.agents.get(options.sourceId);
         if (
             source === undefined
             || source.agent.closed
             || source.agent.failed
-            || source.agent.status !== "idle"
         ) {
             if (ephemeralDirectory !== undefined) {
                 await rm(ephemeralDirectory, { recursive: true, force: true });
