@@ -1526,6 +1526,7 @@ export class InboundCommandRouter {
                 requestId: select.requestId,
                 reason: error instanceof Error ? error.message : String(error),
             });
+            this.publishModeChangedSince(select.requestId, previousMode);
             return;
         }
         if (selected === undefined) {
@@ -1540,9 +1541,17 @@ export class InboundCommandRouter {
             type: "agent_selected",
             update: { requestId: select.requestId, ...selected },
         });
+        this.publishModeChangedSince(select.requestId, previousMode);
+    }
+
+    // A refused selection can still have narrowed the mode, and the client must show it.
+    private publishModeChangedSince(
+        requestId: string,
+        previousMode: ApprovalMode | undefined,
+    ): void {
         const mode = this.options.readApprovalMode?.();
         if (mode !== undefined && mode !== previousMode) {
-            this.emitPermissionsChanged(select.requestId, mode);
+            this.emitPermissionsChanged(requestId, mode);
         }
     }
 

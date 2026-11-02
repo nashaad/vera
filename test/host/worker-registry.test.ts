@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -702,6 +702,62 @@ test("an agent the host refuses on access grounds is refused to the worker's cli
             .toContain("sealed forbids permission mode ask");
         expect(registry.approvalModeOf(agent.id)).toBe("ask");
     } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a refused selection that narrowed the mode reaches the worker before its answer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-select-half-"));
+    await mkdir(join(root, ".vera", "agents"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "agents", "plan.md"),
+        "---\nposture: readonly\n---\nPlan only.",
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [text("done")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    const agentWrite = spyOn(SessionStore.prototype, "appendSelectedAgent")
+        .mockRejectedValueOnce(new Error("disk full"));
+
+    try {
+        const agent = await registry.create({
+            id: "half",
+            workspace: root,
+            sessionPath: join(root, "half.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "select_agent", requestId: "select-1", name: "plan" });
+        const answer = await receiveUntil(
+            client,
+            (update) =>
+                update.type === "agent_selected" || update.type === "agent_rejected",
+        );
+        expect(answer).toMatchObject({
+            type: "agent_rejected",
+            requestId: "select-1",
+            reason: "disk full",
+        });
+        // The worker reports the mode it was last pushed, so this only appears
+        // when the host pushed the narrower mode before it answered.
+        const permissions = await receiveUntil(client, (update) => update.type === "permissions");
+        expect(permissions).toMatchObject({
+            requestId: "select-1",
+            mode: "readonly",
+        });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+    } finally {
+        agentWrite.mockRestore();
         await registry.close();
         await rm(root, { recursive: true, force: true });
     }

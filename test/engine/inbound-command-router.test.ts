@@ -2753,3 +2753,60 @@ test("selecting a definition publishes an applied permission change", async () =
     expect(observed.filter((event) => event.type === "permissions_changed")).toEqual([]);
     router.finishTurn();
 });
+
+test("a refused selection still publishes the permission change it left behind", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    let mode: ApprovalMode = "auto";
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => mode,
+        readApprovalModeOrigin: () => "agent-default",
+        selectAgent: async () => {
+            mode = "readonly";
+            throw new Error("disk full");
+        },
+    });
+    const turn = router.startTurn();
+    channel.client.send({ type: "select_agent", requestId: "select-reader", name: "reader" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "prompt", content: "inspect" });
+    await turn;
+
+    expect(observed.filter((event) =>
+        event.type === "agent_rejected" || event.type === "permissions_changed"
+    )).toEqual([
+        { type: "agent_rejected", requestId: "select-reader", reason: "disk full" },
+        {
+            type: "permissions_changed",
+            requestId: "select-reader",
+            mode: "readonly",
+            origin: "agent-default",
+            pending: true,
+        },
+    ]);
+    router.finishTurn();
+});
+
+test("a refused selection that changed nothing publishes no permission change", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "auto",
+        selectAgent: async () => {
+            throw new Error("No agent can run in this mode");
+        },
+    });
+    const turn = router.startTurn();
+    channel.client.send({ type: "select_agent", requestId: "select-sealed", name: "sealed" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "prompt", content: "inspect" });
+    await turn;
+
+    expect(observed.some((event) => event.type === "agent_rejected")).toBe(true);
+    expect(observed.some((event) => event.type === "permissions_changed")).toBe(false);
+    router.finishTurn();
+});
