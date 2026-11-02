@@ -60,6 +60,8 @@ test("a list of another schema version does not parse", () => {
 test("the key drops the namespace, the batch suffix and the dated release", () => {
     expect(curatedKey("qwen/qwen3.8-max-0902")).toBe("qwen3.8-max");
     expect(curatedKey("deepseek/deepseek-v4-pro-0813:batch")).toBe("deepseek-v4-pro");
+    expect(curatedKey("deepseek/deepseek-flash")).toBe("deepseek-flash");
+    expect(curatedKey("openrouter/deepseek-v4.1-flash-1017")).toBe("deepseek-flash");
     expect(curatedKey("~z-ai/glm-latest")).toBe("glm-latest");
     expect(curatedKey("qwen3.8-27b")).toBe("qwen3.8-27b");
 });

@@ -39,6 +39,7 @@ test("available models carry the catalog levels and default level", () => {
         {
             provider: "test",
             model: "with-levels",
+            identity: "with-levels",
             label: "With levels",
             description: "a model",
             imageSupport: true,
@@ -51,6 +52,7 @@ test("available models carry the catalog levels and default level", () => {
         {
             provider: "test",
             model: "no-levels",
+            identity: "no-levels",
             label: "No levels",
             description: "a model",
             levels: [],
@@ -58,10 +60,25 @@ test("available models carry the catalog levels and default level", () => {
         {
             provider: "test",
             model: "unknown-to-catalog",
+            identity: "unknown-to-catalog",
             label: "Unknown to catalog",
             description: "a model",
             levels: [],
         },
+    ]);
+});
+
+test("the identity reconciles the spellings two routes use for one model", () => {
+    const options = fixture();
+
+    expect(availableModelsWithLevels([
+        suggested("deepseek", "deepseek-flash"),
+        suggested("openrouter", "deepseek/deepseek-v4.1-flash-1017"),
+        suggested("test", "no-levels"),
+    ], options).map((row) => row.identity)).toEqual([
+        "deepseek-flash",
+        "deepseek-flash",
+        "no-levels",
     ]);
 });
 

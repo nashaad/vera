@@ -6,6 +6,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "./catalog-shape.ts";
+import { curatedKey } from "./curated-models.ts";
 import {
     loadPoolFile,
     type LoadPoolFileOptions,
@@ -27,6 +28,8 @@ export interface AvailableModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    /** The same model under whatever spelling its route uses, so a client can tell two routes for one model apart. */
+    readonly identity?: string;
     readonly description: string;
     readonly contextWindow?: number;
     readonly pricing?: ModelPricing;
@@ -86,6 +89,7 @@ export function availableModelsWithLevels(
         return {
             provider: model.provider,
             model: model.model,
+            identity: curatedKey(model.model),
             label: entry?.displayName ?? model.label,
             ...(entry?.learned?.probe === undefined ? {} : { verified: isVerifiedPoolEntry(entry) }),
             ...(entry?.learned?.probe?.error === undefined ? {} : { verificationError: entry.learned.probe.error }),
