@@ -3391,6 +3391,28 @@ test("a running compaction is marked on state and cleared by any finish", () => 
     expect(failTuiConnection(started).compactingSince).toBeUndefined();
 });
 
+test("automatic compaction marks a turn as running, manual compaction does not", () => {
+    const automatic = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        trigger: "automatic",
+        seq: 1,
+    });
+    expect(automatic.working).toBe(true);
+    expect(applyAgentUpdate(automatic, { type: "turn_finished", seq: 2 }).working)
+        .toBe(false);
+
+    const manual = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        trigger: "manual",
+        seq: 1,
+    });
+    expect(manual.working).toBe(false);
+});
+
 test("a refused compaction says why it could not summarize", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "compaction",

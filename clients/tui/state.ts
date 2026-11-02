@@ -863,6 +863,8 @@ function applyCompaction(
     if (update.phase === "started") {
         const started = {
             ...state,
+            // Automatic compaction only runs inside a turn, and it runs before that turn's user_prompt arrives.
+            ...(update.trigger === "automatic" ? { working: true } : {}),
             compactingSince: Date.now(),
             compactionStrategy: update.strategy,
             compactionProvider: update.provider,
