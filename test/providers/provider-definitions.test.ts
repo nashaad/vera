@@ -28,6 +28,7 @@ test("shipped provider facts come from validated resource data", () => {
     expect(shippedProviderDefinitions().map((definition) => definition.id)).toEqual([
         "cerebras",
         "deepseek",
+        "anthropic",
         "openai-codex",
         "openrouter",
         "outrider",

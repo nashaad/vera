@@ -98,6 +98,7 @@ test("provider access is explicit enough for clients to group without guessing",
         .toEqual([
             ["cerebras", "api_key"],
             ["deepseek", "api_key"],
+            ["anthropic", "api_key"],
             ["openai-codex", "subscription"],
             ["openrouter", "api_key"],
             ["outrider", "local"],

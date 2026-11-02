@@ -1,6 +1,6 @@
 {
     "schema_version": 1,
-    "order": 6,
+    "order": 7,
     "id": "ollama",
     "label": "Ollama",
     "short_label": "ollama",

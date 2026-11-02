@@ -1,0 +1,16 @@
+{
+    "schema_version": 1,
+    "order": 3,
+    "id": "anthropic",
+    "label": "Anthropic",
+    "short_label": "anthropic",
+    "access": "api_key",
+    "credential": "api_key",
+    "hint": "API key, pay per token",
+    "env_var": "ANTHROPIC_API_KEY",
+    "protocol": "anthropic-messages",
+    "default_base_url": "https://api.anthropic.com/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "compatibility": {},
+    "cache": { "mode": "breakpoints", "usage": ["read", "write"] }
+}

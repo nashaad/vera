@@ -18,13 +18,13 @@ test("disconnected providers cannot leak shipped models into an empty install", 
 test("connected never-refreshed and refreshed empty catalogs are separate facts", () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "vera-catalog-state-"));
     try {
-        const config = { ...startingVeraConfig(), providers: { anthropic: { protocol: "anthropic-messages" as const, credential: "api_key" as const, base_url: "https://api.anthropic.com/v1" } } };
-        const options = { cacheDir, env: {}, authStorage: { getCredential: (id: string) => id === "anthropic" ? { type: "api_key" as const, key: "test" } : undefined } };
-        expect(connectedProviderCatalogs(config, options)).toEqual([{ id: "anthropic", label: "anthropic" }]);
-        writeProviderCatalogSnapshot({ schema_version: 2, provider: "anthropic", models: [], fetched_at: "2026-09-06T00:00:00Z" }, { cacheDir });
+        const config = { ...startingVeraConfig(), providers: { "crow-messages": { protocol: "anthropic-messages" as const, credential: "api_key" as const, base_url: "https://crow.example/v1" } } };
+        const options = { cacheDir, env: {}, authStorage: { getCredential: (id: string) => id === "crow-messages" ? { type: "api_key" as const, key: "test" } : undefined } };
+        expect(connectedProviderCatalogs(config, options)).toEqual([{ id: "crow-messages", label: "crow-messages" }]);
+        writeProviderCatalogSnapshot({ schema_version: 2, provider: "crow-messages", models: [], fetched_at: "2026-09-06T00:00:00Z" }, { cacheDir });
         expect(connectedProviderCatalogs(config, options)[0]?.refreshedAt).toBeDefined();
         expect(modelsFromConnectedCatalogs(config, [], options)).toEqual([]);
-        writeProviderCatalogSnapshot({ schema_version: 2, provider: "anthropic", models: [{ id: "one", label: "One", levels: [] }], fetched_at: "2026-09-06T00:01:00Z" }, { cacheDir });
+        writeProviderCatalogSnapshot({ schema_version: 2, provider: "crow-messages", models: [{ id: "one", label: "One", levels: [] }], fetched_at: "2026-09-06T00:01:00Z" }, { cacheDir });
         expect(modelsFromConnectedCatalogs(config, [], options).map((row) => row.model)).toEqual(["one"]);
     } finally { rmSync(cacheDir, { recursive: true, force: true }); }
 });

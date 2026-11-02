@@ -52,6 +52,7 @@ test("shipped and declared providers resolve to the current client facts", () =>
     expect(providers.map((provider) => provider.id)).toEqual([
         "cerebras",
         "deepseek",
+        "anthropic",
         "openai-codex",
         "openrouter",
         "outrider",
@@ -197,6 +198,7 @@ test("provider access facts map to the current UI groups", () => {
         .toEqual([
             "API keys",
             "API keys",
+            "API keys",
             "Subscriptions",
             "API keys",
             "Local",
@@ -214,6 +216,7 @@ test("refresh eligibility remains an explicit provider fact", () => {
         "openrouter",
         "cerebras",
         "deepseek",
+        "anthropic",
         "openai-codex",
         "gateway",
         "digitalocean",
@@ -223,6 +226,7 @@ test("refresh eligibility remains an explicit provider fact", () => {
         true,
         true,
         false,
+        true,
         false,
         false,
         true,
@@ -239,6 +243,7 @@ test("every current shipped row still selects an adapter", () => {
     const env = {
         CEREBRAS_API_KEY: "test-key",
         DEEPSEEK_API_KEY: "test-key",
+        ANTHROPIC_API_KEY: "test-key",
         OPENROUTER_API_KEY: "test-key",
         OMLX_API_KEY: "test-key",
         DIGITALOCEAN_API_KEY: "test-key",
