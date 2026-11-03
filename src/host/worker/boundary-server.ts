@@ -9,7 +9,7 @@ import type { ReviewLogEntry } from "../../engine/review-log.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import type { SubagentFinishedHookPayload } from "../../sdk/hooks.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
-import { ToolRuntime } from "../../tools/runtime.ts";
+import { ToolRuntime, type SkillFileCheck } from "../../tools/runtime.ts";
 import { skillScriptTool } from "../../skills/script.ts";
 import type { JsonPipe } from "./pipe.ts";
 import type { DeliveryDiscardedNotification, DeliveryPendingReply } from "./start.ts";
@@ -89,6 +89,14 @@ export function createWorkerBoundaryServer(
                     return {
                         catalog: await services.router.listSkills(),
                     };
+                }
+                case "skills.checkFile": {
+                    if (services.checkSkillFile === undefined) {
+                        throw new Error("The host offers no skill file check");
+                    }
+                    const request = body as { readonly check: SkillFileCheck };
+                    const refusal = await services.checkSkillFile(request.check);
+                    return refusal === undefined ? {} : { refusal };
                 }
                 case "skills.invoke": {
                     if (services.router?.invokeSkill === undefined) {

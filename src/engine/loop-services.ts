@@ -14,6 +14,7 @@ import type {
     ToolEffect,
 } from "../tools/types.ts";
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
+import type { CheckSkillFile } from "../tools/runtime.ts";
 import type { EngineEventBus, PoolAdmissionVerdict } from "./events.ts";
 import type { ToolHooks } from "./hooks.ts";
 import type { DeliveryDiscardReason } from "./host-protocol.ts";
@@ -177,6 +178,7 @@ export interface RunHeadlessLoopServices {
         allowedSkills?: readonly string[],
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
+    readonly checkSkillFile?: CheckSkillFile;
 
     readonly router?: InboundRouterHostHooks;
 }

@@ -15,7 +15,7 @@ import type {
 import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
 import type { ToolReviewDecision } from "../../engine/reviewer.ts";
 import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
-import type { ToolRuntime } from "../../tools/runtime.ts";
+import type { SkillFileCheck, ToolRuntime } from "../../tools/runtime.ts";
 import type {
     AppliedToolEffectOutput,
     CommitEffect,
@@ -285,6 +285,19 @@ export function createRemoteHostBoundary(
                         readonly contributions: readonly PromptContribution[];
                     };
                     return reply.contributions;
+                },
+            }
+            : {}),
+        ...(capabilities.checkSkillFile
+            ? {
+                checkSkillFile: async (
+                    check: SkillFileCheck,
+                ): Promise<string | undefined> => {
+                    const reply = await pipe.request({
+                        method: "skills.checkFile",
+                        check,
+                    }) as { readonly refusal?: string };
+                    return reply.refusal;
                 },
             }
             : {}),

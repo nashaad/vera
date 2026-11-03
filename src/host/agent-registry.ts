@@ -52,6 +52,7 @@ import { changedSessionUpdate } from "./agent-registry/session-updated.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
 import { type SkillCommandCatalog, type SkillInvocationDecision } from "../skills/commands.ts";
+import { skillFileRefusal } from "../skills/file-check.ts";
 import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/handle.ts";
 import type { WorkerAdapterSpec } from "./worker/start.ts";
 import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
@@ -1082,6 +1083,7 @@ export class AgentRegistry {
                         loadContextualContributions:
                             this.options.loadContextualContributions,
                     }),
+                checkSkillFile: skillFileRefusal,
                 readPolicy: () => {
                     const reviewer = this.readReviewer();
                     const {

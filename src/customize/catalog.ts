@@ -6,7 +6,7 @@ import { loadProjectInstructions } from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
 import { loadRules, ruleDirectories } from "../engine/rules.ts";
 import { listExtensions } from "../extensions/manager.ts";
-import { loadOptionalVeraConfig } from "../config.ts";
+import { homeSkillConfig } from "../skills/sources.ts";
 import { includedExtensions } from "../extensions/included.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
@@ -118,7 +118,8 @@ export async function loadCustomizationCatalog(options: {
             });
         }
     }
-    const config = loadOptionalVeraConfig();
+    // The skills catalog above already warned if config.json did not load.
+    const config = homeSkillConfig();
     const disabled = config?.disabled_included_extensions ?? [];
     const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions().map((row) => ({
         path: row.path, enabled: row.enabled, scope: "user", id: row.id,

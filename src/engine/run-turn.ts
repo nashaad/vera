@@ -715,6 +715,9 @@ export async function runHeadlessLoop(
                 loadContextualContributions:
                     boundary.loadContextualContributions,
             }),
+            ...(boundary.checkSkillFile === undefined
+                ? {}
+                : { checkSkillFile: boundary.checkSkillFile }),
             ...(boundary.requestMissingSubagentConfiguration === undefined
                 ? {}
                 : {
@@ -877,6 +880,7 @@ export async function runHeadlessLoop(
             loadContextualContributions: boundary.loadContextualContributions,
         }),
     };
+    state.toolRuntime.checkSkillFile = boundary.checkSkillFile;
     const startupSettings = readModelSettings?.();
     const startupContext = startupSettings === undefined
         ? { model }

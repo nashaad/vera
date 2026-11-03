@@ -4,12 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileChangePresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
-import {
-    findDisabledSkillByPath,
-    findSkillByPath,
-    loadSkillCatalog,
-} from "../skills/catalog.ts";
-import { invocationRefusal } from "../skills/invocation-gate.ts";
+import { skillFileRefusal } from "../skills/file-check.ts";
 import { SKILL_FILENAME } from "../skills/package.ts";
 
 export const READ_MAX_LINES = 1000;
@@ -52,36 +47,14 @@ export const readTool: RegisteredTool = {
         const limit = Math.min(requestedLimit ?? READ_MAX_LINES, READ_MAX_LINES);
         const safePath = await resolveReadPath(context.workspace, path);
         if (basename(safePath) === SKILL_FILENAME) {
-            const catalog = await loadSkillCatalog({
+            const check = {
                 projectRoot: context.workspace,
-            });
-            const disabled = findDisabledSkillByPath(catalog, safePath);
-            if (disabled !== undefined) {
-                return {
-                    kind: "output",
-                    output: `Skill ${disabled.metadata.name} is disabled by disabled_skills.`,
-                    isError: true,
-                };
-            }
-            const skill = findSkillByPath(catalog, safePath);
-            if (
-                skill !== undefined
-                && context.allowedSkills !== undefined
-                && !context.allowedSkills.includes(skill.metadata.name)
-            ) {
-                return {
-                    kind: "output",
-                    output: `Skill ${skill.metadata.name} is not available to the active agent.`,
-                    isError: true,
-                };
-            }
-            const refusal = skill === undefined
-                ? undefined
-                : invocationRefusal(
-                    skill.metadata,
-                    context.isSubagent,
-                    context.userInvokedSkill,
-                );
+                path: safePath,
+                allowedSkills: context.allowedSkills,
+                isSubagent: context.isSubagent,
+                userInvokedSkill: context.userInvokedSkill,
+            };
+            const refusal = await (context.checkSkillFile ?? skillFileRefusal)(check);
             if (refusal !== undefined) {
                 return { kind: "output", output: refusal, isError: true };
             }

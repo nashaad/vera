@@ -353,6 +353,7 @@ async function joinedRouter(
             requestMissingSubagentConfiguration: false,
             applyCommittedToolEffect: false,
             loadContextualContributions: false,
+            checkSkillFile: false,
             hooks: false,
             reviewLog: false,
             hasPendingDeliveryTurn: true,
