@@ -346,6 +346,7 @@ export function syncTuiModelPicker(
             ? {}
             : { intelligenceCutoff: state.intelligenceCutoff }),
         ...(state.browseSort === undefined ? {} : { browseSort: state.browseSort }),
+        ...(state.subtitle === undefined ? {} : { subtitle: state.subtitle }),
         // A browse page folds its own groups, so it keeps its own set even when
         // empty: the sectioned picker starts some providers closed, and those
         // must not fold groups the browse page shows as open.

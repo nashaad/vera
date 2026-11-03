@@ -51,11 +51,13 @@ test("the switcher still opens from both entries when config.json stops parsing 
         session.sendText("m");
         await session.waitForVisiblePane("Switch model");
         expect(session.captureVisiblePane()).toMatch(/One\b/);
+        expect(session.captureVisiblePane()).toContain("config.json could not be read");
         session.sendKey("Escape"); await session.settle();
         expect(session.captureVisiblePane()).not.toContain("Switch model");
         session.sendText("/model"); session.sendKey("Enter");
         await session.waitForVisiblePane("Switch model");
         expect(session.captureVisiblePane()).toMatch(/One\b/);
+        expect(session.captureVisiblePane()).toContain("config.json could not be read");
     } finally { await session.close(); }
 }, 15_000);
 

@@ -105,7 +105,8 @@ export function renderModelBrowse(
     const tipLine = typeof tip === "string" ? { tone: "tip" as const, text: tip } : tip;
     const tipRows = tipLine?.text ? 2 : 0;
     // The caption takes the gap above the search box, so it costs no list row.
-    const caption = state.query.trim() === "" ? browseScopeCaption(state.tab) : undefined;
+    // A subtitle replaces it and stays while searching: it reports config that did not load.
+    const caption = state.subtitle ?? (state.query.trim() === "" ? browseScopeCaption(state.tab) : undefined);
     const width = pickerContentWidth(renderer, state, railInset);
     const detailed = state.browseView === "detailed";
     const candidateSplit = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;

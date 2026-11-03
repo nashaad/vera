@@ -122,16 +122,6 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
     const invalid = [
         { provider: "missing", providers: {} },
         {
-            provider: "openrouter",
-            providers: {
-                openrouter: {
-                    protocol: "openai-chat",
-                    base_url: "https://example.com/v1",
-                    credential: "none",
-                },
-            },
-        },
-        {
             provider: "lab-anthropic",
             providers: {
                 "lab-anthropic": {

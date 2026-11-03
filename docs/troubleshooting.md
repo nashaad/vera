@@ -102,6 +102,15 @@ held by the host.
 See [Manage connections](first-run-setup.md#manage-connections) for refresh,
 credentials, and sign-in controls.
 
+## config.json stopped loading
+
+If `config.json` stops loading while Vera is running, for example after an
+edit leaves it invalid, the model and provider pages and Switch model keep
+showing the last settings that loaded. Each says so in one line that starts
+with `config.json could not be read:` and gives the reason. Assigning a model
+while the file is broken is refused with the same reason, and the page stays
+open. Fix the file; each page reads it again when it opens.
+
 ## A configured extension is missing
 
 Open `/extensions` and inspect its status. A missing environment credential

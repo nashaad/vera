@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { loadOptionalVeraConfig, type VeraConfig } from "../../../src/config.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
-import { serializeError } from "../flight-recorder.ts";
 import { isHomeClient } from "../home-client.ts";
 import { modelSwitchCommand } from "../model-switch-command.ts";
 import {
@@ -16,6 +14,7 @@ import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { sendCommand } from "./extension-bridge.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
+import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
 import { modelLevelFacts, openModelPicker, openProviderPicker } from "./model-pickers.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { renderState } from "./render-state.ts";
@@ -34,7 +33,7 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
     const pooled = settings?.pooled ?? [];
     const favorites = new Set(pooled.map(modelSwitcherKey));
     const efforts = lastEfforts(focusedAgentState(rt));
-    const config = readConfigForLabels(rt);
+    const config = readLastGoodConfig(rt).config;
     return (settings?.availableModels ?? [])
         .filter((model) => model.hiddenByDefault === undefined
             || favorites.has(`${model.provider}/${model.model}`))
@@ -53,16 +52,6 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
                 ...(effort === undefined ? {} : { effort }),
             };
         });
-}
-
-// Labels are cosmetic: a config this build cannot parse must not close the switcher.
-function readConfigForLabels(rt: TuiRuntime): VeraConfig | undefined {
-    try {
-        return loadOptionalVeraConfig();
-    } catch (error) {
-        rt.flightRecorder?.record({ type: "config_unreadable", error: serializeError(error) });
-        return undefined;
-    }
 }
 
 /** Most recent first, one entry per model. */
@@ -99,8 +88,10 @@ function currentKey(rt: TuiRuntime): string | undefined {
 export function openModelSwitcher(rt: TuiRuntime): void {
     rt.settingsPickerAgent = focusedAgentClient(rt);
     const current = currentKey(rt);
+    const notice = lastGoodConfigNotice(readLastGoodConfig(rt));
     rt.modelSwitcher = startTuiModelSwitcher(modelSwitcherRows(rt), {
         ...(current === undefined ? {} : { current }),
+        ...(notice === undefined ? {} : { notice }),
         recents: switcherRecents(rt),
     });
     requestAgentSettings(rt, focusedAgentClient(rt));
@@ -131,13 +122,16 @@ export function refreshModelSwitcher(
     pending?: TuiModelSwitcherPending,
 ): void {
     if (rt.modelSwitcher === undefined) return;
-    rt.modelSwitcher = refreshedTuiModelSwitcher(
+    const refreshed = refreshedTuiModelSwitcher(
         rt.modelSwitcher,
         modelSwitcherRows(rt),
         switcherRecents(rt),
         notice,
         pending,
     );
+    // A favorite notice shares the line, so the config notice comes back once it settles.
+    const fallback = refreshed.notice === undefined ? lastGoodConfigNotice(readLastGoodConfig(rt)) : undefined;
+    rt.modelSwitcher = fallback === undefined ? refreshed : { ...refreshed, notice: fallback };
 }
 
 export function toggleModelSwitcherFavorite(

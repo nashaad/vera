@@ -5,6 +5,7 @@ import { isProviderConnected, type ProviderDescriptor } from "../../../src/provi
 import { runModelOperation } from "./model-operations.ts";
 import { modelBrowse } from "../model-browse.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
+import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { RenameSessionResult } from "../../../src/host/session-rename-client.ts";
 import { DEFAULT_PROFILE_NAME } from "../../../src/profile-paths.ts";
@@ -548,7 +549,7 @@ export function openSettingsDestination(rt: TuiRuntime,
     } else if (route.type === "provider_picker") {
         if (
             route.provider !== undefined
-            && !configuredProviders(loadOptionalVeraConfig()).some(
+            && !configuredProviders(readLastGoodConfig(rt).config).some(
                 (provider) => provider.id === route.provider,
             )
         ) {
@@ -573,9 +574,10 @@ export function openSettingsDestination(rt: TuiRuntime,
         renderState(rt);
     } else if (route.type === "model_assignments") {
         const rows = modelDefaultsOptions(rt);
+        const read = readLastGoodConfig(rt);
         rt.settingsPicker = { kind: "model_defaults", title: MODEL_DEFAULTS_TITLE, query: "", selectedIndex: 0,
             allOptions: rows, options: rows, parent: options.parent,
-            subtitle: `${loadOptionalVeraConfig()?.verify_model_assignments === true ? "New assignments are verified first." : "Any permitted model can be assigned."} Assigning leaves the conversation model unchanged.` };
+            subtitle: lastGoodConfigNotice(read) ?? `${read.config?.verify_model_assignments === true ? "New assignments are verified first." : "Any permitted model can be assigned."} Assigning leaves the conversation model unchanged.` };
         renderState(rt);
         focusActiveSurface(rt);
     } else {
