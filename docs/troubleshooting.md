@@ -74,7 +74,8 @@ A socket file existing on disk does not prove the host is answering.
 
 A TUI attaches only to a host of its own build. If the host was restarted on a
 different build while the TUI was open, the TUI stays disconnected, makes no
-automatic restart, and shows an error naming both builds:
+automatic restart, and shows an error naming both builds. The status line reads
+`disconnected: host is a different build · quit and reopen Vera`. The error:
 
 ```text
 The Vera host is now build vera-kraken-2, and this TUI is build vera-crow-1.

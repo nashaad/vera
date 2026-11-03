@@ -104,11 +104,15 @@ export function renderStatus(rt: TuiRuntime): void {
     if (rt.sessionSwitchPending) {
         lifecycleHint = rt.sessionSwitchActivity;
     } else if (rt.connectionFailed) {
+        // Reconnect host refuses another build too, so it is not offered.
+        const nextStep = rt.hostBuildRefusal === undefined
+            ? "Ctrl+P reconnect"
+            : "quit and reopen Vera";
         lifecycleHint = `disconnected${
             rt.connectionFailure === undefined
                 ? ""
                 : `: ${shortConnectionFailure(rt.connectionFailure)}`
-        } · Ctrl+P reconnect · Ctrl+C quit`;
+        } · ${nextStep} · Ctrl+C quit`;
     } else if (focusedAbort) {
         lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
     } else if (

@@ -53,7 +53,8 @@ test("a host that came back as another build stays disconnected and says to reop
     try {
         const pane = await session.waitForVisiblePane("Quit and reopen Vera to continue.");
         expect(pane).toContain(REFUSAL);
-        expect(pane).toContain("disconnected: host is a different build · Ctrl+P reconnect · Ctrl+C quit");
+        expect(pane).toContain("disconnected: host is a different build · quit and reopen Vera · Ctrl+C quit");
+        expect(pane).not.toContain("Ctrl+P reconnect");
         expect(pane).not.toContain("restarting host");
         expect(restarts).toBe(0);
         expect(events.filter((event) => event.type === "host_build_changed"))
@@ -105,7 +106,7 @@ test("Reconnect host after the refusal refuses again instead of starting another
         while (events.filter((event) => event.type === "host_build_changed").length < 2 && Date.now() < deadline) {
             await session.settle();
         }
-        const pane = await session.waitForVisiblePane("disconnected: host is a different build");
+        const pane = await session.waitForVisiblePane("disconnected: host is a different build · quit and reopen Vera");
         expect(reconnects).toBe(1);
         expect(events.filter((event) => event.type === "host_build_changed")).toHaveLength(2);
         expect(pane).not.toContain("Could not reconnect");
