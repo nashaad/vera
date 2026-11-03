@@ -550,9 +550,20 @@ export function emptyModelBrowse(state: TuiSettingsPickerState): string {
     if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. Ctrl+R reads it now.`;
     if (state.allOptions.length === 0) return "No models in the connected catalogs. Open Connect provider below.";
     if (state.query) return "No models match your search. Clear the search to see models.";
-    if (state.browseProvider || state.browseAvailableOnly || state.browsePricedOnly || state.browseImagesOnly
-        || state.intelligenceCutoff && state.intelligenceCutoff !== "any") return "No models match these filters. Open Filter and sort to clear them.";
+    if (state.intelligenceCutoff && state.intelligenceCutoff !== "any") return emptyCutoffReason(state);
+    if (state.browseProvider || state.browseAvailableOnly || state.browsePricedOnly || state.browseImagesOnly) return "No models match these filters. Open Filter and sort to clear them.";
     if (state.modelBrowse === "browse" && state.tab === "recommended") return "No recommended models for the connected providers. Ctrl+G shows all of them.";
     if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. Ctrl+G shows the recommended models, then all of them.";
     return "No models pass this cutoff. Open Filter and sort to change it.";
+}
+
+/** A cutoff empties the list two ways: a known score below it, or no WA Score at all; name which. */
+function emptyCutoffReason(state: TuiSettingsPickerState): string {
+    const beforeCutoff = browseMatches({ ...state, intelligenceCutoff: "any" });
+    if (beforeCutoff.length === 0) return "No models match these filters. Open Filter and sort to clear them.";
+    const unscored = beforeCutoff.filter((row) => row.waScore === undefined).length;
+    if (unscored === beforeCutoff.length) return "None of these models has a WA Score yet, so the cutoff hides them all. Open Filter and sort to change it.";
+    const below = beforeCutoff.length - unscored;
+    const unscoredPart = unscored === 0 ? "" : `, ${unscored} without a WA Score`;
+    return `No models pass this cutoff: ${below} below it${unscoredPart}. Open Filter and sort to change it.`;
 }
