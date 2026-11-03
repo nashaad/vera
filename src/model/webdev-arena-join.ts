@@ -74,10 +74,19 @@ function arenaNameFor(
     const id = `${ref.provider}/${ref.model}`;
     const exactAlias = aliases.aliases[id];
     if (exactAlias !== undefined) {
-        return exactAlias;
+        return resolveAliasTarget(exactAlias, overall);
     }
     return uniqueExactName(ref.model, overall)
         ?? effortVariantName(ref, overall);
+}
+
+/** The alias file names a row as it once read; match today's row by canonical name, not by exact text. */
+function resolveAliasTarget(
+    target: string,
+    overall: readonly WebDevArenaRow[],
+): string | undefined {
+    const key = canonical(target);
+    return overall.find((row) => canonical(row.model_name) === key)?.model_name;
 }
 
 const HARNESS_MARKER = " (codex-harness)";
@@ -99,13 +108,14 @@ function effortVariantName(
     ref: WebDevJoinRef,
     overall: readonly WebDevArenaRow[],
 ): string | undefined {
-    const last = lastSegment(ref.model);
+    const modelKey = canonical(ref.model);
+    const lastKey = canonical(lastSegment(ref.model));
     const variants: EffortVariant[] = [];
     for (const row of overall) {
         const variant = asEffortVariant(row.model_name);
         if (
             variant !== undefined
-            && (variant.base === ref.model || variant.base === last)
+            && (canonical(variant.base) === modelKey || canonical(variant.base) === lastKey)
         ) {
             variants.push(variant);
         }
@@ -169,16 +179,23 @@ function uniqueExactName(
     modelId: string,
     overall: readonly WebDevArenaRow[],
 ): string | undefined {
-    const last = lastSegment(modelId);
-    const matches = overall.filter((row) =>
-        row.model_name === modelId || row.model_name === last
-    );
+    const modelKey = canonical(modelId);
+    const lastKey = canonical(lastSegment(modelId));
+    const matches = overall.filter((row) => {
+        const key = canonical(row.model_name);
+        return key === modelKey || key === lastKey;
+    });
     return matches.length === 1 ? matches[0]?.model_name : undefined;
 }
 
 function lastSegment(modelId: string): string {
     const slash = modelId.lastIndexOf("/");
     return slash === -1 ? modelId : modelId.slice(slash + 1);
+}
+
+/** Strips case and punctuation, so a prose row name and a slug id compare equal. */
+function canonical(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function isWebDevArenaAliases(value: unknown): value is WebDevArenaAliases {

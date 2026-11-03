@@ -266,6 +266,34 @@ test("cutoff excludes unscored models only in all scope; search selects one mode
     expect(handleModelBrowseKey(manage, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
+test("an emptied cutoff counts below-cutoff and unscored models separately", () => {
+    const state = { ...modelBrowse(base, "browse"), tab: "all" as const, intelligenceCutoff: "1600" as const };
+    expect(browseModels(state)).toHaveLength(0);
+    expect(emptyModelBrowse(state))
+        .toBe("No models pass this cutoff: 1 below it, 2 without a WA Score. Open Filter and sort to change it.");
+});
+
+test("an emptied cutoff drops the unscored count when every hidden model has a score", () => {
+    const scored = rows.map((row) => ({ ...row, waScore: row.value === "q/c" ? 1800 : 1200 }));
+    const belowOnly = scored.filter((row) => row.value !== "q/c");
+    const state = { ...modelBrowse({ ...base, allOptions: belowOnly, options: belowOnly }, "browse"), tab: "all" as const, intelligenceCutoff: "1500" as const };
+    expect(browseModels(state)).toHaveLength(0);
+    expect(emptyModelBrowse(state)).toBe("No models pass this cutoff: 2 below it. Open Filter and sort to change it.");
+});
+
+test("a cutoff over an entirely unscored set says so instead of reading as a dead end", () => {
+    const state = { ...modelBrowse(base, "browse"), tab: "all" as const, intelligenceCutoff: "1400" as const, browseProvider: "q" };
+    expect(browseModels(state)).toHaveLength(0);
+    expect(emptyModelBrowse(state))
+        .toBe("None of these models has a WA Score yet, so the cutoff hides them all. Open Filter and sort to change it.");
+});
+
+test("a cutoff combined with a filter that already matches nothing keeps the plain filter message", () => {
+    const state = { ...modelBrowse(base, "browse"), tab: "all" as const, intelligenceCutoff: "1400" as const, browseProvider: "nonexistent" };
+    expect(browseModels(state)).toHaveLength(0);
+    expect(emptyModelBrowse(state)).toBe("No models match these filters. Open Filter and sort to clear them.");
+});
+
 test("verification does not require a favorite", () => {
     const state = modelBrowse(base, "favorites");
     const refused = handleModelBrowseKey(state, { name: "y", ctrl: true });
