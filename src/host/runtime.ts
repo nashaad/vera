@@ -844,7 +844,10 @@ export async function startResidentHost(
                     cadence,
                 );
             return [
-                ...await loadSkillContribution(instructionRoot, allowedSkills),
+                ...await loadSkillContribution(
+                    context?.workspace ?? instructionRoot.path,
+                    allowedSkills,
+                ),
                 ...startupFindings.contributions(),
                 ...(standing === undefined ? [] : [standing]),
                 ...await sessionImportNotes.contributions(context?.sessionId),

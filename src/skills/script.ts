@@ -50,7 +50,7 @@ export const skillScriptTool: RegisteredTool = {
         const args = stringArray(input.args);
         const timeoutMs = timeout(input.timeout_ms);
         const catalog = await loadSkillCatalog({
-            projectRoot: context.instructionRoot,
+            projectRoot: context.workspace,
         });
         const skill = findSkill(catalog, skillName);
         if (
