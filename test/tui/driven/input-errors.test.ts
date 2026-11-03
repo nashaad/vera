@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TuiFlightEvent, TuiFlightRecorder } from "../../../clients/tui/flight-recorder.ts";
-import { defaultVeraConfigPath } from "../../../src/config.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
@@ -23,23 +22,38 @@ function recordingFlightRecorder(events: TuiFlightEvent[], throwOn?: string): Tu
     };
 }
 
+// The keypress handler records raw input before it acts, so one armed throw fails exactly one key.
+function failOnceOnKey(events: TuiFlightEvent[]): TuiFlightRecorder & { arm(): void } {
+    let armed = false;
+    return {
+        ...recordingFlightRecorder(events),
+        record: (event) => {
+            if (armed && event.type === "raw_input_received") {
+                armed = false;
+                throw new Error("the crow dropped the log");
+            }
+            events.push(event);
+        },
+        arm: () => { armed = true; },
+    };
+}
+
 test("a key whose handler throws shows the error in the transcript and logs it, and typing still works", async () => {
     const events: TuiFlightEvent[] = [];
+    const recorder = failOnceOnKey(events);
     const session = await startTuiTestSession({ home: home(), width: 120, height: 36,
-        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled }), flightRecorder: recordingFlightRecorder(events) }),
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled }), flightRecorder: recorder }),
     });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        writeFileSync(defaultVeraConfigPath(), JSON.stringify({ schema_version: 1, provider: "kraken", model: "kraken/ink-1" }));
-        session.sendKey("C-x"); session.sendText("m");
-        await session.waitForVisiblePane("Switch model");
-        session.sendKey("C-k");
-        await session.waitForVisiblePane("Key failed: Vera config at");
-        const failures = events.filter((event) => event.type === "input_handler_failed");
-        expect(failures).toHaveLength(1);
-        expect(failures[0]).toMatchObject({ source: "keypress", error: { name: "VeraConfigError" } });
-        session.sendKey("Escape"); await session.settle();
-        session.sendKey("Escape"); await session.settle();
+        // Raw input is recorded at most every 250ms; wait past that so the armed key records.
+        await session.settle(300);
+        recorder.arm();
+        session.sendText("x");
+        await session.waitForVisiblePane("Key failed: the crow dropped the log");
+        expect(events.filter((event) => event.type === "input_handler_failed"))
+            .toMatchObject([{ source: "keypress", error: { message: "the crow dropped the log" } }]);
+        await session.settle(300);
         session.sendText("ahoy");
         await session.waitForVisiblePane("ahoy");
     } finally { await session.close(); }
