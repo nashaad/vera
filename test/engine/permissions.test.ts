@@ -1626,6 +1626,43 @@ test("an extension tool that reads only its own storage is routine in every mode
     }
 });
 
+test("a function the caller registered is allowed in every mode", () => {
+    const parrotCount: RegisteredTool = {
+        definition: {
+            name: "parrot_count",
+            description: "Count the parrots aboard.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        permissionOperation: "function.call",
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    };
+    expect(CORE_PERMISSION_OPERATIONS.has("function.call")).toBe(true);
+    const rules = {
+        ask: "routine.function_call",
+        auto: "routine.function_call",
+        readonly: "readonly.function_call",
+    } as const;
+    for (const [mode, rule] of Object.entries(rules) as [keyof typeof rules, string][]) {
+        expect(decideToolPermission(mode, toolCall("parrot_count", {}), workspace, [], {
+            homeDirectory,
+            extensionTools: [parrotCount],
+        })).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: { tool: "parrot_count", verb: "unknown", operation: "function.call" },
+                outcome: "allow",
+                rule,
+            }],
+        });
+    }
+    expect(decideToolPermission("full_access", toolCall("parrot_count", {}), workspace, [], {
+        homeDirectory,
+        extensionTools: [parrotCount],
+    }).behavior).toBe("allow");
+});
+
 test("a write URL does not put its host on the operation action", () => {
     const demoPush: RegisteredTool = {
         definition: {

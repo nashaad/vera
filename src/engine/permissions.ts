@@ -233,6 +233,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.function_call",
+        when: { operation: "function.call" },
+        then: "allow",
+    },
+    {
         name: "routine.web_search",
         when: { operation: "web.search" },
         then: "allow",
@@ -278,6 +283,11 @@ const READONLY_RULES: readonly PermissionRule[] = [
     {
         name: "readonly.extension_storage_read",
         when: { operation: "extension.storage.read" },
+        then: "allow",
+    },
+    {
+        name: "readonly.function_call",
+        when: { operation: "function.call" },
         then: "allow",
     },
     {
@@ -581,6 +591,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "agent.spawn",
     "extension.storage.read",
     "extension.storage.write",
+    "function.call",
     "git.clone",
     "git.commit",
     "git.fetch",

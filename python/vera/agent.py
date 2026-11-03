@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+from typing import Callable
+
+from .tools import Function, tool
 
 
 _AGENT_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -13,7 +16,7 @@ class Agent:
         *,
         name: str,
         instructions: str,
-        tools: list[str] | None = None,
+        tools: list[str | Function | Callable[..., object]] | None = None,
         posture: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -31,11 +34,27 @@ class Agent:
                 f"Agent {name} exceeds the {_MAX_AGENT_CHARACTERS}-character limit"
             )
 
+        # Strings name Vera's built-in tools; callables are this process's functions.
         normalized_tools: list[str] | None = None
+        functions: list[Function] = []
         if tools is not None:
-            if any(not isinstance(tool, str) or not tool.strip() for tool in tools):
-                raise ValueError("Agent tools must be a list of non-empty names")
-            normalized_tools = [tool.strip() for tool in tools]
+            normalized_tools = []
+            for entry in tools:
+                if isinstance(entry, str):
+                    if not entry.strip():
+                        raise ValueError("Agent tool names must not be empty")
+                    normalized_tools.append(entry.strip())
+                elif callable(entry):
+                    functions.append(tool(entry))
+                else:
+                    raise TypeError(
+                        "Agent tools must be built-in tool names or functions, "
+                        f"not {type(entry).__name__}"
+                    )
+            function_names = [function.name for function in functions]
+            for function_name in function_names:
+                if function_names.count(function_name) > 1:
+                    raise ValueError(f"Agent {name} has two functions named {function_name}")
 
         normalized_posture: str | None = None
         if posture is not None:
@@ -48,6 +67,7 @@ class Agent:
         self.name = name
         self.instructions = normalized_instructions
         self.tools = normalized_tools
+        self.functions = tuple(functions)
         self.posture = normalized_posture
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Callable
 
 
 from .agent import Agent
+from .tools import Function
 
 
 _SESSION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -186,8 +188,8 @@ class Vera:
         transcript=True for everything it said, narration between tool calls
         included. A session name continues that conversation until close().
         prepare_turn runs before the first model call and before_turn_ends
-        when the agent would stop; both run on the calling thread and must
-        not call this instance.
+        when the agent would stop. They and the agent's functions run on the
+        calling thread and must not call this instance.
         """
         if not isinstance(agent, Agent):
             raise TypeError("Vera.run agent must be an Agent")
@@ -224,6 +226,15 @@ class Vera:
             agent_payload["provider"] = agent.provider
         if agent.model is not None:
             agent_payload["model"] = agent.model
+        if agent.functions:
+            agent_payload["functions"] = [
+                {
+                    "name": function.name,
+                    "description": function.description,
+                    "parameters": function.parameters,
+                }
+                for function in agent.functions
+            ]
         request: dict[str, object] = {
             "type": "run",
             "agent": agent_payload,
@@ -239,7 +250,8 @@ class Vera:
             request["before_turn_ends"] = True
             hooks["turn_ending"] = before_turn_ends
 
-        reply = self._request(request, timeout, hooks)
+        functions = {function.name: function for function in agent.functions}
+        reply = self._request(request, timeout, hooks, functions)
         if reply.get("type") != "result":
             raise RuntimeError(f"Vera bun child sent an unexpected reply: {reply}")
         return str(reply["transcript" if transcript else "text"])
@@ -272,6 +284,7 @@ class Vera:
         request: dict[str, object],
         timeout: float | None,
         hooks: dict[str, TurnHook] | None = None,
+        functions: dict[str, Function] | None = None,
     ) -> dict[str, Any]:
         self._refuse_reentry(str(request["type"]))
         with self._lock:
@@ -284,7 +297,9 @@ class Vera:
             deadline = None if timeout is None else time.monotonic() + timeout
             try:
                 child.send({"id": request_id, **request})
-                reply = self._reply(child, request_id, deadline, hooks or {})
+                reply = self._reply(
+                    child, request_id, deadline, hooks or {}, functions or {}
+                )
             except queue.Empty:
                 reply = self._abort(child, request_id)
                 if reply is None or reply.get("type") == "error":
@@ -303,14 +318,14 @@ class Vera:
         return reply
 
     def _refuse_reentry(self, method: str) -> None:
-        """A hook calling back into its own instance would wait on the lock forever.
+        """A hook or function calling back into its own instance would wait on the lock forever.
 
         The refusal is also raised from the outer run, after its turn ends.
         """
         if self._hook_thread != threading.get_ident():
             return
         error = RuntimeError(
-            f"a hook cannot call Vera.{method} on the instance running it; "
+            f"a hook or function cannot call Vera.{method} on the instance running it; "
             "create another Vera instance"
         )
         self._reentry_error = error
@@ -322,14 +337,20 @@ class Vera:
         request_id: int,
         deadline: float | None,
         hooks: dict[str, TurnHook] | None = None,
+        functions: dict[str, Function] | None = None,
     ) -> dict[str, Any]:
         while True:
             reply = child.receive(deadline)
-            if reply.get("type") == "hook":
-                if reply.get("id") == request_id and hooks:
+            kind = reply.get("type")
+            if kind in ("hook", "function_call"):
+                if reply.get("id") == request_id:
                     self._hook_thread = threading.get_ident()
                     try:
-                        answer = _hook_answer(reply, hooks)
+                        answer = (
+                            _hook_answer(reply, hooks or {})
+                            if kind == "hook"
+                            else _function_answer(reply, functions or {})
+                        )
                     finally:
                         self._hook_thread = None
                     child.send(answer)
@@ -423,3 +444,35 @@ def _hook_answer(message: dict[str, Any], hooks: dict[str, TurnHook]) -> dict[st
         return answer
     answer["result"] = result
     return answer
+
+
+def _function_answer(
+    message: dict[str, Any], functions: dict[str, Function]
+) -> dict[str, object]:
+    answer: dict[str, object] = {
+        "type": "function_result",
+        "id": message["id"],
+        "call_id": message["call_id"],
+    }
+    function = functions.get(str(message.get("name")))
+    if function is None:
+        answer["error"] = f"no Python function named {message.get('name')}"
+        return answer
+    # User code: a failure becomes tool error text the model reads.
+    try:
+        result = function.entrypoint(**dict(message.get("arguments") or {}))
+        answer["output"] = _function_output(result)
+    except Exception as error:
+        answer["error"] = f"{type(error).__name__}: {error}"
+    return answer
+
+
+def _function_output(result: object) -> str:
+    if isinstance(result, str):
+        return result
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        result = dataclasses.asdict(result)
+    dump = getattr(result, "model_dump_json", None)
+    if callable(dump):
+        return str(dump())
+    return json.dumps(result, default=str)
