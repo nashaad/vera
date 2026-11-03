@@ -63,6 +63,9 @@ A lockfile that cannot be read as a whole is handled the same way: a PID that
 runs Vera is refused, and a lockfile with no readable PID is refused with its
 path. Delete the file once you have checked that no host is running. An install,
 and finishing an interrupted one, apply the same rule before they start a host.
+Run the upgrade from a terminal outside Vera: from inside a Vera session, the
+host it would stop is the session's own host, and the installer refuses rather
+than end the session that is running it.
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

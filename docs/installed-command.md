@@ -48,6 +48,11 @@ The daily prefix goes with the default home, so an install without `--prefix`
 is refused when `VERA_HOME` selects another home. Unset `VERA_HOME` for a
 daily install.
 
+Run `bun run install:local` or `vera rollback` from a terminal outside Vera.
+From inside a Vera session, the host it would stop is the session's own host,
+so stopping it would end the session before the switch finished; both
+commands refuse and change nothing.
+
 ## Roll back
 
 `vera rollback` makes the previous release active again, without packing or

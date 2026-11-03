@@ -41,6 +41,7 @@ import {
     type ForceStopOptions,
 } from "../host/force-stop.ts";
 import { checkRecordIdentity } from "../host/process-identity.ts";
+import { targetPidIsAncestor } from "../host/process-ancestry.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
@@ -356,6 +357,26 @@ function assertPrefixMayManageHost(
             + `start the host of the default Vera home, ${dailyHome}. `
             + `Set VERA_HOME to a private home for a test ${operation}. `
             + "Nothing was changed.",
+    );
+}
+
+// A drain run from inside the session it would stop would end that session before
+// the switch finished. Unreadable parent-chain data is not grounds to refuse: it
+// means "go ahead as today", not "this is self-drain".
+async function refuseSelfDrain(operation: UpgradeOperation): Promise<void> {
+    let record: HostLockRecord | undefined;
+    try {
+        record = await readHostLockRecordFile();
+    } catch {
+        return;
+    }
+    if (record === undefined || !processIsAlive(record.pid)) return;
+    if (targetPidIsAncestor(record.pid) !== true) return;
+    throw new Error(
+        `This is running inside a Vera session on host PID ${record.pid}, which it `
+            + `would stop, ending the session before the ${operation} finished. Run `
+            + `${retryCommand(operation)} from a terminal outside Vera. `
+            + unchangedReleaseNote(operation),
     );
 }
 
@@ -757,6 +778,9 @@ export async function upgradeLocalInstall(
     const operation = options.operation ?? "install";
     if (options.drainHost === undefined || options.startHost === undefined) {
         assertPrefixMayManageHost(prefix, operation);
+    }
+    if (options.drainHost === undefined) {
+        await refuseSelfDrain(operation);
     }
     const startWithRecord = options.startHost ?? ensureHostFor(operation);
     const startHost = recordingLaunches(prefix, startWithRecord);

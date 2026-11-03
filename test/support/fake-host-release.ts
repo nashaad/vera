@@ -240,6 +240,7 @@ export async function runDefaultUpgrade(options: {
     readonly prefix: string;
     readonly releaseRoot: string;
     readonly veraHome?: string;
+    readonly operation?: "install" | "rollback";
 }): Promise<FixtureRun> {
     const env: Record<string, string> = {
         HOME: join(options.root, "home"),
@@ -248,7 +249,14 @@ export async function runDefaultUpgrade(options: {
     };
     if (options.veraHome !== undefined) env.VERA_HOME = options.veraHome;
     const child = Bun.spawn(
-        [process.execPath, RUN_DEFAULT_UPGRADE_FIXTURE, options.mode, options.prefix, options.releaseRoot],
+        [
+            process.execPath,
+            RUN_DEFAULT_UPGRADE_FIXTURE,
+            options.mode,
+            options.prefix,
+            options.releaseRoot,
+            options.operation ?? "install",
+        ],
         { cwd: options.root, env, stdout: "pipe", stderr: "pipe" },
     );
     const [stdout, stderr] = await Promise.all([
