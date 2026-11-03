@@ -12,7 +12,10 @@ import {
     findCatalogAgent,
     loadAgentCatalog,
 } from "../agents/catalog.ts";
-import { resolveAgentSnapshot } from "../agents/snapshot.ts";
+import {
+    resolveAgentSnapshot,
+    type AgentSnapshot,
+} from "../agents/snapshot.ts";
 import { configuredTurnPolicy } from "../turn-policy.ts";
 import {
     createLiveVeraConfigReader,
@@ -36,6 +39,12 @@ import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { SessionStore } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import type { PreTurnHook, TurnEndingHook } from "./hooks.ts";
+import {
+    checkFunctionTools,
+    registeredFunctionTool,
+    type FunctionTool,
+} from "./function-tools.ts";
+import type { RegisteredTool } from "../tools/types.ts";
 import {
     ResidentAgent,
     ResidentAgentClosedError,
@@ -116,7 +125,11 @@ export interface VeraAgentOptions {
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    /** Caller functions the model may call. Binding one is consent to run it. */
+    readonly functions?: readonly FunctionTool[];
 }
+
+export type { FunctionTool } from "./function-tools.ts";
 
 /** Minimal parser contract implemented by schema libraries and plain objects. */
 export interface AgentOutputSchema<Output> {
@@ -193,6 +206,7 @@ interface ResolvedAgentOptions {
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly posture: string;
+    readonly functions: readonly RegisteredTool[];
     readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
     readonly readRequestOptionsConfig: () => VeraConfig;
 }
@@ -305,6 +319,7 @@ export class Vera {
         if (typeof normalized !== "string") {
             effectivePosture(this.runtimePosture, normalized, this.config);
         }
+        checkFunctionTools(options.functions ?? []);
         return new Agent({
             definition: normalized,
             binding: options,
@@ -487,7 +502,10 @@ async function runResolvedTurn<Output>(
             resolved.config.provider,
             resolved.model,
         );
-        const selected = resolveAgentSnapshot(resolved.definition);
+        const selected = withFunctionNames(
+            resolveAgentSnapshot(resolved.definition),
+            resolved.functions,
+        );
         const hooks = new ToolHooks();
         if (options.prepareTurn !== undefined) {
             hooks.registerPreTurn(options.prepareTurn);
@@ -502,7 +520,8 @@ async function runResolvedTurn<Output>(
             resolved.reasoningEffort,
             {
                 approvalMode: resolved.posture,
-                offerTools: resolved.definition.tools?.length !== 0,
+                offerTools: resolved.definition.tools?.length !== 0
+                    || resolved.functions.length > 0,
                 loadOptionalContext: false,
                 instructionRoot: {
                     path: resolved.workspace,
@@ -530,6 +549,9 @@ async function runResolvedTurn<Output>(
                     : { hooks }),
                 sessionStore,
                 ...(events === undefined ? {} : { eventBus: events }),
+                ...(resolved.functions.length === 0
+                    ? {}
+                    : { extensionTools: resolved.functions }),
             },
         ).catch((caught: unknown) => {
             loopFailure = caught;
@@ -702,6 +724,7 @@ async function resolveAgentOptions(
             ?? pair?.reasoningEffort
             ?? selectedConfig.reasoning_effort,
         posture,
+        functions: (options.binding.functions ?? []).map(registeredFunctionTool),
         createAdapter: options.createAdapter,
         readRequestOptionsConfig: options.readRequestOptionsConfig,
     };
@@ -746,6 +769,21 @@ function defaultPair(
         ...(definition.defaultPair.effort === undefined
             ? {}
             : { reasoningEffort: definition.defaultPair.effort }),
+    };
+}
+
+// An agent that names its tools must also name its functions, or the turn filters them out.
+function withFunctionNames(
+    selected: AgentSnapshot,
+    functions: readonly RegisteredTool[],
+): AgentSnapshot {
+    if (selected.tools === undefined || functions.length === 0) return selected;
+    return {
+        ...selected,
+        tools: [
+            ...selected.tools,
+            ...functions.map((tool) => tool.definition.name),
+        ].sort(),
     };
 }
 

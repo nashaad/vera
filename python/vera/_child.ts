@@ -1,4 +1,4 @@
-import { Vera, type Agent } from "../../src/sdk/agent.ts";
+import { Vera, type Agent, type FunctionTool } from "../../src/sdk/agent.ts";
 import type {
     PreTurnHook,
     PreTurnHookPayload,
@@ -13,6 +13,7 @@ import {
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
+    type ToolCallContent,
 } from "../../src/model/types.ts";
 
 // Protocol lines own stdout. Anything else the engine prints goes to stderr.
@@ -30,10 +31,17 @@ interface InitRequest {
     readonly replayDelayMs: number;
 }
 
+interface ChildFunction {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}
+
 interface ChildAgentInput {
     readonly name: string;
     readonly instructions: string;
     readonly tools?: string[];
+    readonly functions: ChildFunction[];
     readonly posture?: string;
     readonly provider?: string;
     readonly model?: string;
@@ -69,43 +77,86 @@ interface HookResultRequest {
     readonly error?: string;
 }
 
-type ChildRequest = RunRequest | ToolRequest | AbortRequest | HookResultRequest;
+interface FunctionResultRequest {
+    readonly type: "function_result";
+    readonly id: number;
+    readonly callId: number;
+    readonly output?: string;
+    readonly error?: string;
+}
 
-interface WaitingHook {
+type ChildRequest =
+    | RunRequest
+    | ToolRequest
+    | AbortRequest
+    | HookResultRequest
+    | FunctionResultRequest;
+
+interface WaitingAnswer {
     readonly runId: number;
     readonly resolve: (result: unknown) => void;
     readonly reject: (error: Error) => void;
 }
 
-// Hooks waiting on Python's answer. An answer for a hook no one waits on (aborted) is dropped.
-const waitingHooks = new Map<number, WaitingHook>();
-let nextHookId = 0;
+// Hooks and function calls waiting on Python, by hook_id or call_id. A late answer is dropped.
+const waitingAnswers = new Map<number, WaitingAnswer>();
+let nextAnswerId = 0;
 
-function askPython(runId: number, phase: string, payload: Record<string, unknown>): Promise<unknown> {
-    nextHookId += 1;
-    const hookId = nextHookId;
+function waitForPython(
+    runId: number,
+    message: (answerId: number) => Record<string, unknown>,
+    signal?: AbortSignal,
+): Promise<unknown> {
+    nextAnswerId += 1;
+    const answerId = nextAnswerId;
     return new Promise((resolve, reject) => {
-        waitingHooks.set(hookId, { runId, resolve, reject });
-        send({ id: runId, type: "hook", hook_id: hookId, phase, payload });
+        waitingAnswers.set(answerId, { runId, resolve, reject });
+        signal?.addEventListener("abort", () => {
+            answerPython(answerId, undefined, "the run was cancelled");
+        }, { once: true });
+        send(message(answerId));
     });
 }
 
-function answerHook(request: HookResultRequest): void {
-    const waiting = waitingHooks.get(request.hookId);
+function answerPython(answerId: number, result: unknown, error: string | undefined): void {
+    const waiting = waitingAnswers.get(answerId);
     if (waiting === undefined) return;
-    waitingHooks.delete(request.hookId);
-    if (request.error !== undefined) {
-        waiting.reject(new Error(request.error));
+    waitingAnswers.delete(answerId);
+    if (error !== undefined) {
+        waiting.reject(new Error(error));
         return;
     }
-    waiting.resolve(request.result);
+    waiting.resolve(result);
 }
 
-// An aborted run leaves hooks Python never answers; drop them when the run ends.
-function dropHooks(runId: number): void {
-    for (const [hookId, waiting] of waitingHooks) {
+function askPython(runId: number, phase: string, payload: Record<string, unknown>): Promise<unknown> {
+    return waitForPython(runId, (hookId) => ({ id: runId, type: "hook", hook_id: hookId, phase, payload }));
+}
+
+function pythonFunction(runId: number, declared: ChildFunction): FunctionTool {
+    return {
+        ...declared,
+        async run(args, signal) {
+            const output = await waitForPython(runId, (callId) => ({
+                id: runId,
+                type: "function_call",
+                call_id: callId,
+                name: declared.name,
+                arguments: args,
+            }), signal);
+            if (typeof output !== "string") {
+                throw new Error(`Python function ${declared.name} sent no output`);
+            }
+            return output;
+        },
+    };
+}
+
+// An aborted run leaves questions Python never answers; drop them when the run ends.
+function dropAnswers(runId: number): void {
+    for (const [answerId, waiting] of waitingAnswers) {
         if (waiting.runId !== runId) continue;
-        waitingHooks.delete(hookId);
+        waitingAnswers.delete(answerId);
         waiting.reject(new Error("the run ended"));
     }
 }
@@ -179,7 +230,8 @@ function pythonTurnEnding(runId: number): TurnEndingHook {
     };
 }
 
-// Replay answers with the latest user prompt and never reads the Vera home.
+// Replay echoes the latest user prompt and never reads the Vera home. A prompt
+// "call <name> <json>" calls that tool once, then replies with its result.
 class RecordedAdapter implements ModelAdapter {
     constructor(private readonly delayMs: number) {}
 
@@ -190,17 +242,20 @@ class RecordedAdapter implements ModelAdapter {
     }
 
     private async produce(request: ModelRequest, stream: ModelEventStream): Promise<void> {
-        const reply = latestUserText(request);
+        const toolCall = replayToolCall(request);
+        const reply = replayText(request);
         const message: AssistantMessage = {
             role: "assistant",
-            content: [{ type: "text", text: reply }],
+            content: toolCall === undefined
+                ? [{ type: "text", text: reply }]
+                : [toolCall],
             source: {
                 provider: "faux",
                 api: "python-child",
                 model: request.model,
             },
             usage: emptyUsage(),
-            stopReason: "stop",
+            stopReason: toolCall === undefined ? "stop" : "tool_use",
         };
         stream.push({ type: "start" });
         if (this.delayMs > 0) {
@@ -214,11 +269,37 @@ class RecordedAdapter implements ModelAdapter {
                 return;
             }
         }
-        stream.push({ type: "text_start", contentIndex: 0 });
-        stream.push({ type: "text_delta", contentIndex: 0, text: reply });
-        stream.push({ type: "text_end", contentIndex: 0 });
+        if (toolCall === undefined) {
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({ type: "text_delta", contentIndex: 0, text: reply });
+            stream.push({ type: "text_end", contentIndex: 0 });
+        } else {
+            stream.push({ type: "tool_call_start", contentIndex: 0 });
+            stream.push({
+                type: "tool_call_delta",
+                contentIndex: 0,
+                argumentsDelta: JSON.stringify(toolCall.input),
+            });
+            stream.push({ type: "tool_call_end", contentIndex: 0, toolCall });
+        }
         stream.push({ type: "done", message });
     }
+}
+
+function replayToolCall(request: ModelRequest): ToolCallContent | undefined {
+    if (request.messages.at(-1)?.role !== "user") return undefined;
+    const directive = /^call ([a-z][a-z0-9_]*) (\{.*\})$/s.exec(latestUserText(request).trim());
+    if (directive === null) return undefined;
+    const input: unknown = JSON.parse(directive[2]!);
+    if (!isRecord(input)) return undefined;
+    return { type: "tool_call", id: "replay-call", name: directive[1]!, input };
+}
+
+function replayText(request: ModelRequest): string {
+    const last = request.messages.at(-1);
+    if (last?.role !== "tool_result") return latestUserText(request);
+    const text = last.content.map((part) => part.text).join("");
+    return last.isError ? `error: ${text}` : text;
 }
 
 function latestUserText(request: ModelRequest): string {
@@ -286,6 +367,13 @@ async function runAgent(
             ? {}
             : { provider: request.agent.provider }),
         ...(request.agent.model === undefined ? {} : { model: request.agent.model }),
+        ...(request.agent.functions.length === 0
+            ? {}
+            : {
+                functions: request.agent.functions.map((declared) =>
+                    pythonFunction(request.id, declared)
+                ),
+            }),
     });
     const result = await agent.run(request.prompt, {
         signal,
@@ -351,7 +439,11 @@ async function main(): Promise<void> {
             continue;
         }
         if (request.type === "hook_result") {
-            answerHook(request);
+            answerPython(request.hookId, request.result, request.error);
+            continue;
+        }
+        if (request.type === "function_result") {
+            answerPython(request.callId, request.output, request.error);
             continue;
         }
         const controller = new AbortController();
@@ -364,7 +456,7 @@ async function main(): Promise<void> {
                 send({ id, type: "error", kind: "runtime", message: errorMessage(caught) });
             })
             .finally(() => {
-                dropHooks(id);
+                dropAnswers(id);
                 inFlight.delete(id);
                 pending.delete(work);
             });
@@ -421,6 +513,24 @@ function childRequest(value: unknown): ChildRequest {
             ...(value.error === undefined ? {} : { error: value.error }),
         };
     }
+    if (value.type === "function_result") {
+        if (typeof value.call_id !== "number" || !Number.isInteger(value.call_id)) {
+            throw new Error("function_result needs an integer call_id");
+        }
+        if (value.output !== undefined && typeof value.output !== "string") {
+            throw new Error("function_result output must be a string");
+        }
+        if (value.error !== undefined && typeof value.error !== "string") {
+            throw new Error("function_result error must be a string");
+        }
+        return {
+            id: value.id,
+            type: "function_result",
+            callId: value.call_id,
+            ...(value.output === undefined ? {} : { output: value.output }),
+            ...(value.error === undefined ? {} : { error: value.error }),
+        };
+    }
     if (value.type === "tool") {
         if (value.input !== undefined && !isRecord(value.input)) {
             throw new Error("tool input must be an object");
@@ -440,6 +550,7 @@ function childRequest(value: unknown): ChildRequest {
     }
     const agent = value.agent;
     const tools = optionalStrings(agent.tools, "agent.tools");
+    const functions = childFunctions(agent.functions);
     const agentPosture = optionalString(agent.posture, "agent.posture");
     const provider = optionalString(agent.provider, "agent.provider");
     const model = optionalString(agent.model, "agent.model");
@@ -455,11 +566,29 @@ function childRequest(value: unknown): ChildRequest {
             name: requiredString(agent.name, "agent.name"),
             instructions: requiredString(agent.instructions, "agent.instructions"),
             ...(tools === undefined ? {} : { tools }),
+            functions,
             ...(agentPosture === undefined ? {} : { posture: agentPosture }),
             ...(provider === undefined ? {} : { provider }),
             ...(model === undefined ? {} : { model }),
         },
     };
+}
+
+function childFunctions(value: unknown): ChildFunction[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) {
+        throw new Error("agent.functions must be an array");
+    }
+    return value.map((item) => {
+        if (!isRecord(item) || typeof item.description !== "string" || !isRecord(item.parameters)) {
+            throw new Error("each agent function needs a name, description and parameters object");
+        }
+        return {
+            name: requiredString(item.name, "agent.functions.name"),
+            description: item.description,
+            parameters: item.parameters,
+        };
+    });
 }
 
 function requiredString(value: unknown, field: string): string {

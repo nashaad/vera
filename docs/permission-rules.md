@@ -12,8 +12,8 @@ ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 
 | Mode | What runs without asking | Everything else |
 |---|---|---|
-| `readonly` | Reads, including shell commands that only read such as `cat` or `git log`, `ask_user`, reading process output | Refused |
-| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, extensions writing their own data | Asks you |
+| `readonly` | Reads, including shell commands that only read such as `cat` or `git log`, `ask_user`, reading process output, functions an SDK program gave its agent | Refused |
+| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, extensions writing their own data, functions an SDK program gave its agent | Asks you |
 | `auto` | Same as `ask` | Goes to the classifier |
 | `full_access` | Everything except the recursive `rm` cases below | Refused |
 
@@ -118,7 +118,7 @@ anywhere needs a `reviewer_profile` naming an entry in `reviewer_profiles`.
 
 Operations you can name: `agent.close`, `agent.inbox`, `agent.message`,
 `agent.roster`, `agent.spawn`, `extension.storage.read`,
-`extension.storage.write`, `git.clone`, `git.commit`, `git.fetch`,
+`extension.storage.write`, `function.call`, `git.clone`, `git.commit`, `git.fetch`,
 `git.ls_remote`, `git.pull`, `git.push`, `git.remote_update`, `memory.write`,
 `process.kill`, `process.read`, `web.download`, `web.fetch`, `web.search`.
 
