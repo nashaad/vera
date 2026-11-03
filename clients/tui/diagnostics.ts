@@ -36,12 +36,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly modelFailures?: ModelFailureSummary;
     readonly modelFailureLedgerPath?: string;
     readonly now?: number;
-    readonly build?: {
-        readonly clientVersion: string;
-        readonly hostBuildId?: string;
-        readonly hostPid?: number;
-        readonly hostStartedAt?: string;
-    };
+    readonly build?: TuiBuildFacts;
     readonly extensions?: readonly {
         readonly path: string;
         readonly enabled: boolean;
@@ -546,6 +541,22 @@ function clientExtensionReloadLines(
 }
 
 const MAX_ACTIVE_EXTENSION_IDS = 20;
+
+export interface TuiBuildFacts {
+    readonly clientVersion: string;
+    readonly hostBuildId?: string | undefined;
+    readonly hostPid?: number | undefined;
+    readonly hostStartedAt?: string | undefined;
+}
+
+// After a refusal the attached host record is the old build's, so only the refused build is known.
+export function currentBuildFacts(
+    build: TuiBuildFacts | undefined,
+    refusal: { readonly hostBuildId: string | undefined } | undefined,
+): TuiBuildFacts | undefined {
+    if (build === undefined || refusal === undefined) return build;
+    return { clientVersion: build.clientVersion, hostBuildId: refusal.hostBuildId };
+}
 
 function hostLabel(snapshot: TuiDiagnosticsSnapshot): string {
     const pid = snapshot.build?.hostPid;

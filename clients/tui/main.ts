@@ -142,7 +142,7 @@ import type {
     TuiSessionLeaveResult,
 } from "./session-lifecycle.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
-import { renderTuiDiagnostics, type TuiDiagnosticsSnapshot } from "./diagnostics.ts";
+import { renderTuiDiagnostics, type TuiBuildFacts, type TuiDiagnosticsSnapshot } from "./diagnostics.ts";
 import { idleProviderHealth, type HealthRung } from "./provider-health.ts";
 import { createTuiDiagnosticsDialogView } from "./diagnostics-dialog.ts";
 import { type VeraDoctorReport } from "../process-doctor.ts";
@@ -595,12 +595,7 @@ export interface TuiDependencies {
         readonly disabledIncludedExtensions: readonly string[];
         readonly clientExtensions: readonly VeraExtensionConfig[];
     };
-    readonly build?: {
-        readonly clientVersion: string;
-        readonly hostBuildId?: string;
-        readonly hostPid?: number;
-        readonly hostStartedAt?: string;
-    };
+    readonly build?: TuiBuildFacts;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly openUsagePage?: () => Promise<AnnexUrlResult>;
     readonly readHostExtensionLoadFailures?: () => Promise<readonly HostExtensionLoadFailure[]>;
@@ -858,11 +853,10 @@ export async function startConfiguredTui(
             },
             build: {
                 clientVersion: clientBuildId,
-                ...(host.build_id === undefined
-                    ? {}
-                    : { hostBuildId: host.build_id }),
-                hostPid: host.pid,
-                hostStartedAt: host.started_at,
+                // Getters: Reconnect host replaces `host`, and diagnostics must show the one attached now.
+                get hostBuildId() { return host.build_id; },
+                get hostPid() { return host.pid; },
+                get hostStartedAt() { return host.started_at; },
             },
             openUsagePage: async () => readAnnexUrlThroughHost(await pairedSocket()),
             readHostExtensionLoadFailures: async () => readExtensionLoadFailuresThroughHost(await pairedSocket()),
@@ -987,6 +981,7 @@ export async function startTui(
         requestSecret: (request, signal) => requestExtensionSecret(rt, request, signal),
     });
     rt.connectionFailed = false;
+    rt.hostBuildRefusal = undefined;
     // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.

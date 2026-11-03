@@ -145,6 +145,7 @@ export interface TuiRuntime {
     experimentalTuiHost: TuiExperimentalHost;
     connectionFailed: boolean;
     connectionFailure: string | undefined;
+    hostBuildRefusal: { readonly hostBuildId: string | undefined } | undefined;
     hostReconnectAttempted: boolean;
     agentFailedThisAttachment: boolean;
     statusNotice: string | undefined;

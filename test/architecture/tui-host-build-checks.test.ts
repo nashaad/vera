@@ -35,6 +35,13 @@ test("Reconnect host checks the build before it can dispatch to another release"
     expect(check).toBeLessThan(reconnect.indexOf("findOrStartResidentHost("));
 });
 
+test("diagnostics read the host startConfiguredTui is attached to now", () => {
+    expect(startConfiguredTui).toContain("get hostBuildId() { return host.build_id; },");
+    expect(startConfiguredTui).toContain("get hostPid() { return host.pid; },");
+    expect(startConfiguredTui).toContain("get hostStartedAt() { return host.started_at; },");
+    expect(startConfiguredTui).not.toMatch(/hostPid: host\.pid|hostBuildId: host\.build_id/);
+});
+
 test("every one-shot request in the agent client factory goes through the build check", () => {
     const factory = topLevelBlock(
         readFileSync(join(TUI, "configured-agent-client.ts"), "utf8"),

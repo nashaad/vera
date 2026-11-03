@@ -490,6 +490,7 @@ export function beginHostReconnect(rt: TuiRuntime,
         if (options.replaceExisting === true) {
             rt.connectionFailed = true;
             rt.connectionFailure = message;
+            rt.hostBuildRefusal = undefined;
             rt.activity = "disconnected";
             settleLostHost(rt, message);
             rt.state = appendTuiError(
@@ -578,6 +579,7 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     ) {
         rt.connectionFailed = true;
         rt.connectionFailure = message;
+        rt.hostBuildRefusal = undefined;
         rt.activity = "disconnected";
         settleLostHost(rt, message);
         renderState(rt);
@@ -596,6 +598,7 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     rt.connectionFailed = true;
     rt.activity = "disconnected";
     rt.connectionFailure = message;
+    rt.hostBuildRefusal = undefined;
     settleLostHost(rt, message);
     renderState(rt);
     rt.composer.focus();
@@ -610,6 +613,7 @@ function refuseChangedHostBuild(rt: TuiRuntime, error: HostBuildChangedError): v
     });
     rt.connectionFailed = true;
     rt.connectionFailure = "host is a different build";
+    rt.hostBuildRefusal = { hostBuildId: error.hostBuildId };
     rt.activity = "disconnected";
     settleLostHost(rt, error.message);
     rt.state = appendTuiError(rt.state, hostBuildChangedMessage(error));
