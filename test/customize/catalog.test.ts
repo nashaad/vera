@@ -121,6 +121,34 @@ test("skills turned off by disabled_skills still appear, marked disabled", async
     expect(skills.find((source) => source.name === "create-agent")?.status).not.toBe("disabled");
 });
 
+test("a broken config.json keeps skills and extensions on their last settings with one warning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-broken-")); roots.push(root);
+    const home = join(root, "home");
+    const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(workspace, { recursive: true });
+    await mkdir(join(home, "skills/plunder"), { recursive: true });
+    await writeFile(join(home, "skills/plunder/SKILL.md"), "---\nname: plunder\ndescription: Take the loot\n---\nBody\n");
+    await writeFile(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "faux/test",
+        disabled_skills: ["plunder"],
+        disabled_included_extensions: ["vera.btw"],
+    }));
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    await writeFile(join(home, "config.json"), "{ not json");
+
+    const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+
+    expect(catalog.sources.find((source) => source.name === "plunder")?.status).toBe("disabled");
+    expect(catalog.sources.find((source) => source.name === "vera.btw")?.status).toBe("disabled");
+    const notices = catalog.warnings.filter((warning) => warning.startsWith("config.json could not be read:"));
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toEndWith(". Skills use the last settings that loaded.");
+});
+
 test("catalog lists home and project rules as instructions keyed by their loaded path", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-rules-")); roots.push(root);
     const home = join(root, "home"); const workspace = join(root, "project");

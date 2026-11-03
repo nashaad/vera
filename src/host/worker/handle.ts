@@ -258,6 +258,7 @@ function capabilitiesOf(
             services.applyCommittedToolEffect !== undefined,
         loadContextualContributions:
             services.loadContextualContributions !== undefined,
+        checkSkillFile: services.checkSkillFile !== undefined,
         hooks: services.hooks !== undefined,
         reviewLog: services.reviewLog !== undefined,
         hasPendingDeliveryTurn:

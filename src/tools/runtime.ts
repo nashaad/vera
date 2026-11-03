@@ -10,6 +10,19 @@ export type PreimageRecorder = (
     content: string,
 ) => Promise<void>;
 
+export interface SkillFileCheck {
+    readonly projectRoot: string;
+    readonly path: string;
+    readonly allowedSkills?: readonly string[];
+    readonly isSubagent: boolean;
+    readonly userInvokedSkill?: string;
+}
+
+// Returns the refusal for reading a SKILL.md, or undefined to allow it.
+export type CheckSkillFile = (
+    check: SkillFileCheck,
+) => Promise<string | undefined>;
+
 export class ToolRuntime {
     readonly workspace: string;
     readonly instructionRoot: string;
@@ -23,6 +36,8 @@ export class ToolRuntime {
     readonly invocation: "top_level" | "subagent";
     allowedTools: readonly string[] | undefined;
     sessionId: string | undefined;
+    // Set by a host that owns skill settings; unset, the read tool checks locally.
+    checkSkillFile: CheckSkillFile | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
     private readonly ownedProcessRegistry: ManagedProcessRegistry | undefined;
@@ -58,6 +73,7 @@ export class ToolRuntime {
         this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
         this.sessionId = undefined;
+        this.checkSkillFile = undefined;
     }
 
     recordFileSnapshot(path: string, content: string): void {

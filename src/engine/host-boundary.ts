@@ -5,6 +5,7 @@ import type { EffortPool } from "../model/effort-pool.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { SessionStore } from "../store/session-store.ts";
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
+import type { CheckSkillFile } from "../tools/runtime.ts";
 import type {
     ApplyCommittedToolEffect,
     ApplyToolEffect,
@@ -69,6 +70,7 @@ export interface HostBoundary {
         allowedSkills?: readonly string[],
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
+    readonly checkSkillFile?: CheckSkillFile;
     readonly owned: HostOwnedObjects;
 }
 
@@ -130,6 +132,9 @@ export function createLocalHostBoundary(
         ...(services.loadContextualContributions === undefined ? {} : {
             loadContextualContributions: services.loadContextualContributions,
         }),
+        ...(services.checkSkillFile === undefined
+            ? {}
+            : { checkSkillFile: services.checkSkillFile }),
         owned: {
             ...(services.sessionStore === undefined
                 ? {}

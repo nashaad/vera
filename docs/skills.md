@@ -135,9 +135,15 @@ This works for bundled and extension skills too.
 
 To turn skills off in one project, put the same list in the project's
 `.vera/config.json`. Vera adds it to the home list, and it applies to skills
-from every source. An invalid project list is ignored, the home list still
-applies, and the problem appears as a warning above the Skills list in
-`/customize`.
+from every source.
+
+If either file stops loading, for example after an edit leaves it invalid,
+skills keep the settings from that file that last loaded since Vera started.
+An invalid `disabled_skills` list counts as a file that does not load. A file
+that has not loaded since Vera started turns every skill off until it loads.
+The reason appears as a warning above the Skills list in `/customize`,
+starting with `config.json could not be read:` or
+`.vera/config.json could not be read:`.
 
 A disabled skill has no slash command, and the model cannot load it.
 `/customize` still lists it under Skills, marked `disabled by disabled_skills`.

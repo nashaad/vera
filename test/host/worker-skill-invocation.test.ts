@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { skillScriptTool } from "../../src/skills/script.ts";
+import { rememberSkillSettings } from "../../src/skills/sources.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -92,6 +93,72 @@ test("hosted validation honors a worker's explicit invocation for only that turn
         }]);
     } finally {
         await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a worker reads a SKILL.md under the host's last good settings after config.json breaks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-skill-settings-"));
+    const home = join(root, "home");
+    const workspace = join(root, "workspace");
+    const skillDirectory = join(workspace, ".vera", "skills", "plunder");
+    await mkdir(home, { recursive: true });
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(join(skillDirectory, "SKILL.md"), "---\nname: plunder\ndescription: Take the loot.\n---\nBURIED TREASURE\n");
+    await writeFile(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+    const script: AssistantMessage[] = [{
+        role: "assistant",
+        content: [{
+            type: "tool_call", id: "read-skill", name: "read",
+            input: { path: join(".vera", "skills", "plunder", "SKILL.md") },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(), stopReason: "tool_use",
+    }, {
+        role: "assistant",
+        content: [{ type: "text", text: "Read it." }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(), stopReason: "stop",
+    }];
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: () => ({
+            module: join(import.meta.dir, "fixtures/worker-scripted-adapter.ts"),
+            options: { script },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+    try {
+        rememberSkillSettings(workspace);
+        await writeFile(join(home, "config.json"), "{ not json");
+        const sessionPath = join(root, "session.jsonl");
+        const session = await registry.create({
+            id: "skill-settings", workspace, sessionPath,
+        });
+        const client = session.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "Read the plunder skill." });
+        await untilFinished(client);
+
+        const stored = await SessionStore.open(sessionPath);
+        const result = stored.messages().find((message) =>
+            message.role === "tool_result" && message.toolName === "read"
+        );
+        expect(result).toMatchObject({ isError: false });
+        expect(result?.content).toEqual([{
+            type: "text", text: expect.stringContaining("BURIED TREASURE"),
+        }]);
+    } finally {
+        await registry.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);

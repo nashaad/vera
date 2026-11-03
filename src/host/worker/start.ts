@@ -35,6 +35,7 @@ export interface WorkerHostCapabilities {
     readonly requestMissingSubagentConfiguration: boolean;
     readonly applyCommittedToolEffect: boolean;
     readonly loadContextualContributions: boolean;
+    readonly checkSkillFile: boolean;
     readonly hooks: boolean;
     readonly reviewLog: boolean;
     readonly hasPendingDeliveryTurn: boolean;

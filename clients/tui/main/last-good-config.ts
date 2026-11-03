@@ -1,4 +1,4 @@
-import { createLastGoodVeraConfigReader, VeraConfigError, type LastGoodVeraConfig } from "../../../src/config.ts";
+import { createLastGoodVeraConfigReader, veraConfigProblem, type LastGoodVeraConfig } from "../../../src/config.ts";
 import { serializeError } from "../flight-recorder.ts";
 import type { TuiRuntime } from "./runtime.ts";
 
@@ -19,7 +19,6 @@ export function readLastGoodConfig(rt: Pick<TuiRuntime, "flightRecorder">): Last
 
 export function lastGoodConfigNotice(read: LastGoodVeraConfig): string | undefined {
     if (read.error === undefined) return undefined;
-    const problem = read.error instanceof VeraConfigError ? read.error.problem : read.error.message;
-    const reason = `config.json could not be read: ${problem.replace(/\.$/, "")}.`;
+    const reason = `config.json could not be read: ${veraConfigProblem(read.error).replace(/\.$/, "")}.`;
     return read.config === undefined ? reason : `${reason} Showing the last settings that loaded.`;
 }

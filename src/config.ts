@@ -496,8 +496,8 @@ export interface LastGoodVeraConfig {
 }
 
 /**
- * `loadOptionalVeraConfig` for screens that only display config: when the file
- * stops loading, the last config loaded from the same path answers instead.
+ * `loadOptionalVeraConfig` for readers that can run on older settings: when the
+ * file stops loading, the last config loaded from the same path answers instead.
  */
 export function createLastGoodVeraConfigReader(
     options: LoadVeraConfigOptions = {},
@@ -517,6 +517,11 @@ export function createLastGoodVeraConfigReader(
             };
         }
     };
+}
+
+// The reason alone, without the path, for one-line notices.
+export function veraConfigProblem(error: Error): string {
+    return error instanceof VeraConfigError ? error.problem : error.message;
 }
 
 export function loadVeraConfig(

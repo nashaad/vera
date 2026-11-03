@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     mkdirSync,
     mkdtempSync,
+    rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
@@ -234,42 +235,57 @@ test("a project's disabled_skills adds to the home list and covers every source"
     expect(catalog.warnings).toEqual([]);
 });
 
-test("an invalid project disabled_skills is ignored with a warning", async () => {
+test("a broken project config keeps its last list, or turns every skill off if it never loaded", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
     const projectRoot = join(root, "project");
     const userDirectory = join(root, "user");
     writeSkill(userDirectory, "review", "user review");
     writeSkill(userDirectory, "crow-call", "caw");
+    writeSkill(userDirectory, "plunder", "take the loot");
     mkdirSync(join(projectRoot, ".vera"), { recursive: true });
     const configPath = join(projectRoot, ".vera", "config.json");
-    writeFileSync(configPath, JSON.stringify({ disabled_skills: ["cr*w"] }));
-
-    const invalid = await loadSkillCatalog({
+    const load = () => loadSkillCatalog({
         projectRoot,
         userDirectory,
         systemDirectory: join(root, "system"),
         disabledSkills: ["review"],
         extensionRoots: [],
     });
+    const names = (skills: readonly { readonly metadata: { readonly name: string } }[]) =>
+        skills.map((skill) => skill.metadata.name);
 
-    expect(invalid.skills.map((skill) => skill.metadata.name)).toEqual(["crow-call"]);
-    expect(invalid.disabledSkills.map((skill) => skill.metadata.name)).toEqual(["review"]);
-    expect(invalid.warnings).toEqual([
-        `disabled_skills in ${configPath} is not a valid list and was ignored`,
+    writeFileSync(configPath, JSON.stringify({ disabled_skills: ["cr*w"] }));
+    const neverLoaded = await load();
+    expect(names(neverLoaded.skills)).toEqual([]);
+    expect(names(neverLoaded.disabledSkills)).toEqual(["crow-call", "plunder", "review"]);
+    expect(neverLoaded.warnings).toEqual([
+        ".vera/config.json could not be read: disabled_skills is not a valid list. Skills are off until it loads.",
     ]);
 
-    writeFileSync(configPath, "{ not json");
-    const unreadable = await loadSkillCatalog({
-        projectRoot,
-        userDirectory,
-        systemDirectory: join(root, "system"),
-        disabledSkills: ["review"],
-        extensionRoots: [],
-    });
+    writeFileSync(configPath, JSON.stringify({ disabled_skills: ["crow-*"] }));
+    const loaded = await load();
+    expect(names(loaded.skills)).toEqual(["plunder"]);
+    expect(loaded.warnings).toEqual([]);
 
-    expect(unreadable.disabledSkills.map((skill) => skill.metadata.name)).toEqual(["review"]);
+    writeFileSync(configPath, "{ not json");
+    const unreadable = await load();
+    expect(names(unreadable.skills)).toEqual(["plunder"]);
+    expect(names(unreadable.disabledSkills)).toEqual(["crow-call", "review"]);
     expect(unreadable.warnings).toHaveLength(1);
-    expect(unreadable.warnings[0]).toStartWith(`${configPath} could not be read: `);
+    expect(unreadable.warnings[0]).toStartWith(".vera/config.json could not be read: it is not valid JSON (");
+    expect(unreadable.warnings[0]).toEndWith(". Skills use the last settings that loaded.");
+
+    writeFileSync(configPath, JSON.stringify({ disabled_skills: "crow-call" }));
+    const invalid = await load();
+    expect(names(invalid.skills)).toEqual(["plunder"]);
+    expect(invalid.warnings).toEqual([
+        ".vera/config.json could not be read: disabled_skills is not a valid list. Skills use the last settings that loaded.",
+    ]);
+
+    rmSync(configPath);
+    const removed = await load();
+    expect(names(removed.skills)).toEqual(["crow-call", "plunder"]);
+    expect(removed.warnings).toEqual([]);
 });
 
 test("extension skills sit between bundled and user skills", async () => {

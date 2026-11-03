@@ -70,7 +70,7 @@ import type {
     ToolEffectContext,
 } from "../tools/types.ts";
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
-import type { ToolRuntime } from "../tools/runtime.ts";
+import type { CheckSkillFile, ToolRuntime } from "../tools/runtime.ts";
 import type { PooledModel } from "../model/catalog-view.ts";
 import {
     modelRef,
@@ -104,6 +104,7 @@ export interface CreateSubagentEffectApplierOptions {
         allowedSkills?: readonly string[],
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
+    readonly checkSkillFile?: CheckSkillFile;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
@@ -411,6 +412,7 @@ export interface RunSubagentOptions {
         allowedSkills?: readonly string[],
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
+    readonly checkSkillFile?: CheckSkillFile;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
@@ -664,6 +666,9 @@ export function createSubagentSpawner(
                     loadContextualContributions:
                         options.loadContextualContributions,
                 }),
+                ...(options.checkSkillFile === undefined
+                    ? {}
+                    : { checkSkillFile: options.checkSkillFile }),
                 offerTools: options.offerTools,
                 loadOptionalContext: options.loadOptionalContext,
                 sessionMetadata: parentSessionId === undefined
@@ -812,6 +817,7 @@ export async function runSubagent(
             true,
             options.scratchDir,
         );
+        toolRuntime.checkSkillFile = options.checkSkillFile;
         const inbound = new InboundCommandRouter(channel.engine, events);
         const readModelSettings = (): ModelTurnSettings => ({
             ...(options.provider === undefined ? {} : { provider: options.provider }),

@@ -153,6 +153,7 @@ import {
 } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import { loadSkillContribution } from "../skills/contribution.ts";
+import { rememberSkillSettings } from "../skills/sources.ts";
 import {
     loadStandingNudges,
     type StandingNudgeCadence,
@@ -340,6 +341,7 @@ export async function startResidentHost(
             ? {}
             : { projectRoot: options.projectRoot }),
     });
+    rememberSkillSettings(options.projectRoot);
     const currentReachability = () => poolReachability(loadPoolFile({}).merged);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();

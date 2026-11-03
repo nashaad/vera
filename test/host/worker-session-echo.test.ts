@@ -110,6 +110,7 @@ async function link(
                 requestMissingSubagentConfiguration: false,
                 applyCommittedToolEffect: false,
                 loadContextualContributions: false,
+                checkSkillFile: false,
                 hooks: false,
                 reviewLog: false,
                 hasPendingDeliveryTurn: false,
