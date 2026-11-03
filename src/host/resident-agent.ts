@@ -119,7 +119,7 @@ export class ResidentAgent {
     private isClosed = false;
     private pendingCommandCount = 0;
     private unstartedPrompts = 0;
-    // Wakes the engine took that neither started a turn nor reported a discard.
+    // Wakes the engine took that have neither started a turn nor been discarded; one may sit queued behind a running turn.
     private outstandingDeliveryWakes = 0;
     private startedTurnActive = false;
     private deliveryTurnQueued = false;
@@ -537,7 +537,10 @@ export class ResidentAgent {
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
-                this.outstandingDeliveryWakes = 0;
+                // The start settles the one wake it was claimed for; a later wake stays outstanding.
+                if (this.outstandingDeliveryWakes > 0) {
+                    this.outstandingDeliveryWakes -= 1;
+                }
                 this.startedTurnActive = true;
             }
         } else if (snapshot.type === "user_prompt") {
@@ -572,12 +575,14 @@ export class ResidentAgent {
             // A finished turn cannot still be waiting on an answer. Cleared here as well as on `ui_request_closed` because a turn that ends without closing its request would otherwise leave.
             this.openRequests.clear();
             this.outOfBandRequests.clear();
+            // A turn that ends without announcing its start is a prompt, or a wake whose images failed to load. With both outstanding the prompt is assumed.
             if (this.startedTurnActive) {
                 this.startedTurnActive = false;
             } else if (this.unstartedPrompts > 0) {
                 this.unstartedPrompts -= 1;
+            } else if (this.outstandingDeliveryWakes > 0) {
+                this.outstandingDeliveryWakes -= 1;
             }
-            this.outstandingDeliveryWakes = 0;
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
             this.currentTool = undefined;

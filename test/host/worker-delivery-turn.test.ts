@@ -4,14 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
+import type { DeliveryDiscardReason } from "../../src/engine/host-protocol.ts";
 import type { InboundRouterHostHooks } from "../../src/engine/loop-services.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
+import { forwardWorkerUpdate } from "../../src/host/agent-registry/subagent.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
-import type { AgentAttachment } from "../../src/host/resident-agent.ts";
+import { ResidentAgent, type AgentAttachment } from "../../src/host/resident-agent.ts";
 import { createWorkerBoundaryServer } from "../../src/host/worker/boundary-server.ts";
 import { createJsonPipe } from "../../src/host/worker/pipe.ts";
 import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.ts";
@@ -32,12 +34,13 @@ function workerRegistry(
     root: string,
     script: readonly AssistantMessage[],
     coordinator?: InboxDeliveryCoordinator,
+    startupDelayMs?: number,
 ): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: () => ({
             module: join(import.meta.dir, "fixtures/worker-scripted-adapter.ts"),
-            options: { script },
+            options: { script, ...(startupDelayMs === undefined ? {} : { startupDelayMs }) },
         }),
         model: "faux/test",
         approvalMode: "auto",
@@ -98,11 +101,212 @@ test("a worker starts a delivery turn for an admitted entry that was never recor
             payload: JSON.stringify({}),
         });
         await receiveType(attachment, "turn_finished");
-        // The transcript update that follows the turn must land before the registry closes.
-        await receiveType(attachment, "history");
         expect(await becomes(() => deck.idleForReplacement())).toBe(true);
         attachment.detach();
     } finally {
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
+test("a conversation in a worker is asked about an unadmitted source, and its turn starts on yes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-admission-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const registry = workerRegistry(root, [textResponse("Gulls sighted.")], coordinator);
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+
+        await coordinator.append({
+            source: "watch/git",
+            kind: "filesystem.changed",
+            address: "deck",
+            payload: JSON.stringify({}),
+        });
+        const question = await receiveTypeWithin(attachment, "ui_request", 5_000);
+        expect(question?.request).toMatchObject({ type: "user_question", outOfBand: true });
+
+        attachment.send({
+            type: "ui_response",
+            requestId: question!.requestId,
+            response: { type: "user_question", outcome: "selected", choiceId: "once" },
+        });
+        await receiveType(attachment, "turn_finished");
+        const history = await receiveType(attachment, "history");
+        expect(JSON.stringify(history.entries)).toContain("Gulls sighted.");
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
+test("an entry waiting for a client to attach is asked about once the worker is up", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-admission-early-"));
+    temporaryDirectories.push(root);
+    const { inbox, coordinator } = unadmittingCoordinator(root);
+    const registry = workerRegistry(root, [textResponse("Gulls sighted.")], coordinator, 300);
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        // Nobody is attached, so nothing is asked yet.
+        await coordinator.append({
+            source: "watch/git",
+            kind: "filesystem.changed",
+            address: "deck",
+            payload: JSON.stringify({}),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+
+        const question = await receiveTypeWithin(attachment, "ui_request", 8_000);
+        expect(question?.request).toMatchObject({ type: "user_question", outOfBand: true });
+        attachment.send({
+            type: "ui_response",
+            requestId: question!.requestId,
+            response: { type: "user_question", outcome: "selected", choiceId: "once" },
+        });
+        await receiveType(attachment, "turn_finished");
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
+test("an entry that arrives while the worker is still starting is asked about once, however many follow it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-admission-boot-"));
+    temporaryDirectories.push(root);
+    const { inbox, coordinator } = unadmittingCoordinator(root);
+    const registry = workerRegistry(
+        root,
+        [textResponse("Gulls sighted."), textResponse("Gulls again."), textResponse("Gulls once more.")],
+        coordinator,
+        500,
+    );
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        // The owner router exists, but the worker has not started listening for events.
+        expect(await becomes(() => registry.agents.get("deck")?.workerOwnerRouter !== undefined)).toBe(true);
+
+        for (let arrival = 0; arrival < 2; arrival += 1) {
+            await coordinator.append({
+                source: "watch/git",
+                kind: "filesystem.changed",
+                address: "deck",
+                payload: JSON.stringify({ arrival }),
+            });
+        }
+        const question = await receiveTypeWithin(attachment, "ui_request", 8_000);
+        expect(question?.request).toMatchObject({ type: "user_question", outOfBand: true });
+        // The second arrival joins the question already waiting; nothing else is shown.
+        expect(await receiveTypeWithin(attachment, "ui_request", 500)).toBeUndefined();
+
+        attachment.send({
+            type: "ui_response",
+            requestId: question!.requestId,
+            response: { type: "user_question", outcome: "selected", choiceId: "session" },
+        });
+        await receiveType(attachment, "turn_finished");
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
+test("the worker's transcript update that lands after the conversation closed is dropped", () => {
+    const update: AgentUpdate = { type: "notice", key: "inbox", count: 1, seq: 1 };
+    const closed = new ResidentAgent("closed", "/work/one");
+    closed.close();
+    expect(() => forwardWorkerUpdate(closed, update, undefined)).not.toThrow();
+
+    const failed = new ResidentAgent("failed", "/work/one");
+    failed.fail("failure-1", "worker lost");
+    expect(() => forwardWorkerUpdate(failed, update, undefined)).not.toThrow();
+});
+
+test("a live conversation still receives the worker's updates, and a bad private update still throws", async () => {
+    const agent = new ResidentAgent("live", "/work/one");
+    const attachment = agent.attach();
+    try {
+        await attachment.receive();
+        const update: AgentUpdate = { type: "notice", key: "inbox", count: 1, seq: 1 };
+        forwardWorkerUpdate(agent, update, undefined);
+        expect(await attachment.receive()).toEqual(update);
+        expect(() => forwardWorkerUpdate(agent, update, "owner-1")).toThrow("unowned private update");
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});
+
+test("closing the registry the moment a worker turn finishes raises nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-delivery-close-"));
+    temporaryDirectories.push(root);
+    const raised: unknown[] = [];
+    const record = (error: unknown): void => {
+        raised.push(error);
+    };
+    process.on("uncaughtException", record);
+    process.on("unhandledRejection", record);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: ["filesystem"],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const registry = workerRegistry(root, [textResponse("Gulls sighted.")], coordinator);
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        await coordinator.append({
+            source: "watch/git",
+            kind: "filesystem.changed",
+            address: "deck",
+            payload: JSON.stringify({}),
+        });
+        await receiveType(attachment, "turn_finished");
+        // The worker's history update for this turn is still in flight.
+        await registry.close();
+        await Bun.sleep(500);
+        expect(raised).toEqual([]);
+    } finally {
+        process.off("uncaughtException", record);
+        process.off("unhandledRejection", record);
         await registry.close();
         inbox.close();
     }
@@ -113,7 +317,7 @@ async function joinedRouter(
     root: string,
     hostRouter: {
         readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
-        readonly onDeliveryTurnDiscarded?: () => void;
+        readonly onDeliveryTurnDiscarded?: (reason: DeliveryDiscardReason) => void;
     } | undefined,
 ): Promise<InboundRouterHostHooks> {
     const host = await SessionStore.create(join(root, "session.jsonl"), {
@@ -166,11 +370,11 @@ test("the worker asks the host whether a delivery turn is pending and tells it w
     const root = await mkdtemp(join(tmpdir(), "vera-worker-delivery-pipe-"));
     temporaryDirectories.push(root);
     let pending = true;
-    let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = await joinedRouter(root, {
         hasPendingDeliveryTurn: () => pending,
-        onDeliveryTurnDiscarded: () => {
-            discarded += 1;
+        onDeliveryTurnDiscarded: (reason) => {
+            reasons.push(reason);
         },
     });
 
@@ -178,8 +382,12 @@ test("the worker asks the host whether a delivery turn is pending and tells it w
     pending = false;
     expect(await router.hasPendingDeliveryTurn?.()).toBe(false);
 
-    router.onDeliveryTurnDiscarded?.();
-    expect(await becomes(() => discarded === 1)).toBe(true);
+    // Each reason reaches the host as the worker gave it.
+    router.onDeliveryTurnDiscarded?.("folded");
+    router.onDeliveryTurnDiscarded?.("aborted");
+    router.onDeliveryTurnDiscarded?.("empty");
+    expect(await becomes(() => reasons.length === 3)).toBe(true);
+    expect(reasons).toEqual(["folded", "aborted", "empty"]);
 });
 
 test("a host that does not answer the pending question has the delivery turn dropped", async () => {
@@ -190,6 +398,120 @@ test("a host that does not answer the pending question has the delivery turn dro
     expect(await router.hasPendingDeliveryTurn?.()).toBe(false);
 });
 
+test("a question raised after the worker speaks but before the owner router exists waits for the router", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-admission-late-router-"));
+    temporaryDirectories.push(root);
+    const { inbox, coordinator } = unadmittingCoordinator(root);
+    const registry = workerRegistry(root, [textResponse("Gulls sighted.")], coordinator);
+    // The start call returns late, so the worker's first update lands before the owner router is set.
+    const exclusively = SessionStore.prototype.exclusively;
+    SessionStore.prototype.exclusively = function <T>(this: SessionStore, task: () => Promise<T>): Promise<T> {
+        const started = exclusively.call(this, task) as Promise<T>;
+        return started.then(async (value) => {
+            await Bun.sleep(2_000);
+            return value;
+        });
+    };
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        await coordinator.append({
+            source: "watch/git",
+            kind: "filesystem.changed",
+            address: "deck",
+            payload: JSON.stringify({}),
+        });
+
+        // The worker has had time to speak; the question still waits for the router.
+        expect(await receiveTypeWithin(attachment, "ui_request", 1_000)).toBeUndefined();
+        expect(registry.agents.get("deck")?.workerOwnerRouter).toBeUndefined();
+
+        const question = await receiveTypeWithin(attachment, "ui_request", 8_000);
+        expect(question?.request).toMatchObject({ type: "user_question", outOfBand: true });
+        attachment.send({
+            type: "ui_response",
+            requestId: question!.requestId,
+            response: { type: "user_question", outcome: "selected", choiceId: "once" },
+        });
+        await receiveType(attachment, "turn_finished");
+        attachment.detach();
+    } finally {
+        SessionStore.prototype.exclusively = exclusively;
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
+test("an entry woken while a worker's empty answer crosses the pipe is not woken again", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-empty-crossing-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: ["arc"],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const registry = workerRegistry(
+        root,
+        [textResponse("Woke for the gull."), textResponse("Woke for the gull again.")],
+        coordinator,
+    );
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+        const session = registry.agents.get("deck")!.inbox!;
+        const hasAdmittedPending = session.hasAdmittedPending.bind(session);
+        let appended = false;
+        session.hasAdmittedPending = () => {
+            const answer = hasAdmittedPending();
+            if (!answer && !appended) {
+                appended = true;
+                // Lands after the "nothing pending" reply leaves and before the worker's discard arrives.
+                setImmediate(() => {
+                    void coordinator.append({
+                        source: "arc",
+                        kind: "arc.post",
+                        address: "deck",
+                        payload: JSON.stringify({ gull: 1 }),
+                    });
+                });
+            }
+            return answer;
+        };
+
+        deck.triggerDeliveryTurn();
+        expect(await receiveTypeWithin(attachment, "turn_finished", 8_000)).toBeDefined();
+        await coordinator.append({
+            source: "arc",
+            kind: "arc.post",
+            address: "someone-else",
+            payload: JSON.stringify({}),
+        });
+        await coordinator.pumpAll();
+
+        expect(appended).toBe(true);
+        expect(await receiveTypeWithin(attachment, "turn_finished", 3_000)).toBeUndefined();
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+}, 30_000);
+
 async function becomes(condition: () => boolean, timeoutMs = 5_000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -199,17 +521,48 @@ async function becomes(condition: () => boolean, timeoutMs = 5_000): Promise<boo
     return condition();
 }
 
+async function receiveTypeWithin<T extends AgentUpdate["type"]>(
+    attachment: AgentAttachment,
+    type: T,
+    ms: number,
+): Promise<Extract<AgentUpdate, { readonly type: T }> | undefined> {
+    try {
+        return await receiveType(attachment, type, ms);
+    } catch {
+        return undefined;
+    }
+}
+
 async function receiveType<T extends AgentUpdate["type"]>(
     attachment: AgentAttachment,
     type: T,
+    ms = 10_000,
 ): Promise<Extract<AgentUpdate, { readonly type: T }>> {
-    const signal = AbortSignal.timeout(10_000);
+    const signal = AbortSignal.timeout(ms);
     while (true) {
         const update = await attachment.receive(signal);
         if (update.type === type) {
             return update as Extract<AgentUpdate, { readonly type: T }>;
         }
     }
+}
+
+/** A coordinator that has admitted no source, so every first entry from one raises a question. */
+function unadmittingCoordinator(root: string): {
+    readonly inbox: Inbox;
+    readonly coordinator: InboxDeliveryCoordinator;
+} {
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    return { inbox, coordinator };
 }
 
 function textResponse(text: string): AssistantMessage {

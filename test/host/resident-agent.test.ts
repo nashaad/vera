@@ -798,12 +798,14 @@ test("a delivery wake the engine discards stops blocking shutdown", async () => 
     agent.engine.send({ type: "user_prompt", content: "hello", seq: 1 });
 
     // The wake lands mid-turn, and that turn drains the delivery, so the
-    // router discards the wake without emitting anything at all for it.
+    // router discards the wake when it reaches it after the turn.
     agent.triggerDeliveryTurn();
     expect(await agent.engine.receive()).toEqual({
         type: "trigger_delivery_turn",
     });
     agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForShutdown()).toBeFalse();
+    agent.deliveryTurnDiscarded();
     expect(agent.idleForShutdown()).toBeTrue();
     agent.close();
 });
@@ -833,7 +835,7 @@ test("a discarded wake leaves the conversation busy while a later wake is still 
     agent.close();
 });
 
-test("a turn that starts settles every wake that was outstanding", async () => {
+test("a turn that starts settles one wake and leaves the others outstanding", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     agent.attach().detach();
     await agent.engine.receive();
@@ -846,9 +848,156 @@ test("a turn that starts settles every wake that was outstanding", async () => {
 
     agent.engine.send({ type: "status", state: "working", seq: 1 });
     agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    agent.deliveryTurnDiscarded();
     expect(agent.idleForReplacement()).toBeTrue();
     agent.close();
 });
+
+test("a wake queued behind a delivery turn that is starting is not lost to that turn's start", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.attach().detach();
+    await agent.engine.receive();
+
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    // Claimed by the router, not yet started: the next wake arrives in that gap.
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    agent.engine.send({ type: "status", state: "working", seq: 3 });
+    expect(agent.idleForReplacement()).toBeFalse();
+    agent.engine.send({ type: "turn_finished", seq: 4 });
+    expect(agent.idleForReplacement()).toBeTrue();
+    agent.close();
+});
+
+test("a delivery turn that finishes without starting stops counting its wake", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.attach().detach();
+    await agent.engine.receive();
+
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    // Image hydration failed, so the turn ends without a working status.
+    agent.engine.send({ type: "turn_finished", seq: 1 });
+    expect(agent.idleForReplacement()).toBeTrue();
+    agent.close();
+});
+
+test("a wake the router holds behind a running turn keeps the conversation busy until it is settled", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    let pending = true;
+    const router = new InboundCommandRouter(agent.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => pending,
+        onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
+    });
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    const first = router.startTurn();
+    attachment.send({ type: "prompt", content: "work" });
+    await first;
+    agent.engine.send({ type: "user_prompt", content: "work", seq: 1 });
+    agent.triggerDeliveryTurn();
+    await settle();
+
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    router.finishTurn();
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    // The turn that just ended drained the delivery, so the router drops the wake it held.
+    pending = false;
+    const next = router.startTurn();
+    attachment.send({ type: "prompt", content: "after" });
+    expect((await next).prompt.content).toBe("after");
+    expect(agent.idleForReplacement()).toBeFalse();
+    agent.engine.send({ type: "user_prompt", content: "after", seq: 3 });
+    agent.engine.send({ type: "turn_finished", seq: 4 });
+    router.finishTurn();
+    expect(agent.idleForReplacement()).toBeTrue();
+    attachment.detach();
+    agent.close();
+});
+
+test("an abort drops a wake held behind the turn, so the conversation goes idle and the next prompt starts at once", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const router = new InboundCommandRouter(agent.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
+    });
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    const first = router.startTurn();
+    attachment.send({ type: "prompt", content: "work" });
+    const active = await first;
+    agent.engine.send({ type: "user_prompt", content: "work", seq: 1 });
+    agent.triggerDeliveryTurn();
+    await settle();
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    attachment.send({ type: "abort" });
+    await settle();
+    expect(active.signal.aborted).toBeTrue();
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    router.finishTurn("aborted");
+    await settle();
+    expect(agent.idleForReplacement()).toBeTrue();
+
+    // Nothing runs on its own, and a prompt typed now is not held behind the dropped wake.
+    const next = router.startTurn();
+    expect(await Promise.race([next, Bun.sleep(100).then(() => "held")])).toBe("held");
+    attachment.send({ type: "prompt", content: "after" });
+    expect((await next).prompt.content).toBe("after");
+    agent.engine.send({ type: "user_prompt", content: "after", seq: 3 });
+    agent.engine.send({ type: "turn_finished", seq: 4 });
+    router.finishTurn();
+    attachment.detach();
+    await settle();
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
+});
+
+test("an abort with the wake as the only queued item leaves nothing to release", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const router = new InboundCommandRouter(agent.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
+    });
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    const first = router.startTurn();
+    attachment.send({ type: "prompt", content: "work" });
+    await first;
+    agent.engine.send({ type: "user_prompt", content: "work", seq: 1 });
+    agent.triggerDeliveryTurn();
+    await settle();
+    attachment.send({ type: "abort" });
+    await settle();
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    router.finishTurn("aborted");
+    await settle();
+
+    attachment.send({ type: "release_queued_prompts", mode: "all" });
+    await settle();
+    expect(agent.idleForReplacement()).toBeTrue();
+    attachment.detach();
+    agent.close();
+});
+
+async function settle(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+}
 
 test("two prompts accepted before either starts keep their own pending state", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");

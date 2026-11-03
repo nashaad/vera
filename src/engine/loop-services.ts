@@ -16,6 +16,7 @@ import type {
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import type { EngineEventBus, PoolAdmissionVerdict } from "./events.ts";
 import type { ToolHooks } from "./hooks.ts";
+import type { DeliveryDiscardReason } from "./host-protocol.ts";
 import type { ToolResultLimits } from "./tool-result-history.ts";
 import type {
     InboundCommandRouter,
@@ -72,7 +73,7 @@ export interface RunHeadlessLoopData {
 export interface InboundRouterHostHooks {
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
-    readonly onDeliveryTurnDiscarded?: () => void;
+    readonly onDeliveryTurnDiscarded?: (reason: DeliveryDiscardReason) => void;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;

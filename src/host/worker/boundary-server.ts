@@ -12,7 +12,7 @@ import type { RegisteredTool } from "../../tools/types.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import { skillScriptTool } from "../../skills/script.ts";
 import type { JsonPipe } from "./pipe.ts";
-import type { DeliveryPendingReply } from "./start.ts";
+import type { DeliveryDiscardedNotification, DeliveryPendingReply } from "./start.ts";
 import { CompletionUnavailableError } from "../../engine/completion-service.ts";
 
 export interface WorkerBoundaryServerOptions {
@@ -390,7 +390,8 @@ export function createWorkerBoundaryServer(
                 return;
             }
             if (message.method === "delivery.discarded") {
-                services.router?.onDeliveryTurnDiscarded?.();
+                const { reason } = body as DeliveryDiscardedNotification;
+                services.router?.onDeliveryTurnDiscarded?.(reason);
                 return;
             }
             if (message.method === "reviewLog.append") {

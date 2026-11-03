@@ -359,8 +359,11 @@ export function createRemoteHostBoundary(
                         },
                     }
                     : {}),
-                onDeliveryTurnDiscarded: (): void => {
-                    pipe.notify({ method: "delivery.discarded" } satisfies DeliveryDiscardedNotification);
+                onDeliveryTurnDiscarded: (reason): void => {
+                    pipe.notify({
+                        method: "delivery.discarded",
+                        reason,
+                    } satisfies DeliveryDiscardedNotification);
                 },
                 sendTimelineReply: (ownerId, update): void => {
                     pipe.notify({

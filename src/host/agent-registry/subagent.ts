@@ -4,7 +4,7 @@ import { AsyncQueue } from "../../engine/async-queue.ts";
 import { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import { createModelFailureRecorder } from "../../engine/model-failure-recorder.ts";
 import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../../engine/loop-services.ts";
-import { isOneshotReplyUpdate, isSessionNameReplyUpdate, isTimelineReplyUpdate, isToolApprovalUiRequestUpdate, type ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
+import { isOneshotReplyUpdate, isSessionNameReplyUpdate, isTimelineReplyUpdate, isToolApprovalUiRequestUpdate, type AgentUpdate, type ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
 import { resolveSpawnModelChoice, subagentModelBoundary, type MissingSubagentConfigurationRequest, type SpawnModelResolution, type SubagentPoolPolicy } from "../../engine/subagent.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { SessionStore } from "../../store/session-store.ts";
@@ -73,6 +73,30 @@ function hostToolRuntime(
     return runtime;
 }
 
+export function forwardWorkerUpdate(agent: ResidentAgent, update: AgentUpdate, ownerId: string | undefined): void {
+        if (ownerId === undefined) {
+            // The worker's last updates can land after the conversation closed or failed; broadcast would throw on them.
+            if (agent.closed || agent.failed) return;
+            agent.engine.send(update);
+            return;
+        }
+        if (isTimelineReplyUpdate(update)) {
+            agent.sendTimelineReply(ownerId, update);
+            return;
+        }
+        if (isSessionNameReplyUpdate(update)) {
+            agent.sendSessionNameReply(ownerId, update);
+            return;
+        }
+        if (isOneshotReplyUpdate(update)) {
+            agent.sendOneshotReply(ownerId, update);
+            return;
+        }
+        throw new Error(
+            `Worker sent an unowned private update: ${update.type}`,
+        );
+    }
+
 export async function runInWorker(reg: AgentRegistry, options: {
         readonly agent: ResidentAgent;
         readonly store: SessionStore;
@@ -89,6 +113,12 @@ export async function runInWorker(reg: AgentRegistry, options: {
             throw new WorkerCapReachedError(cap);
         }
         const workerExtensions = reg.workerExtensions();
+        // A question needs the owner router here and the worker's loop listening there, in either order.
+        let heardWorker = false;
+        let ownerRouterSet = false;
+        const markReady = (): void => {
+            if (heardWorker && ownerRouterSet) options.entry.markLoopReady();
+        };
         const handle = await startSeededWorker({
             store,
             model: reg.defaultModel,
@@ -114,25 +144,12 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     toolRuntime: hostToolRuntime(store, options.data),
                 }),
             onUpdate: (update, ownerId) => {
+                forwardWorkerUpdate(agent, update, ownerId);
+                // A root update comes from the worker's loop, which listens for events by the time it sends one.
                 if (ownerId === undefined) {
-                    agent.engine.send(update);
-                    return;
+                    heardWorker = true;
+                    markReady();
                 }
-                if (isTimelineReplyUpdate(update)) {
-                    agent.sendTimelineReply(ownerId, update);
-                    return;
-                }
-                if (isSessionNameReplyUpdate(update)) {
-                    agent.sendSessionNameReply(ownerId, update);
-                    return;
-                }
-                if (isOneshotReplyUpdate(update)) {
-                    agent.sendOneshotReply(ownerId, update);
-                    return;
-                }
-                throw new Error(
-                    `Worker sent an unowned private update: ${update.type}`,
-                );
             },
         }, readSessionSeed);
         options.entry.worker = handle;
@@ -171,6 +188,8 @@ export async function runInWorker(reg: AgentRegistry, options: {
                 hasPendingDeliveryTurn: () => false,
             },
         );
+        ownerRouterSet = true;
+        markReady();
         void (async () => {
             for (;;) {
                 const command = await agent.engine.receive(pumping.signal);
