@@ -81,7 +81,9 @@ The Vera host is now build vera-kraken-2, and this TUI is build vera-crow-1.
 Quit and reopen Vera to continue.
 ```
 
-Quit and reopen Vera. The new TUI starts on the installed build.
+Other requests to that host, such as listing, searching or starting sessions,
+are not sent. Each fails with an error naming both builds. Quit and reopen
+Vera. The new TUI starts on the installed build.
 
 ## A key or command did nothing
 

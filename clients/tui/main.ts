@@ -115,6 +115,7 @@ import {
 } from "./client-extension-agents.ts";
 import {
     createConfiguredTuiAgentClients,
+    pairedHostSocket,
     refuseOtherHostBuild,
 } from "./configured-agent-client.ts";
 import {
@@ -706,14 +707,15 @@ export async function startConfiguredTui(
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
+    const pairedSocket = (): Promise<string> => pairedHostSocket(host.socket_path, clientBuildId);
     const resolvedTarget = target.type === "continue"
         ? resolveContinueTarget(
-            await listAgentsThroughHost(host.socket_path),
+            await listAgentsThroughHost(await pairedSocket()),
             loadTuiRecentSessionId(),
         )
         : target.type === "resume"
         ? resolveResumeTarget(
-            await listAgentsThroughHost(host.socket_path),
+            await listAgentsThroughHost(await pairedSocket()),
             target.sessionPath,
         )
         : target;
@@ -721,7 +723,7 @@ export async function startConfiguredTui(
         ? undefined
         : resolvedTarget.type === "create"
         ? (await createAgentThroughHost(
-            host.socket_path,
+            await pairedSocket(),
             resolvedTarget.workspace,
             undefined,
             undefined,
@@ -729,20 +731,20 @@ export async function startConfiguredTui(
         )).id
         : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(
-                host.socket_path,
+                await pairedSocket(),
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
     const agentClients = createConfiguredTuiAgentClients(() => host.socket_path, clientBuildId);
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
-        : await hostHasSessions(host.socket_path);
+        : await hostHasSessions(await pairedSocket());
     const client = agentId === undefined
         ? createHomeClient(process.cwd(), {
-            readModelSettings: (workspace) =>
-                readModelSettingsThroughHost(host.socket_path, workspace),
-            refreshCatalog: (provider, workspace) =>
-                refreshCatalogThroughHost(host.socket_path, provider, workspace),
+            readModelSettings: async (workspace) =>
+                readModelSettingsThroughHost(await pairedSocket(), workspace),
+            refreshCatalog: async (provider, workspace) =>
+                refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
         })
         : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
@@ -757,9 +759,9 @@ export async function startConfiguredTui(
     }
     const attach = (id: string) => agentClients.attach(id);
     try {
-        const listAgents = () => listAgentsThroughHost(host.socket_path);
-        const listSessionPage = (options: ListAgentsOptions) =>
-            listAgentPageThroughHost(host.socket_path, options);
+        const listAgents = async () => listAgentsThroughHost(await pairedSocket());
+        const listSessionPage = async (options: ListAgentsOptions) =>
+            listAgentPageThroughHost(await pairedSocket(), options);
         const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
             ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
@@ -769,14 +771,14 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
-            forgetProvider: (provider, workspace) => forgetProviderThroughHost(host.socket_path, provider, workspace),
-            operateModels: (operation, onResult, workspace, onStep) => operateModelsThroughHost(host.socket_path, operation, onResult, workspace, onStep),
-            readHostModelSettings: (workspace) =>
-                readModelSettingsThroughHost(host.socket_path, workspace),
-            refreshHostCatalog: (provider, workspace) =>
-                refreshCatalogThroughHost(host.socket_path, provider, workspace),
-            requestExtension: (extensionId, name, payload, signal) =>
-                requestExtensionThroughHost(host.socket_path, extensionId, name, payload, signal),
+            forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
+            operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
+            readHostModelSettings: async (workspace) =>
+                readModelSettingsThroughHost(await pairedSocket(), workspace),
+            refreshHostCatalog: async (provider, workspace) =>
+                refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            requestExtension: async (extensionId, name, payload, signal) =>
+                requestExtensionThroughHost(await pairedSocket(), extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -785,7 +787,7 @@ export async function startConfiguredTui(
             createSession: async (workspace) => {
                 const createStartedAt = performance.now();
                 const created = await createAgentThroughHost(
-                    host.socket_path,
+                    await pairedSocket(),
                     workspace,
                 );
                 flightRecorder.record({
@@ -811,11 +813,11 @@ export async function startConfiguredTui(
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
             resumeSession: agentClients.resume,
-            closeSession: (targetAgentId) =>
-                closeAgentThroughHost(host.socket_path, targetAgentId),
+            closeSession: async (targetAgentId) =>
+                closeAgentThroughHost(await pairedSocket(), targetAgentId),
             // Search through the host; a client-resolved path can miss the attached profile.
-            searchSessions: (query) =>
-                searchSessionsThroughHost(host.socket_path, query),
+            searchSessions: async (query) =>
+                searchSessionsThroughHost(await pairedSocket(), query),
             reconnectSession: async (currentAgentId, options) => {
                 // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
@@ -829,14 +831,14 @@ export async function startConfiguredTui(
                 return attach(currentAgentId);
             },
             onSessionEntered: rememberSession,
-            trashSession: (sessionId) =>
-                trashSessionThroughHost(host.socket_path, sessionId),
-            renameSession: (sessionId, name) =>
-                renameSessionThroughHost(host.socket_path, sessionId, name),
-            importSession: (path) =>
-                importSessionThroughHost(host.socket_path, path),
-            listImportableSessions: (workspace) =>
-                listImportableSessionsThroughHost(host.socket_path, workspace),
+            trashSession: async (sessionId) =>
+                trashSessionThroughHost(await pairedSocket(), sessionId),
+            renameSession: async (sessionId, name) =>
+                renameSessionThroughHost(await pairedSocket(), sessionId, name),
+            importSession: async (path) =>
+                importSessionThroughHost(await pairedSocket(), path),
+            listImportableSessions: async (workspace) =>
+                listImportableSessionsThroughHost(await pairedSocket(), workspace),
             ...(config?.disabled_included_extensions === undefined
                 ? {}
                 : {
@@ -862,10 +864,10 @@ export async function startConfiguredTui(
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
-            openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
-            readHostExtensionLoadFailures: () => readExtensionLoadFailuresThroughHost(host.socket_path),
+            openUsagePage: async () => readAnnexUrlThroughHost(await pairedSocket()),
+            readHostExtensionLoadFailures: async () => readExtensionLoadFailuresThroughHost(await pairedSocket()),
             readSubscriptionLimits: (signal) => readAnnexSubscriptionLimits(
-                () => readAnnexUrlThroughHost(host.socket_path), signal,
+                async () => readAnnexUrlThroughHost(await pairedSocket()), signal,
             ),
             flightRecorder,
         });
