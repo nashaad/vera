@@ -5,7 +5,7 @@ import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-clie
 import type { TuiAgentClient } from "../agent-client.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
-import { SESSION_SWITCH_TIMEOUT_MS, closeSessionFailure, currentDraft, reconnectBusyMessage, renderState, switchToClient } from "../main.ts";
+import { SESSION_SWITCH_TIMEOUT_MS, closeSessionFailure, currentDraft, disconnectedRecoveryHint, reconnectBusyMessage, renderState, switchToClient } from "../main.ts";
 import { focusedUiRequest } from "../main/agents-dials.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
@@ -444,10 +444,10 @@ export function beginHostReconnect(rt: TuiRuntime,
         rt.composer.clearComposer();
     }
     rt.sessionSwitchPending = true;
-    rt.sessionSwitchActivity = "restarting host…";
     // Connected: restart a healthy host so host-side changes (e.g. an extension) take effect.
     // Disconnected: attach to whatever answers instead of asking it to shut down.
     const replaceExisting = options.manual === true && !rt.connectionFailed;
+    rt.sessionSwitchActivity = replaceExisting ? "restarting host…" : "reconnecting…";
     const confirmWedge = options.manual === true;
     const stayAttached = replaceExisting;
     if (!stayAttached) {
@@ -584,6 +584,7 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         rt.hostBuildRefusal = undefined;
         rt.activity = "disconnected";
         settleLostHost(rt, message);
+        rt.state = appendTuiError(rt.state, disconnectedConversationMessage(message));
         renderState(rt);
         rt.composer.focus();
         return;
@@ -602,8 +603,15 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     rt.connectionFailure = message;
     rt.hostBuildRefusal = undefined;
     settleLostHost(rt, message);
+    rt.state = appendTuiError(rt.state, disconnectedConversationMessage(message));
     renderState(rt);
     rt.composer.focus();
+}
+
+// The footer drops the reason once this runs, so it is not shown twice.
+function disconnectedConversationMessage(reason: string): string {
+    const sentence = /[.!?]$/.test(reason) ? reason : `${reason}.`;
+    return `${sentence} ${disconnectedRecoveryHint()}`;
 }
 
 // No automatic restart: discovery would hop to another client in this terminal or replace the host.
