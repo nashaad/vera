@@ -19,6 +19,16 @@ export const MODE_TOAST_FILL_ROLE = "element" as const;
 export const MODE_TOAST_TYPE_MS = 10;
 export const MODE_TOAST_TICK = " ✓";
 export const MODE_TOAST_FAIL_TICK = " !";
+export const MODE_TOAST_INFO_TICK = " i";
+
+// Matches the tone on `client.ui.notice`; a toast without a tone keeps the
+// legacy "Could not refresh" text heuristic below.
+export type ModeToastTone = "primary" | "soft" | "error";
+
+export interface ModeToastItem {
+    readonly text: string;
+    readonly tone?: ModeToastTone;
+}
 
 export function typedToastText(message: string, revealed: number): string {
     return Array.from(message).slice(0, Math.max(0, revealed)).join("");
@@ -36,27 +46,38 @@ export function modeToastFailureLine(message: string): boolean {
     return message.includes("Could not refresh");
 }
 
-export function modeToastDoneMark(message: string): string {
-    return modeToastFailureLine(message) ? MODE_TOAST_FAIL_TICK : MODE_TOAST_TICK;
+// A soft toast reports something; it did not just finish an action, so it
+// earns a neutral mark instead of the success tick.
+export function modeToastDoneMark(message: string, tone?: ModeToastTone): string {
+    if (tone === "error" || modeToastFailureLine(message)) return MODE_TOAST_FAIL_TICK;
+    if (tone === "soft") return MODE_TOAST_INFO_TICK;
+    return MODE_TOAST_TICK;
 }
 
-export function modeToastDoneTone(message: string): "success" | "danger" {
-    return modeToastFailureLine(message) ? "danger" : "success";
+export function modeToastDoneTone(
+    message: string,
+    tone?: ModeToastTone,
+): "success" | "danger" | "notice" {
+    if (tone === "error" || modeToastFailureLine(message)) return "danger";
+    if (tone === "soft") return "notice";
+    return "success";
 }
 
 export interface ModeToastLane {
-    readonly shown: string | undefined;
-    readonly waiting: readonly string[];
+    readonly shown: ModeToastItem | undefined;
+    readonly waiting: readonly ModeToastItem[];
 }
 
 export function enqueueModeToast(
     lane: ModeToastLane,
     message: string,
+    tone?: ModeToastTone,
 ): ModeToastLane {
+    const item: ModeToastItem = tone === undefined ? { text: message } : { text: message, tone };
     if (lane.shown === undefined) {
-        return { shown: message, waiting: lane.waiting };
+        return { shown: item, waiting: lane.waiting };
     }
-    return { shown: lane.shown, waiting: [...lane.waiting, message] };
+    return { shown: lane.shown, waiting: [...lane.waiting, item] };
 }
 
 export function dismissModeToast(lane: ModeToastLane): ModeToastLane {
@@ -89,6 +110,7 @@ export function layoutModeToast(
     const tickWidth = Math.max(
         Bun.stringWidth(MODE_TOAST_TICK),
         Bun.stringWidth(MODE_TOAST_FAIL_TICK),
+        Bun.stringWidth(MODE_TOAST_INFO_TICK),
     );
     const maxText = Math.max(1, width - paddingX * 2 - tickWidth);
     const text = clipToastMessage(message, maxText);
@@ -200,50 +222,50 @@ function applyModeToastGeometry(
     rt.modeToast.paddingRight = layout.paddingRight;
 }
 
-function paintModeToastText(rt: TuiRuntime, message: string): void {
+function paintModeToastText(rt: TuiRuntime, message: string, tone?: ModeToastTone): void {
     const typed = typedToastText(message, rt.modeToastRevealed);
     if (!modeToastLineComplete(message, rt.modeToastRevealed)) {
         setTextContent(rt.modeToastText, typed);
         return;
     }
     const fill = rt.theme.element;
-    const tone = modeToastDoneTone(message);
-    const mark = modeToastDoneMark(message);
+    const doneTone = modeToastDoneTone(message, tone);
+    const mark = modeToastDoneMark(message, tone);
     setTextContent(rt.modeToastText, new StyledText([
         fg(rt.theme.text)(bg(fill)(typed)),
-        fg(rt.theme[tone])(bg(fill)(mark)),
+        fg(rt.theme[doneTone])(bg(fill)(mark)),
     ]));
 }
 
-function presentModeToast(rt: TuiRuntime, message: string): void {
+function presentModeToast(rt: TuiRuntime, item: ModeToastItem): void {
     rt.modeToastVersion += 1;
     const version = rt.modeToastVersion;
     clearModeToastTyping(rt);
     clearModeToastExpiry(rt);
-    rt.modeToastCurrent = message;
-    const layout = layoutModeToast(message, rt.renderer.width, rt.renderer.height);
+    rt.modeToastCurrent = item;
+    const layout = layoutModeToast(item.text, rt.renderer.width, rt.renderer.height);
     applyModeToastGeometry(rt, layout);
     rt.modeToast.zIndex = TOAST_Z_INDEX;
     rt.modeToast.visible = true;
     const units = Array.from(layout.text);
     if (!modeToastTypes(rt.animationLevel) || units.length === 0) {
         rt.modeToastRevealed = units.length;
-        paintModeToastText(rt, layout.text);
+        paintModeToastText(rt, layout.text, item.tone);
         armModeToastExpiry(rt, version);
     } else {
         rt.modeToastRevealed = 1;
-        paintModeToastText(rt, layout.text);
+        paintModeToastText(rt, layout.text, item.tone);
         rt.modeToastTypeTimer = setInterval(() => {
             if (rt.modeToastVersion !== version || rt.modeToastCurrent === undefined) {
                 return;
             }
             const next = layoutModeToast(
-                rt.modeToastCurrent,
+                rt.modeToastCurrent.text,
                 rt.renderer.width,
                 rt.renderer.height,
             );
             rt.modeToastRevealed += 1;
-            paintModeToastText(rt, next.text);
+            paintModeToastText(rt, next.text, rt.modeToastCurrent.tone);
             if (rt.modeToastRevealed >= Array.from(next.text).length) {
                 clearModeToastTyping(rt);
                 armModeToastExpiry(rt, version);
@@ -276,14 +298,14 @@ export function hideModeToast(rt: TuiRuntime): void {
     applyModeToastLane(rt, dismissModeToast(readModeToastLane(rt)));
 }
 
-export function showModeToast(rt: TuiRuntime, message: string): void {
-    applyModeToastLane(rt, enqueueModeToast(readModeToastLane(rt), message));
+export function showModeToast(rt: TuiRuntime, message: string, tone?: ModeToastTone): void {
+    applyModeToastLane(rt, enqueueModeToast(readModeToastLane(rt), message, tone));
 }
 
 export function layoutModeToastBand(rt: TuiRuntime): void {
     if (!rt.modeToast.visible || rt.modeToastCurrent === undefined) return;
     const layout = layoutModeToast(
-        rt.modeToastCurrent,
+        rt.modeToastCurrent.text,
         rt.renderer.width,
         rt.renderer.height,
     );
@@ -294,7 +316,7 @@ export function layoutModeToastBand(rt: TuiRuntime): void {
     } else {
         rt.modeToastRevealed = Math.min(rt.modeToastRevealed, units);
     }
-    paintModeToastText(rt, layout.text);
+    paintModeToastText(rt, layout.text, rt.modeToastCurrent.tone);
 }
 
 export function showVerificationConsole(rt: TuiRuntime, 

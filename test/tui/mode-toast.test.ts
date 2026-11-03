@@ -14,6 +14,7 @@ import {
     MODE_TOAST_FAIL_TICK,
     MODE_TOAST_FILL_ROLE,
     MODE_TOAST_HANDOFF_MS,
+    MODE_TOAST_INFO_TICK,
     MODE_TOAST_TICK,
     MODE_TOAST_TYPE_MS,
     modeToastDoneMark,
@@ -56,6 +57,14 @@ test("a failed refresh is marked, not ticked green", () => {
     expect(modeToastDoneMark(failed)).toBe(MODE_TOAST_FAIL_TICK);
     expect(modeToastDoneTone(failed)).toBe("danger");
     expect(modeToastFailureLine("asking omlx (6/6)…")).toBe(false);
+});
+
+test("a soft notice reports, it does not earn a success tick", () => {
+    const notice = "Starting instructions are 10k tokens, over the 8.0k budget.";
+    expect(MODE_TOAST_INFO_TICK).toBe(" i");
+    expect(modeToastDoneMark(notice, "soft")).toBe(MODE_TOAST_INFO_TICK);
+    expect(modeToastDoneTone(notice, "soft")).toBe("notice");
+    expect(modeToastDoneMark(notice)).toBe(MODE_TOAST_TICK);
 });
 
 test("a long toast clips the whole line and keeps the refresh counts", () => {
@@ -112,14 +121,19 @@ test("Escape closes a toast only when no overlay is open", () => {
 
 test("a later toast waits instead of replacing the one on screen", () => {
     const first = enqueueModeToast({ shown: undefined, waiting: [] }, "asking…");
-    expect(first.shown).toBe("asking…");
+    expect(first.shown).toEqual({ text: "asking…" });
     const second = enqueueModeToast(first, "Refreshed 1 catalogs");
-    expect(second.shown).toBe("asking…");
-    expect(second.waiting).toEqual(["Refreshed 1 catalogs"]);
+    expect(second.shown).toEqual({ text: "asking…" });
+    expect(second.waiting).toEqual([{ text: "Refreshed 1 catalogs" }]);
     const next = dismissModeToast(second);
-    expect(next.shown).toBe("Refreshed 1 catalogs");
+    expect(next.shown).toEqual({ text: "Refreshed 1 catalogs" });
     expect(next.waiting).toEqual([]);
     expect(dismissModeToast(next)).toEqual({ shown: undefined, waiting: [] });
+});
+
+test("a toast carries its tone through the queue", () => {
+    const queued = enqueueModeToast({ shown: undefined, waiting: [] }, "over budget", "soft");
+    expect(queued.shown).toEqual({ text: "over budget", tone: "soft" });
 });
 
 test("an overlay toast expires after five seconds", () => {

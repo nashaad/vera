@@ -1,3 +1,4 @@
+import type { ModeToastItem } from "./notices.ts";
 import type { TuiLiveReasoningRows } from "../theme-preference.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
@@ -469,8 +470,8 @@ export interface TuiRuntime {
     modeToastText: TextRenderable;
     modeToast: BoxRenderable;
     modeToastVersion: number;
-    modeToastCurrent: string | undefined;
-    modeToastQueue: string[];
+    modeToastCurrent: ModeToastItem | undefined;
+    modeToastQueue: ModeToastItem[];
     modeToastRevealed: number;
     modeToastTypeTimer: NodeJS.Timeout | undefined;
     modeToastExpireTimer: NodeJS.Timeout | undefined;
