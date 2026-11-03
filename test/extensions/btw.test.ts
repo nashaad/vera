@@ -13,6 +13,7 @@ async function start(visible: readonly {
     const calls: unknown[] = [];
     const syncs: string[] = [];
     const failures: { message: string }[] = [];
+    const notices: { text: string; tone?: string }[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
     const mounted: any[] = [];
@@ -44,7 +45,11 @@ async function start(visible: readonly {
                 return { outcome: "cancelled" };
             },
         },
-        notice: { post() {} },
+        notice: {
+            post(_extensionId, text, options) {
+                notices.push({ text, tone: options?.tone });
+            },
+        },
         sidebar: {
             open() {},
             append() {},
@@ -114,6 +119,7 @@ async function start(visible: readonly {
         calls,
         syncs,
         failures,
+        notices,
         mentions: () => mentions,
         mounted,
         rawMounted,
@@ -299,6 +305,20 @@ test("a busy primary sync on a primary prompt is a no-op", async () => {
         imageCount: 0,
     })).toEqual({ kind: "pass" });
     expect(harness.syncs).toEqual(["side-1"]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("btw with a message during a busy primary posts a soft notice and sends nothing", async () => {
+    const harness = await start(undefined, ["busy"]);
+    await harness.registry.invokeCommand("btw", "inspect this", "/workspace");
+
+    expect(harness.notices).toEqual([{
+        text: "BTW context can sync only between turns",
+        tone: "soft",
+    }]);
+    expect(harness.calls.some((call: any) => call.operation === "message"))
+        .toBe(false);
     expect(harness.failures).toEqual([]);
     await harness.registry.close();
 });

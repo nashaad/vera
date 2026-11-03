@@ -36,12 +36,15 @@ export function activateClient(vera: any): void {
      * branch synced from: the branch can never catch up, so the caller drops
      * it and branches again. The lost side conversation is the accepted cost
      * of `/btw` being ephemeral.
+     *
+     * `"busy"` means the primary is mid-turn and the caller did not ignore it;
+     * the hint is a soft notice, not an error, so the interceptor stays quiet.
      */
     async function syncPrimaryContext(
         agentId: string,
         signal: AbortSignal,
         ignoreBusy: boolean = false,
-    ): Promise<"ok" | "stale"> {
+    ): Promise<"ok" | "stale" | "busy"> {
         const synced = await vera.agents.syncContext(agentId, signal);
         if (synced.outcome === "stale_cursor") {
             return "stale";
@@ -50,7 +53,10 @@ export function activateClient(vera: any): void {
             if (ignoreBusy) {
                 return "ok";
             }
-            throw new Error("BTW context can sync only between turns");
+            vera.ui.notice("BTW context can sync only between turns", {
+                tone: "soft",
+            });
+            return "busy";
         }
         if (synced.outcome === "not_found") {
             throw new Error("BTW primary context is unavailable");
@@ -162,21 +168,24 @@ export function activateClient(vera: any): void {
                     signal,
                 );
                 if (text.length > 0 || imagePaths.length > 0) {
-                    if (
-                        inheritPrimary
-                        && await syncPrimaryContext(target, signal) === "stale"
-                    ) {
-                        agents[mention] = undefined;
-                        target = await openAgent(
-                            name,
-                            mention,
-                            approvalMode,
-                            attachmentLifetime,
-                            inheritPrimary,
-                            workspace,
-                            signal,
-                            true,
-                        );
+                    if (inheritPrimary) {
+                        const synced = await syncPrimaryContext(target, signal);
+                        if (synced === "busy") {
+                            return;
+                        }
+                        if (synced === "stale") {
+                            agents[mention] = undefined;
+                            target = await openAgent(
+                                name,
+                                mention,
+                                approvalMode,
+                                attachmentLifetime,
+                                inheritPrimary,
+                                workspace,
+                                signal,
+                                true,
+                            );
+                        }
                     }
                     await vera.agents.message({
                         agentId: target,
