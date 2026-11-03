@@ -195,6 +195,21 @@ test("pair close detaches the peer pane without creating another session", async
     await harness.registry.close();
 });
 
+test("btw close works while the primary is busy and never syncs", async () => {
+    const harness = await start(undefined, ["busy"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.syncs.length = 0;
+    harness.notices.length = 0;
+
+    await harness.registry.invokeCommand("btw", "close", "/workspace");
+
+    expect(harness.syncs).toEqual([]);
+    expect(harness.notices).toEqual([]);
+    expect(harness.failures).toEqual([]);
+    expect(harness.calls).toContainEqual({ operation: "close", extensionId: "vera.btw" });
+    await harness.registry.close();
+});
+
 test("btw close detaches the sidekick pane without creating another session", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "", "/workspace");
