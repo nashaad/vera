@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { joinWaScore } from "../../src/model/webdev-arena-join.ts";
+import type { WebDevArenaAliases } from "../../src/model/webdev-arena-join.ts";
 import type { WebDevArenaSnapshot } from "../../src/model/webdev-arena.ts";
 
 const aliases = {
@@ -144,4 +145,60 @@ test("non-overall rows are ignored even when the name matches", () => {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
     }, snapshot, aliases)).toBe(1510);
+});
+
+const emptyAliases: WebDevArenaAliases = { schema_version: 1, aliases: {} };
+
+const prose: WebDevArenaSnapshot = {
+    ...snapshot,
+    rows: [
+        { model_name: "Claude Opus 5.5 (Max)", rating: 1809.8, category: "overall" },
+        { model_name: "Claude Sonnet 5.5 (xHigh)", rating: 1769.7, category: "overall" },
+        { model_name: "GPT-6 Astra (Max)", rating: 1773.3, category: "overall" },
+        { model_name: "Kimi K3 (Max)", rating: 1600.1, category: "overall" },
+    ],
+};
+
+test("a direct provider's slug id matches a leaderboard's prose name, case and punctuation aside", () => {
+    expect(joinWaScore({
+        provider: "anthropic",
+        model: "claude-opus-5.5",
+    }, prose, emptyAliases)).toBe(1810);
+    expect(joinWaScore({
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+    }, prose, emptyAliases)).toBe(1810);
+    expect(joinWaScore({
+        provider: "anthropic",
+        model: "claude-sonnet-5.5",
+    }, prose, emptyAliases)).toBe(1770);
+    expect(joinWaScore({
+        provider: "openai",
+        model: "gpt-6-astra",
+    }, prose, emptyAliases)).toBe(1773);
+});
+
+test("a prose name needs no rung to match a bare slug id", () => {
+    expect(joinWaScore({
+        provider: "moonshotai",
+        model: "kimi-k3",
+    }, prose, emptyAliases)).toBe(1600);
+});
+
+test("an alias written as a slug still resolves once the arena's own spelling turns to prose", () => {
+    const slugAlias: WebDevArenaAliases = {
+        schema_version: 1,
+        aliases: { "openrouter/anthropic/claude-sonnet-5": "claude-sonnet-5.5-xhigh" },
+    };
+    expect(joinWaScore({
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-5",
+    }, prose, slugAlias)).toBe(1770);
+});
+
+test("canonicalization does not blur distinct point releases", () => {
+    expect(joinWaScore({
+        provider: "anthropic",
+        model: "claude-opus-5",
+    }, prose, emptyAliases)).toBeUndefined();
 });
