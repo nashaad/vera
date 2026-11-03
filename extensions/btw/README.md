@@ -5,6 +5,7 @@ Included extension for read-only sidekicks and tool-capable peers beside the mai
 ```
 /btw                         # open the sidekick
 /btw inspect the auth flow   # open it and send a message
+/btw close                   # close the sidekick pane
 /pair investigate the bug    # open a tool-capable peer and send a message
 @sidekick what did you find  # sidekick only, without changing focus
 @all compare conclusions     # both visible agents
