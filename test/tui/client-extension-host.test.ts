@@ -207,6 +207,12 @@ test("the TUI extension host binds a configured extension to client surfaces", a
     expect(notices).toEqual([
         "open-help cannot use ctrl+p: Vera already uses it to open the command palette",
     ]);
+    expect(registry.requestPaneClose("test.sidebar")).toBe(true);
+    expect(sidebar.at(-1)).toBe("close:test.sidebar");
+    expect(registry.requestPaneClose("nonexistent.extension")).toBe(false);
+    // Loaded, but never called `onCloseRequested`: nothing to hand the request to.
+    expect(registry.requestPaneClose("test.conflicting-keybinding")).toBe(false);
+
     await registry.close();
     expect(commandRegistry.hasCommand("pane")).toBe(false);
     expect(commandRegistry.hasCommand("unpane")).toBe(false);

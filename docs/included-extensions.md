@@ -35,11 +35,13 @@ included   vera.artifacts, vera.btw, vera.budget, vera.diff, vera.mcp,
 
 Use `/btw` for a read-only side conversation that can refer to the primary
 conversation. `/btw <message>` opens it and sends the message. `/btw close`
-closes its pane. Its pane is temporary.
+closes its pane, and so does plain `/close` or Ctrl+W while that pane is
+focused. Its pane is temporary.
 
 Use `/pair` for a fresh peer conversation with ask permissions.
-`/pair <message>` sends a message as it opens. `/pair close` closes its pane.
-Pair attachments survive restart, and the conversation is available in `/resume`.
+`/pair <message>` sends a message as it opens. `/pair close` closes its pane,
+and so does plain `/close` or Ctrl+W while that pane is focused. Pair
+attachments survive restart, and the conversation is available in `/resume`.
 
 ### Work with two panes
 

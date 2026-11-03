@@ -22,6 +22,8 @@ resizing, but does not change agent focus.
 `Ctrl+\` cycles split, side-agent-only, and Vera-only layouts. Focus follows a
 solo pane, so the composer never addresses an agent that is off screen. Vera's
 composer footer keeps the mode and layout controls in their usual location.
+With the sidekick pane focused, plain `/close` or Ctrl+W closes it instead of
+parking the main conversation; `/btw close` works regardless of focus.
 
 `/btw` starts its agent in `readonly`; `/pair` starts its peer in `ask`. The
 sidebar header always shows the attached name and effective permission mode.

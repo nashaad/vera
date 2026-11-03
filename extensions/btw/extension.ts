@@ -31,6 +31,14 @@ export function activateClient(vera: any): void {
         );
     }
 
+    /** Shared by `/btw close` / `/pair close` and the generic `/close` hook. */
+    function closeSidebar(): void {
+        vera.ui.sidebar.close();
+        activeMention = undefined;
+        setAddressing(SIDEKICK);
+        offerVisibleMentions();
+    }
+
     /**
      * Returns `"stale"` when the primary was rewound past the point this
      * branch synced from: the branch can never catch up, so the caller drops
@@ -152,10 +160,7 @@ export function activateClient(vera: any): void {
             }) {
                 const text = argumentsText.trim();
                 if (text.toLowerCase() === "close") {
-                    vera.ui.sidebar.close();
-                    activeMention = undefined;
-                    setAddressing(SIDEKICK);
-                    offerVisibleMentions();
+                    closeSidebar();
                     return;
                 }
                 let target = await openAgent(
@@ -279,4 +284,8 @@ export function activateClient(vera: any): void {
     }
     setAddressing(activeMention ?? SIDEKICK);
     offerVisibleMentions();
+
+    // Lets the client close this pane generically (for example `/close`
+    // while it is the focused pane) without the client naming this extension.
+    vera.ui.sidebar.onCloseRequested(closeSidebar);
 }

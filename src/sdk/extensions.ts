@@ -814,6 +814,12 @@ export interface VeraClientExtensionSidebar {
     append(block: VeraClientTranscriptBlock): void;
     clear(): void;
     close(): void;
+    /**
+     * Registers the handler the client calls when the user asks to close
+     * this pane generically (for example `/close` while it is focused).
+     * At most one handler per extension.
+     */
+    onCloseRequested(handler: () => void | Promise<void>): void;
 }
 
 export interface VeraClientSidebarSummaryRow {
