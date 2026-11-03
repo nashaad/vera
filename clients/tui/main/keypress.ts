@@ -37,7 +37,7 @@ import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPic
 import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
-import { armQuit, disarmQuit } from "./notices.ts";
+import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow } from "./notices.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -325,18 +325,26 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderState(rt);
         return;
     }
+    if (
+        quitArmedNow(rt)
+        && key.name === "escape"
+        && !key.ctrl
+        && !key.shift
+        && !key.meta
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        disarmQuit(rt);
+        renderStatus(rt);
+        return;
+    }
     if (parseRawInputEvent(key)?.type === "interrupt") {
         if (rt.sessionTrashPending) {
             key.preventDefault();
             key.stopPropagation();
             return;
         }
-        if (
-            !focusedAgentCanAbort(rt)
-            && rt.composer.focused
-            && rt.composer.plainText.length > 0
-            && !anyOverlayOpen(rt)
-        ) {
+        if (interruptClearsDraft(rt)) {
             key.preventDefault();
             key.stopPropagation();
             // Clearing a draft starts the two-press quit over.
@@ -351,7 +359,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             focusedAgentState(rt).working,
             focusedAbortRequested(rt),
             focusedAgentState(rt).compactingSince !== undefined,
-            rt.quitArmTimer !== undefined,
+            rt.quitArmed === true,
         );
         key.preventDefault();
         key.stopPropagation();
