@@ -53,6 +53,13 @@ running host with `vera doctor`; if there is none, delete the file.
 
 A socket file existing on disk does not prove the host is answering.
 
+## A key or command did nothing
+
+If a key, paste, or submitted message fails inside the TUI, the conversation
+shows an error line that starts with what failed, such as `Key failed:` or
+`Submit failed:`, followed by the reason. The TUI keeps running. The same
+failure is written to the client's log under `runtime/logs/clients/`.
+
 ## Provider models look stale
 
 Open Configure providers and refresh the affected provider. Check the endpoint
