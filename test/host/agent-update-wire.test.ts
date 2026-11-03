@@ -96,6 +96,21 @@ test("host wire validates requester-owned session name results", () => {
     })).toBeDefined();
 });
 
+test("host wire validates withdrawn prompts", () => {
+    const withdrawn = {
+        type: "prompt_withdrawn" as const,
+        requestId: "r1",
+        content: "compare",
+        attachmentIds: ["image-1"],
+        seq: 3,
+    };
+    expect(parseAgentUpdate(withdrawn)).toEqual(withdrawn);
+    expect(parseAgentUpdate({ ...withdrawn, requestId: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...withdrawn, content: 4 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...withdrawn, attachmentIds: [""] })).toBeUndefined();
+    expect(parseAgentUpdate({ ...withdrawn, attachmentIds: "image-1" })).toBeUndefined();
+});
+
 test("turn finished accepts an optional model error", () => {
     const update = {
         type: "turn_finished" as const,

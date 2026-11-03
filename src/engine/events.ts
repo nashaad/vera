@@ -68,6 +68,13 @@ export interface PromptQueueChangedEvent {
     readonly queue: PromptQueueState;
 }
 
+export interface PromptWithdrawnEvent {
+    readonly type: "prompt_withdrawn";
+    readonly requestId: string;
+    readonly content: string;
+    readonly attachmentIds?: readonly string[];
+}
+
 export interface AbortRequestedEvent {
     readonly type: "abort_requested";
 }
@@ -557,6 +564,7 @@ export type EngineEvent =
     | DeliveryTurnStartedEvent
     | PromptQueuedEvent
     | PromptQueueChangedEvent
+    | PromptWithdrawnEvent
     | AbortRequestedEvent
     | TaskNotificationEvent
     | NoticeEvent
@@ -696,6 +704,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     prompt_prefix_drift: "warn",
     prompt_queue_changed: "debug",
     prompt_queued: "info",
+    prompt_withdrawn: "info",
     session_model_settings_history: "debug",
     skill_catalog: "debug",
     skill_invocation_accepted: "info",

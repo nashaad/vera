@@ -765,6 +765,35 @@ export class InboundCommandRouter {
         this.signalTurnAvailable();
     }
 
+    private withdrawQueuedPrompt(requestId: string): void {
+        const { boundaryIndex, directBoundaryIndex } = this.queueBoundaries();
+        const floor = Math.max(boundaryIndex, directBoundaryIndex);
+        let index = this.queuedTurns.length - 1;
+        while (index > floor && this.queuedTurns[index]!.prompt === undefined) {
+            index -= 1;
+        }
+        if (index <= floor) {
+            this.events.emit({
+                type: "notice",
+                key: "queue_withdraw_empty",
+                count: 1,
+            });
+            return;
+        }
+        const [withdrawn] = this.queuedTurns.splice(index, 1);
+        const prompt = withdrawn!.prompt!;
+        this.pendingPromptCount -= 1;
+        this.emitPromptQueue();
+        this.events.emit({
+            type: "prompt_withdrawn",
+            requestId,
+            content: prompt.content,
+            ...(prompt.attachmentIds === undefined
+                ? {}
+                : { attachmentIds: [...prompt.attachmentIds] }),
+        });
+    }
+
     private plainAbort(): void {
         const visibleQueuedPrompts = this.promptQueueState().prompts.length;
         const claimedTurn = this.activeTurn === undefined
@@ -869,14 +898,27 @@ export class InboundCommandRouter {
         }
     }
 
-    private promptQueueState(): PromptQueueState {
+    // Prompts after `boundaryIndex` are held; `directBoundaryIndex` marks the prompt that opened the turn, which the queue never shows.
+    private queueBoundaries(): {
+        readonly effectiveRelease: Pick<QueueRelease, "mode" | "boundary"> | undefined;
+        readonly boundaryIndex: number;
+        readonly directBoundaryIndex: number;
+    } {
         const effectiveRelease = this.queuedDirectFollowUp ?? this.release;
-        const boundaryIndex = effectiveRelease === undefined
-            ? -1
-            : this.queuedTurns.indexOf(effectiveRelease.boundary);
-        const directBoundaryIndex = this.release?.mode === "direct"
-            ? this.queuedTurns.indexOf(this.release.boundary)
-            : -1;
+        return {
+            effectiveRelease,
+            boundaryIndex: effectiveRelease === undefined
+                ? -1
+                : this.queuedTurns.indexOf(effectiveRelease.boundary),
+            directBoundaryIndex: this.release?.mode === "direct"
+                ? this.queuedTurns.indexOf(this.release.boundary)
+                : -1,
+        };
+    }
+
+    private promptQueueState(): PromptQueueState {
+        const { effectiveRelease, boundaryIndex, directBoundaryIndex } =
+            this.queueBoundaries();
         const releasedPromptPending = this.queuedTurns.some(
             (queued, index) => queued.prompt !== undefined
                 && index > directBoundaryIndex
@@ -1187,6 +1229,11 @@ export class InboundCommandRouter {
 
                 if (command.type === "release_queued_prompts") {
                     this.releaseQueuedPrompts(command.mode);
+                    continue;
+                }
+
+                if (command.type === "withdraw_queued_prompt") {
+                    this.withdrawQueuedPrompt(command.requestId);
                     continue;
                 }
 

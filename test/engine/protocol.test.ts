@@ -258,6 +258,20 @@ test("queued prompt release commands accept only one or all", () => {
     })).toBeUndefined();
 });
 
+test("withdraw_queued_prompt needs a request id", () => {
+    expect(parseClientCommand({
+        type: "withdraw_queued_prompt",
+        requestId: "r1",
+    })).toEqual({ type: "withdraw_queued_prompt", requestId: "r1" });
+    expect(parseClientCommand({
+        type: "withdraw_queued_prompt",
+    })).toBeUndefined();
+    expect(parseClientCommand({
+        type: "withdraw_queued_prompt",
+        requestId: "",
+    })).toBeUndefined();
+});
+
 test("only invoke_skill can mint trusted skill authority", () => {
     expect(parseClientCommand({
         type: "prompt",
@@ -449,6 +463,36 @@ test("prompt queue state is sequenced and survives a checkpoint", () => {
     expect(withoutSessionUsage(updates)).toEqual([
         { type: "prompt_queue", queue, seq: 1 },
         { type: "history", entries: [], promptQueue: queue, seq: 1 },
+    ]);
+    expect(parseAgentUpdate(updates[0])).toEqual(updates[0]);
+    expect(parseAgentUpdate(updates[1])).toEqual(updates[1]);
+});
+
+test("a withdrawn prompt is sequenced and carries its attachments", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "prompt_withdrawn",
+        requestId: "r1",
+        content: "compare",
+        attachmentIds: ["image-1"],
+    });
+    protocol({ type: "prompt_withdrawn", requestId: "r2", content: "plain" });
+
+    expect(withoutSessionUsage(updates)).toEqual([
+        {
+            type: "prompt_withdrawn",
+            requestId: "r1",
+            content: "compare",
+            attachmentIds: ["image-1"],
+            seq: 1,
+        },
+        { type: "prompt_withdrawn", requestId: "r2", content: "plain", seq: 2 },
     ]);
     expect(parseAgentUpdate(updates[0])).toEqual(updates[0]);
     expect(parseAgentUpdate(updates[1])).toEqual(updates[1]);

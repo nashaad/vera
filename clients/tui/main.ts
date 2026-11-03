@@ -305,6 +305,7 @@ import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
 import { type PoolChangeUndo, type TuiAgentCatalog, type TuiRuntime } from "./main/runtime.ts";
 import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer } from "./main/chrome.ts";
+import { recallNewestQueuedPrompt } from "./main/queue-recall.ts";
 import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
 import { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme } from "./main/sidebar-pane.ts";
 import { applyTranscriptScroll, handleKeypress } from "./main/keypress.ts";
@@ -1129,6 +1130,7 @@ export async function startTui(
         },
     });
     rt.submitAfterImageAttachment = false;
+    rt.pendingQueueRecall = undefined;
     rt.pendingImages = [];
     rt.droppedImageReleases = new Map<string, () => Promise<void>>();
     if (rt.dependencies.initialDraft !== undefined) {
@@ -1688,6 +1690,7 @@ export async function startTui(
         guardInput(rt, "submit", () => submitPrompt(rt)),
         guardInput(rt, "image_paste", (path: string) => attachPastedImage(rt, path)),
     );
+    rt.composer.onRecallQueuedPrompt = () => recallNewestQueuedPrompt(rt);
     rt.composer.onCommandDelete = () => {
         if (
             rt.composer.plainText.length === 0

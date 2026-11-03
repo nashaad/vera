@@ -72,6 +72,14 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "prompt_withdrawn") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.content === "string"
+                && isAttachmentIdList(update.attachmentIds)
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "context") {
         return isContextMeasurement(update.measurement)
             ? value as AgentUpdate
@@ -443,6 +451,12 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     return undefined;
 }
 
+function isAttachmentIdList(value: unknown): boolean {
+    return value === undefined
+        || (Array.isArray(value)
+            && value.every((id) => typeof id === "string" && id.length > 0));
+}
+
 function isPromptQueueState(value: unknown): boolean {
     const queue = asRecord(value);
     return queue !== undefined
@@ -453,10 +467,7 @@ function isPromptQueueState(value: unknown): boolean {
             return prompt !== undefined
                 && typeof prompt.content === "string"
                 && (prompt.state === "held" || prompt.state === "released")
-                && (prompt.attachmentIds === undefined
-                    || (Array.isArray(prompt.attachmentIds)
-                        && prompt.attachmentIds.every((id) =>
-                            typeof id === "string" && id.length > 0)));
+                && isAttachmentIdList(prompt.attachmentIds);
         });
 }
 

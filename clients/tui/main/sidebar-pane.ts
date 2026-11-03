@@ -8,6 +8,7 @@ import { adoptReportedPermission } from "../dials.ts";
 import { createTuiGutterEntry, repaintTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
 import { assistantFollowsTools, defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
 import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
+import { settleQueueRecall } from "./queue-recall.ts";
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { installTuiTextLinkHandler, openTuiLink } from "../markdown-links.ts";
@@ -313,6 +314,7 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
     pane: TuiAgentPane<IdentifiedTuiAgentClient>,
 ): void {
     if (pane !== rt.hostedSidebar.pane) return;
+    settleQueueRecall(rt, update);
     if (
         update.type === "ui_request"
         && !(

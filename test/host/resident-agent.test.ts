@@ -1024,6 +1024,33 @@ test("two prompts accepted before either starts keep their own pending state", a
     agent.close();
 });
 
+test("a withdraw command reaches the engine and its answer reaches every attachment", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const asking = agent.attach();
+    const watching = agent.attach();
+    await asking.receive();
+    await watching.receive();
+
+    asking.send({ type: "withdraw_queued_prompt", requestId: "r1" });
+    expect(await agent.engine.receive()).toEqual({
+        type: "withdraw_queued_prompt",
+        requestId: "r1",
+    });
+
+    const answer = {
+        type: "prompt_withdrawn" as const,
+        requestId: "r1",
+        content: "queued text",
+        seq: 1,
+    };
+    agent.engine.send(answer);
+    expect(await asking.receive()).toEqual(answer);
+    expect(await watching.receive()).toEqual(answer);
+    asking.detach();
+    watching.detach();
+    agent.close();
+});
+
 function values<T>(...items: T[]): () => T {
     return () => {
         const item = items.shift();

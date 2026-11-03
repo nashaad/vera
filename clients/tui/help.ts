@@ -511,7 +511,8 @@ function generalHelp(): StyledText {
         ),
         fg(TUI_TEXT)("While Vera is working\n"),
         fg(TUI_MUTED)(
-            "Typed Enter queues   Empty Enter sends all   Escape sends one   Ctrl+C stops\n\n",
+            "Typed Enter queues   Empty Enter sends all   Escape sends one\n"
+            + "Up takes the newest queued prompt back to edit   Ctrl+C stops\n\n",
         ),
         fg(TUI_TEXT)("Conversations\n"),
         fg(TUI_MUTED)(

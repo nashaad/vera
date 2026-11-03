@@ -516,6 +516,7 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
         rt.composer.removeImageChip(image.requestId);
     }
     rt.pendingImages = [];
+    rt.pendingQueueRecall = undefined;
     rt.submitAfterImageAttachment = false;
     const interruptedRename = rt.pendingSessionRename;
     rt.pendingSessionRename = undefined;

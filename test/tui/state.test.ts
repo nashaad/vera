@@ -2373,6 +2373,33 @@ test("a refused release is reported instead of passing silently", () => {
     });
 });
 
+test("a withdrawn prompt changes nothing in the transcript state", () => {
+    const initial = createTuiState();
+    const state = applyAgentUpdate(initial, {
+        type: "prompt_withdrawn",
+        requestId: "r1",
+        content: "queued text",
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual(initial.entries);
+    expect(state.queuedPrompts).toEqual(initial.queuedPrompts);
+});
+
+test("a recall with nothing queued is reported instead of passing silently", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "queue_withdraw_empty",
+        count: 1,
+        seq: 1,
+    });
+
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Nothing to recall: no queued prompt is waiting",
+    });
+});
+
 test("TUI state leaves timeline replies for the future picker", () => {
     const initial = createTuiState();
     const replies: AgentUpdate[] = [

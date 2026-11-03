@@ -41,6 +41,17 @@ If the composer contains text or an attachment, Enter adds that draft to the
 queue instead of sending existing queued prompts. Escape stops the active turn
 and leaves the draft in the composer; it sends no queued prompt.
 
+## Edit a queued prompt
+
+Press Up with the composer empty to take the newest waiting prompt out of the
+queue and back into the composer. Its attachments come with it. Change it and
+press Enter to queue it again; it goes to the back of the queue.
+
+Up only does this while at least one prompt is waiting. A prompt that has
+already joined the running turn, or is being sent, can no longer be taken back,
+and Vera says so when you press Up. With nothing waiting, Up recalls your last
+submission as usual.
+
 ## Leave and return
 
 The queue belongs to the conversation. Switching away or returning from

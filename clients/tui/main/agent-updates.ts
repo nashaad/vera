@@ -18,6 +18,7 @@ import { applyTuiUiRequestUpdate } from "../ui-request-queue.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";
+import { settleQueueRecall } from "./queue-recall.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -613,6 +614,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             if (update.type === "user_prompt") {
                 rt.abortRequested = false;
             }
+            settleQueueRecall(rt, update);
             if (
                 update.type === "turn_finished"
                 || update.type === "agent_failed"

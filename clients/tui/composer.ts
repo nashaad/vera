@@ -67,6 +67,7 @@ export class TuiComposer extends TextareaRenderable {
     onImageChipRemoved?: (requestId: string) => void;
     /** Called before OpenTUI's word-delete binding handles Command-Delete. */
     onCommandDelete?: () => boolean;
+    onRecallQueuedPrompt?: () => boolean;
 
     attachImageChip(requestId: string): void {
         this.ensureImageChipStyle();
@@ -109,6 +110,19 @@ export class TuiComposer extends TextareaRenderable {
             this.syncImageChips();
             if (handled) this.publishTypedRows();
             return handled;
+        }
+        if (
+            key.name === "up"
+            && !key.shift
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && this.plainText.length === 0
+            && this.submittedTextIndex === undefined
+            && this.onRecallQueuedPrompt?.() === true
+        ) {
+            return true;
         }
         if (
             key.name === "up"

@@ -262,6 +262,17 @@ export interface ReleaseQueuedPromptsCommand {
     readonly mode: "one" | "all";
 }
 
+/**
+ * Take the newest held queued prompt back out of the queue.
+ *
+ * Answered with `prompt_withdrawn` carrying the same `requestId`, or with the
+ * `queue_withdraw_empty` notice when no prompt is held.
+ */
+export interface WithdrawQueuedPromptCommand {
+    readonly type: "withdraw_queued_prompt";
+    readonly requestId: string;
+}
+
 export interface UiResponseCommand {
     readonly type: "ui_response";
     readonly requestId: string;
@@ -527,6 +538,7 @@ export type ClientCommand =
     | AttachImageCommand
     | AbortCommand
     | ReleaseQueuedPromptsCommand
+    | WithdrawQueuedPromptCommand
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
@@ -573,6 +585,14 @@ export interface HistoryUpdate {
 export interface PromptQueueUpdate {
     readonly type: "prompt_queue";
     readonly queue: PromptQueueState;
+    readonly seq: number;
+}
+
+export interface PromptWithdrawnUpdate {
+    readonly type: "prompt_withdrawn";
+    readonly requestId: string;
+    readonly content: string;
+    readonly attachmentIds?: readonly string[];
     readonly seq: number;
 }
 
@@ -1152,6 +1172,7 @@ export type AgentUpdate =
     | TurnFinishedUpdate
     | AgentFailedUpdate
     | PromptQueueUpdate
+    | PromptWithdrawnUpdate
     | ContextUpdate
     | ModelActivityUpdate
     | ModelSubstitutionUpdate
@@ -1240,6 +1261,15 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         && (command.mode === "one" || command.mode === "all")
     ) {
         return { type: "release_queued_prompts", mode: command.mode };
+    }
+    if (
+        command.type === "withdraw_queued_prompt"
+        && isRequestId(command.requestId)
+    ) {
+        return {
+            type: "withdraw_queued_prompt",
+            requestId: command.requestId,
+        };
     }
     if (
         command.type === "attach_image"
@@ -1761,6 +1791,19 @@ export function createProtocolEncoder(
             sender.send({
                 type: "prompt_queue",
                 queue: structuredClone(event.queue),
+                seq,
+            });
+            return;
+        }
+        if (event.type === "prompt_withdrawn") {
+            seq += 1;
+            sender.send({
+                type: "prompt_withdrawn",
+                requestId: event.requestId,
+                content: event.content,
+                ...(event.attachmentIds === undefined
+                    ? {}
+                    : { attachmentIds: [...event.attachmentIds] }),
                 seq,
             });
             return;

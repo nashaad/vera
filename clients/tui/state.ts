@@ -563,6 +563,15 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             }`,
         });
     }
+    if (update.type === "prompt_withdrawn") {
+        return state;
+    }
+    if (update.type === "notice" && update.key === "queue_withdraw_empty") {
+        return appendEntry(state, {
+            kind: "notice",
+            text: "Nothing to recall: no queued prompt is waiting",
+        });
+    }
     if (update.type === "notice" && update.key === "queue_release_empty") {
         return appendEntry(state, {
             kind: "notice",

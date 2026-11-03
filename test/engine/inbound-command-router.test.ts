@@ -170,6 +170,135 @@ test("a release with nothing left to claim is refused visibly", async () => {
     ])).toBe("held");
 });
 
+test("withdrawing takes back the newest held prompt and leaves the rest queued", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({
+        type: "prompt",
+        content: "two",
+        attachmentIds: ["image-1"],
+    });
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "r1" });
+    await Bun.sleep(0);
+
+    expect(observed.filter((event) => event.type === "prompt_withdrawn")).toEqual([{
+        type: "prompt_withdrawn",
+        requestId: "r1",
+        content: "two",
+        attachmentIds: ["image-1"],
+    }]);
+    const queues = observed.flatMap((event) =>
+        event.type === "prompt_queue_changed" ? [event.queue.prompts] : []
+    );
+    expect(queues.at(-1)?.map((prompt) => prompt.content)).toEqual(["one"]);
+
+    router.finishTurn();
+    const next = await router.startTurn();
+    expect(next.prompt.content).toBe("one");
+    router.finishTurn();
+});
+
+test("withdrawing recalls held prompts newest first, then reports an empty queue", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "a" });
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "b" });
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "c" });
+    await Bun.sleep(0);
+
+    expect(observed.flatMap((event) =>
+        event.type === "prompt_withdrawn"
+            ? [`${event.requestId}:${event.content}`]
+            : []
+    )).toEqual(["a:two", "b:one"]);
+    expect(observed.filter((event) =>
+        event.type === "notice" && event.key === "queue_withdraw_empty"
+    )).toHaveLength(1);
+    router.finishTurn();
+
+    const idle = router.startTurn();
+    expect(await Promise.race([
+        idle.then(() => "started" as const),
+        Bun.sleep(10).then(() => "idle" as const),
+    ])).toBe("idle");
+});
+
+test("withdrawing cannot take a prompt that a release already claimed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "late" });
+    await Bun.sleep(0);
+
+    expect(observed.some((event) => event.type === "prompt_withdrawn")).toBe(false);
+    expect(observed.filter((event) =>
+        event.type === "notice" && event.key === "queue_withdraw_empty"
+    )).toHaveLength(1);
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "two",
+    ]);
+    router.finishTurn();
+});
+
+test("a plain abort leaves held prompts that can still be withdrawn", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "held" });
+    channel.client.send({ type: "abort" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+    channel.client.send({ type: "withdraw_queued_prompt", requestId: "idle" });
+    await Bun.sleep(0);
+
+    expect(observed.filter((event) => event.type === "prompt_withdrawn")).toEqual([{
+        type: "prompt_withdrawn",
+        requestId: "idle",
+        content: "held",
+    }]);
+});
+
 test("a release during a draining batch steers to the held prompts", async () => {
     const channel = createInProcessChannel();
     const router = new InboundCommandRouter(
