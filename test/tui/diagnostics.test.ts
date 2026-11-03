@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { renderTuiDiagnostics } from "../../clients/tui/diagnostics.ts";
+import { currentBuildFacts, renderTuiDiagnostics } from "../../clients/tui/diagnostics.ts";
 import { createTuiState } from "../../clients/tui/state.ts";
 import { summariseModelFailures } from "../../src/store/model-failures.ts";
 
@@ -265,6 +265,51 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).toContain("| Enabled | `/worktree/examples/extensions/sample` |");
     expect(text).toContain("| Disabled | `/old/disabled-extension` |");
     expect(text).not.toContain("─".repeat(40));
+});
+
+test("TUI diagnostics shows the refused host build and no stale host process", () => {
+    const attached = {
+        clientVersion: "vera-crow-1",
+        hostBuildId: "vera-crow-1",
+        hostPid: 42,
+        hostStartedAt: "2026-11-03T09:00:00.000Z",
+    };
+    expect(currentBuildFacts(attached, undefined)).toBe(attached);
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "disconnected",
+        elapsed: "0s",
+        scope: "vera",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        build: currentBuildFacts(attached, { hostBuildId: "vera-kraken-2" }),
+    }, 42);
+
+    expect(text).toContain("| Client | `vera-crow-1` |");
+    expect(text).toContain("| Host | `vera-kraken-2` |");
+    expect(text).toContain("| Host process | unknown |");
+    expect(text).not.toContain("PID `42`");
+});
+
+test("TUI diagnostics reads host facts when it renders, not when the TUI started", () => {
+    let pid = 42;
+    const build = {
+        clientVersion: "vera-crow-1",
+        hostBuildId: "vera-crow-1",
+        get hostPid() { return pid; },
+    };
+    const render = () => renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        scope: "vera",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        build: currentBuildFacts(build, undefined),
+    }, 42);
+    expect(render()).toContain("| Host process | PID `42` |");
+    pid = 77;
+    expect(render()).toContain("| Host process | PID `77` |");
 });
 
 test("TUI diagnostics reports the latest client extension reload", () => {

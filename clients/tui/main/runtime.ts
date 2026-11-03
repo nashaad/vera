@@ -145,12 +145,13 @@ export interface TuiRuntime {
     experimentalTuiHost: TuiExperimentalHost;
     connectionFailed: boolean;
     connectionFailure: string | undefined;
+    hostBuildRefusal: { readonly hostBuildId: string | undefined } | undefined;
     hostReconnectAttempted: boolean;
     agentFailedThisAttachment: boolean;
     statusNotice: string | undefined;
     statusNoticeVersion: number;
     modelPrefixPending?: boolean;
-    quitArmTimer?: ReturnType<typeof setTimeout>;
+    quitArmed?: boolean;
     requestedModelChanges: Map<string, { readonly subject: string; readonly patch: ModelSettingsPatch; readonly target: TuiAgentClient; }>;
     requestedPermissionChanges: Map<string, string>;
     abortRequested: boolean;

@@ -4,7 +4,7 @@ import { defaultFailureReportDirectory, failureReportMarkdown, failureReportOnes
 import { defaultModelFailureLedgerPath, modelFailureNudge, readModelFailures, summariseModelFailures } from "../../../src/store/model-failures.ts";
 import { defaultStashRoot, summarizeStash } from "../../../src/store/preimage-stash.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
-import { renderTuiDiagnostics, type TuiDiagnosticsSnapshot } from "../diagnostics.ts";
+import { currentBuildFacts, renderTuiDiagnostics, type TuiDiagnosticsSnapshot } from "../diagnostics.ts";
 import type { DialogRowPointer } from "../dialog-chrome.ts";
 import { isHomeClient } from "../home-client.ts";
 import { readLatestHostStartupTiming } from "../host-startup-diagnostics.ts";
@@ -145,6 +145,7 @@ export async function restorePersistedAgentPane(rt: TuiRuntime): Promise<void> {
 }
 
 export function diagnosticsSnapshot(rt: TuiRuntime): TuiDiagnosticsSnapshot {
+    const build = currentBuildFacts(rt.dependencies.build, rt.hostBuildRefusal);
     return {
         state: rt.state,
         activity: rt.activity,
@@ -157,9 +158,9 @@ export function diagnosticsSnapshot(rt: TuiRuntime): TuiDiagnosticsSnapshot {
         runningBackgroundAgents: rt.runningBackgroundAgents,
         processes: [
             { role: "client" as const, pid: process.pid },
-            ...(rt.dependencies.build?.hostPid === undefined
+            ...(build?.hostPid === undefined
                 ? []
-                : [{ role: "host" as const, pid: rt.dependencies.build.hostPid }]),
+                : [{ role: "host" as const, pid: build.hostPid }]),
             ...(rt.diagnosticsWorkerPid === undefined
                 ? []
                 : [{ role: "worker" as const, pid: rt.diagnosticsWorkerPid }]),
@@ -176,7 +177,7 @@ export function diagnosticsSnapshot(rt: TuiRuntime): TuiDiagnosticsSnapshot {
         stashRoot: defaultStashRoot(),
         modelFailures: summariseModelFailures(readModelFailures()),
         modelFailureLedgerPath: defaultModelFailureLedgerPath(),
-        build: rt.dependencies.build,
+        ...(build === undefined ? {} : { build }),
         extensions: rt.configuredClientExtensions,
         clientExtensionReload: rt.clientExtensionReload,
         startup: readLatestHostStartupTiming(),

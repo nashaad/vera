@@ -115,6 +115,7 @@ import {
 } from "./client-extension-agents.ts";
 import {
     createConfiguredTuiAgentClients,
+    pairedHostSocket,
     refuseOtherHostBuild,
 } from "./configured-agent-client.ts";
 import {
@@ -141,7 +142,7 @@ import type {
     TuiSessionLeaveResult,
 } from "./session-lifecycle.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
-import { renderTuiDiagnostics, type TuiDiagnosticsSnapshot } from "./diagnostics.ts";
+import { renderTuiDiagnostics, type TuiBuildFacts, type TuiDiagnosticsSnapshot } from "./diagnostics.ts";
 import { idleProviderHealth, type HealthRung } from "./provider-health.ts";
 import { createTuiDiagnosticsDialogView } from "./diagnostics-dialog.ts";
 import { type VeraDoctorReport } from "../process-doctor.ts";
@@ -323,7 +324,7 @@ import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, ru
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
-import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, disarmQuit, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
+import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
@@ -594,12 +595,7 @@ export interface TuiDependencies {
         readonly disabledIncludedExtensions: readonly string[];
         readonly clientExtensions: readonly VeraExtensionConfig[];
     };
-    readonly build?: {
-        readonly clientVersion: string;
-        readonly hostBuildId?: string;
-        readonly hostPid?: number;
-        readonly hostStartedAt?: string;
-    };
+    readonly build?: TuiBuildFacts;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly openUsagePage?: () => Promise<AnnexUrlResult>;
     readonly readHostExtensionLoadFailures?: () => Promise<readonly HostExtensionLoadFailure[]>;
@@ -706,14 +702,15 @@ export async function startConfiguredTui(
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
+    const pairedSocket = (): Promise<string> => pairedHostSocket(host.socket_path, clientBuildId);
     const resolvedTarget = target.type === "continue"
         ? resolveContinueTarget(
-            await listAgentsThroughHost(host.socket_path),
+            await listAgentsThroughHost(await pairedSocket()),
             loadTuiRecentSessionId(),
         )
         : target.type === "resume"
         ? resolveResumeTarget(
-            await listAgentsThroughHost(host.socket_path),
+            await listAgentsThroughHost(await pairedSocket()),
             target.sessionPath,
         )
         : target;
@@ -721,7 +718,7 @@ export async function startConfiguredTui(
         ? undefined
         : resolvedTarget.type === "create"
         ? (await createAgentThroughHost(
-            host.socket_path,
+            await pairedSocket(),
             resolvedTarget.workspace,
             undefined,
             undefined,
@@ -729,20 +726,20 @@ export async function startConfiguredTui(
         )).id
         : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(
-                host.socket_path,
+                await pairedSocket(),
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
     const agentClients = createConfiguredTuiAgentClients(() => host.socket_path, clientBuildId);
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
-        : await hostHasSessions(host.socket_path);
+        : await hostHasSessions(await pairedSocket());
     const client = agentId === undefined
         ? createHomeClient(process.cwd(), {
-            readModelSettings: (workspace) =>
-                readModelSettingsThroughHost(host.socket_path, workspace),
-            refreshCatalog: (provider, workspace) =>
-                refreshCatalogThroughHost(host.socket_path, provider, workspace),
+            readModelSettings: async (workspace) =>
+                readModelSettingsThroughHost(await pairedSocket(), workspace),
+            refreshCatalog: async (provider, workspace) =>
+                refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
         })
         : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
@@ -757,9 +754,9 @@ export async function startConfiguredTui(
     }
     const attach = (id: string) => agentClients.attach(id);
     try {
-        const listAgents = () => listAgentsThroughHost(host.socket_path);
-        const listSessionPage = (options: ListAgentsOptions) =>
-            listAgentPageThroughHost(host.socket_path, options);
+        const listAgents = async () => listAgentsThroughHost(await pairedSocket());
+        const listSessionPage = async (options: ListAgentsOptions) =>
+            listAgentPageThroughHost(await pairedSocket(), options);
         const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
             ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
@@ -769,14 +766,14 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
-            forgetProvider: (provider, workspace) => forgetProviderThroughHost(host.socket_path, provider, workspace),
-            operateModels: (operation, onResult, workspace, onStep) => operateModelsThroughHost(host.socket_path, operation, onResult, workspace, onStep),
-            readHostModelSettings: (workspace) =>
-                readModelSettingsThroughHost(host.socket_path, workspace),
-            refreshHostCatalog: (provider, workspace) =>
-                refreshCatalogThroughHost(host.socket_path, provider, workspace),
-            requestExtension: (extensionId, name, payload, signal) =>
-                requestExtensionThroughHost(host.socket_path, extensionId, name, payload, signal),
+            forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
+            operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
+            readHostModelSettings: async (workspace) =>
+                readModelSettingsThroughHost(await pairedSocket(), workspace),
+            refreshHostCatalog: async (provider, workspace) =>
+                refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            requestExtension: async (extensionId, name, payload, signal) =>
+                requestExtensionThroughHost(await pairedSocket(), extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -785,7 +782,7 @@ export async function startConfiguredTui(
             createSession: async (workspace) => {
                 const createStartedAt = performance.now();
                 const created = await createAgentThroughHost(
-                    host.socket_path,
+                    await pairedSocket(),
                     workspace,
                 );
                 flightRecorder.record({
@@ -811,11 +808,11 @@ export async function startConfiguredTui(
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
             resumeSession: agentClients.resume,
-            closeSession: (targetAgentId) =>
-                closeAgentThroughHost(host.socket_path, targetAgentId),
+            closeSession: async (targetAgentId) =>
+                closeAgentThroughHost(await pairedSocket(), targetAgentId),
             // Search through the host; a client-resolved path can miss the attached profile.
-            searchSessions: (query) =>
-                searchSessionsThroughHost(host.socket_path, query),
+            searchSessions: async (query) =>
+                searchSessionsThroughHost(await pairedSocket(), query),
             reconnectSession: async (currentAgentId, options) => {
                 // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
@@ -829,14 +826,14 @@ export async function startConfiguredTui(
                 return attach(currentAgentId);
             },
             onSessionEntered: rememberSession,
-            trashSession: (sessionId) =>
-                trashSessionThroughHost(host.socket_path, sessionId),
-            renameSession: (sessionId, name) =>
-                renameSessionThroughHost(host.socket_path, sessionId, name),
-            importSession: (path) =>
-                importSessionThroughHost(host.socket_path, path),
-            listImportableSessions: (workspace) =>
-                listImportableSessionsThroughHost(host.socket_path, workspace),
+            trashSession: async (sessionId) =>
+                trashSessionThroughHost(await pairedSocket(), sessionId),
+            renameSession: async (sessionId, name) =>
+                renameSessionThroughHost(await pairedSocket(), sessionId, name),
+            importSession: async (path) =>
+                importSessionThroughHost(await pairedSocket(), path),
+            listImportableSessions: async (workspace) =>
+                listImportableSessionsThroughHost(await pairedSocket(), workspace),
             ...(config?.disabled_included_extensions === undefined
                 ? {}
                 : {
@@ -856,16 +853,15 @@ export async function startConfiguredTui(
             },
             build: {
                 clientVersion: clientBuildId,
-                ...(host.build_id === undefined
-                    ? {}
-                    : { hostBuildId: host.build_id }),
-                hostPid: host.pid,
-                hostStartedAt: host.started_at,
+                // Getters: Reconnect host replaces `host`, and diagnostics must show the one attached now.
+                get hostBuildId() { return host.build_id; },
+                get hostPid() { return host.pid; },
+                get hostStartedAt() { return host.started_at; },
             },
-            openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
-            readHostExtensionLoadFailures: () => readExtensionLoadFailuresThroughHost(host.socket_path),
+            openUsagePage: async () => readAnnexUrlThroughHost(await pairedSocket()),
+            readHostExtensionLoadFailures: async () => readExtensionLoadFailuresThroughHost(await pairedSocket()),
             readSubscriptionLimits: (signal) => readAnnexSubscriptionLimits(
-                () => readAnnexUrlThroughHost(host.socket_path), signal,
+                async () => readAnnexUrlThroughHost(await pairedSocket()), signal,
             ),
             flightRecorder,
         });
@@ -985,6 +981,7 @@ export async function startTui(
         requestSecret: (request, signal) => requestExtensionSecret(rt, request, signal),
     });
     rt.connectionFailed = false;
+    rt.hostBuildRefusal = undefined;
     // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.
@@ -2400,7 +2397,6 @@ export async function startTui(
         rt.subscriptionLimits.stop();
         stopAutoModeAnimation(rt);
         stopModeToastTimers(rt);
-        disarmQuit(rt);
         rt.renderCoalescer.stop();
         clearInterval(rt.statusTimer);
         rt.stopWatchingBackgroundAgents?.();

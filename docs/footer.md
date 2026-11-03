@@ -14,8 +14,9 @@ not change.
 Each item shows whenever it has something to show: the activity strip during
 a turn, the limits when the provider reports them. The live status reads
 `ready` while idle and names the phase during a turn. After one Ctrl+C on an
-empty composer, it reads `Press Ctrl+C again to quit` for five seconds. The
-key hints read `Ctrl+P commands · Ctrl+X h keys` while idle and
+empty composer, it reads `Press Ctrl+C again to quit` until the second press
+or until Escape cancels it. A draft hides it, because Ctrl+C clears the draft
+first. The key hints read `Ctrl+P commands · Ctrl+X h keys` while idle and
 `Ctrl+X h keys` during a turn.
 
 The screen draws an example footer, a crow working in `~/crow-nest` on the

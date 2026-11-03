@@ -4,6 +4,7 @@ import { renderTuiHeldAddress } from "../addressing.ts";
 import { COPY_NOTICE_DURATION_MS, renderStatus } from "../main.ts";
 import { DIALOG_SHORT_TERMINAL_HEIGHT, TOAST_Z_INDEX } from "../dialog-chrome.ts";
 import { setComposerMargin } from "../main/chrome.ts";
+import { focusedAgentCanAbort } from "../main/agents-dials.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { renderTuiQuote, tuiQuoteMarker } from "../quote.ts";
 import { clippedToWidth, verificationConsoleLines } from "../settings-picker.ts";
@@ -118,21 +119,29 @@ export function showStatusNotice(rt: TuiRuntime, message: string): void {
     }, COPY_NOTICE_DURATION_MS);
 }
 
-export const QUIT_ARM_DURATION_MS = 5_000;
-
 export function armQuit(rt: TuiRuntime): void {
-    disarmQuit(rt);
-    rt.quitArmTimer = setTimeout(() => {
-        rt.quitArmTimer = undefined;
-        renderStatus(rt);
-    }, QUIT_ARM_DURATION_MS);
+    rt.quitArmed = true;
     renderStatus(rt);
 }
 
 export function disarmQuit(rt: TuiRuntime): void {
-    if (rt.quitArmTimer === undefined) return;
-    clearTimeout(rt.quitArmTimer);
-    rt.quitArmTimer = undefined;
+    rt.quitArmed = false;
+}
+
+// Ctrl+C clears an idle draft before it can quit; the key handler and the footer hint share this test.
+export function interruptClearsDraft(rt: TuiRuntime): boolean {
+    return !focusedAgentCanAbort(rt)
+        && rt.composer.focused
+        && rt.composer.plainText.length > 0
+        && !anyOverlayOpen(rt);
+}
+
+// The quit stays armed with no time limit, but only counts when the next Ctrl+C would quit.
+export function quitArmedNow(rt: TuiRuntime): boolean {
+    return rt.quitArmed === true
+        && !rt.sessionTrashPending
+        && !focusedAgentCanAbort(rt)
+        && !interruptClearsDraft(rt);
 }
 
 export function modeToastTakesEscape(

@@ -17,6 +17,7 @@ import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
+import { currentBuildFacts } from "../diagnostics.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
 import { openTuiLink } from "../markdown-links.ts";
 import { readProcessMemory } from "../process-memory.ts";
@@ -353,7 +354,7 @@ export function submitPrompt(rt: TuiRuntime,
                 renderState(rt);
                 const processPids = [
                     process.pid,
-                    rt.dependencies.build?.hostPid,
+                    currentBuildFacts(rt.dependencies.build, rt.hostBuildRefusal)?.hostPid,
                     rt.diagnosticsWorkerPid,
                     rt.diagnosticsSupervisorPid,
                 ].filter((pid): pid is number => pid !== undefined);

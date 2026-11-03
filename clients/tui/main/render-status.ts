@@ -15,7 +15,7 @@ import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
 import { IDLE_KEYS_HINT, QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
-import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
+import { paneHeaderText, quitArmedNow, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-nodes.ts";
 import { workingLineText } from "../main/watchers.ts";
@@ -104,11 +104,15 @@ export function renderStatus(rt: TuiRuntime): void {
     if (rt.sessionSwitchPending) {
         lifecycleHint = rt.sessionSwitchActivity;
     } else if (rt.connectionFailed) {
+        // Reconnect host refuses another build too, so it is not offered.
+        const nextStep = rt.hostBuildRefusal === undefined
+            ? "Ctrl+P reconnect"
+            : "quit and reopen Vera";
         lifecycleHint = `disconnected${
             rt.connectionFailure === undefined
                 ? ""
                 : `: ${shortConnectionFailure(rt.connectionFailure)}`
-        } · Ctrl+P reconnect · Ctrl+C quit`;
+        } · ${nextStep} · Ctrl+C quit`;
     } else if (focusedAbort) {
         lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
     } else if (
@@ -448,7 +452,7 @@ export function renderStatus(rt: TuiRuntime): void {
     const footer = fitFooter(rt.footerLayout, footerItemContents({
         status: rt.modelPrefixPending
             ? { text: modelPrefixHint, color: TUI_ACCENT }
-            : rt.quitArmTimer !== undefined
+            : quitArmedNow(rt)
             ? { text: `Press ${tuiKeyChordLabel("interrupt")} again to quit`, color: TUI_ACCENT }
             : { text: statusLine, color: statusColor },
         keys: keysHint,

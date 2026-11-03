@@ -53,7 +53,8 @@ test("a host that came back as another build stays disconnected and says to reop
     try {
         const pane = await session.waitForVisiblePane("Quit and reopen Vera to continue.");
         expect(pane).toContain(REFUSAL);
-        expect(pane).toContain("disconnected: host is a different build · Ctrl+P reconnect · Ctrl+C quit");
+        expect(pane).toContain("disconnected: host is a different build · quit and reopen Vera · Ctrl+C quit");
+        expect(pane).not.toContain("Ctrl+P reconnect");
         expect(pane).not.toContain("restarting host");
         expect(restarts).toBe(0);
         expect(events.filter((event) => event.type === "host_build_changed"))
@@ -105,10 +106,35 @@ test("Reconnect host after the refusal refuses again instead of starting another
         while (events.filter((event) => event.type === "host_build_changed").length < 2 && Date.now() < deadline) {
             await session.settle();
         }
-        const pane = await session.waitForVisiblePane("disconnected: host is a different build");
+        const pane = await session.waitForVisiblePane("disconnected: host is a different build · quit and reopen Vera");
         expect(reconnects).toBe(1);
         expect(events.filter((event) => event.type === "host_build_changed")).toHaveLength(2);
         expect(pane).not.toContain("Could not reconnect");
         expect(pane).not.toContain("restarting host");
+    } finally { await session.close(); }
+}, 15_000);
+
+test("diagnostics after the refusal show the refused build and not the old host process", async () => {
+    const session = await startTuiTestSession({ home: home(), width: 140, height: 52,
+        dependencies: () => ({
+            client: droppingClient(new HostBuildChangedError("vera-crow-1", "vera-kraken-2")),
+            build: {
+                clientVersion: "vera-crow-1",
+                hostBuildId: "vera-crow-1",
+                hostPid: 4242,
+                hostStartedAt: "2026-11-03T09:00:00.000Z",
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Quit and reopen Vera to continue.");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("BUILD");
+        expect(pane).toContain("vera-kraken-2");
+        expect(pane).not.toContain("4242");
     } finally { await session.close(); }
 }, 15_000);

@@ -7,7 +7,11 @@ import {
     resumeAgentThroughHost,
     syncAgentContextThroughHost,
 } from "../../src/host/agent-start-client.ts";
-import { createHostLockfile } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    readHostLockRecordFile,
+    type HostLockRecord,
+} from "../../src/host/lockfile.ts";
 import {
     attachReconnectingAgent,
     HostBuildChangedError,
@@ -64,11 +68,12 @@ export function createConfiguredTuiAgentClients(
         interactive: true,
         clientId,
     });
+    const pairedSocket = () => pairedHostSocket(socketPath(), buildId);
     return {
         attach,
         async create(workspace, approvalMode, lifetime = "durable") {
             const ready = await createAgentThroughHost(
-                socketPath(),
+                await pairedSocket(),
                 workspace,
                 approvalMode,
                 lifetime,
@@ -85,7 +90,7 @@ export function createConfiguredTuiAgentClients(
         ) {
             try {
                 const ready = await branchAgentThroughHost(
-                    socketPath(),
+                    await pairedSocket(),
                     sourceAgentId,
                     "at",
                     undefined,
@@ -105,12 +110,12 @@ export function createConfiguredTuiAgentClients(
                 throw error;
             }
         },
-        sync(agentId, signal) {
-            return syncAgentContextThroughHost(socketPath(), agentId, signal);
+        async sync(agentId, signal) {
+            return syncAgentContextThroughHost(await pairedSocket(), agentId, signal);
         },
         async clone(agentId) {
             const ready = await branchAgentThroughHost(
-                socketPath(),
+                await pairedSocket(),
                 agentId,
                 "at",
             );
@@ -118,7 +123,7 @@ export function createConfiguredTuiAgentClients(
         },
         async fork(agentId, boundaryId) {
             const ready = await branchAgentThroughHost(
-                socketPath(),
+                await pairedSocket(),
                 agentId,
                 "before",
                 boundaryId,
@@ -129,10 +134,28 @@ export function createConfiguredTuiAgentClients(
             return { client: await attach(ready.id), prompt: ready.prompt };
         },
         async resume(sessionPath) {
-            const ready = await resumeAgentThroughHost(socketPath(), sessionPath);
+            const ready = await resumeAgentThroughHost(await pairedSocket(), sessionPath);
             return attach(ready.id);
         },
     };
+}
+
+// Each request after startup opens its own connection, so it checks the lockfile's build first.
+export async function pairedHostSocket(
+    socketPath: string,
+    clientBuildId: string,
+    readRecord: () => Promise<HostLockRecord | undefined> = readHostLockRecordFile,
+): Promise<string> {
+    const record = await readRecord();
+    if (
+        record !== undefined
+        && record.socket_path === socketPath
+        && record.build_id !== undefined
+        && record.build_id !== clientBuildId
+    ) {
+        throw new HostBuildChangedError(clientBuildId, record.build_id);
+    }
+    return socketPath;
 }
 
 // Reconnect host must not reach dispatch on another build: it would start that build's client in this terminal.

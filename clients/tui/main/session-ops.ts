@@ -93,6 +93,7 @@ export function switchToClient(rt: TuiRuntime,
     }
     rt.connectionFailed = false;
     rt.connectionFailure = undefined;
+    rt.hostBuildRefusal = undefined;
     rt.jsonlCommandMode = false;
     rt.abortRequested = false;
     rt.workingSince = undefined;
