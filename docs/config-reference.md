@@ -60,7 +60,7 @@ These paths are relative to the project root:
 | --- | --- |
 | `AGENTS.md` | Project instructions, included in every request. |
 | `AGENTS.local.md` | Your own project instructions, loaded the same way. Keep it out of git. |
-| `.vera/config.json` | Project configuration. |
+| `.vera/config.json` | Project configuration. A `disabled_skills` list here turns skills off in this project; see [Turn a skill off](skills.md#turn-a-skill-off). |
 | `.vera/agents/` | Agent definitions for this project. |
 | `.vera/skills/` | Skills for this project. A project skill wins over a home skill with the same name. |
 | `.vera/rules/` | [Rules](rules.md) for this project. |

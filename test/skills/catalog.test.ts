@@ -203,6 +203,75 @@ test("a lone star disables every skill including bundled ones", async () => {
     ]);
 });
 
+test("a project's disabled_skills adds to the home list and covers every source", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const projectRoot = join(root, "project");
+    const userDirectory = join(root, "user");
+    writeSkill(userDirectory, "review", "user review");
+    writeSkill(userDirectory, "deploy", "ship it");
+    writeSkill(projectSkillDirectory(projectRoot), "plunder", "count the hoard");
+    writeFileSync(
+        join(projectRoot, ".vera", "config.json"),
+        JSON.stringify({ disabled_skills: ["deploy", "vera-*"], inbox: { admit: [] } }),
+    );
+
+    const catalog = await loadSkillCatalog({
+        projectRoot,
+        userDirectory,
+        disabledSkills: ["review"],
+        extensionRoots: [],
+    });
+
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
+        "create-agent",
+        "plunder",
+    ]);
+    expect(catalog.disabledSkills.map((skill) => skill.metadata.name)).toEqual([
+        "deploy",
+        "review",
+        "vera-help",
+    ]);
+    expect(catalog.warnings).toEqual([]);
+});
+
+test("an invalid project disabled_skills is ignored with a warning", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const projectRoot = join(root, "project");
+    const userDirectory = join(root, "user");
+    writeSkill(userDirectory, "review", "user review");
+    writeSkill(userDirectory, "crow-call", "caw");
+    mkdirSync(join(projectRoot, ".vera"), { recursive: true });
+    const configPath = join(projectRoot, ".vera", "config.json");
+    writeFileSync(configPath, JSON.stringify({ disabled_skills: ["cr*w"] }));
+
+    const invalid = await loadSkillCatalog({
+        projectRoot,
+        userDirectory,
+        systemDirectory: join(root, "system"),
+        disabledSkills: ["review"],
+        extensionRoots: [],
+    });
+
+    expect(invalid.skills.map((skill) => skill.metadata.name)).toEqual(["crow-call"]);
+    expect(invalid.disabledSkills.map((skill) => skill.metadata.name)).toEqual(["review"]);
+    expect(invalid.warnings).toEqual([
+        `disabled_skills in ${configPath} is not a valid list and was ignored`,
+    ]);
+
+    writeFileSync(configPath, "{ not json");
+    const unreadable = await loadSkillCatalog({
+        projectRoot,
+        userDirectory,
+        systemDirectory: join(root, "system"),
+        disabledSkills: ["review"],
+        extensionRoots: [],
+    });
+
+    expect(unreadable.disabledSkills.map((skill) => skill.metadata.name)).toEqual(["review"]);
+    expect(unreadable.warnings).toHaveLength(1);
+    expect(unreadable.warnings[0]).toStartWith(`${configPath} could not be read: `);
+});
+
 test("extension skills sit between bundled and user skills", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
     const systemDirectory = join(root, "system");

@@ -134,7 +134,7 @@ Skills are directories containing `SKILL.md`. Allowed skills appear as slash com
 Write a skill as `SKILL.md` in `~/.vera/skills/<name>/` or in the project's `.vera/skills/<name>/`.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
-Skills come from Vera, enabled extensions (`contributes.skills` in the manifest), the home, then the project; later wins. `disabled_skills` in `config.json` turns skills off by name, a trailing `*` matches a prefix, and `/customize` still lists them as disabled.
+Skills come from Vera, enabled extensions (`contributes.skills` in the manifest), the home, then the project; later wins. `disabled_skills` in the home `config.json` or the project's `.vera/config.json` turns skills off by name, a trailing `*` matches a prefix, and `/customize` still lists them as disabled.
 Project instruction files, selected-agent instructions, imports, and standing nudges may contribute context. Memory loading and writing are disabled; saved files may still appear in Customize.
 Rules are markdown files kept in the home and in the project. A rule with no frontmatter applies for the whole session; a rule with a `paths:` list arrives when Vera reads a file one of its globs matches, at most once until the conversation compacts.
 `vera rules which <path>` reports which rules a read of that path would bring in. It reads and reports; it changes nothing.

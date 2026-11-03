@@ -123,8 +123,7 @@ secret from file or shell tools that already have permission to read it.
 ## Turn a skill off
 
 Add a top-level `disabled_skills` list to `~/.vera/config.json` with the
-names to turn off. Vera reads it only from the home config, and the change
-applies the same way as an edited skill.
+names to turn off. The change applies the same way as an edited skill.
 
 ```json
 "disabled_skills": ["loot-ledger", "crow-*"]
@@ -133,6 +132,12 @@ applies the same way as an edited skill.
 A trailing `*` matches every name that starts with the text before it, and
 `["*"]` turns off every skill. A `*` anywhere else makes the config invalid.
 This works for bundled and extension skills too.
+
+To turn skills off in one project, put the same list in the project's
+`.vera/config.json`. Vera adds it to the home list, and it applies to skills
+from every source. An invalid project list is ignored, the home list still
+applies, and the problem appears as a warning above the Skills list in
+`/customize`.
 
 A disabled skill has no slash command, and the model cannot load it.
 `/customize` still lists it under Skills, marked `disabled by disabled_skills`.
