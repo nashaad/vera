@@ -574,7 +574,10 @@ export interface TuiDependencies {
     ) => Promise<SessionSearchResults>;
     readonly reconnectSession?: (
         agentId: string,
-        options?: { readonly replaceExisting?: boolean },
+        options?: {
+            readonly replaceExisting?: boolean;
+            readonly confirmWedge?: boolean;
+        },
     ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
@@ -817,9 +820,10 @@ export async function startConfiguredTui(
             reconnectSession: async (currentAgentId, options) => {
                 // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
+                const confirmWedge = options?.confirmWedge === true;
                 await refuseOtherHostBuild(clientBuildId);
                 host = await findOrStartResidentHost({
-                    confirmBusyUpgrade: replaceExisting
+                    confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
                         : () => false,
                     ...(replaceExisting ? { replaceExisting: true } : {}),

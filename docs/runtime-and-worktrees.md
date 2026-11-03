@@ -73,9 +73,11 @@ first anyway, so the host closes while its home still exists.
 
 ## Recover a host connection
 
-**Reconnect host** in the Ctrl+P palette starts or replaces the current home's
-host and reattaches the conversation. It refuses to replace a healthy busy host. See
-[Troubleshooting](troubleshooting.md#the-client-lost-its-host).
+**Reconnect host** in the Ctrl+P palette starts a missing host, force-stops one
+that is not answering, and reattaches the conversation. A healthy host is
+restarted while this client is still connected, unless other work is using
+it. Once this client is disconnected, Reconnect host attaches to a healthy
+host instead. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
 
 If you intend to terminate that host despite active work, `vera host stop
 --force` sends SIGKILL. Ordinary `vera host stop` sends SIGTERM and waits;

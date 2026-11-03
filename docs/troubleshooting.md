@@ -16,9 +16,10 @@ makes one automatic restart attempt after a dropped connection; Reconnect host
 provides explicit recovery if that attempt did not succeed. It is not a slash
 command.
 
-Reconnect host uses the host associated with this Vera home. It can replace the
-process and return to the same conversation without changing the installed
-build. Choosing it authorizes that recovery; there is no second prompt.
+Reconnect host uses the host associated with this Vera home. It can attach to
+the host or replace it, returning to the same conversation without changing
+the installed build. Choosing it authorizes that recovery; there is no second
+prompt.
 
 ### What recovery does
 
@@ -26,8 +27,9 @@ build. Choosing it authorizes that recovery; there is no second prompt.
 | --- | --- |
 | Missing or dead | Start a host and reattach the conversation. |
 | Process alive but not answering | Force-stop that process, start a host, and reattach. |
-| Healthy and idle | Ask it to shut down, replace it, and reattach. |
-| Healthy and busy | Refuse replacement while other work is using it. |
+| Healthy and idle, client still connected | Ask it to shut down, replace it, and reattach. |
+| Healthy and busy, client still connected | Refuse replacement while other work is using it. |
+| Healthy, client already disconnected | Attach to it and reattach the conversation. It is not asked to shut down. |
 
 A busy refusal protects active work. The composer stays usable. Let that work
 finish, or use the deliberate shutdown controls in

@@ -138,7 +138,8 @@ export function runStandalonePaletteAction(rt: TuiRuntime, action: TuiCommandAct
     focusActiveSurface(rt);
 }
 
-// Manual reconnect may replace a wedged host; the automatic retry after a drop never does.
+// Manual reconnect confirms and replaces a wedge, and restarts a healthy host while still
+// connected. While disconnected it only attaches. The automatic retry after a drop does neither.
 function runManualReconnect(rt: TuiRuntime): void {
     if (rt.sessionSwitchPending) {
         renderState(rt);
@@ -149,7 +150,7 @@ function runManualReconnect(rt: TuiRuntime): void {
         renderState(rt);
         return;
     }
-    beginHostReconnect(rt, { clearComposer: true, replaceExisting: true });
+    beginHostReconnect(rt, { clearComposer: true, manual: true });
 }
 
 export function runBack(rt: TuiRuntime): void {
