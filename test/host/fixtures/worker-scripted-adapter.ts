@@ -9,13 +9,18 @@ import { writeFileSync } from "node:fs";
  * pipe. What crosses is the module to import and the options to pass, which is
  * how a worker gets a model without the host handing it one.
  */
-export default function scriptedAdapter(
+export default async function scriptedAdapter(
     options: unknown,
-): ModelAdapter {
+): Promise<ModelAdapter> {
     const configured = options as {
         readonly script: AssistantMessage[];
         readonly pidPath?: string;
+        readonly startupDelayMs?: number;
     };
+    // The worker loads its adapter before its loop listens for events.
+    if (configured.startupDelayMs !== undefined) {
+        await new Promise<void>((resolve) => setTimeout(resolve, configured.startupDelayMs));
+    }
     if (configured.pidPath !== undefined) {
         writeFileSync(configured.pidPath, `${process.pid}\n`, "utf8");
     }

@@ -746,6 +746,7 @@ export class AgentRegistry {
         const events = new EngineEventBus();
         const instructionRoot = resolveInstructionRoot(store.header.cwd);
         const storedSettings = store.modelSettings();
+        const loopReady = Promise.withResolvers<void>();
         const entry: RegisteredAgentEntry = {
             agent,
             store,
@@ -779,6 +780,8 @@ export class AgentRegistry {
                 ? {}
                 : { selectedAgent: store.selectedAgent()!.snapshot }),
             run: Promise.resolve(),
+            loopReady: loopReady.promise,
+            markLoopReady: loopReady.resolve,
             completed: false,
             peerHop: 0,
             peerWakes: [],
@@ -1135,11 +1138,14 @@ export class AgentRegistry {
                 router: {
                     onInboundReady: (inbound) => {
                         entry.inbound = inbound;
+                        entry.markLoopReady();
                     },
                     hasPendingDeliveryTurn: () =>
                         entry.inbox?.hasAdmittedPending() === true,
-                    onDeliveryTurnDiscarded: () =>
-                        agent.deliveryTurnDiscarded(),
+                    onDeliveryTurnDiscarded: (reason) => {
+                        agent.deliveryTurnDiscarded();
+                        if (reason === "aborted") entry.inbox?.forgetWakes();
+                    },
                     updateModelSettings: (patch) =>
                         this.updateModelSettings(agent.id, patch),
                     updateSessionModelSettings: (patch) =>

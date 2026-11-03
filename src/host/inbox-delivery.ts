@@ -131,6 +131,11 @@ export class InboxDeliverySession {
         this.abortPendingQuestions();
     }
 
+    /** Clears every woken mark, so each unread entry is asked for again at the next pump. */
+    forgetWakes(): void {
+        this.woken.clear();
+    }
+
     hasAdmittedPending(): boolean {
         if (this.released || !this.canStartTurn()) return false;
         for (const entry of this.unreadEntries()) {

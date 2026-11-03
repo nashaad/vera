@@ -16,6 +16,7 @@ import {
     type MessageChannel,
 } from "../../src/engine/message-channel.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { DeliveryDiscardReason } from "../../src/engine/host-protocol.ts";
 import type { EngineCommand } from "../../src/engine/timeline-control.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { PermissionPreferenceStore } from "../../src/engine/permission-preferences.ts";
@@ -1084,10 +1085,12 @@ test("a delivery wake that a worker reports as not pending is discarded and repo
         AgentUpdate
     >;
     let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
         hasPendingDeliveryTurn: async () => false,
-        onDeliveryTurnDiscarded: () => {
+        onDeliveryTurnDiscarded: (reason) => {
             discarded += 1;
+            reasons.push(reason);
         },
     });
 
@@ -1098,6 +1101,7 @@ test("a delivery wake that a worker reports as not pending is discarded and repo
     expect(started.prompt.content).toBe("user work");
     expect(started.triggeredByDelivery).toBeUndefined();
     expect(discarded).toBe(1);
+    expect(reasons).toEqual(["empty"]);
     router.finishTurn();
 });
 
@@ -1108,10 +1112,12 @@ test("a delivery wake that a worker reports as pending starts its turn", async (
         AgentUpdate
     >;
     let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
         hasPendingDeliveryTurn: async () => true,
-        onDeliveryTurnDiscarded: () => {
+        onDeliveryTurnDiscarded: (reason) => {
             discarded += 1;
+            reasons.push(reason);
         },
     });
 
@@ -1120,6 +1126,7 @@ test("a delivery wake that a worker reports as pending starts its turn", async (
     const started = await turn;
     expect(started.triggeredByDelivery).toBe(true);
     expect(discarded).toBe(0);
+    expect(reasons).toEqual([]);
     router.finishTurn();
 });
 
@@ -1130,10 +1137,12 @@ test("a delivery wake that finds nothing pending is reported as discarded", asyn
         AgentUpdate
     >;
     let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
         hasPendingDeliveryTurn: () => false,
-        onDeliveryTurnDiscarded: () => {
+        onDeliveryTurnDiscarded: (reason) => {
             discarded += 1;
+            reasons.push(reason);
         },
     });
 
@@ -1142,6 +1151,7 @@ test("a delivery wake that finds nothing pending is reported as discarded", asyn
     channel.client.send({ type: "prompt", content: "user work" });
     expect((await turn).prompt.content).toBe("user work");
     expect(discarded).toBe(1);
+    expect(reasons).toEqual(["empty"]);
     router.finishTurn();
 });
 
@@ -1159,12 +1169,14 @@ test("a wake that arrives while the host is asked is checked again before the tu
     >;
     const answers: Array<(pending: boolean) => void> = [];
     let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
         hasPendingDeliveryTurn: () => new Promise<boolean>((resolve) => {
             answers.push(resolve);
         }),
-        onDeliveryTurnDiscarded: () => {
+        onDeliveryTurnDiscarded: (reason) => {
             discarded += 1;
+            reasons.push(reason);
         },
     });
 
@@ -1186,6 +1198,7 @@ test("a wake that arrives while the host is asked is checked again before the tu
     router.finishTurn();
     // The folded wake is reported once; the turn that started is not reported.
     expect(discarded).toBe(1);
+    expect(reasons).toEqual(["folded"]);
 });
 
 test("a wake folded into a claimed one that finds nothing pending is reported with it", async () => {
@@ -1196,12 +1209,14 @@ test("a wake folded into a claimed one that finds nothing pending is reported wi
     >;
     const answers: Array<(pending: boolean) => void> = [];
     let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
     const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
         hasPendingDeliveryTurn: () => new Promise<boolean>((resolve) => {
             answers.push(resolve);
         }),
-        onDeliveryTurnDiscarded: () => {
+        onDeliveryTurnDiscarded: (reason) => {
             discarded += 1;
+            reasons.push(reason);
         },
     });
 
@@ -1220,7 +1235,157 @@ test("a wake folded into a claimed one that finds nothing pending is reported wi
     expect(answers).toHaveLength(2);
     // One report for the folded wake and one for the claimed wake.
     expect(discarded).toBe(2);
+    expect(reasons).toEqual(["folded", "empty"]);
     router.finishTurn();
+});
+
+test("an abort drops a wake held behind the running turn and reports it", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: (reason) => {
+            discarded += 1;
+            reasons.push(reason);
+        },
+    });
+
+    const first = router.startTurn();
+    channel.client.send({ type: "prompt", content: "work" });
+    const active = await first;
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    expect(discarded).toBe(0);
+
+    channel.client.send({ type: "abort" });
+    await settle();
+    expect(active.signal.aborted).toBeTrue();
+    expect(discarded).toBe(1);
+    expect(reasons).toEqual(["aborted"]);
+    router.finishTurn("aborted");
+
+    // The wake is not run on its own, and the next prompt is not held behind it.
+    const next = router.startTurn();
+    expect(await Promise.race([next, Bun.sleep(50).then(() => "held")])).toBe("held");
+    channel.client.send({ type: "prompt", content: "after" });
+    const started = await next;
+    expect(started.prompt.content).toBe("after");
+    expect(started.triggeredByDelivery).toBeUndefined();
+    router.finishTurn();
+
+    // A wake asked for after the abort is accepted again.
+    internalClient.send({ type: "trigger_delivery_turn" });
+    expect((await router.startTurn()).triggeredByDelivery).toBe(true);
+    expect(discarded).toBe(1);
+    router.finishTurn();
+});
+
+test("an abort keeps the user's held prompts and drops only the wake queued with them", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let discarded = 0;
+    const reasons: DeliveryDiscardReason[] = [];
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: (reason) => {
+            discarded += 1;
+            reasons.push(reason);
+        },
+    });
+
+    const first = router.startTurn();
+    channel.client.send({ type: "prompt", content: "work" });
+    await first;
+    channel.client.send({ type: "prompt", content: "held one" });
+    internalClient.send({ type: "trigger_delivery_turn" });
+    channel.client.send({ type: "prompt", content: "held two" });
+    await settle();
+
+    channel.client.send({ type: "abort" });
+    await settle();
+    expect(discarded).toBe(1);
+    expect(reasons).toEqual(["aborted"]);
+    router.finishTurn("aborted");
+
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    const released = await router.startTurn();
+    expect(released.prompt.content).toBe("held one");
+    expect(released.additionalPrompts?.map((prompt) => prompt.content)).toEqual(["held two"]);
+    router.finishTurn();
+});
+
+// Starts turns until none is available, finishing each as the host would.
+async function drainTurns(router: InboundCommandRouter): Promise<string[]> {
+    const log: string[] = [];
+    for (;;) {
+        const turn = await Promise.race([
+            router.startTurn(),
+            Bun.sleep(100).then(() => undefined),
+        ]);
+        if (turn === undefined) return log;
+        const label = turn.triggeredByDelivery === true ? "wake" : turn.prompt.content;
+        log.push(`${label}:${turn.signal.aborted ? "aborted" : "live"}`);
+        router.finishTurn(turn.signal.aborted ? "aborted" : "completed");
+    }
+}
+
+test("an abort while an idle wake is the queued boundary keeps it, and the next prompt is not aborted with it", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    const reasons: DeliveryDiscardReason[] = [];
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: (reason) => {
+            reasons.push(reason);
+        },
+    });
+
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    channel.client.send({ type: "abort" });
+    await settle();
+    channel.client.send({ type: "prompt", content: "after" });
+    await settle();
+
+    expect(await drainTurns(router)).toEqual(["wake:aborted", "after:live"]);
+    expect(reasons).toEqual([]);
+});
+
+test("an abort while a prompt is the queued boundary drops the wake behind it, and the next prompt is not aborted", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    const reasons: DeliveryDiscardReason[] = [];
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => true,
+        onDeliveryTurnDiscarded: (reason) => {
+            reasons.push(reason);
+        },
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    internalClient.send({ type: "trigger_delivery_turn" });
+    await settle();
+    channel.client.send({ type: "abort" });
+    await settle();
+    channel.client.send({ type: "prompt", content: "after" });
+    await settle();
+
+    expect(await drainTurns(router)).toEqual(["first:aborted", "after:live"]);
+    expect(reasons).toEqual(["aborted"]);
 });
 
 test("the approval warning names the authority the tool takes", async () => {

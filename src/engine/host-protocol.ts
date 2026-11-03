@@ -268,6 +268,9 @@ export interface PendingDeliveryTurnReply {
     readonly pending: boolean;
 }
 
+/** Why a queued delivery turn was dropped: the user aborted, it folded into a queued wake, or nothing was pending. */
+export type DeliveryDiscardReason = "aborted" | "folded" | "empty";
+
 export interface PermissionInspectionReply {
     readonly inspection: PermissionInspection;
 }

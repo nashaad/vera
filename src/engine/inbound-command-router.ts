@@ -23,6 +23,7 @@ import type {
 } from "./protocol.ts";
 import { isTimelineCommand, type TimelineCommand } from "./protocol.ts";
 import type { EngineCommand } from "./timeline-control.ts";
+import type { DeliveryDiscardReason } from "./host-protocol.ts";
 import type {
     ModelSettingsPatch,
     ModelTurnSettings,
@@ -269,7 +270,7 @@ export interface InboundCommandRouterOptions {
         },
     ) => Promise<void>;
     readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
-    readonly onDeliveryTurnDiscarded?: () => void;
+    readonly onDeliveryTurnDiscarded?: (reason: DeliveryDiscardReason) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
@@ -521,7 +522,7 @@ export class InboundCommandRouter {
                 } finally {
                     this.pendingPromptCount -= 1;
                 }
-                this.options.onDeliveryTurnDiscarded?.();
+                this.options.onDeliveryTurnDiscarded?.("empty");
                 this.claimedQueueRelease = undefined;
                 this.finishNonTurnQueueItem(claimedItem, claimedRelease);
             }
@@ -776,6 +777,9 @@ export class InboundCommandRouter {
                 || this.claimedQueueRelease?.id === this.release.id
             );
         this.resumeAfterAbort = visibleQueuedPrompts === 0;
+        this.discardHeldDeliveryTurns(
+            queuedDirect ? this.release!.boundary : undefined,
+        );
         if (queuedDirect || claimedTurn !== undefined) {
             this.queuedDirectAbortId = claimedTurn?.id ?? this.release!.id;
             this.queuedDirectFollowUp = undefined;
@@ -797,6 +801,22 @@ export class InboundCommandRouter {
         } else if (this.activeTurn !== undefined) {
             this.events.emit({ type: "abort_requested" });
             this.activeTurn.abort(new Error("Turn aborted"));
+        }
+    }
+
+    // An abort leaves no release, so a wake held behind it would also hold every later prompt; the host asks again.
+    private discardHeldDeliveryTurns(keep: QueuedTurn | undefined): void {
+        const held = this.queuedTurns.filter(
+            (queued) => queued.triggeredByDelivery === true && queued !== keep,
+        );
+        if (held.length === 0) return;
+        for (const queued of held) {
+            this.queuedTurns.splice(this.queuedTurns.indexOf(queued), 1);
+        }
+        this.pendingPromptCount -= held.length;
+        this.deliveryTurnQueued = false;
+        for (let index = 0; index < held.length; index += 1) {
+            this.options.onDeliveryTurnDiscarded?.("aborted");
         }
     }
 
@@ -1133,7 +1153,7 @@ export class InboundCommandRouter {
                         if (this.askingHostForDelivery) {
                             this.wakeSeenWhileAsking = true;
                         }
-                        this.options.onDeliveryTurnDiscarded?.();
+                        this.options.onDeliveryTurnDiscarded?.("folded");
                         continue;
                     }
                     this.deliveryTurnQueued = true;

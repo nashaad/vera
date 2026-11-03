@@ -516,9 +516,24 @@ export function scheduleWorkFacts(_reg: AgentRegistry, runs: readonly EmittedSch
         });
     }
 
+async function readyOrAborted(ready: Promise<void>, signal: AbortSignal): Promise<void> {
+        if (signal.aborted) return;
+        const aborted = Promise.withResolvers<void>();
+        const onAbort = (): void => aborted.resolve();
+        signal.addEventListener("abort", onAbort, { once: true });
+        try {
+            await Promise.race([ready, aborted.promise]);
+        } finally {
+            signal.removeEventListener("abort", onAbort);
+        }
+    }
+
 export async function requestInboxAdmission(reg: AgentRegistry, entry: RegisteredAgentEntry, candidate: InboxAdmissionCandidate, signal: AbortSignal): Promise<InboxAdmissionDecision | undefined> {
-        const inbound = entry.inbound;
-        if (inbound === undefined || !entry.agent.attached) return undefined;
+        // A question raised before the loop listens is lost, and a dismissal would drop it, so wait.
+        await readyOrAborted(entry.loopReady, signal);
+        // A worker's own router lives in the worker, so the host asks through the one it keeps for host-owned questions.
+        const inbound = entry.workerOwnerRouter ?? entry.inbound;
+        if (signal.aborted || inbound === undefined || !entry.agent.attached) return undefined;
 
         const sender = candidate.kind === PEER_MESSAGE_KIND
             ? peerSenderLabel(reg, candidate.seq)

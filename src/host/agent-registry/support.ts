@@ -798,6 +798,9 @@ export interface RegisteredAgentEntry {
     selectedAgent?: AgentSnapshot;
     inbound?: InboundCommandRouter;
     workerOwnerRouter?: InboundCommandRouter;
+    /** Settles once the loop listens for events, so a question raised after it reaches the client. */
+    readonly loopReady: Promise<void>;
+    readonly markLoopReady: () => void;
     loopServices?: RunHeadlessLoopServices;
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
