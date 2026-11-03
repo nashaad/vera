@@ -7,12 +7,14 @@ interface TuiParserSource {
     readonly aliases?: readonly string[];
 }
 
-const NVIM = "https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/refs/heads/master/queries";
+// Pin queries to a release tag or commit, never a branch: a branch query can name
+// nodes the pinned grammar lacks, and the whole language then renders uncolored.
+const NVIM = "https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3414fa1b06af75c79faebe7f76df080a/queries";
 
 /** Extra parsers registered through OpenTUI's Tree-sitter integration. Its JavaScript, TypeScript, Markdown, and Zig parsers remain built in; OpenTUI fetches and caches these. */
 export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
     parser("python", "tree-sitter/tree-sitter-python", "v0.23.6", "tree-sitter-python.wasm",
-        ["https://github.com/tree-sitter/tree-sitter-python/raw/refs/heads/master/queries/highlights.scm"]),
+        ["https://raw.githubusercontent.com/tree-sitter/tree-sitter-python/v0.23.6/queries/highlights.scm"]),
     parser("rust", "tree-sitter/tree-sitter-rust", "v0.24.0", "tree-sitter-rust.wasm",
         [`${NVIM}/rust/highlights.scm`]),
     parser("go", "tree-sitter/tree-sitter-go", "v0.25.0", "tree-sitter-go.wasm",
@@ -32,11 +34,11 @@ export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
     parser("ruby", "tree-sitter/tree-sitter-ruby", "v0.23.1", "tree-sitter-ruby.wasm",
         [`${NVIM}/ruby/highlights.scm`]),
     parser("php", "tree-sitter/tree-sitter-php", "v0.24.2", "tree-sitter-php.wasm",
-        ["https://github.com/tree-sitter/tree-sitter-php/raw/refs/heads/master/queries/highlights.scm"]),
+        ["https://raw.githubusercontent.com/tree-sitter/tree-sitter-php/v0.24.2/queries/highlights.scm"]),
     parser("scala", "tree-sitter/tree-sitter-scala", "v0.24.0", "tree-sitter-scala.wasm",
         [`${NVIM}/scala/highlights.scm`]),
     parser("html", "tree-sitter/tree-sitter-html", "v0.23.2", "tree-sitter-html.wasm",
-        ["https://github.com/tree-sitter/tree-sitter-html/raw/refs/heads/master/queries/highlights.scm"]),
+        ["https://raw.githubusercontent.com/tree-sitter/tree-sitter-html/v0.23.2/queries/highlights.scm"]),
     parser("vue", "anomalyco/tree-sitter-vue", "v0.1.2", "tree-sitter-vue.wasm", [
         "https://raw.githubusercontent.com/anomalyco/tree-sitter-vue/v0.1.2/queries/html_tags/highlights.scm",
         "https://raw.githubusercontent.com/anomalyco/tree-sitter-vue/v0.1.2/queries/vue/highlights.scm",
@@ -60,7 +62,7 @@ export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
     parser("clojure", "anomalyco/tree-sitter-clojure", "v0.0.1", "tree-sitter-clojure.wasm",
         [`${NVIM}/clojure/highlights.scm`]),
     parser("swift", "alex-pinkus/tree-sitter-swift", "0.7.1", "tree-sitter-swift.wasm",
-        ["https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/main/queries/highlights.scm"]),
+        ["https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/0.7.1/queries/highlights.scm"]),
     parser("toml", "tree-sitter-grammars/tree-sitter-toml", "v0.7.0", "tree-sitter-toml.wasm",
         [`${NVIM}/toml/highlights.scm`]),
     {
@@ -69,7 +71,7 @@ export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
         highlights: [`${NVIM}/nix/highlights.scm`],
     },
     parser("diff", "tree-sitter-grammars/tree-sitter-diff", "v0.1.0", "tree-sitter-diff.wasm",
-        ["https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-diff/master/queries/highlights.scm"],
+        ["https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-diff/v0.1.0/queries/highlights.scm"],
         ["udiff", "patch"]),
     parser("elixir", "elixir-lang/tree-sitter-elixir", "v0.3.5", "tree-sitter-elixir.wasm",
         [`${NVIM}/elixir/highlights.scm`]),
