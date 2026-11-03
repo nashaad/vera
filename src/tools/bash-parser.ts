@@ -28,6 +28,9 @@ export interface BashCommand {
     // non-literal words, so a command name like $CMD leaves the next word in
     // the executable's place.
     readonly firstNonLiteralIndex?: number;
+    // True when a top-level statement or chain holding the command ends in `&`,
+    // which runs it in a subshell: a `cd` there changes no directory here.
+    readonly background?: true;
 }
 
 export interface BashPipeline {
@@ -120,7 +123,7 @@ export function parseBashScript(source: string): ParsedBashScript {
         return { statements: [], commands: [], substitutions: [] };
     }
 
-    const statements = namedChildrenOf(root).map(convertStatement);
+    const statements = convertSequence(root);
     const commands: BashCommand[] = [];
     for (const statement of statements) {
         collectCommands(statement, commands);
@@ -211,8 +214,42 @@ function convertLoop(node: SyntaxNode): BashStatement {
         condition: fieldChildrenOf(node, "condition")
             .filter((child) => child.isNamed)
             .map(convertStatement),
-        body: namedChildrenOf(body).map(convertStatement),
+        body: convertSequence(body),
     };
+}
+
+// A statement followed by `&` runs in the background.
+function convertSequence(parent: SyntaxNode): BashStatement[] {
+    const statements: BashStatement[] = [];
+    for (const child of childrenOf(parent)) {
+        const last = statements.at(-1);
+        if (child.type === "&" && last !== undefined) {
+            statements[statements.length - 1] = inBackground(last);
+        } else if (child.isNamed) {
+            statements.push(convertStatement(child));
+        }
+    }
+    return statements;
+}
+
+// Marks the commands whose `cd` the caller would otherwise track. A pipeline
+// puts the directory back after it, and a loop holding a `cd` already leaves it
+// unknown.
+function inBackground(statement: BashStatement): BashStatement {
+    switch (statement.kind) {
+        case "command":
+            return { ...statement, background: true };
+        case "chain":
+            return {
+                ...statement,
+                left: inBackground(statement.left),
+                right: inBackground(statement.right),
+            };
+        case "pipeline":
+        case "loop":
+        case "unknown":
+            return statement;
+    }
 }
 
 function literalWord(node: SyntaxNode): string | undefined {
