@@ -33,10 +33,12 @@ existing host, it starts the new release's host afterward. The new host
 counts as started when the process the install launched published the lock, or
 when another host on the same build holds it and the launched process yielded
 to it or was stopped. A failed or timed-out start leaves the previous release
-active and starts its host again. If the host the install launched cannot be
-stopped, the previous release is active but no host runs for it: the install
-names the launched host's PID and records it, and the next install or
-`vera rollback` stops it and starts the previous release's host.
+active and starts its host again. The install records the host it launches in
+its journal as soon as it starts, so an install that is killed while it waits
+leaves that host recorded. If the host the install launched cannot be stopped,
+the previous release is active but no host runs for it: the install names the
+launched host's PID, and the next install or `vera rollback` stops it and
+starts the previous release's host.
 
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
 `$HOME/.local`. A test prefix stops and starts only the host of the home that
@@ -55,10 +57,18 @@ release that was active before. `--prefix DIR` and `VERA_HOME` pair the same
 way as for an install. If an earlier install or rollback was interrupted,
 `vera rollback` finishes it, names the release that is now active if there is
 one, and rolls nothing back. An install that was interrupted after its start
-failed is finished by restoring the previous release. If a host that earlier
-run started is still running, `vera rollback` stops it when the PID and start
-time match, and leaves alone a PID that now belongs to another process. If it
-cannot confirm or stop that host, it names the PID and changes nothing. If the
+failed is finished by restoring the previous release. So is an install that was
+interrupted after it activated the new release, when the new release's host
+does not start. If a host that earlier run launched is still running,
+`vera rollback` stops it when the PID and start time match, and leaves alone a
+PID that now belongs to another process or a host that holds the host lock. If
+it cannot confirm or stop that host, it names the PID and changes nothing. An
+install finishes an interrupted run the same way before it packs. When the
+previous release's host does not start while the run is finished, the command
+reports the failure, deletes the upgrade journal and leaves the previous
+release active, so the next install or rollback runs normally. It keeps the
+journal when another build's host holds the host lock, when a host it
+launched cannot be stopped, or when no release is linked as current. If the
 active release is not the one you want, run `vera rollback` again.
 
 ## Run checkout code

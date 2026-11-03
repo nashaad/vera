@@ -219,7 +219,7 @@ export async function forceStopHostProcess(
     return { pid: record.pid, endedBy: dead ? "sigkill" : "survived" };
 }
 
-function defaultKill(pid: number, signal: NodeJS.Signals): void {
+export function defaultKill(pid: number, signal: NodeJS.Signals): void {
     try {
         process.kill(pid, signal);
     } catch (error) {
