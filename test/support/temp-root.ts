@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,9 +22,17 @@ export interface TestTempRoot {
     remove(): void;
 }
 
+/**
+ * `tmpdir()` on macOS sits under `/var/folders/...`, which leaves no room for
+ * a host socket under the 104-byte limit, so roots go under `/tmp` when present.
+ */
+export function testTempBase(): string {
+    return existsSync("/tmp") ? "/tmp" : tmpdir();
+}
+
 /** Points `TMPDIR` at a fresh root; children spawned later inherit it. */
 export function enterTestTempRoot(): TestTempRoot {
-    const path = mkdtempSync(join(tmpdir(), TEST_TEMP_ROOT_PREFIX));
+    const path = mkdtempSync(join(testTempBase(), TEST_TEMP_ROOT_PREFIX));
     process.env.TMPDIR = path;
     return {
         path,

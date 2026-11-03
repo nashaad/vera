@@ -122,7 +122,8 @@ test("configure lists existing optional files and refuses one removed before Ent
         const error = await session.waitForVisiblePane(
             "TUI preferences is no longer available",
         );
-        expect(error).toContain("tui.json");
+        // The 80-column pane wraps the path, so the name can split across a line break.
+        expect(error.replace(/\n\s+/g, "")).toContain("tui.json");
         expect(openedPaths).toEqual([projectConfig]);
     } finally {
         await session.close();

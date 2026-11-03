@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { fg } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
@@ -13,12 +13,17 @@ import {
     renderTuiApproval,
 } from "../../clients/tui/approval.ts";
 import {
+    setTuiWorkspaceRoot,
     TUI_DIFF_ADDED,
     TUI_DIFF_REMOVED,
     TUI_MUTED,
 } from "../../clients/tui/state.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import type { JsonObject } from "../../src/sdk/hooks.ts";
+
+beforeEach(() => {
+    setTuiWorkspaceRoot(process.cwd());
+});
 
 function approval(
     name: string,

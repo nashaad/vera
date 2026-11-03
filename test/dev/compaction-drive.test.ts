@@ -289,8 +289,23 @@ describe("budget_warning", () => {
             capacity: { mode: "catalog" },
             bound: { trigger: { tokens: 8000 } },
         });
-        expect(report.budget_warning).toContain("above trigger_tokens");
+        expect(report.budget_warning).toContain("never fired");
         expect(report.summary.compactions_attempted).toBe(0);
+    });
+
+    test("is null when the context reached the trigger", () => {
+        const recorder = new DriveRecorder(["one"]);
+        recorder.beginTurn();
+        recorder.observe(measured(9000, 163_840));
+        recorder.observe({ type: "turn_finished", seq: 1 });
+        expect(recorder.build({
+            provider: "openrouter",
+            model: "some/model",
+            approval_mode: "ask",
+            budget: { triggerTokens: 8000 },
+            capacity: { mode: "catalog" },
+            bound: { trigger: { tokens: 8000 } },
+        }).budget_warning).toBeNull();
     });
 });
 
