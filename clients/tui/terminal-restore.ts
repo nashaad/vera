@@ -15,20 +15,31 @@ export const TERMINAL_RESTORE_SEQUENCE = "\x1b[?1049l" // main screen
     + "\x1b[0m"; // reset colors and attributes
 
 let installed = false;
+let screenAlreadyRestored = false;
+
+function leaveRawMode(stdin: NodeJS.ReadStream): void {
+    try {
+        if (stdin.isTTY) stdin.setRawMode(false);
+    } catch {
+        // A closed stdin must not stop the screen restore that follows.
+    }
+}
 
 export function restoreTerminalNow(
     tty: { readonly fd: number } = process.stdout,
     stdin: NodeJS.ReadStream = process.stdin,
 ): void {
-    try {
-        if (stdin.isTTY) stdin.setRawMode(false);
-    } catch {
-        // A closed stdin must not stop the screen restore below.
-    }
+    leaveRawMode(stdin);
     try {
         writeSync(tty.fd, TERMINAL_RESTORE_SEQUENCE);
     } catch {
     }
+}
+
+// Call after the renderer has left the alternate screen. A second `?1049l` at exit
+// moves the cursor back, so the shell prompt overwrites anything printed since.
+export function markTerminalRestored(): void {
+    screenAlreadyRestored = true;
 }
 
 /** Destroys a live TUI when the terminal underneath it disappears without a usable SIGHUP. */
@@ -80,7 +91,13 @@ export function installTerminalRestoreOnExit(
 ): void {
     if (installed || (tty.isTTY !== true && stdin.isTTY !== true)) return;
     installed = true;
-    const restore = (): void => restoreTerminalNow(tty, stdin);
+    const restore = (): void => {
+        if (screenAlreadyRestored) {
+            leaveRawMode(stdin);
+            return;
+        }
+        restoreTerminalNow(tty, stdin);
+    };
     process.on("exit", restore);
     for (const signal of ["SIGHUP", "SIGTERM", "SIGQUIT"] as const) {
         const onSignal = (): void => {

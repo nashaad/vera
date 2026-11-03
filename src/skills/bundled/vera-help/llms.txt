@@ -181,13 +181,14 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=19]
+## Diagnostics and recovery [lines=20]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 When a model request fails for good, the turn ends with an error that names the model, says what went wrong and how to fix it, and stays in the conversation when it is reopened; the Vera report in `/diagnostics` has the full error. Manual: `docs/troubleshooting.md`.
 If a key, paste or submitted command fails in the TUI, the conversation shows an error line that says what failed, the client's diagnostic log records it, and the TUI keeps running.
 Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.
+Quitting with Ctrl+C while disconnected prints the command to resume this session.
 Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
 An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. While the client is still connected, a healthy host is asked to shut down for replacement; while disconnected, Reconnect host attaches to a healthy host instead of asking it to shut down.
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.

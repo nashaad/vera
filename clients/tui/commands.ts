@@ -1504,7 +1504,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     registry.registerPaletteAction({
         name: "reconnect",
         label: "Reconnect host",
-        description: "restart the host after a connection failure",
+        description: "reattach to the host, or restart it",
         group: "Session",
         action: { type: "reconnect" },
     });

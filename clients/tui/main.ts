@@ -20,6 +20,7 @@ import {
 } from "./flight-recorder.ts";
 import {
     installTerminalRestoreOnExit,
+    markTerminalRestored,
     watchTerminalLoss,
 } from "./terminal-restore.ts";
 
@@ -377,7 +378,14 @@ export function tuiDevInstancePrefix(): string {
 
 export function reconnectBusyMessage(): string {
     return "Could not restart the host: other work is still using it. "
-        + "Run vera host stop --force, then choose Reconnect host from Ctrl+P.";
+        + "This session is still connected. Choose Reconnect host again once that work finishes.";
+}
+
+// Shared by the conversation notice reportConnectionError appends and the
+// disconnected-submit refusal in submit-prompt.ts.
+export function disconnectedRecoveryHint(): string {
+    return "Press Ctrl+C to quit; Vera prints the command to resume this session."
+        + " Or choose Reconnect host from Ctrl+P.";
 }
 
 /** Manual reconnect force-stops a wedge. It does not kill a busy answering host. */
@@ -870,6 +878,7 @@ export async function startConfiguredTui(
             ),
             flightRecorder,
         });
+        markTerminalRestored();
         process.stdout.write(renderResumeHint(exit.agentId));
     } catch (error) {
         flightRecorder.record({
