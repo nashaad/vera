@@ -20,6 +20,7 @@ import {
 } from "./flight-recorder.ts";
 import {
     installTerminalRestoreOnExit,
+    markTerminalRestored,
     watchTerminalLoss,
 } from "./terminal-restore.ts";
 
@@ -877,6 +878,7 @@ export async function startConfiguredTui(
             ),
             flightRecorder,
         });
+        markTerminalRestored();
         process.stdout.write(renderResumeHint(exit.agentId));
     } catch (error) {
         flightRecorder.record({

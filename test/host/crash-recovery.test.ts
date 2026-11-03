@@ -40,6 +40,20 @@ test("a TUI crash still restores the terminal on the way out", async () => {
     expect(result.stdout).toContain("\x1b[?25h");
 });
 
+test("a clean exit does not leave the alternate screen again after the resume line", async () => {
+    const result = await runChildScript(`
+        import { installTerminalRestoreOnExit, markTerminalRestored } from ${
+        JSON.stringify(join(repoRoot, "clients/tui/terminal-restore.ts"))
+    };
+        installTerminalRestoreOnExit({ fd: 1, isTTY: true });
+        markTerminalRestored();
+        process.stdout.write("To continue this session, run: vera resume crow-1\\n");
+    `);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("To continue this session, run: vera resume crow-1\n");
+});
+
 test("the restore sequence leaves the alternate screen and shows the cursor", () => {
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?1049l");
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?25h");
