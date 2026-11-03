@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { HostLockUnreadableError } from "../../src/host/lockfile.ts";
 import { processStartedAt } from "../../src/host/process-identity.ts";
 import { HostSocketHeldError, startHostServer } from "../../src/host/server.ts";
 import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
@@ -157,6 +158,73 @@ test("a socket whose recorded owner is dead is taken over", async () => {
         started_at: "2026-08-20T12:00:00.000Z",
         socket_path: socketPath,
     })}\n`);
+
+    const host = await startHostServer({
+        socketPath,
+        lockPath,
+        pid: 4_242,
+        startedAt: "2026-08-20T12:00:00.000Z",
+    });
+
+    try {
+        expect(host.socketPath).toBe(socketPath);
+    } finally {
+        await host.close();
+    }
+});
+
+test("a silent socket is kept when the lockfile is damaged and names a Vera-looking process", async () => {
+    const directory = temporaryDirectory();
+    const socketPath = join(directory, "host.sock");
+    const lockPath = join(directory, "host.json");
+    await listenSilently(socketPath);
+    const owner = spawnVeraLookingProcess(directory);
+    // No socket_path: the lock is damaged, so it cannot say the socket is debris.
+    const source = JSON.stringify({ schema_version: 2, pid: owner.pid });
+    writeFileSync(lockPath, source);
+
+    try {
+        const attempt = startHostServer({
+            socketPath,
+            lockPath,
+            pid: 4_242,
+            startedAt: "2026-08-20T12:00:00.000Z",
+        });
+
+        await expect(attempt).rejects.toBeInstanceOf(HostLockUnreadableError);
+        await expect(attempt).rejects.toThrow(lockPath);
+        expect(existsSync(socketPath)).toBe(true);
+        expect(readFileSync(lockPath, "utf8")).toBe(source);
+        expect(owner.exitCode).toBeNull();
+    } finally {
+        owner.kill("SIGKILL");
+        await owner.exited;
+    }
+});
+
+test("a silent socket is kept when the lockfile names no PID", async () => {
+    const directory = temporaryDirectory();
+    const socketPath = join(directory, "host.sock");
+    const lockPath = join(directory, "host.json");
+    await listenSilently(socketPath);
+    writeFileSync(lockPath, "garbage");
+
+    await expect(startHostServer({
+        socketPath,
+        lockPath,
+        pid: 4_242,
+        startedAt: "2026-08-20T12:00:00.000Z",
+    })).rejects.toBeInstanceOf(HostLockUnreadableError);
+    expect(existsSync(socketPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf8")).toBe("garbage");
+});
+
+test("a silent socket is taken over when the damaged lockfile names a dead process", async () => {
+    const directory = temporaryDirectory();
+    const socketPath = join(directory, "host.sock");
+    const lockPath = join(directory, "host.json");
+    await listenSilently(socketPath);
+    writeFileSync(lockPath, JSON.stringify({ schema_version: 2, pid: 2_147_483_646 }));
 
     const host = await startHostServer({
         socketPath,

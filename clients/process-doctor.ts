@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { listAgentPageThroughHost } from "../src/host/agent-list-client.ts";
 import {
     createHostLockfile,
+    HostLockUnreadableError,
     inspectHostLockFile,
 } from "../src/host/lockfile.ts";
 import {
@@ -58,6 +59,8 @@ export interface DiagnosedVeraProcess extends VeraProcessSample {
 export interface VeraDoctorReport {
     readonly healthy: boolean;
     readonly currentHostPid?: number;
+    // Set when the lockfile exists but names no PID: which host is current is unknown.
+    readonly damagedLockPath?: string;
     readonly currentHostMissing: boolean;
     readonly processes: readonly DiagnosedVeraProcess[];
     readonly highCpuPercent: number;
@@ -84,6 +87,7 @@ export interface VeraWorkerSession {
 
 export interface VeraHostOwnership {
     readonly currentHostPid?: number;
+    readonly damagedLockPath?: string;
 }
 
 export async function diagnoseVeraProcesses(
@@ -110,7 +114,7 @@ export async function diagnoseVeraProcesses(
         secondSample = await sampleProcesses();
         ownership = await readHostOwnership();
     }
-    const { currentHostPid } = ownership;
+    const { currentHostPid, damagedLockPath } = ownership;
     const firstByPid = new Map(
         firstSample
             .filter((sample) => sample.pid !== doctorPid)
@@ -142,7 +146,7 @@ export async function diagnoseVeraProcesses(
         scoped
             .filter((sample) =>
                 sample.kind === "host"
-                && strayHost(sample)
+                && strayHost(sample, damagedLockPath !== undefined)
             )
             .map((sample) => sample.pid),
     );
@@ -165,9 +169,11 @@ export async function diagnoseVeraProcesses(
     );
     return {
         healthy: !currentHostMissing
+            && damagedLockPath === undefined
             && unrecognizedHosts.length === 0
             && !processes.some((sample) => sample.stray),
         ...(currentHostPid === undefined ? {} : { currentHostPid }),
+        ...(damagedLockPath === undefined ? {} : { damagedLockPath }),
         currentHostMissing,
         processes,
         highCpuPercent,
@@ -189,7 +195,9 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         "Vera doctor",
         "",
         "Process summary",
-        `  Resident host: ${report.currentHostPid === undefined
+        `  Resident host: ${report.damagedLockPath !== undefined
+            ? "unknown (host lockfile damaged)"
+            : report.currentHostPid === undefined
             ? "not running"
             : `PID ${report.currentHostPid}`}`,
         `  Vera clients: ${clients.length}`,
@@ -208,6 +216,11 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
 
     if (!report.healthy) {
         lines.push("", "Issues");
+        if (report.damagedLockPath !== undefined) {
+            lines.push(
+                `  ${new HostLockUnreadableError(report.damagedLockPath).message}`,
+            );
+        }
         if (report.currentHostMissing) {
             lines.push(
                 `  Resident host PID ${report.currentHostPid} is unknown.`,
@@ -232,7 +245,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
             `  ... ${hiddenQuietHosts} more unrecognized low-CPU host processes`,
         );
     }
-    if (unrecognizedHosts.length > 0) {
+    if (unrecognizedHosts.length > 0 && report.damagedLockPath === undefined) {
         lines.push(
             "",
             `${unrecognizedHosts.length} host process${unrecognizedHosts.length === 1 ? " has" : "es have"} no active lock in this Vera home. Isolated tests can be legitimate; sustained CPU makes one suspicious.`,
@@ -366,8 +379,9 @@ function belongsToHome(
     return false;
 }
 
-function strayHost(sample: HostStrayInput): boolean {
-    return !sample.currentHost;
+// With a damaged lockfile no host is known to be current, so none is a stray.
+function strayHost(sample: HostStrayInput, lockDamaged: boolean): boolean {
+    return !sample.currentHost && !lockDamaged;
 }
 
 function strayProcess(
@@ -485,24 +499,35 @@ function firstEnvValue(source: string, name: string): string | undefined {
 }
 
 async function hostOwnership(runtimeDir: string): Promise<VeraHostOwnership> {
-    const currentHostPid = await livePidFromHostLockFile(
-        join(runtimeDir, "host.json"),
-    );
-    return currentHostPid === undefined ? {} : { currentHostPid };
+    try {
+        const currentHostPid = await livePidFromHostLockFile(
+            join(runtimeDir, "host.json"),
+        );
+        return currentHostPid === undefined ? {} : { currentHostPid };
+    } catch (error) {
+        if (error instanceof HostLockUnreadableError) {
+            return { damagedLockPath: error.lockPath };
+        }
+        throw error;
+    }
 }
 
+// Throws HostLockUnreadableError when the lockfile exists but names no PID:
+// callers that stop processes must not read that as "no host".
 export async function livePidFromHostLockFile(
     path: string,
 ): Promise<number | undefined> {
     const inspection = await inspectHostLockFile(path);
     if (inspection.state === "absent") return undefined;
     // A damaged lock keeps only its PID, with no trusted start time.
-    const record = inspection.state === "valid"
-        ? inspection.record
-        : inspection.pid === undefined
-            ? undefined
-            : { pid: inspection.pid, started_at: "" };
-    if (record === undefined) return undefined;
+    let record: { readonly pid: number; readonly started_at: string };
+    if (inspection.state === "valid") {
+        record = inspection.record;
+    } else if (inspection.pid === undefined) {
+        throw new HostLockUnreadableError(inspection.path);
+    } else {
+        record = { pid: inspection.pid, started_at: "" };
+    }
     if (!processIsAlive(record.pid)) return undefined;
     // Unknown keeps the pid: the result only shields the host from being
     // listed as a stray.

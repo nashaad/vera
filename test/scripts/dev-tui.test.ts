@@ -239,7 +239,12 @@ test("reusing a development home preserves its running host and socket", async (
         const home = candidateHomePath(worktree, temporaryRoot);
         const socketPath = join(home, "runtime", "host.sock");
         const lockPath = join(home, "runtime", "host.json");
-        const lock = JSON.stringify({ pid: process.pid, socket_path: socketPath });
+        const lock = JSON.stringify({
+            schema_version: 1,
+            pid: process.pid,
+            started_at: new Date().toISOString(),
+            socket_path: socketPath,
+        });
         writeFileSync(lockPath, lock);
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);
@@ -540,15 +545,20 @@ async function expectDamagedLockSurvives(
         writeFileSync(sessionPath, "kept-session\n");
         writeFileSync(lockPath, lock(home, bystander.pid));
         let errors = "";
+        let launches = 0;
 
         const code = await runDevTui(args, worktree, {
             sourceHome,
             temporaryRoot,
             stderr: { write: (text: string) => errors += text },
-            spawnTui: async () => 0,
+            spawnTui: async () => {
+                launches += 1;
+                return 0;
+            },
         });
 
         expect(code).toBe(1);
+        expect(launches).toBe(0);
         expect(errors).toContain(expectedError(bystander.pid, lockPath));
         expect(errors).not.toContain("No development instance host is running");
         expect(bystander.signalCode).toBeNull();
@@ -593,6 +603,221 @@ test("--discard keeps the home when a lockfile missing its socket path names a V
         }),
         (pid) => `Could not confirm PID ${pid} is the Vera host (its lockfile is damaged)`,
     );
+});
+
+test("a launch refuses a damaged lockfile with no readable PID instead of starting over a host", async () => {
+    await expectDamagedLockSurvives(
+        "damaged-nopid-launch",
+        [],
+        () => '{ "schema_version": 3, "pid": 51',
+        (_pid, lockPath) => `The host lockfile ${lockPath} exists but cannot be read`,
+    );
+});
+
+test("a launch refuses a cut-off lockfile whose PID is a Vera-looking process", async () => {
+    await expectDamagedLockSurvives(
+        "damaged-cutoff-launch",
+        [],
+        (_home, pid) => `{\n  "schema_version": 3,\n  "pid": ${pid},\n  "started_at": "2026-08`,
+        (pid) => `Could not confirm PID ${pid} is the Vera host (its lockfile is damaged)`,
+    );
+});
+
+test("a launch clears a damaged lockfile whose PID has exited and starts the client", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree("damaged-dead-launch");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const lockPath = join(home, "runtime", "host.json");
+        writeFileSync(lockPath, JSON.stringify({ schema_version: 3, pid: 2_000_000_903 }));
+        let launches = 0;
+
+        const code = await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: () => true },
+            spawnTui: async () => {
+                launches += 1;
+                return 0;
+            },
+        });
+
+        expect(code).toBe(0);
+        expect(launches).toBe(1);
+        expect(existsSync(lockPath)).toBe(false);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+async function statusAfterWritingLock(
+    name: string,
+    lock: (home: string) => string,
+): Promise<{ report: string; lockPath: string }> {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree(name);
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const lockPath = join(home, "runtime", "host.json");
+        writeFileSync(lockPath, lock(home));
+        const chunks: string[] = [];
+
+        const code = await runDevTui(["--status"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stdout: { write: (text) => chunks.push(String(text)) },
+            spawnTui: async () => {
+                throw new Error("status must not launch");
+            },
+        });
+
+        expect(code).toBe(0);
+        return { report: chunks.join(""), lockPath };
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+}
+
+test("--status says the host lockfile is damaged when it names no PID", async () => {
+    const { report, lockPath } = await statusAfterWritingLock(
+        "status-nopid",
+        () => "garbage",
+    );
+
+    expect(report).toContain(`Host PID: unknown (the host lockfile ${lockPath} is damaged)`);
+    expect(report).not.toContain("Host PID: not running");
+});
+
+test("--status keeps the PID of a damaged lockfile and says it is damaged", async () => {
+    const { report, lockPath } = await statusAfterWritingLock(
+        "status-pid",
+        () => JSON.stringify({ schema_version: 3, pid: process.pid }),
+    );
+
+    expect(report).toContain(
+        `Host PID: ${process.pid} (the host lockfile ${lockPath} is damaged)`,
+    );
+});
+
+test("--status reports a valid lockfile whose PID has exited as not running", async () => {
+    const { report } = await statusAfterWritingLock(
+        "status-dead",
+        (home) => JSON.stringify({
+            schema_version: 3,
+            pid: 2_000_000_904,
+            started_at: new Date().toISOString(),
+            socket_path: join(home, "runtime", "host.sock"),
+            build_id: "vera-old",
+        }),
+    );
+
+    expect(report).toContain("Host PID: not running");
+    expect(report).not.toContain("host lockfile");
+});
+
+test("the first launch refuses to clone a daily home whose host lockfile is damaged", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree("clone-damaged");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const lockPath = join(sourceHome, "runtime", "host.json");
+    try {
+        writeFileSync(lockPath, "garbage");
+        let errors = "";
+        let launches = 0;
+
+        const code = await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: (text: string) => errors += text },
+            spawnTui: async () => {
+                launches += 1;
+                return 0;
+            },
+        });
+
+        expect(code).toBe(1);
+        expect(launches).toBe(0);
+        expect(errors).toContain(`The host lockfile ${lockPath} exists but cannot be read`);
+        expect(existsSync(candidateHomePath(worktree, temporaryRoot))).toBe(false);
+        expect(readFileSync(lockPath, "utf8")).toBe("garbage");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("the first launch clones a daily home whose damaged lockfile names an exited PID", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree("clone-damaged-dead");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const lockPath = join(sourceHome, "runtime", "host.json");
+    try {
+        writeFileSync(lockPath, JSON.stringify({ schema_version: 3, pid: 2_000_000_905 }));
+        let launches = 0;
+
+        const code = await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: () => true },
+            spawnTui: async () => {
+                launches += 1;
+                return 0;
+            },
+        });
+
+        expect(code).toBe(0);
+        expect(launches).toBe(1);
+        expect(existsSync(candidateHomePath(worktree, temporaryRoot))).toBe(true);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("the first launch clones a daily home whose damaged lockfile names a program that is not Vera", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree("clone-damaged-other");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const lockPath = join(sourceHome, "runtime", "host.json");
+    const bystander = Bun.spawn(["sleep", "60"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        writeFileSync(lockPath, JSON.stringify({ schema_version: 3, pid: bystander.pid }));
+        let launches = 0;
+
+        const code = await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: () => true },
+            spawnTui: async () => {
+                launches += 1;
+                return 0;
+            },
+        });
+
+        expect(code).toBe(0);
+        expect(launches).toBe(1);
+        expect(existsSync(candidateHomePath(worktree, temporaryRoot))).toBe(true);
+        expect(bystander.exitCode).toBeNull();
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
 });
 
 test("--discard deletes the home when the host lockfile has no valid start time and its PID is not Vera", async () => {
@@ -824,7 +1049,12 @@ test("a failed live-host checkpoint refuses the clone", async () => {
     const sourceHome = dailyHome(root);
     writeFileSync(
         join(sourceHome, "runtime", "host.json"),
-        JSON.stringify({ pid: process.pid, socket_path: join(sourceHome, "runtime", "host.sock") }),
+        JSON.stringify({
+            schema_version: 1,
+            pid: process.pid,
+            started_at: new Date().toISOString(),
+            socket_path: join(sourceHome, "runtime", "host.sock"),
+        }),
     );
     writeFileSync(join(sourceHome, "runtime", "host.sock"), "socket");
     try {

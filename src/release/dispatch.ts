@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
     createHostLockfile,
     HostBuildMismatchError,
+    HostLockUnreadableError,
 } from "../host/lockfile.ts";
 import {
     defaultInstallPrefix,
@@ -115,9 +116,16 @@ export function retainedClientPath(
     }
 }
 
+// A damaged lock names no build, so nothing is dispatched. It must not throw
+// here: this runs before 'vera host stop' and 'vera doctor', which handle the lock.
 async function inspectLiveHostBuild(): Promise<string | undefined> {
-    const record = await createHostLockfile().read();
-    return record?.build_id;
+    try {
+        const record = await createHostLockfile().read();
+        return record?.build_id;
+    } catch (error) {
+        if (error instanceof HostLockUnreadableError) return undefined;
+        throw error;
+    }
 }
 
 async function execRetainedClient(

@@ -18,6 +18,7 @@ import {
 } from "../../src/release/layout.ts";
 import {
     damagedHostLockHold,
+    hostLockHold,
     isReleaseReferenced,
     listReleaseReferences,
     referencedBuildIds,
@@ -217,4 +218,89 @@ test("a valid host.json does not hold every release", () => {
             expect(damagedHostLockHold()).toBeUndefined();
         },
     );
+});
+
+function oldSchemaLock(pid: number, startedAt: string, schemaVersion: 1 | 2 = 1): string {
+    return `${JSON.stringify({
+        schema_version: schemaVersion,
+        pid,
+        started_at: startedAt,
+        socket_path: "/tmp/vera-ref-old.sock",
+    })}\n`;
+}
+
+test("a valid old-schema host.json without a build id holds every release while its host may run", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-unknown-live-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-ref-unknown-host-"));
+    const host = spawnVeraLookingProcess(directory);
+    try {
+        for (const schemaVersion of [1, 2] as const) {
+            withHostLock(
+                oldSchemaLock(host.pid, new Date().toISOString(), schemaVersion),
+                () => {
+                    const hold = hostLockHold();
+                    expect(hold?.reason).toBe("host-build-unknown");
+                    expect(hold?.message).toContain(`PID ${host.pid}`);
+                    expect(hold?.message).toContain(defaultHostLockPath());
+                    expect(damagedHostLockHold()).toBeUndefined();
+                    expect(isReleaseReferenced("vera-any-build", prefix)).toBe(true);
+                    expect(referenceReasons("vera-any-build", prefix)).toEqual([
+                        "host-build-unknown",
+                    ]);
+                },
+            );
+        }
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a valid old-schema host.json holds releases when its start time cannot be compared", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-unknown-time-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-ref-unknown-time-host-"));
+    const host = spawnVeraLookingProcess(directory);
+    try {
+        withHostLock(oldSchemaLock(host.pid, "not a time"), () => {
+            expect(hostLockHold()?.reason).toBe("host-build-unknown");
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(true);
+        });
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a valid old-schema host.json naming a dead process does not hold releases", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-unknown-dead-"));
+    try {
+        withHostLock(oldSchemaLock(DEAD_PID, new Date().toISOString()), () => {
+            expect(hostLockHold()).toBeUndefined();
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(false);
+        });
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a valid old-schema host.json whose pid was reused by another program does not hold releases", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-unknown-reused-"));
+    const other = Bun.spawn(
+        [process.execPath, "-e", "await Bun.sleep(60000)"],
+        { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+        withHostLock(oldSchemaLock(other.pid, "2020-01-01T00:00:00.000Z"), () => {
+            expect(hostLockHold()).toBeUndefined();
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(false);
+        });
+    } finally {
+        other.kill("SIGKILL");
+        await other.exited;
+        rmSync(prefix, { recursive: true, force: true });
+    }
 });

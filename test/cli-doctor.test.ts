@@ -1106,6 +1106,82 @@ test("livePidFromHostLockFile ignores a record whose pid is gone", async () => {
     }
 });
 
+test("livePidFromHostLockFile refuses a lockfile that names no pid instead of reading it as no host", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const path = join(directory, "host.json");
+    try {
+        for (const source of ["", "garbage", '{ "schema_version": 3, "pid": 10']) {
+            writeFileSync(path, source);
+            await expect(livePidFromHostLockFile(path)).rejects.toMatchObject({
+                name: "HostLockUnreadableError",
+                lockPath: path,
+            });
+        }
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("doctor says the resident host is unknown when the lockfile is damaged, and names no stray host", async () => {
+    const lockPath = "/tmp/vera-home/runtime/host.json";
+    const sample = [
+        processSample(200, "host", 0),
+        processSample(201, "host", 99),
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({ damagedLockPath: lockPath }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(false);
+    expect(report.damagedLockPath).toBe(lockPath);
+    expect(report.processes.some((process) => process.stray)).toBe(false);
+    const output = renderVeraDoctor(report);
+    expect(output).toContain("Resident host: unknown (host lockfile damaged)");
+    expect(output).not.toContain("Resident host: not running");
+    expect(output).toContain(`The host lockfile ${lockPath} exists but cannot be read`);
+    expect(output).not.toContain("no active lock in this Vera home");
+    expect(output).not.toContain("can be stopped safely");
+    expect(output).not.toContain("Result: healthy");
+});
+
+test("doctor reads a damaged lockfile with no pid from the runtime directory", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-doctor-damaged-"));
+    try {
+        writeFileSync(join(directory, "host.json"), "garbage");
+        const report = await diagnoseVeraProcesses({
+            runtimeDir: directory,
+            sampleProcesses: async () => [processSample(200, "host", 0)],
+            wait: async () => {},
+            doctorPid: 999,
+        });
+
+        expect(report.damagedLockPath).toBe(join(directory, "host.json"));
+        expect(report.healthy).toBe(false);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("doctor treats a missing lockfile as no host, not a damaged one", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-doctor-absent-"));
+    try {
+        const report = await diagnoseVeraProcesses({
+            runtimeDir: directory,
+            sampleProcesses: async () => [],
+            wait: async () => {},
+            doctorPid: 999,
+        });
+
+        expect(report.damagedLockPath).toBeUndefined();
+        expect(renderVeraDoctor(report)).toContain("Resident host: not running");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
 function here(sample: VeraProcessSample): VeraProcessSample {
     return { ...sample, runtimeDir: veraRuntimeDirectory() };
 }

@@ -7,9 +7,13 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { HostBuildMismatchError } from "../../src/host/lockfile.ts";
+import {
+    defaultHostLockPath,
+    HostBuildMismatchError,
+} from "../../src/host/lockfile.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 import {
     dispatchToHostRelease,
     RETAINED_DISPATCH_ENV,
@@ -183,5 +187,26 @@ test("a real retained wrapper is the process that runs", async () => {
         expect(await Bun.file(marker).text()).toBe("ran-b host stop\n");
     } finally {
         rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a damaged host lock dispatches nothing and does not stop the commands that handle it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dispatch-damaged-"));
+    const host = spawnVeraLookingProcess(root);
+    const lockPath = defaultHostLockPath();
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, `{"schema_version": 3, "pid": ${host.pid}, "star`);
+    try {
+        // The default inspect reads the real lock path, which the test home isolates.
+        expect(await dispatchToHostRelease({ clientBuildId: "vera-any" }))
+            .toBeUndefined();
+        writeFileSync(lockPath, "partial json");
+        expect(await dispatchToHostRelease({ clientBuildId: "vera-any" }))
+            .toBeUndefined();
+    } finally {
+        rmSync(lockPath, { force: true });
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(root, { recursive: true, force: true });
     }
 });

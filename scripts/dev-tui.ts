@@ -28,7 +28,13 @@ import {
     forceStopResidentHost,
     unverifiedHostMessage,
 } from "../src/host/force-stop.ts";
-import { HostLockUnreadableError } from "../src/host/lockfile.ts";
+import {
+    HostLockUnreadableError,
+    inspectHostLockFile,
+    inspectHostLockFileSync,
+    refuseDamagedHostLock,
+    type HostLockInspection,
+} from "../src/host/lockfile.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
@@ -261,6 +267,16 @@ export async function runDevTui(
                 + "Synthesize it with bun run factory:home.",
             );
         }
+        try {
+            // A host that may be running cannot be checkpointed before the copy.
+            refuseDamagedHostLock(
+                inspectHostLockFileSync(join(sourceHome, "runtime", "host.json")),
+            );
+        } catch (error) {
+            if (!(error instanceof HostLockUnreadableError)) throw error;
+            stderr.write(`${error.message}\n`);
+            return 1;
+        }
         mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
         try {
             await cloneVeraHome({
@@ -395,35 +411,41 @@ function formatStatus(
     const meta = existsSync(destinationHome)
         ? readInstanceMeta(destinationHome)
         : undefined;
-    const pid = readLockPid(join(destinationHome, "runtime", "host.json"));
-    const live = pid !== undefined && processIsAlive(pid);
+    const inspection = inspectHostLockFileSync(
+        join(destinationHome, "runtime", "host.json"),
+    );
     return [
         `Worktree: ${worktreeRoot}`,
         `Build: ${candidateBuildId(worktreeRoot)}`,
         `Home: ${destinationHome}`,
         `Socket: ${join(destinationHome, "runtime", "host.sock")}`,
-        `Host PID: ${live ? String(pid) : "not running"}`,
+        `Host PID: ${describeHostPid(inspection)}`,
         `Snapshot: ${meta?.snapshotAt ?? "none"}`,
         `Source: ${sourceHome}`,
         "",
     ].join("\n");
 }
 
-function dailyHostAppearsRunning(sourceHome: string): boolean {
-    const pid = readLockPid(join(sourceHome, "runtime", "host.json"));
-    return pid !== undefined && processIsAlive(pid);
+function describeHostPid(inspection: HostLockInspection): string {
+    if (inspection.state === "absent") return "not running";
+    if (inspection.state === "valid") {
+        return processIsAlive(inspection.record.pid)
+            ? String(inspection.record.pid)
+            : "not running";
+    }
+    const note = `the host lockfile ${inspection.path} is damaged`;
+    if (inspection.pid === undefined) return `unknown (${note})`;
+    const pid = processIsAlive(inspection.pid)
+        ? String(inspection.pid)
+        : "not running";
+    return `${pid} (${note})`;
 }
 
-function readLockPid(lockPath: string): number | undefined {
-    if (!existsSync(lockPath)) return undefined;
-    try {
-        const value = JSON.parse(readFileSync(lockPath, "utf8")) as {
-            pid?: unknown;
-        };
-        return typeof value.pid === "number" ? value.pid : undefined;
-    } catch {
-        return undefined;
-    }
+function dailyHostAppearsRunning(sourceHome: string): boolean {
+    const inspection = inspectHostLockFileSync(
+        join(sourceHome, "runtime", "host.json"),
+    );
+    return inspection.state === "valid" && processIsAlive(inspection.record.pid);
 }
 
 /** A client refuses a host from another build, so a leftover one is stopped rather than left to block the launch. */
@@ -433,16 +455,17 @@ async function stopOtherBuildHost(
     stderr: { write(text: string): unknown },
 ): Promise<number> {
     const lockPath = join(destinationHome, "runtime", "host.json");
-    let record: { pid?: unknown; build_id?: unknown };
-    try {
-        record = JSON.parse(readFileSync(lockPath, "utf8"));
-    } catch {
-        return 0;
+    const inspection = await inspectHostLockFile(lockPath);
+    if (inspection.state === "absent") return 0;
+    // A damaged lock names no build: the stop path clears a stale one and
+    // refuses to launch over a host that may still be running.
+    if (inspection.state === "damaged") {
+        return await stopCandidate(destinationHome, stderr);
     }
+    const record = inspection.record;
     if (
         buildId === "unstamped"
-        || typeof record.pid !== "number"
-        || typeof record.build_id !== "string"
+        || record.build_id === undefined
         || record.build_id === buildId
         || !processIsAlive(record.pid)
     ) {

@@ -666,9 +666,17 @@ export async function runCli(
         const records = (await (dependencies.prune ?? (async () =>
             listLiveProcesses()
         ))()).filter((record) => record.pid !== process.pid);
-        const currentHostPid = await livePidFromHostLockFile(
-            join(veraRuntimeDirectory(), "host.json"),
-        );
+        let currentHostPid: number | undefined;
+        try {
+            currentHostPid = await livePidFromHostLockFile(
+                join(veraRuntimeDirectory(), "host.json"),
+            );
+        } catch (error) {
+            // Without the host's PID, prune could offer the live host for stopping.
+            if (!(error instanceof HostLockUnreadableError)) throw error;
+            errorOutput.write(`${error.message}\n`);
+            return 1;
+        }
         output.write(renderVeraPrune(records, currentHostPid));
         if (records.length === 0) return 0;
         const confirm = dependencies.confirmPruneProcess;
@@ -1254,6 +1262,9 @@ export function renderCliFailure(error: unknown): string {
             + "Close the older Vera client and retry, or run 'vera host stop'.";
     }
     if (error instanceof HostBuildMismatchError) {
+        return error.message;
+    }
+    if (error instanceof HostLockUnreadableError) {
         return error.message;
     }
     if (error instanceof RetainedReleaseMissingError) {

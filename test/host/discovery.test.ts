@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     ensureResidentHost,
@@ -8,7 +11,11 @@ import type {
     HostLockfile,
     HostLockRecord,
 } from "../../src/host/lockfile.ts";
-import { HostProtocolMismatchError } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    HostLockUnreadableError,
+    HostProtocolMismatchError,
+} from "../../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 
@@ -544,3 +551,68 @@ function scriptedLockfile(
         },
     };
 }
+
+function withDamagedLock(
+    source: string,
+    run: (path: string) => Promise<void>,
+): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), "vera-discovery-damaged-"));
+    const path = join(root, "host.json");
+    writeFileSync(path, source);
+    return run(path).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+const looksLikeVera = {
+    isProcessAlive: () => true,
+    readStartedAt: () => Date.parse(runningHost.started_at),
+    readCommand: () => "bun /opt/vera/share/vera/current/clients/host/main.ts",
+};
+
+test("host discovery starts no host over a damaged lock that may hold one", async () => {
+    for (const source of ["partial json", '{"schema_version": 3, "pid": 101, "star']) {
+        await withDamagedLock(source, async (path) => {
+            let starts = 0;
+            const error = await ensureResidentHost({
+                lockfile: createHostLockfile({
+                    path,
+                    socketPath: runningHost.socket_path,
+                    inspectSocket: async () => undefined,
+                    ...looksLikeVera,
+                }),
+                startHost: () => {
+                    starts += 1;
+                },
+                wait: async () => {},
+            }).then(() => undefined, (thrown: unknown) => thrown);
+
+            expect(error).toBeInstanceOf(HostLockUnreadableError);
+            expect((error as HostLockUnreadableError).lockPath).toBe(path);
+            expect(starts).toBe(0);
+        });
+    }
+});
+
+test("host discovery starts a host when a damaged lock is stale", async () => {
+    await withDamagedLock('{"schema_version": 3, "pid": 101, "star', async (path) => {
+        let starts = 0;
+        const lockfile = createHostLockfile({
+            path,
+            socketPath: runningHost.socket_path,
+            inspectSocket: async () => undefined,
+            isProcessAlive: () => false,
+        });
+        const started = ensureResidentHost({
+            lockfile: {
+                publish: () => lockfile.publish(),
+                read: async () => starts === 0 ? lockfile.read() : runningHost,
+            },
+            startHost: () => {
+                starts += 1;
+            },
+            wait: async () => {},
+        });
+
+        expect(await started).toEqual(runningHost);
+        expect(starts).toBe(1);
+    });
+});

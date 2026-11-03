@@ -11,7 +11,8 @@ import {
     createHostLockfile,
     defaultHostLockPath,
     defaultHostSocketPath,
-    readHostLockRecordFile,
+    inspectHostLockFile,
+    refuseDamagedHostLock,
     type HostLockRecord,
 } from "./lockfile.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
@@ -2020,7 +2021,10 @@ async function clearSocketPathOrRefuse(
             throw new HostSocketHeldError(identity.pid, socketPath, true);
         }
     }
-    const owner = await readHostLockRecordFile(lockPath);
+    const inspection = await inspectHostLockFile(lockPath);
+    // A damaged lock may stand for a wedged host that still owns this socket.
+    refuseDamagedHostLock(inspection);
+    const owner = inspection.state === "valid" ? inspection.record : undefined;
     if (
         owner !== undefined
         && owner.socket_path === socketPath

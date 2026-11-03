@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+    damagedLockMayHoldHost,
     defaultHostLockPath,
     inspectHostLockFileSync,
 } from "../host/lockfile.ts";
@@ -18,6 +19,7 @@ import {
 
 export type ReleaseReferenceReason =
     | "activated"
+    | "host-build-unknown"
     | "host-lock-damaged"
     | "live-host"
     | "rollback"
@@ -80,9 +82,28 @@ export function referenceReasons(
     const reasons = listReleaseReferences(prefix)
         .filter((item) => item.buildId === buildId)
         .map((item) => item.reason);
-    return damagedHostLockHold() === undefined
-        ? reasons
-        : [...reasons, "host-lock-damaged"];
+    const hold = hostLockHold();
+    return hold === undefined ? reasons : [...reasons, hold.reason];
+}
+
+export interface HostLockHold {
+    readonly reason: "host-build-unknown" | "host-lock-damaged";
+    readonly message: string;
+}
+
+// Some host lockfiles cannot say which release their host runs. While a host
+// may be running, every release is held. Returns why, or undefined.
+export function hostLockHold(
+    lockPath: string = defaultHostLockPath(),
+): HostLockHold | undefined {
+    const damaged = damagedHostLockHold(lockPath);
+    if (damaged !== undefined) {
+        return { reason: "host-lock-damaged", message: damaged };
+    }
+    const unknown = unknownBuildHostHold(lockPath);
+    return unknown === undefined
+        ? undefined
+        : { reason: "host-build-unknown", message: unknown };
 }
 
 // A damaged lockfile cannot say which release its host runs, so every release
@@ -92,16 +113,26 @@ export function damagedHostLockHold(
 ): string | undefined {
     const inspection = inspectHostLockFileSync(lockPath);
     if (inspection.state !== "damaged") return undefined;
+    if (!damagedLockMayHoldHost(inspection)) return undefined;
     const keeping = "Keeping every release until it is fixed or deleted.";
-    const pid = inspection.pid;
-    if (pid === undefined) {
+    if (inspection.pid === undefined) {
         return `The host lockfile ${lockPath} is damaged and names no PID, so Vera cannot tell which release a running host uses. ${keeping}`;
     }
-    if (!processIsAlive(pid)) return undefined;
-    if (checkRecordIdentity({ pid, started_at: "" }) === "mismatch") {
-        return undefined;
-    }
-    return `The host lockfile ${lockPath} is damaged and PID ${pid} may be a running Vera host, so Vera cannot tell which release it uses. ${keeping}`;
+    return `The host lockfile ${lockPath} is damaged and PID ${inspection.pid} may be a running Vera host, so Vera cannot tell which release it uses. ${keeping}`;
+}
+
+// A valid schema 1 or 2 lockfile has no build id. Its host may run from any
+// release, so none is safe while that PID is alive and not provably another program.
+export function unknownBuildHostHold(
+    lockPath: string = defaultHostLockPath(),
+): string | undefined {
+    const inspection = inspectHostLockFileSync(lockPath);
+    if (inspection.state !== "valid") return undefined;
+    const record = inspection.record;
+    if (record.build_id !== undefined) return undefined;
+    if (!processIsAlive(record.pid)) return undefined;
+    if (checkRecordIdentity(record) === "mismatch") return undefined;
+    return `The host lockfile ${lockPath} names no build, so Vera cannot tell which release PID ${record.pid} uses. Keeping every release until that host exits.`;
 }
 
 /** File-only read of host.json. GC must not handshake: a wedged host still uses its release, and a hang would block the one command that should leave that release alone. */
