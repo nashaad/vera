@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHomeClient } from "../../../clients/tui/home-client.ts";
+import { defaultVeraConfigPath } from "../../../src/config.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
@@ -34,6 +35,27 @@ test("Ctrl+X then M opens models from Home after waiting, without creating a con
         expect(session.captureVisiblePane()).toContain("V  E  R  A");
         expect(session.captureVisiblePane()).not.toContain(hint);
         expect(created).toBe(0);
+    } finally { await session.close(); }
+}, 15_000);
+
+test("the switcher still opens from both entries when config.json stops parsing mid-run", async () => {
+    const session = await startTuiTestSession({ home: home(), width: 120, height: 36,
+        dependencies: () => createTuiCatalogRefreshDependencies({
+            pooled: [{ provider: "openrouter", model: "one/model", label: "One", available: true, verified: false, levels: [] }],
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        writeFileSync(defaultVeraConfigPath(), JSON.stringify({ schema_version: 1, provider: "kraken", model: "kraken/ink-1" }));
+        session.sendKey("C-x"); await session.waitForVisiblePane(hint);
+        session.sendText("m");
+        await session.waitForVisiblePane("Switch model");
+        expect(session.captureVisiblePane()).toMatch(/One\b/);
+        session.sendKey("Escape"); await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("Switch model");
+        session.sendText("/model"); session.sendKey("Enter");
+        await session.waitForVisiblePane("Switch model");
+        expect(session.captureVisiblePane()).toMatch(/One\b/);
     } finally { await session.close(); }
 }, 15_000);
 
