@@ -69,7 +69,7 @@ export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
         highlights: [`${NVIM}/nix/highlights.scm`],
     },
     parser("diff", "tree-sitter-grammars/tree-sitter-diff", "v0.1.0", "tree-sitter-diff.wasm",
-        ["https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-diff/master/queries/highlights.scm"],
+        ["https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-diff/v0.1.0/queries/highlights.scm"],
         ["udiff", "patch"]),
     parser("elixir", "elixir-lang/tree-sitter-elixir", "v0.3.5", "tree-sitter-elixir.wasm",
         [`${NVIM}/elixir/highlights.scm`]),

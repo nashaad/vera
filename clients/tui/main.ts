@@ -1388,7 +1388,7 @@ export async function startTui(
         );
     }
 
-    rt.markdownStyle = createMarkdownStyle(rt, rt.theme);
+    rt.markdownStyle = createMarkdownStyle(rt.theme);
 
     rt.transcript = new ScrollBoxRenderable(rt.renderer, {
         id: "transcript",
@@ -2810,7 +2810,7 @@ export async function startTui(
             rt.experimentalTuiHost.setTheme(activeTheme);
             clearTranscriptNodes(rt);
             const retiredMarkdownStyle = rt.markdownStyle;
-            rt.markdownStyle = createMarkdownStyle(rt, activeTheme);
+            rt.markdownStyle = createMarkdownStyle(activeTheme);
             repaintSidebarForTheme(rt);
             retiredMarkdownStyle.destroy();
         },

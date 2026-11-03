@@ -11,6 +11,7 @@ import type { TuiStandingNudgesState } from "../standing-nudges.ts";
 import { appendTuiNotice, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { subagentTitle } from "../subagent-title.ts";
 import { markTuiUserEntry, unmarkTuiUserEntry } from "../user-entry.ts";
+import type { TuiTheme } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { SyntaxStyle, type BoxRenderable, type Renderable } from "@opentui/core";
 
@@ -196,7 +197,7 @@ export function workerFreeAction(rt: TuiRuntime,
         || action?.type === "open_usage";
 }
 
-export function createMarkdownStyle(rt: TuiRuntime, activeTheme: typeof rt.theme): SyntaxStyle {
+export function createMarkdownStyle(activeTheme: TuiTheme): SyntaxStyle {
     return SyntaxStyle.fromStyles({
     default: { fg: activeTheme.text },
     "markup.heading": { fg: activeTheme.accent, bold: true },
@@ -222,6 +223,31 @@ export function createMarkdownStyle(rt: TuiRuntime, activeTheme: typeof rt.theme
     constant: { fg: activeTheme.notice },
     operator: { fg: activeTheme.muted },
     conceal: { fg: activeTheme.muted },
+    // Lookup tries the full name, then only the first segment: tag.builtin finds tag, markup.heading.1 finds markup.
+    // Left uncolored on purpose: variable, parameter, punctuation, embedded.
+    attribute: { fg: activeTheme.secondary },
+    character: { fg: activeTheme.success },
+    conditional: { fg: activeTheme.accent },
+    constructor: { fg: activeTheme.notice },
+    "diff.plus": { fg: activeTheme.diffAdded },
+    "diff.minus": { fg: activeTheme.diffRemoved },
+    "diff.delta": { fg: activeTheme.notice },
+    escape: { fg: activeTheme.notice },
+    exception: { fg: activeTheme.accent },
+    field: { fg: activeTheme.secondary },
+    float: { fg: activeTheme.notice },
+    include: { fg: activeTheme.accent },
+    label: { fg: activeTheme.secondary },
+    method: { fg: activeTheme.accent },
+    module: { fg: activeTheme.notice },
+    namespace: { fg: activeTheme.notice },
+    preproc: { fg: activeTheme.accent },
+    property: { fg: activeTheme.secondary },
+    repeat: { fg: activeTheme.accent },
+    tag: { fg: activeTheme.accent },
+    "tag.attribute": { fg: activeTheme.secondary },
+    "tag.delimiter": { fg: activeTheme.muted },
+    "tag.error": { fg: activeTheme.danger },
     });
 }
 
