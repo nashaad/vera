@@ -383,6 +383,7 @@ export interface ClientExtensionRegistry {
         signal?: AbortSignal,
     ): Promise<VeraClientMessageDecision>;
     conversationChanged(): void;
+    requestPaneClose(extensionId: string): boolean;
     statusLineOwner(): string | undefined;
     renderSidebarSummary(snapshot: VeraClientSidebarSummarySnapshot): readonly VeraClientSidebarSummaryRow[];
     renderStatusLine(
@@ -436,6 +437,7 @@ interface LoadedClientExtension {
         readonly ClientExtensionComposeSuggesterDescriptor[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
+    readonly closeRequestHandler: (() => void | Promise<void>) | undefined;
     readonly hostedAgentAddressing: () =>
         VeraClientExperimentalHostedAgentAddressing | undefined;
     readonly conversationListeners: readonly (() => void)[];
@@ -787,6 +789,19 @@ export async function startClientExtensionRegistry(
                 }
             }
         },
+        requestPaneClose(extensionId: string): boolean {
+            const extension = loaded.find((candidate) => candidate.id === extensionId);
+            const handler = extension?.closeRequestHandler;
+            if (handler === undefined || extension?.disposing) {
+                return false;
+            }
+            try {
+                void Promise.resolve(handler()).catch(() => undefined);
+            } catch {
+                // The owning pane stays open; nothing else can resolve this failure.
+            }
+            return true;
+        },
         statusLineOwner(): string | undefined {
             return statusLine?.extension.id;
         },
@@ -946,6 +961,7 @@ async function activateClientExtension(
     let statusLine: VeraClientStatusLineRenderer | undefined;
     const sidebarSummaries: VeraClientSidebarSummaryRenderer[] = [];
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
+    let closeRequestHandler: (() => void | Promise<void>) | undefined;
     let hostedAgentAddressing:
         | VeraClientExperimentalHostedAgentAddressing
         | undefined;
@@ -1241,6 +1257,19 @@ async function activateClientExtension(
                 },
                 close(): void {
                     requireSidebar().close(options.id);
+                },
+                onCloseRequested(handler: () => void | Promise<void>): void {
+                    requireRegistrationPhase(phase, "sidebar close handler");
+                    requireCapability(CLIENT_SIDEBAR_CAPABILITY);
+                    if (typeof handler !== "function") {
+                        throw new Error("Sidebar close handler must be a function");
+                    }
+                    if (closeRequestHandler !== undefined) {
+                        throw new Error(
+                            `Extension ${options.id} registered more than one sidebar close handler`,
+                        );
+                    }
+                    closeRequestHandler = handler;
                 },
             }),
             mentions: Object.freeze({
@@ -1759,6 +1788,7 @@ async function activateClientExtension(
         statusLine,
         sidebarSummaries,
         messageInterceptor,
+        closeRequestHandler,
         hostedAgentAddressing: () => hostedAgentAddressing,
         disposers,
         conversationListeners,

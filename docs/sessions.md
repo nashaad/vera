@@ -32,6 +32,9 @@ working. Home means no conversation is open.
 | Ctrl+C twice while idle with an empty composer | Exit the TUI. |
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
 
+When a side pane such as `/btw`'s sidekick is focused, `/close` or Ctrl+W
+closes that pane instead and leaves the live conversation running.
+
 `/clear` starts a new conversation and asks Close this conversation or Keep
 running. Keep running stays idle for ten minutes, then closes. `/clear stop`
 and `/clear keep` make that choice without asking. `/new` is the same command

@@ -203,8 +203,27 @@ export async function openSwitchDestination(rt: TuiRuntime,
     return await createJsonlViewClient(sessionPath);
 }
 
+/**
+ * Lets the extension owning the focused sidebar pane close that pane
+ * instead of the main session being parked. Returns true when a pane
+ * handled the request.
+ */
+export function requestFocusedPaneClose(rt: TuiRuntime): boolean {
+    const owner = rt.hostedSidebar.owner;
+    if (owner === undefined || rt.hostedSidebar.pane === undefined) {
+        return false;
+    }
+    if (!rt.sidebar.isFocused()) {
+        return false;
+    }
+    return rt.clientExtensionRegistry?.requestPaneClose(owner) ?? false;
+}
+
 export function requestCloseSession(rt: TuiRuntime): void {
     if (isWorkerFreeClient(rt.client) || rt.sessionSwitchPending) {
+        return;
+    }
+    if (requestFocusedPaneClose(rt)) {
         return;
     }
     if (

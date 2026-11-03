@@ -19,4 +19,7 @@ export function activateClient(vera: any): void {
             vera.ui.sidebar.close();
         },
     });
+    vera.ui.sidebar.onCloseRequested(() => {
+        vera.ui.sidebar.close();
+    });
 }
