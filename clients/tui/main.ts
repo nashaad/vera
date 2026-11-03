@@ -1,11 +1,11 @@
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
-import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, TextRenderable, createCliRenderer, KeyEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
+import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, TextRenderable, createCliRenderer, KeyEvent, type PasteEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readStampedRelease } from "../../src/release/stamp.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
@@ -113,7 +113,10 @@ import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
-import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
+import {
+    createConfiguredTuiAgentClients,
+    refuseOtherHostBuild,
+} from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
     createTuiClientExtensionHostController,
@@ -302,6 +305,7 @@ import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, re
 import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
 import { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme } from "./main/sidebar-pane.ts";
 import { applyTranscriptScroll, handleKeypress } from "./main/keypress.ts";
+import { guardInput } from "./main/input-guard.ts";
 import { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, isSettingsRetryTrigger, requestSessionSettings, restorePersistedAgentPane, diagnosticsSnapshot, renderDiagnostics, abortProviderHealthCheck, paintDiagnosticsDialog, startProviderHealthCheck, noticeRepeatedModelFailure, writeFailureReportFile } from "./main/diagnostics-ops.ts";
 import { submitPrompt } from "./main/submit-prompt.ts";
 import { leaveJsonlCommandMode, refuseJsonlCommand, availableCommandSuggestions, availableCommandCompletion, routeVisibleAgentPrompt, attachImagesToSidebar, offerMessageToExtensions, attachPastedImage, attachPastedImages, releaseDroppedImage } from "./main/prompt-routing.ts";
@@ -693,6 +697,8 @@ export async function startConfiguredTui(
 ): Promise<void> {
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
+    // Read once: the stamp on disk can change while this TUI runs.
+    const clientBuildId = thisProcessBuildId();
     // Optional: requiring config made attach fail against an already-running host.
     const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
@@ -727,7 +733,7 @@ export async function startConfiguredTui(
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
-    const agentClients = createConfiguredTuiAgentClients(() => host.socket_path);
+    const agentClients = createConfiguredTuiAgentClients(() => host.socket_path, clientBuildId);
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
         : await hostHasSessions(host.socket_path);
@@ -813,6 +819,7 @@ export async function startConfiguredTui(
             reconnectSession: async (currentAgentId, options) => {
                 // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
+                await refuseOtherHostBuild(clientBuildId);
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: replaceExisting
                         ? confirmManualReconnectUpgrade
@@ -848,7 +855,7 @@ export async function startConfiguredTui(
                 };
             },
             build: {
-                clientVersion: readStampedRelease().build_id,
+                clientVersion: clientBuildId,
                 ...(host.build_id === undefined
                     ? {}
                     : { hostBuildId: host.build_id }),
@@ -1665,8 +1672,8 @@ export async function startTui(
     rt.composer = createTuiComposer(
         rt.renderer,
         // The editor value is not what submitPrompt's parameter means.
-        () => submitPrompt(rt),
-        ((path: string) => attachPastedImage(rt, path)),
+        guardInput(rt, "submit", () => submitPrompt(rt)),
+        guardInput(rt, "image_paste", (path: string) => attachPastedImage(rt, path)),
     );
     rt.composer.onCommandDelete = () => {
         if (
@@ -1678,7 +1685,7 @@ export async function startTui(
         renderState(rt);
         return true;
     };
-    rt.composer.onImageChipRemoved = (requestId) => {
+    rt.composer.onImageChipRemoved = guardInput(rt, "image_chip_removed", (requestId: string) => {
         releaseDroppedImage(rt, requestId);
         rt.pendingImages = rt.pendingImages.filter(
             (image) => image.requestId !== requestId,
@@ -1687,7 +1694,7 @@ export async function startTui(
             rt.submitAfterImageAttachment = false;
         }
         renderState(rt);
-    };
+    });
     if (rt.dependencies.initialDraft !== undefined) {
         rt.composer.setComposerText(rt.dependencies.initialDraft.text);
         for (const image of rt.pendingImages) {
@@ -2563,7 +2570,7 @@ export async function startTui(
         }
     });
 
-    rt.renderer.keyInput.on("paste", (event) => {
+    rt.renderer.keyInput.on("paste", guardInput(rt, "paste", (event: PasteEvent) => {
         if (rt.modelPrefixPending) {
             rt.modelPrefixPending = false;
             renderStatus(rt);
@@ -2753,9 +2760,9 @@ export async function startTui(
             stripAnsiSequences(decodePasteBytes(event.bytes)),
         );
         renderState(rt);
-    });
+    }));
 
-    rt.renderer.keyInput.on("keypress", ((key: KeyEvent) => handleKeypress(rt, key)));
+    rt.renderer.keyInput.on("keypress", guardInput(rt, "keypress", (key: KeyEvent) => handleKeypress(rt, key)));
     rt.lastInputRecordAt = 0;
 
     rt.settingsSnapshotRetries = new WeakMap<TuiAgentClient, number>();

@@ -15,9 +15,16 @@ import {
 import {
     attachReconnectingAgent,
     createReconnectingAgentClient,
+    HostBuildChangedError,
 } from "../../src/host/reconnecting-agent-client.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
+
+const CROW_BUILD = "vera-crow-1";
+const KRAKEN_BUILD = "vera-kraken-2";
+
+// A host that reports a build ID, one that answers without one, or one that never answers.
+type ScriptedIdentity = { readonly buildId: string } | "no_build_id" | "silent";
 
 const temporaryDirectories: string[] = [];
 
@@ -52,6 +59,7 @@ afterEach(() => {
         const client = await attachReconnectingAgent({
             socketPath: () => socketPath,
             agentId: "agent-1",
+            buildId: CROW_BUILD,
         });
         socketPath = secondSocketPath;
         try {
@@ -71,6 +79,100 @@ afterEach(() => {
         } finally {
             client.close();
             await Promise.all([closeServer(firstServer), closeServer(secondServer)]);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a reattach refuses a host that came back as another build, without retrying",
+    async () => {
+        const directory = temporaryDirectory();
+        const firstSocketPath = join(directory, "first.sock");
+        const secondSocketPath = join(directory, "second.sock");
+        const secondRequests: unknown[] = [];
+        const firstServer = await scriptedAttachHost(
+            firstSocketPath,
+            [],
+            [{ type: "history", entries: [], seq: 0 }],
+        );
+        const secondServer = await scriptedAttachHost(
+            secondSocketPath,
+            secondRequests,
+            [{ type: "assistant_delta", text: "kraken", seq: 1 }],
+            { buildId: KRAKEN_BUILD },
+        );
+        let socketPath = firstSocketPath;
+        const client = await attachReconnectingAgent({
+            socketPath: () => socketPath,
+            agentId: "agent-1",
+            buildId: CROW_BUILD,
+        });
+        socketPath = secondSocketPath;
+        try {
+            expect(await client.receive()).toMatchObject({ seq: 0 });
+            const startedAt = Date.now();
+            const failure = await client.receive().then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            expect(failure).toBeInstanceOf(HostBuildChangedError);
+            expect(failure).toMatchObject({
+                clientBuildId: CROW_BUILD,
+                hostBuildId: KRAKEN_BUILD,
+            });
+            expect(Date.now() - startedAt).toBeLessThan(2_000);
+            expect(secondRequests).toEqual([]);
+        } finally {
+            client.close();
+            await Promise.all([closeServer(firstServer), closeServer(secondServer)]);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a first attach refuses a host of another build or one that reports none",
+    async () => {
+        const directory = temporaryDirectory();
+        for (const identity of [{ buildId: KRAKEN_BUILD }, "no_build_id"] as const) {
+            const socketPath = join(directory, "host.sock");
+            const requests: unknown[] = [];
+            const server = await scriptedAttachHost(socketPath, requests, [], identity);
+            try {
+                const failure = await attachReconnectingAgent({
+                    socketPath: () => socketPath,
+                    agentId: "agent-1",
+                    buildId: CROW_BUILD,
+                }).then(() => undefined, (error: unknown) => error);
+                expect(failure).toBeInstanceOf(HostBuildChangedError);
+                expect(failure).toMatchObject({
+                    clientBuildId: CROW_BUILD,
+                    hostBuildId: identity === "no_build_id" ? undefined : KRAKEN_BUILD,
+                });
+                expect(requests).toEqual([]);
+            } finally {
+                await closeServer(server);
+            }
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a host that never confirms its build is not attached",
+    async () => {
+        const socketPath = join(temporaryDirectory(), "host.sock");
+        const requests: unknown[] = [];
+        const server = await scriptedAttachHost(socketPath, requests, [], "silent");
+        try {
+            const failure = await attachReconnectingAgent({
+                socketPath: () => socketPath,
+                agentId: "agent-1",
+                buildId: CROW_BUILD,
+            }).then(() => undefined, (error: unknown) => error);
+            expect(failure).toBeInstanceOf(Error);
+            expect((failure as Error).message).toContain("did not report its build");
+            expect(requests).toEqual([]);
+        } finally {
+            await closeServer(server);
         }
     },
 );
@@ -431,6 +533,7 @@ async function scriptedAttachHost(
     socketPath: string,
     requests: unknown[],
     updates: readonly AgentUpdate[],
+    identity: ScriptedIdentity = { buildId: CROW_BUILD },
 ): Promise<Server> {
     const server = createServer((socket) => {
         let input = "";
@@ -438,7 +541,18 @@ async function scriptedAttachHost(
             input += chunk.toString("utf8");
             const newlineAt = input.indexOf("\n");
             if (newlineAt === -1) return;
-            requests.push(JSON.parse(input.slice(0, newlineAt)));
+            const request = JSON.parse(input.slice(0, newlineAt)) as { readonly type?: string };
+            if (request.type === "host_identity") {
+                if (identity === "silent") return;
+                socket.end(`${JSON.stringify({
+                    type: "host_identity",
+                    pid: process.pid,
+                    started_at: new Date().toISOString(),
+                    ...(identity === "no_build_id" ? {} : { build_id: identity.buildId }),
+                })}\n`);
+                return;
+            }
+            requests.push(request);
             socket.write(`${JSON.stringify({
                 type: "attached",
                 agent_id: "agent-1",

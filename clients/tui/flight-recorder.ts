@@ -190,7 +190,7 @@ function prepareLog(path: string): void {
     }
 }
 
-function serializeError(error: unknown): Record<string, string> {
+export function serializeError(error: unknown): Record<string, string> {
     if (error instanceof Error) {
         return {
             name: error.name,
