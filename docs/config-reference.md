@@ -39,9 +39,9 @@ These paths are inside `~/.vera`:
 
 | Path | Purpose |
 | --- | --- |
-| `config.json` | Provider, permission, model, extension, and hook settings. |
+| `config.json` | Provider, permission, model, extension, skill, and hook settings. |
 | `tui.json` | Display preferences and keybindings. |
-| `skills/` | Installed skills. |
+| `skills/` | Installed skills. Turn one off with `disabled_skills`; see [Turn a skill off](skills.md#turn-a-skill-off). |
 | `agents/` | Reusable definitions. |
 | `hooks/` | Executables named by the `hooks` list in `config.json`. See [Hooks](hooks.md). |
 | `rules/` | [Rules](rules.md) that apply in every project. |

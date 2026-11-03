@@ -18,6 +18,8 @@ your editor.
 
 Tab moves between Search and the list. Escape returns one level. The preview
 shows where a source comes from and whether it belongs to the project or home.
+A skill turned off by `disabled_skills` stays in the Skills list, marked
+disabled. See [Turn a skill off](skills.md#turn-a-skill-off).
 
 A Markdown file opens rendered. Press `s` to see its source.
 

@@ -1,6 +1,6 @@
 ---
 title: "Extension APIs"
-description: "Read the transcript, call models, observe turns, message sessions, and add annex pages from an extension."
+description: "Read the transcript, call models, observe turns, message sessions, add annex pages, and ship skills from an extension."
 ---
 
 # Extension APIs
@@ -378,3 +378,48 @@ the server module needs the host restarted.
 
 The included Artifacts extension in `extensions/artifacts` is a full page:
 markdown artifacts an agent writes, with comments you leave in the margin.
+
+## Contribute skills
+
+An extension can ship [skills](skills.md). List directories inside the
+extension under `contributes.skills`. Each one holds skill directories laid out
+like `~/.vera/skills/`:
+
+```json
+{
+    "id": "acme.charts",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": [],
+    "contributes": {
+        "skills": ["./skills"]
+    }
+}
+```
+
+```text
+acme.charts/
+├── vera.extension.json
+├── extension.ts
+└── skills/
+    └── read-map/
+        └── SKILL.md
+```
+
+Skills need no capability, so `extension.ts` only needs an empty `activate`:
+
+```ts
+export function activate() {}
+```
+
+- Each entry is a relative path inside the extension. An absolute path, a `..`
+  segment, or a duplicate entry stops the manifest from loading, and
+  `/extension list` shows the extension as failed.
+- A disabled extension contributes no skills.
+- A home or project skill with the same name replaces the extension's.
+- Vera reads skills from the copy it loads: the installed copy, or the
+  checkout named in `VERA_EXTENSIONS`. A change to a skill there shows after
+  the next completed turn, without restarting the host. To pick up edits to
+  the source of an installed extension, run `/extension remove <id>`, then
+  install it again.

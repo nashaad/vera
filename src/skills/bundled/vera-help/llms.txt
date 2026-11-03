@@ -129,8 +129,9 @@ A delegated child starts without the parent conversation; put the task in the sp
 Vera's delegation guidance defaults to direct work, prefers waiting for delegated results, and reserves background delegation for substantial independent work.
 Manual: `docs/agents.md`, `docs/permission-rules.md`.
 
-## Skills, rules, and standing instructions [lines=13]
+## Skills, rules, and standing instructions [lines=14]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
+Write a skill as `SKILL.md` in `~/.vera/skills/<name>/` or in the project's `.vera/skills/<name>/`.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
 Skills come from Vera, enabled extensions (`contributes.skills` in the manifest), the home, then the project; later wins. `disabled_skills` in `config.json` turns skills off by name, a trailing `*` matches a prefix, and `/customize` still lists them as disabled.
