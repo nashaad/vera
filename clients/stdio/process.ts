@@ -7,6 +7,7 @@ import {
 } from "../../src/host/agent-start-client.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import {
     resolveResumeTarget,
 } from "../tui/session-target.ts";
@@ -61,11 +62,13 @@ export function parseStdioArgs(
 export async function runStdioProcess(
     target: StdioStartTarget,
 ): Promise<void> {
+    const buildId = thisProcessBuildId();
     const host = await findOrStartResidentHost();
     const agentId = await resolveAgentId(host.socket_path, target);
     const client = await attachReconnectingAgent({
         socketPath: () => host.socket_path,
         agentId,
+        buildId,
     });
     const stopping = new AbortController();
     const onSignal = (): void => stopping.abort();

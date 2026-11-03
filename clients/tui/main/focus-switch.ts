@@ -1,6 +1,7 @@
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../../src/host/capabilities.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
+import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
@@ -473,6 +474,10 @@ export function beginHostReconnect(rt: TuiRuntime,
             renderState(rt);
             return;
         }
+        if (error instanceof HostBuildChangedError) {
+            refuseChangedHostBuild(rt, error);
+            return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         if (rt.connectionFailed) {
             rt.state = appendTuiError(
@@ -556,6 +561,10 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     if (rt.shuttingDown || rt.connectionFailed || rt.sessionSwitchPending) {
         return;
     }
+    if (error instanceof HostBuildChangedError) {
+        refuseChangedHostBuild(rt, error);
+        return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (isHomeClient(rt.client)) {
         rt.state = appendTuiError(rt.state, message);
@@ -590,4 +599,28 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     settleLostHost(rt, message);
     renderState(rt);
     rt.composer.focus();
+}
+
+// No automatic restart: discovery would hop to another client in this terminal or replace the host.
+function refuseChangedHostBuild(rt: TuiRuntime, error: HostBuildChangedError): void {
+    rt.flightRecorder?.record({
+        type: "host_build_changed",
+        clientBuildId: error.clientBuildId,
+        ...(error.hostBuildId === undefined ? {} : { hostBuildId: error.hostBuildId }),
+    });
+    rt.connectionFailed = true;
+    rt.connectionFailure = "host is a different build";
+    rt.activity = "disconnected";
+    settleLostHost(rt, error.message);
+    rt.state = appendTuiError(rt.state, hostBuildChangedMessage(error));
+    renderState(rt);
+    rt.composer.focus();
+}
+
+export function hostBuildChangedMessage(error: HostBuildChangedError): string {
+    const host = error.hostBuildId === undefined
+        ? "a build that did not report its ID"
+        : `build ${error.hostBuildId}`;
+    return `The Vera host is now ${host}, and this TUI is build ${error.clientBuildId}. `
+        + "Quit and reopen Vera to continue.";
 }

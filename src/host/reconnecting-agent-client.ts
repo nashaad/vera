@@ -8,16 +8,36 @@ import {
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 } from "./capabilities.ts";
+import { requestHostIdentity } from "./protocol.ts";
 import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
 const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
+const BUILD_CHECK_DELAYS_MS = [0, 50, 100, 200];
 
 export interface ReconnectingAgentOptions {
     readonly socketPath: () => string;
     readonly agentId: string;
+    // The build this client started as. Read the stamp once: it can change on disk while the client runs.
+    readonly buildId: string;
     readonly interactive?: boolean;
     readonly clientId?: string;
+}
+
+export class HostBuildChangedError extends Error {
+    constructor(
+        readonly clientBuildId: string,
+        readonly hostBuildId: string | undefined,
+    ) {
+        const host = hostBuildId === undefined
+            ? "a build that did not report its ID"
+            : `build ${hostBuildId}`;
+        super(
+            `The Vera host is now ${host} and this client is build ${clientBuildId}, `
+                + "so it will not attach. Quit and reopen Vera.",
+        );
+        this.name = "HostBuildChangedError";
+    }
 }
 
 export interface ReconnectPolicy {
@@ -28,12 +48,14 @@ export interface ReconnectPolicy {
 export async function attachReconnectingAgent(
     options: ReconnectingAgentOptions,
 ): Promise<AttachedAgentClient> {
-    const attach = (
+    const attach = async (
         afterSequence: number | undefined,
         signal: AbortSignal,
-    ): Promise<AttachedAgentClient> =>
-        attachAgent({
-            socketPath: options.socketPath(),
+    ): Promise<AttachedAgentClient> => {
+        const socketPath = options.socketPath();
+        await confirmHostBuild(socketPath, options.buildId, signal);
+        return attachAgent({
+            socketPath,
             agentId: options.agentId,
             requestedCapabilities: HOST_CAPABILITIES,
             ...(options.interactive === true
@@ -42,6 +64,7 @@ export async function attachReconnectingAgent(
             ...(afterSequence === undefined ? {} : { afterSequence }),
             signal,
         });
+    };
     return createReconnectingAgentClient(
         await attach(undefined, new AbortController().signal),
         attach,
@@ -315,6 +338,7 @@ export function createReconnectingAgentClient(
                 return next;
             } catch (error) {
                 if (closed || lifecycle.signal.aborted) throw error;
+                if (error instanceof HostBuildChangedError) throw error;
                 if (afterSequence !== undefined
                     && error instanceof AgentAttachError
                     && error.reason === "unavailable") {
@@ -327,6 +351,24 @@ export function createReconnectingAgentClient(
             `Could not reconnect agent before its deadline: ${messageOf(lastError)}`,
         );
     }
+}
+
+// Silence is a host not ready yet, not a match: the caller retries or fails, never attaches unchecked.
+async function confirmHostBuild(
+    socketPath: string,
+    buildId: string,
+    signal: AbortSignal,
+): Promise<void> {
+    for (const delayMs of BUILD_CHECK_DELAYS_MS) {
+        if (delayMs > 0) await delay(delayMs, signal);
+        const identity = await requestHostIdentity(socketPath);
+        if (identity === undefined) continue;
+        if (identity.build_id !== buildId) {
+            throw new HostBuildChangedError(buildId, identity.build_id);
+        }
+        return;
+    }
+    throw new Error("The Vera host did not report its build, so this client did not attach.");
 }
 
 function privateRequestId(command: ClientCommand): string | undefined {

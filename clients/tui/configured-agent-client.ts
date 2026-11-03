@@ -7,8 +7,13 @@ import {
     resumeAgentThroughHost,
     syncAgentContextThroughHost,
 } from "../../src/host/agent-start-client.ts";
-import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
+import { createHostLockfile } from "../../src/host/lockfile.ts";
+import {
+    attachReconnectingAgent,
+    HostBuildChangedError,
+} from "../../src/host/reconnecting-agent-client.ts";
 import type { UserMessage } from "../../src/model/types.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import type {
     IdentifiedTuiAgentClient,
     TuiAgentClient,
@@ -49,11 +54,13 @@ export interface ConfiguredTuiAgentClients {
 
 export function createConfiguredTuiAgentClients(
     socketPath: () => string,
+    buildId: string = thisProcessBuildId(),
 ): ConfiguredTuiAgentClients {
     const clientId = randomUUID();
     const attach = (agentId: string) => attachReconnectingAgent({
         socketPath,
         agentId,
+        buildId,
         interactive: true,
         clientId,
     });
@@ -126,4 +133,20 @@ export function createConfiguredTuiAgentClients(
             return attach(ready.id);
         },
     };
+}
+
+// Reconnect host must not reach dispatch on another build: it would start that build's client in this terminal.
+export async function refuseOtherHostBuild(
+    clientBuildId: string,
+    readHostBuild: () => Promise<string | undefined> = readLiveHostBuild,
+): Promise<void> {
+    const hostBuildId = await readHostBuild();
+    if (hostBuildId !== undefined && hostBuildId !== clientBuildId) {
+        throw new HostBuildChangedError(clientBuildId, hostBuildId);
+    }
+}
+
+async function readLiveHostBuild(): Promise<string | undefined> {
+    const record = await createHostLockfile().read();
+    return record?.build_id;
 }

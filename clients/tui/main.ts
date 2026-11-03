@@ -5,7 +5,7 @@ import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, S
 import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readStampedRelease } from "../../src/release/stamp.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
@@ -113,7 +113,10 @@ import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
-import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
+import {
+    createConfiguredTuiAgentClients,
+    refuseOtherHostBuild,
+} from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
     createTuiClientExtensionHostController,
@@ -694,6 +697,8 @@ export async function startConfiguredTui(
 ): Promise<void> {
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
+    // Read once: the stamp on disk can change while this TUI runs.
+    const clientBuildId = thisProcessBuildId();
     // Optional: requiring config made attach fail against an already-running host.
     const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
@@ -728,7 +733,7 @@ export async function startConfiguredTui(
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
-    const agentClients = createConfiguredTuiAgentClients(() => host.socket_path);
+    const agentClients = createConfiguredTuiAgentClients(() => host.socket_path, clientBuildId);
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
         : await hostHasSessions(host.socket_path);
@@ -814,6 +819,7 @@ export async function startConfiguredTui(
             reconnectSession: async (currentAgentId, options) => {
                 // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
+                await refuseOtherHostBuild(clientBuildId);
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: replaceExisting
                         ? confirmManualReconnectUpgrade
@@ -849,7 +855,7 @@ export async function startConfiguredTui(
                 };
             },
             build: {
-                clientVersion: readStampedRelease().build_id,
+                clientVersion: clientBuildId,
                 ...(host.build_id === undefined
                     ? {}
                     : { hostBuildId: host.build_id }),

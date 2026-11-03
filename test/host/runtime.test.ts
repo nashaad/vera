@@ -46,6 +46,7 @@ import {
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
@@ -384,6 +385,7 @@ test("the resident host fails closed without an identity provider", async () => 
             const client = await attachReconnectingAgent({
                 socketPath: () => socketPath,
                 agentId: "durable-agent",
+                buildId: thisProcessBuildId(),
             });
             try {
                 await client.receive();

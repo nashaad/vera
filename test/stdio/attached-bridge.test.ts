@@ -367,6 +367,7 @@ test("stdio drives a real resident host turn and leaves the agent running", asyn
         const client = await attachReconnectingAgent({
             socketPath: () => socketPath,
             agentId: created.id,
+            buildId: thisProcessBuildId(),
         });
         try {
             const input = new Readable({ read() {} });
@@ -448,6 +449,7 @@ test("stdio carries a breaker trip out of a real resident host turn", async () =
         const client = await attachReconnectingAgent({
             socketPath: () => socketPath,
             agentId: created.id,
+            buildId: thisProcessBuildId(),
         });
         try {
             const input = new Readable({ read() {} });
