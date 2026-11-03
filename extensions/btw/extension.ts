@@ -151,7 +151,7 @@ export function activateClient(vera: any): void {
                 signal: AbortSignal;
             }) {
                 const text = argumentsText.trim();
-                if (name === "pair" && text.toLowerCase() === "close") {
+                if (text.toLowerCase() === "close") {
                     vera.ui.sidebar.close();
                     activeMention = undefined;
                     setAddressing(SIDEKICK);

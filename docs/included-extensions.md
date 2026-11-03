@@ -34,8 +34,8 @@ included   vera.artifacts, vera.btw, vera.budget, vera.diff, vera.mcp,
 ## BTW and Pair
 
 Use `/btw` for a read-only side conversation that can refer to the primary
-conversation. `/btw <message>` opens it and sends the message. Its pane is
-temporary.
+conversation. `/btw <message>` opens it and sends the message. `/btw close`
+closes its pane. Its pane is temporary.
 
 Use `/pair` for a fresh peer conversation with ask permissions.
 `/pair <message>` sends a message as it opens. `/pair close` closes its pane.

@@ -195,6 +195,21 @@ test("pair close detaches the peer pane without creating another session", async
     await harness.registry.close();
 });
 
+test("btw close detaches the sidekick pane without creating another session", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.calls.length = 0;
+
+    await harness.registry.invokeCommand("btw", "close", "/workspace");
+
+    expect(harness.calls).toEqual([{
+        operation: "close",
+        extensionId: "vera.btw",
+    }]);
+    expect(harness.mentions()).toEqual([]);
+    await harness.registry.close();
+});
+
 test("btw owns pane controls without mounting client chrome", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "", "/workspace");
