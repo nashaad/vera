@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -487,6 +487,231 @@ async function withFinishedTree(
                         .toMatchObject({
                             live: false,
                             session_path: join(root, "elsewhere", "late.jsonl"),
+                        });
+                },
+            );
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a close during a trash is refused, and a failed trash leaves the conversations running and listed",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-during-trash-"));
+        let moveStarted: () => void = () => {};
+        const moving = new Promise<void>((resolve) => {
+            moveStarted = resolve;
+        });
+        let releaseMove: () => void = () => {};
+        const released = new Promise<void>((resolve) => {
+            releaseMove = resolve;
+        });
+        try {
+            await withFinishedTree(
+                root,
+                async () => {
+                    moveStarted();
+                    await released;
+                    throw new Error("trash unavailable");
+                },
+                async ({ socketPath, host }) => {
+                    try {
+                        const trashing = trashSessionThroughHost(
+                            socketPath,
+                            "parent",
+                        );
+                        await moving;
+
+                        // The whole tree is unregistered and reserved while the move runs.
+                        expect(host.registry.agents.size).toBe(0);
+                        for (const id of ["parent", "middle", "leaf"]) {
+                            expect(await closeAgentThroughHost(socketPath, id))
+                                .toEqual({ status: "rejected", reason: "busy" });
+                        }
+                        releaseMove();
+
+                        expect(await trashing)
+                            .toEqual({ status: "rejected", reason: "failed" });
+                        expect(host.registry.list().map((agent) => agent.id).sort())
+                            .toEqual(["leaf", "middle", "parent"]);
+                        expect((await listAgentsThroughHost(socketPath))
+                            .filter((agent) => agent.live)
+                            .map((agent) => agent.id).sort())
+                            .toEqual(["leaf", "middle", "parent"]);
+                        expect(await closeAgentThroughHost(socketPath, "parent"))
+                            .toEqual({ status: "closed", sessionRetained: true });
+                    } finally {
+                        releaseMove();
+                    }
+                },
+            );
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a close during a stored session's trash is refused",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-stored-trash-"));
+        const socketPath = join(root, "host.sock");
+        let moveStarted: () => void = () => {};
+        const moving = new Promise<void>((resolve) => {
+            moveStarted = resolve;
+        });
+        let releaseMove: () => void = () => {};
+        const released = new Promise<void>((resolve) => {
+            releaseMove = resolve;
+        });
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+            trashSessionArtifacts: (artifacts) =>
+                trashSessionArtifacts(artifacts, {
+                    moveToTrash: async () => {
+                        moveStarted();
+                        await released;
+                    },
+                }),
+        });
+        try {
+            await host.registry.create({ id: "saved", workspace: root });
+            expect(await host.registry.closeAgent("saved")).toBe("closed");
+
+            const trashing = trashSessionThroughHost(socketPath, "saved");
+            await moving;
+            expect(await closeAgentThroughHost(socketPath, "saved"))
+                .toEqual({ status: "rejected", reason: "busy" });
+            releaseMove();
+
+            expect(await trashing).toEqual({ status: "trashed" });
+        } finally {
+            releaseMove();
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a child that registers during a trash is listed after it",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-trash-late-index-"));
+        let moveStarted: () => void = () => {};
+        const moving = new Promise<void>((resolve) => {
+            moveStarted = resolve;
+        });
+        let releaseMove: () => void = () => {};
+        const released = new Promise<void>((resolve) => {
+            releaseMove = resolve;
+        });
+        try {
+            await withFinishedTree(
+                root,
+                (artifacts) =>
+                    trashSessionArtifacts(artifacts, {
+                        moveToTrash: async () => {
+                            moveStarted();
+                            await released;
+                        },
+                    }),
+                async ({ socketPath, sessionDirectory, host }) => {
+                    try {
+                        // Closed through the registry, so the host has not listed it yet.
+                        await host.registry.closeAgentTree("middle");
+                        const middlePath = join(sessionDirectory, "middle.jsonl");
+                        let resumeStarted: () => void = () => {};
+                        const started = new Promise<void>((resolve) => {
+                            resumeStarted = resolve;
+                        });
+                        let finishBind: () => void = () => {};
+                        const binding = new Promise<void>((resolve) => {
+                            finishBind = resolve;
+                        });
+                        const bind = host.registry.bindSessionIdentity.bind(
+                            host.registry,
+                        );
+                        host.registry.bindSessionIdentity = async (store) => {
+                            resumeStarted();
+                            await binding;
+                            return bind(store);
+                        };
+                        const late = host.registry.resume({
+                            sessionPath: middlePath,
+                        });
+                        await started;
+
+                        const trashing = trashSessionThroughHost(
+                            socketPath,
+                            "parent",
+                        );
+                        await moving;
+                        finishBind();
+                        await late;
+                        releaseMove();
+                        expect(await trashing).toEqual({ status: "trashed" });
+
+                        expect(host.registry.agents.size).toBe(0);
+                        const listed = await listAgentsThroughHost(socketPath);
+                        expect(listed.map((agent) => agent.id))
+                            .toEqual(["middle"]);
+                        expect(listed[0]).toMatchObject({
+                            live: false,
+                            session_path: await realpath(middlePath),
+                        });
+                    } finally {
+                        releaseMove();
+                    }
+                },
+            );
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a child closed by its parent's close_subagent is listed at its own session path",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-subagent-index-"));
+        try {
+            await withFinishedTree(
+                root,
+                undefined,
+                async ({ socketPath, sessionDirectory, host }) => {
+                    expect(
+                        (await host.registry.closeDescendantTree(
+                            "parent",
+                            "middle",
+                        )).status,
+                    ).toBe("closed");
+
+                    expect(host.registry.list().map((agent) => agent.id))
+                        .toEqual(["parent"]);
+                    const listed = await listAgentsThroughHost(socketPath);
+                    expect(listed.map((agent) => agent.id).sort())
+                        .toEqual(["leaf", "middle", "parent"]);
+                    expect(listed.find((agent) => agent.id === "middle"))
+                        .toMatchObject({
+                            live: false,
+                            session_path: join(sessionDirectory, "middle.jsonl"),
+                        });
+                    expect(listed.find((agent) => agent.id === "leaf"))
+                        .toMatchObject({
+                            live: false,
+                            session_path: join(root, "elsewhere", "leaf.jsonl"),
                         });
                 },
             );

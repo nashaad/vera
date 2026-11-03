@@ -29,6 +29,7 @@ socketTest(
                 }
                 if (targetId === "theirs") return { status: "not_owned" };
                 if (targetId === "wedged") return { status: "failed" };
+                if (targetId === "trashing") return { status: "busy" };
                 return { status: "not_found" };
             },
         });
@@ -46,8 +47,10 @@ socketTest(
                 .toEqual({ status: "rejected", reason: "not_owned" });
             expect(await closeAgentThroughHost(socketPath, "wedged"))
                 .toEqual({ status: "rejected", reason: "failed" });
+            expect(await closeAgentThroughHost(socketPath, "trashing"))
+                .toEqual({ status: "rejected", reason: "busy" });
             expect(calls).toEqual(
-                ["live", "gone", "ghost", "theirs", "wedged"],
+                ["live", "gone", "ghost", "theirs", "wedged", "trashing"],
             );
         } finally {
             await host.close();

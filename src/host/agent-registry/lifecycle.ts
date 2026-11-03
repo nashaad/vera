@@ -43,7 +43,16 @@ export function ownedTreeIds(reg: AgentRegistry, id: string): readonly string[] 
         return reg.agents.has(id) ? [id, ...reg.liveDescendantsOf(id)] : [];
     }
 
+// Returns "busy" without closing anything while a trash holds the id.
 export async function closeAgentTree(reg: AgentRegistry, id: string, reason: SessionEndReason = "closed"): Promise<CloseAgentTreeResult> {
+        if (reg.trashingIds.has(id)) {
+            return { status: "busy", sessionRetained: true, closed: [] };
+        }
+        return closeTree(reg, id, reason);
+    }
+
+// Unguarded: a trash closes the tree it holds.
+async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
         const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
@@ -165,14 +174,37 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
             reg.suppressedCompletionDeliveries.add(target);
         }
         try {
-            return await reg.closeAgentTree(targetId);
+            const result = await reg.closeAgentTree(targetId);
+            if (result.status === "busy") {
+                reg.suppressedCompletionDeliveries.delete(target);
+            } else if (result.status === "closed" && result.sessionRetained) {
+                await reportClosedMembers(reg, result.closed);
+            }
+            return result;
         } catch (error) {
             reg.suppressedCompletionDeliveries.delete(target);
             throw error;
         }
     }
 
+// Awaited so the listing is current before the caller sees the result.
+async function reportClosedMembers(reg: AgentRegistry, members: readonly ClosedMember[]): Promise<void> {
+        const onSessionsClosed = reg.options.onSessionsClosed;
+        if (onSessionsClosed === undefined || members.length === 0) {
+            return;
+        }
+        try {
+            await onSessionsClosed(members);
+        } catch {
+            // The sessions stay on disk and are found again at the next host start.
+        }
+    }
+
+// A second closer of the same entry finds it already reaped, or replaced by a restart it must not remove.
 export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry): Promise<void> {
+        if (reg.agents.get(id) !== entry) {
+            return;
+        }
         entry.inbox?.release();
         reg.agents.delete(id);
         reg.spawnNotices.delete(id);
@@ -475,7 +507,7 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
             reg.trashingIds.add(id);
         }
         try {
-            await reg.closeAgentTree(targetId, "deleted");
+            const closed = [...(await closeTree(reg, targetId, "deleted")).closed];
             try {
                 await reg.trashArtifacts({
                     sessionPath: entry.store.path,
@@ -484,10 +516,17 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
                 });
             } catch {
                 await restartClosedAgents(reg, restartable);
+                // Members that did not restart stay closed and listed, the target among them.
+                await reportClosedMembers(reg, closed);
                 return "failed";
             }
             // A child whose resume began before the reservation can register during the move.
-            await reg.closeAgentTree(targetId, "deleted");
+            closed.push(...(await closeTree(reg, targetId, "deleted")).closed);
+            // The target's file is gone; its children's files stay and stay listed.
+            await reportClosedMembers(
+                reg,
+                closed.filter((member) => member.id !== targetId),
+            );
             return "trashed";
         } finally {
             for (const id of reserved) {
@@ -614,7 +653,9 @@ function parentAcceptsRestart(
         if (reg.trashingIds.has(parentId)) {
             return false;
         }
-        return !plan.parentRegistered || reg.agents.has(parentId);
+        const parent = reg.agents.get(parentId);
+        return !plan.parentRegistered
+            || (parent !== undefined && entryIsLive(parent));
     }
 
 async function restartClosedAgent(reg: AgentRegistry, plan: RestartPlan): Promise<boolean> {

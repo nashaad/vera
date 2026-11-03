@@ -1,5 +1,14 @@
 import { connectHost } from "./connection.ts";
 
+// Shown wherever a client reports that a close or release met a trash.
+export const TRASHING_REFUSAL = "This conversation is being moved to the trash.";
+
+export type CloseRejectionReason =
+    | "not_found"
+    | "not_owned"
+    | "failed"
+    | "busy";
+
 export type CloseAgentResult =
     | {
         readonly status: "closed";
@@ -7,7 +16,7 @@ export type CloseAgentResult =
     }
     | {
         readonly status: "rejected";
-        readonly reason: "not_found" | "not_owned" | "failed";
+        readonly reason: CloseRejectionReason;
     };
 
 export async function closeAgentThroughHost(
@@ -49,10 +58,11 @@ export async function closeAgentThroughHost(
 
 function isCloseRejection(
     value: unknown,
-): value is "not_found" | "not_owned" | "failed" {
+): value is CloseRejectionReason {
     return value === "not_found"
         || value === "not_owned"
-        || value === "failed";
+        || value === "failed"
+        || value === "busy";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

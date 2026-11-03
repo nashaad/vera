@@ -10,6 +10,7 @@ import {
     type ExtensionCommandResult,
 } from "../extensions/commands.ts";
 import { parseAgentUpdate } from "./agent-update-wire.ts";
+import { TRASHING_REFUSAL } from "./agent-close-client.ts";
 import { connectHost, type HostConnection } from "./connection.ts";
 import {
     NO_BACKGROUND_AGENTS,
@@ -110,7 +111,7 @@ export class AgentAttachError extends Error {
 export class AttachmentReleaseError extends Error {
     constructor(
         message: string,
-        readonly reason: "not_found" | "not_owned" | "failed",
+        readonly reason: "not_found" | "not_owned" | "failed" | "busy",
     ) {
         super(message);
         this.name = "AttachmentReleaseError";
@@ -805,12 +806,15 @@ function parseAttachmentReleaseRejected(
         || response.agent_id !== expectedAgentId
         || (response.reason !== "not_found"
             && response.reason !== "not_owned"
-            && response.reason !== "failed")
+            && response.reason !== "failed"
+            && response.reason !== "busy")
     ) {
         return undefined;
     }
     return new AttachmentReleaseError(
-        `Host could not release agent attachment: ${response.reason}`,
+        response.reason === "busy"
+            ? TRASHING_REFUSAL
+            : `Host could not release agent attachment: ${response.reason}`,
         response.reason,
     );
 }

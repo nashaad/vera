@@ -100,7 +100,7 @@ const REQUEST_CEILING_MS = 60_000;
 const INTERACTIVE_DISCONNECT_GRACE_MS = 6_000;
 
 export interface CloseAgentOutcome {
-    readonly status: "closed" | "not_found" | "not_owned" | "failed";
+    readonly status: "closed" | "not_found" | "not_owned" | "failed" | "busy";
     readonly sessionRetained?: boolean;
 }
 

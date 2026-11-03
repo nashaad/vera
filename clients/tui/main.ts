@@ -75,6 +75,7 @@ import { createAgentThroughHost, resumeAgentThroughHost } from
     "../../src/host/agent-start-client.ts";
 import {
     closeAgentThroughHost,
+    TRASHING_REFUSAL,
     type CloseAgentResult,
 } from "../../src/host/agent-close-client.ts";
 import { listSessionsForExtension } from "./session-listing-projection.ts";
@@ -2982,6 +2983,9 @@ export function closeSessionFailure(
     }
     if (reason === "not_found") {
         return "the current conversation is no longer running";
+    }
+    if (reason === "busy") {
+        return TRASHING_REFUSAL;
     }
     return "the host could not stop the current conversation";
 }

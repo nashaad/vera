@@ -1339,13 +1339,16 @@ async function readPairedLiveHost(): Promise<HostLockRecord | undefined> {
 }
 
 function closeRejectionText(
-    reason: "not_found" | "not_owned" | "failed",
+    reason: Extract<CloseAgentResult, { status: "rejected" }>["reason"],
 ): string {
     if (reason === "not_found") {
         return "no agent or session has that id. Run 'vera ls --all' to see them.";
     }
     if (reason === "not_owned") {
         return "that agent belongs to someone else.";
+    }
+    if (reason === "busy") {
+        return "it is being moved to the trash.";
     }
     return "the host could not complete the close.";
 }
