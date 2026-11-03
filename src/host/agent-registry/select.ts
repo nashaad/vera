@@ -10,7 +10,7 @@ import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, 
 import { decideSkillInvocation, loadSkillCommandCatalog, type SkillCommandCatalog, type SkillInvocationDecision } from "../../skills/commands.ts";
 import { sessionIsSubagent } from "../../store/session-store.ts";
 import { delegationAllows } from "./helpers.ts";
-import { RESUME_SELECT_REQUEST_ID, resolveInstructionRoot, samePair, type RegisteredAgentEntry } from "./support.ts";
+import { RESUME_SELECT_REQUEST_ID, samePair, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
 function syncWorkerAfterPermissionChange(
@@ -156,7 +156,7 @@ export async function listSkillsFor(reg: AgentRegistry, id: string): Promise<Ski
             return { skills: [], warnings: ["Skill commands are unavailable."] };
         }
         return loadSkillCommandCatalog({
-            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
+            projectRoot: entry.store.header.cwd,
             ...(entry.selectedAgent?.skills === undefined
                 ? {}
                 : { allowedSkills: entry.selectedAgent.skills }),
@@ -169,7 +169,7 @@ export async function decideSkillInvocationFor(reg: AgentRegistry, id: string, n
             return { allowed: false, reason: `/${name} is unavailable.` };
         }
         return decideSkillInvocation({
-            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
+            projectRoot: entry.store.header.cwd,
             name,
             ...(entry.selectedAgent?.skills === undefined
                 ? {}

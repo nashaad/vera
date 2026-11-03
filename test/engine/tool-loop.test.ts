@@ -446,7 +446,8 @@ Run \`scripts/inspect.sh\` with the value as its first argument.
         hooks: new ToolHooks(),
         approvalMode: "full_access",
         extensionTools: [skillScriptTool],
-        loadContextualContributions: loadSkillContribution,
+        loadContextualContributions: (_root, skills) =>
+            loadSkillContribution(workspace, skills),
     };
 
     try {

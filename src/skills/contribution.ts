@@ -1,5 +1,4 @@
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
-import type { InstructionRoot } from "../engine/memory.ts";
 import {
     loadSkillCatalog,
     type SkillCatalog,
@@ -8,10 +7,10 @@ import {
 const MAX_CATALOG_CHARACTERS = 8_000;
 
 export async function loadSkillContribution(
-    instructionRoot: InstructionRoot,
+    projectRoot: string,
     allowedSkills?: readonly string[],
 ): Promise<readonly PromptContribution[]> {
-    const loaded = await loadSkillCatalog({ projectRoot: instructionRoot.path });
+    const loaded = await loadSkillCatalog({ projectRoot });
     const catalog: SkillCatalog = allowedSkills === undefined ? loaded : {
         ...loaded,
         skills: loaded.skills.filter((skill) =>

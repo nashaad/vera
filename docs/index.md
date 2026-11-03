@@ -74,7 +74,7 @@ your first conversation.
 
 - [Browse and edit customization sources](customize.md)
 - [Agents and delegated work](agents.md)
-- [Use and create skills](skills.md)
+- [Use and write skills](skills.md)
 - [Standing instructions](standing-nudges.md)
 - [Rules](rules.md)
 - [Hooks](hooks.md)

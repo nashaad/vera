@@ -1912,7 +1912,7 @@ export function tipsEnabled(config: Pick<VeraConfig, "tips">): boolean {
     return config.tips?.enabled !== false;
 }
 
-function parseSkillPatterns(value: unknown): readonly string[] | undefined {
+export function parseSkillPatterns(value: unknown): readonly string[] | undefined {
     const patterns = parseStringList(value);
     if (
         patterns === undefined

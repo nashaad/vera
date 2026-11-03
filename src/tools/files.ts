@@ -53,7 +53,7 @@ export const readTool: RegisteredTool = {
         const safePath = await resolveReadPath(context.workspace, path);
         if (basename(safePath) === SKILL_FILENAME) {
             const catalog = await loadSkillCatalog({
-                projectRoot: context.instructionRoot,
+                projectRoot: context.workspace,
             });
             const disabled = findDisabledSkillByPath(catalog, safePath);
             if (disabled !== undefined) {

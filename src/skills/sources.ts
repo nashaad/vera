@@ -1,10 +1,15 @@
 import { realpathSync } from "node:fs";
-import { relative, resolve, isAbsolute } from "node:path";
+import { join, relative, resolve, isAbsolute } from "node:path";
 
-import { loadOptionalVeraConfig, type VeraConfig } from "../config.ts";
+import {
+    loadOptionalVeraConfig,
+    parseSkillPatterns,
+    type VeraConfig,
+} from "../config.ts";
 import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface ExtensionSkillRoot {
     readonly extensionId: string;
@@ -74,6 +79,41 @@ export function resolveSkillSources(): SkillSources {
         extensionRoots,
         warnings,
     };
+}
+
+export interface ProjectSkillSettings {
+    readonly disabledSkills: readonly string[];
+    readonly warnings: readonly string[];
+}
+
+// A broken project list is skipped with a warning so it never blocks the home list.
+export function readProjectSkillSettings(
+    projectRoot: string,
+): ProjectSkillSettings {
+    const path = join(projectRoot, ".vera", "config.json");
+    let raw: unknown;
+    try {
+        raw = JSON.parse(readRegularFileTextSync(path));
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return { disabledSkills: [], warnings: [] };
+        }
+        return {
+            disabledSkills: [],
+            warnings: [`${path} could not be read: ${errorMessage(error)}`],
+        };
+    }
+    const value = typeof raw === "object" && raw !== null && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>).disabled_skills
+        : undefined;
+    const patterns = parseSkillPatterns(value);
+    if (patterns === undefined) {
+        return {
+            disabledSkills: [],
+            warnings: [`disabled_skills in ${path} is not a valid list and was ignored`],
+        };
+    }
+    return { disabledSkills: patterns, warnings: [] };
 }
 
 function isInside(root: string, path: string): boolean {

@@ -14,6 +14,7 @@ import {
 import { veraProfileDirectory } from "../profile-paths.ts";
 import {
     isSkillDisabled,
+    readProjectSkillSettings,
     resolveSkillSources,
     type ExtensionSkillRoot,
 } from "./sources.ts";
@@ -36,7 +37,8 @@ export interface LoadSkillCatalogOptions {
     readonly projectRoot: string;
     readonly systemDirectory?: string;
     readonly userDirectory?: string;
-    // Both default to the home config and enabled extensions.
+    // Both default to the home config and enabled extensions. The project's
+    // own disabled_skills is always added on top.
     readonly disabledSkills?: readonly string[];
     readonly extensionRoots?: readonly ExtensionSkillRoot[];
 }
@@ -65,6 +67,9 @@ export async function loadSkillCatalog(
         extensionRoots ??= sources.extensionRoots;
         warnings.push(...sources.warnings);
     }
+    const project = readProjectSkillSettings(options.projectRoot);
+    warnings.push(...project.warnings);
+    disabledPatterns = [...disabledPatterns, ...project.disabledSkills];
     const roots: readonly {
         readonly scope: SkillScope;
         readonly path: string;

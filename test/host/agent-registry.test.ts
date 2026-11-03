@@ -131,6 +131,54 @@ test("legacy parent-only sessions cannot invoke skill slash commands", async () 
     }
 });
 
+test("a session in a git worktree loads project skills from that worktree", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "vera-agent-worktree-skill-")));
+    const main = join(root, "main");
+    const worktree = join(root, "wt");
+    await mkdir(main, { recursive: true });
+    const git = (cwd: string, ...args: string[]): void => {
+        const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+        if (result.status !== 0) throw new Error(result.stderr);
+    };
+    git(main, "init", "-q");
+    git(main, "-c", "user.email=crow@example.com", "-c", "user.name=crow",
+        "commit", "-q", "--allow-empty", "-m", "init");
+    git(main, "worktree", "add", "-q", worktree);
+    const skillDirectory = join(worktree, ".vera", "skills", "plunder");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(join(skillDirectory, "SKILL.md"), [
+        "---",
+        "name: plunder",
+        "description: Count the hoard.",
+        "---",
+        "Count it.",
+        "",
+    ].join("\n"), "utf8");
+    const sessionPath = join(root, "worktree.jsonl");
+    await SessionStore.create(sessionPath, {
+        sessionId: "worktree-session",
+        cwd: worktree,
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.resume({ sessionPath });
+        const catalog = await registry.listSkillsFor("worktree-session");
+        expect(catalog.skills.map((skill) => skill.name)).toContain("plunder");
+        expect(await registry.decideSkillInvocationFor(
+            "worktree-session",
+            "plunder",
+        )).toMatchObject({ allowed: true });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("failed creation removes its unpublished session", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-create-failure-"));
     const sessionPath = join(root, "failed.jsonl");
