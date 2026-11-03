@@ -102,13 +102,23 @@ test("TUI status marks context as unknown before anything is measured", () => {
     );
 });
 
-test("TUI status shows no context share for a model with no known window", () => {
+test("TUI status shows raw tokens, not a share, for a model with no known window", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gemma4:26b",
         reasoningEffort: "low",
     }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
-        "default · auto · gemma4:26b · low\n/workspace",
+        "default · auto · ctx ~40k · gemma4:26b · low\n/workspace",
     );
+});
+
+test("a narrow composer row drops the unknown-window count rather than crowd the model", () => {
+    const row = renderTuiStatusDetailsRows({
+        model: "gemma4:26b",
+        reasoningEffort: "low",
+    }, "auto", { tokens: 40_000, estimated: true }, "/workspace", 0, undefined, true, undefined, {}, 0, 20)[0]!
+        .map((chunk) => chunk.text).join("");
+    expect(row).not.toContain("ctx");
+    expect(row).toBe("default · auto · gemma4:26b · low");
 });
 
 test("TUI status does not present the user ceiling as an unknown model's max", () => {
@@ -120,7 +130,7 @@ test("TUI status does not present the user ceiling as an unknown model's max", (
         capacity: 204_800,
         estimated: true,
     }, "/workspace")).toBe(
-        "default · auto · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
+        "default · auto · ctx ~20k · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
     );
 });
 
@@ -164,7 +174,7 @@ test("TUI status drops the previous model's max when the next window is unknown"
         model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
         contextLimit: 204_800,
     }, "auto", lastMeasurement, "/workspace")).toBe(
-        "default · auto · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
+        "default · auto · ctx ~20k · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
     );
 });
 
@@ -253,9 +263,15 @@ test("TUI drops segments whose facts say nothing", () => {
     expect(renderTuiStatusSegments([
         { kind: "turn", state: "idle" },
         { kind: "background_agents", running: 0 },
-        { kind: "context", tokens: 400 },
         { kind: "model", model: "gemma4:26b" },
     ])).toBe("gemma4:26b");
+});
+
+test("TUI shows an extension's context segment as raw tokens with no known capacity", () => {
+    expect(renderTuiStatusSegments([
+        { kind: "context", tokens: 400 },
+        { kind: "model", model: "gemma4:26b" },
+    ])).toBe("ctx 400 · gemma4:26b");
 });
 
 test("TUI status snapshot carries facts and no client state", () => {

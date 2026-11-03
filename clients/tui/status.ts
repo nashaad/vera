@@ -83,7 +83,7 @@ function renderTuiStatusSegment(segment: StatusLineSegment): string {
         }
         case "context":
             return segment.capacity === undefined
-                ? ""
+                ? contextTokensOnly(segment.tokens, segment.estimated === true)
                 : contextUsage(
                     segment.tokens,
                     segment.capacity,
@@ -331,7 +331,12 @@ function contextChunks(
     tokenCounts = true,
 ): TuiStatusChunk[] {
     const capacity = visibleContextCapacity(settings, context);
-    if (capacity === undefined) return [];
+    if (capacity === undefined) {
+        // No known window means no denominator: show what was measured, not a
+        // percentage, so the item never just disappears.
+        if (context === undefined || !tokenCounts) return [];
+        return [separator, muted(contextTokensOnly(context.tokens, context.estimated === true))];
+    }
     if (context === undefined) return [separator, muted("ctx ?%")];
     const { tokens, estimated } = context;
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
@@ -483,6 +488,11 @@ function compactWorkspace(workspace: string): string {
         : workspace.startsWith(`${home}/`)
             ? `~/${workspace.slice(home.length + 1)}`
             : workspace;
+}
+
+// The denominator is unknown: show the measured count alone, not a share.
+function contextTokensOnly(tokens: number, estimated: boolean): string {
+    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}`;
 }
 
 function contextUsage(

@@ -31,8 +31,9 @@ its real size. After resume, the loaded-file list describes the last measured
 request.
 
 The maximum comes from the model's known context window. If a local server
-does not publish a window, Vera leaves it unknown rather than estimating one.
-Used, free, and reserved space remain distinguishable without color.
+does not publish a window, or the model is not in Vera's catalog, Vera leaves
+it unknown rather than estimating one. Used, free, and reserved space remain
+distinguishable without color.
 
 The composer shows `ctx ?%` when the model's window is known but the current
 conversation has no measured context yet. It replaces the question mark with
@@ -40,6 +41,11 @@ the measured percentage after a turn. Saved sample conversations may have no
 measurement even when they contain messages. Any measured use fills at least
 one cell of the meter. In a narrow terminal the composer drops the token
 counts and keeps the meter, the percentage, the model, and the effort.
+
+When the model's window is unknown, the composer shows the measured token
+count with no meter and no percentage, since there is no known maximum to
+measure it against. In a narrow terminal that count drops rather than crowd
+the model and effort, the same as the token counts in the known-window case.
 
 ## Large instruction files
 
