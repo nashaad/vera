@@ -311,6 +311,8 @@ export interface AgentRegistryOptions {
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
     readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
+    // Sessions that close_subagent or a trash reaped, which have no caller to report them to the host.
+    readonly onSessionsClosed?: (members: readonly ClosedMember[]) => Promise<void>;
     readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
     readonly createAdapter: (
         provider?: string,
@@ -435,7 +437,8 @@ export interface ClosedMember {
 }
 
 export interface CloseAgentTreeResult {
-    readonly status: "closed" | "not_found";
+    // "busy": a trash holds the tree, so nothing was closed.
+    readonly status: "closed" | "not_found" | "busy";
     readonly sessionRetained: boolean;
     // Every member the close reaped, including one that registered while it waited. Ephemeral sessions are left out: their files are removed.
     readonly closed: readonly ClosedMember[];

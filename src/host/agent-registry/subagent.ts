@@ -668,7 +668,8 @@ export async function closeSubagent(reg: AgentRegistry, callerId: string, effect
             return closeSubagentOutput({
                 requested_subagent_id: effect.subagentId,
                 closed: result.status === "closed",
-                reason: result.status,
+                // The tool result has no busy reason.
+                reason: result.status === "busy" ? "failed" : result.status,
                 ...(result.status === "closed"
                     ? { session_retained: result.sessionRetained }
                     : {}),

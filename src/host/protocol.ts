@@ -326,7 +326,8 @@ export interface AgentClosedResponse {
 export interface AgentCloseRejectedResponse {
     readonly type: "agent_close_rejected";
     readonly agent_id: string;
-    readonly reason: "not_found" | "not_owned" | "failed";
+    /** `busy`: the conversation is being moved to the trash, alone or inside a tree. Nothing was closed. */
+    readonly reason: "not_found" | "not_owned" | "failed" | "busy";
 }
 
 export interface RenameSessionRequest {
@@ -498,7 +499,8 @@ export interface AttachmentReleasedResponse {
 export interface AttachmentReleaseRejectedResponse {
     readonly type: "attachment_release_rejected";
     readonly agent_id: string;
-    readonly reason: "not_found" | "not_owned" | "failed";
+    /** `busy`: the stop was refused because the conversation is being moved to the trash. */
+    readonly reason: "not_found" | "not_owned" | "failed" | "busy";
 }
 
 export interface AgentListResponse {

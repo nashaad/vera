@@ -521,6 +521,7 @@ export async function startResidentHost(
         payload,
         "subagent_finished_hook_failed",
     );
+    const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
@@ -962,6 +963,8 @@ export async function startResidentHost(
             "session_end_hook_failed",
         ),
         onSubagentFinished: notifySubagentFinished,
+        onSessionsClosed: (members): Promise<void> =>
+            indexClosedMembers(registry, members, storedSessionIndex),
     });
     extensions.bindHost(createExtensionHostServices({
         registry,
@@ -995,7 +998,6 @@ export async function startResidentHost(
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
     ) => void = () => {};
-    const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
     // Imports run one at a time so two requests for one file cannot both write.
     let importQueue: Promise<void> = Promise.resolve();
     const storedSessions = new Promise<
@@ -1218,21 +1220,9 @@ export async function startResidentHost(
             commitBranch: (agentId) => registry.commitBranch(agentId),
             syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
             trashSession: async (targetId) => {
-                const members = residentTreeSessionPaths(registry, targetId);
                 const resident = await registry.trashSession(targetId);
                 if (resident === "trashed") {
                     storedSessionIndex.delete(targetId);
-                }
-                if (resident === "trashed" || resident === "failed") {
-                    // A failed move leaves some members closed, and those must stay listed.
-                    await indexClosedMembers(
-                        registry,
-                        members.filter((member) =>
-                            resident === "failed" || member.id !== targetId
-                        ),
-                        storedSessionIndex,
-                    );
-                    return resident;
                 }
                 if (resident !== "not_found") return resident;
                 const stored = await registry.trashStoredSession(
@@ -1268,6 +1258,9 @@ export async function startResidentHost(
             },
             closeAgent: async (targetId, reason) => {
                 const outcome = await registry.closeAgentTree(targetId, reason);
+                if (outcome.status === "busy") {
+                    return { status: "busy" };
+                }
                 if (outcome.status === "closed" && outcome.sessionRetained) {
                     await indexClosedMembers(
                         registry,
@@ -2510,19 +2503,6 @@ async function findOrRestoreAgent(
     }
     const indexed = (await storedSessions).get(agentId);
     return indexed === undefined ? undefined : resume(indexed.session_path);
-}
-
-// Read before closing: a member's file need not sit in sessionDirectory.
-function residentTreeSessionPaths(
-    registry: AgentRegistry,
-    targetId: string,
-): readonly ClosedMember[] {
-    return [targetId, ...registry.liveDescendantsOf(targetId)].flatMap((id) => {
-        const entry = registry.agents.get(id);
-        return entry === undefined
-            ? []
-            : [{ id, sessionPath: entry.store.path }];
-    });
 }
 
 // A member that restarted is resident and listed as such.

@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { attachAgent } from "../../src/host/attached-client.ts";
+import {
+    AttachmentReleaseError,
+    attachAgent,
+} from "../../src/host/attached-client.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
@@ -431,6 +434,40 @@ socketTest(
         } finally {
             first.close();
             replacement?.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "a release refused because the conversation is being trashed says so",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE],
+            findAgent: () => agent,
+            closeAgent: async () => ({ status: "busy" }),
+        });
+        const viewer = await interactiveClient(socketPath, agent.id);
+        try {
+            await viewer.receive();
+            const refused = await viewer.release?.("stop_if_last").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+
+            expect(refused).toBeInstanceOf(AttachmentReleaseError);
+            expect(refused).toMatchObject({
+                reason: "busy",
+                message: "This conversation is being moved to the trash.",
+            });
+        } finally {
+            viewer.close();
             agent.close();
             await server.close();
         }

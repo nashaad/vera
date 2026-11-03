@@ -853,6 +853,19 @@ test("vera close reports a rejection as an error with a next action", async () =
     expect(error).toContain("vera ls --all");
 });
 
+test("vera close says a conversation being trashed cannot be closed yet", async () => {
+    let error = "";
+
+    const exitCode = await runCli(["close", "ghost"], {
+        closeAgent: async () => ({ status: "rejected", reason: "busy" }),
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(error).toContain("Could not close ghost");
+    expect(error).toContain("being moved to the trash");
+});
+
 test("vera close with no agent id names the id and how to find one", async () => {
     let error = "";
 

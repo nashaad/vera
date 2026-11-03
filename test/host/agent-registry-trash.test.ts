@@ -7,6 +7,7 @@ import { basename, join } from "node:path";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import type { SessionEndHookPayload } from "../../src/sdk/hooks.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
+import type { ClosedMember } from "../../src/host/agent-registry/support.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import {
     emptyUsage,
@@ -25,6 +26,7 @@ interface TrashHarness {
     readonly registry: AgentRegistry;
     readonly moved: SessionArtifacts[];
     readonly ended: SessionEndHookPayload[];
+    readonly reported: ClosedMember[];
 }
 
 interface HarnessOptions {
@@ -51,6 +53,7 @@ async function withRegistry(
     const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-tree-"));
     const moved: SessionArtifacts[] = [];
     const ended: SessionEndHookPayload[] = [];
+    const reported: ClosedMember[] = [];
     let agentNumber = 0;
     const registry = new AgentRegistry({
         createAdapter: () => {
@@ -63,6 +66,9 @@ async function withRegistry(
         onSessionEnd: (payload) => {
             ended.push(payload);
             options.onSessionEnd?.(payload);
+        },
+        onSessionsClosed: async (members) => {
+            reported.push(...members);
         },
         ...(options.createToolHooks === undefined
             ? {}
@@ -77,7 +83,7 @@ async function withRegistry(
         },
     });
     try {
-        await run({ root, registry, moved, ended });
+        await run({ root, registry, moved, ended, reported });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -1056,6 +1062,287 @@ test("closing a tree and parking an idle tree return the sessions they closed", 
             expect(sorted(outcome.closed)).toEqual(["parent"]);
             expect(basename(outcome.closed[0]?.sessionPath ?? ""))
                 .toBe("parent.jsonl");
+        },
+    );
+});
+
+test("a close that lands during a trash is refused, and a failed trash leaves the tree running", async () => {
+    const moving = deferred();
+    const release = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            expect(harness.registry.agents.size).toBe(0);
+            for (const id of ["parent", "middle", "leaf"]) {
+                expect(await harness.registry.closeAgentTree(id)).toEqual({
+                    status: "busy",
+                    sessionRetained: true,
+                    closed: [],
+                });
+            }
+            expect(harness.reported).toEqual([]);
+
+            release.resolve();
+            expect(await trashing).toBe("failed");
+
+            expect(harness.registry.list().map((agent) => agent.id).sort())
+                .toEqual(["leaf", "middle", "parent"]);
+            expect((await harness.registry.closeAgentTree("parent")).status)
+                .toBe("closed");
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await release.promise;
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a close of a member the trash is still closing is refused", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const leaf = harness.registry.agents.get("leaf")!;
+            const leafRun = leaf.run;
+            const gate = deferred();
+            leaf.run = gate.promise.then(() => leafRun);
+
+            const trashing = harness.registry.trashSession("parent");
+            expect(leaf.agent.closed).toBe(true);
+            expect(harness.registry.agents.has("leaf")).toBe(true);
+            expect((await harness.registry.closeAgentTree("leaf")).status)
+                .toBe("busy");
+            expect(harness.registry.agents.has("leaf")).toBe(true);
+
+            gate.resolve();
+            expect(await trashing).toBe("failed");
+            expect(harness.registry.find("leaf")).toBeDefined();
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("a trash reports the members that registered while it closed or moved", async () => {
+    const moving = deferred();
+    const finishMove = deferred();
+    const resumeStarted = deferred();
+    const finishBind = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            await harness.registry.closeAgentTree("middle");
+            const bind = harness.registry.bindSessionIdentity.bind(
+                harness.registry,
+            );
+            harness.registry.bindSessionIdentity = async (store) => {
+                resumeStarted.resolve();
+                await finishBind.promise;
+                return bind(store);
+            };
+
+            const late = harness.registry.resume({
+                sessionPath: join(harness.root, "middle.jsonl"),
+            });
+            await resumeStarted.promise;
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            finishBind.resolve();
+            await late;
+
+            finishMove.resolve();
+            expect(await trashing).toBe("trashed");
+
+            // The target's file is gone, so only its child is reported.
+            expect(harness.reported.map((member) => member.id))
+                .toEqual(["middle"]);
+            expect(basename(harness.reported[0]!.sessionPath))
+                .toBe("middle.jsonl");
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await finishMove.promise;
+            },
+        },
+    );
+});
+
+test("a failed trash reports every member it closed, including one that registered while it closed", async () => {
+    const resumeStarted = deferred();
+    const finishBind = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            await harness.registry.closeAgentTree("middle");
+            const bind = harness.registry.bindSessionIdentity.bind(
+                harness.registry,
+            );
+            harness.registry.bindSessionIdentity = async (store) => {
+                resumeStarted.resolve();
+                await finishBind.promise;
+                return bind(store);
+            };
+            const late = harness.registry.resume({
+                sessionPath: join(harness.root, "middle.jsonl"),
+            });
+            await resumeStarted.promise;
+            // The parent's close waits on this, so the late child registers inside it.
+            const parent = harness.registry.agents.get("parent")!;
+            const parentRun = parent.run;
+            const gate = deferred();
+            parent.run = gate.promise.then(() => parentRun);
+
+            const trashing = harness.registry.trashSession("parent");
+            expect(parent.agent.closed).toBe(true);
+            finishBind.resolve();
+            await late;
+            gate.resolve();
+            expect(await trashing).toBe("failed");
+
+            // The parent restarted from its plan; the late child was not planned and stays closed.
+            expect(harness.registry.list().map((agent) => agent.id))
+                .toEqual(["parent"]);
+            expect(harness.reported.map((member) => member.id).sort())
+                .toEqual(["middle", "parent"]);
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("closing a descendant reports the sessions it closed", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+
+            const result = await harness.registry.closeDescendantTree(
+                "parent",
+                "middle",
+            );
+
+            expect(result.status).toBe("closed");
+            expect(harness.reported.map((member) => member.id).sort())
+                .toEqual(["leaf", "middle"]);
+            expect(basename(
+                harness.reported.find((member) => member.id === "leaf")
+                    ?.sessionPath ?? "",
+            )).toBe("leaf.jsonl");
+            expect(harness.registry.find("parent")).toBeDefined();
+        },
+    );
+});
+
+test("a failing report does not undo a close", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const registry = harness.registry;
+            const options = registry.options as {
+                onSessionsClosed?: () => Promise<void>;
+            };
+            options.onSessionsClosed = async () => {
+                throw new Error("listing unavailable");
+            };
+
+            const result = await registry.closeDescendantTree("parent", "middle");
+
+            expect(result.status).toBe("closed");
+            expect(registry.find("middle")).toBeUndefined();
+            expect(registry.find("parent")).toBeDefined();
+        },
+    );
+});
+
+test("a descendant close refused for a trash does not keep suppressing the child's completion", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const middle = harness.registry.agents.get("middle")!;
+            middle.pendingAsyncTurns = 1;
+            harness.registry.trashingIds.add("middle");
+
+            const result = await harness.registry.closeDescendantTree(
+                "parent",
+                "middle",
+            );
+
+            expect(result.status).toBe("busy");
+            expect(harness.registry.suppressedCompletionDeliveries.has(middle))
+                .toBe(false);
+            expect(harness.registry.find("middle")).toBeDefined();
+            harness.registry.trashingIds.delete("middle");
+            middle.pendingAsyncTurns = 0;
+        },
+    );
+});
+
+// Fails the test instead of hanging it when a close never finishes.
+async function finishesWithin<T>(promise: Promise<T>, ms: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("did not finish")), ms);
+    });
+    try {
+        return await Promise.race([promise, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+test("closing an ancestor while a child's failed trash restarts the child finishes and leaves nothing behind", async () => {
+    const parentRun = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            const parent = harness.registry.agents.get("parent")!;
+            const run = parent.run;
+            parent.run = run.then(() => parentRun.promise);
+
+            const trashing = harness.registry.trashSession("middle");
+            const closing = harness.registry.closeAgentTree("parent");
+            expect(await finishesWithin(trashing, 2_000)).toBe("failed");
+            parentRun.resolve();
+            expect((await finishesWithin(closing, 2_000)).status).toBe("closed");
+
+            expect([...harness.registry.agents.keys()]).toEqual([]);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("reaping an entry that is no longer the registered one leaves the registered one alone", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(4)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            const stale = harness.registry.agents.get("parent")!;
+
+            await harness.registry.reapClosedAgent("middle", stale);
+
+            expect(harness.registry.find("middle")).toBeDefined();
+            expect(harness.registry.find("parent")).toBeDefined();
         },
     );
 });
