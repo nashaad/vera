@@ -71,7 +71,7 @@ The list shows your favorites, your current model, and what you used recently. W
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. A switch also sets the model new conversations start on, including after Vera restarts.
 Its sections are Search, the model list, and a More models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches More models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. More models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
 Ctrl+G swaps the list between your favorites and every connected model. Switch model has no sort, score, or price controls and no detail pane. Those are the Models page.
-When Switch model lists one model from more than one provider, each of those rows names its provider.
+Every row in Switch model names the provider it is connected through.
 When a search holds more matches than it shows, the More models row counts the rest.
 Switching to a model with effort levels always asks which level to run, with the carried level highlighted when the new model has it. A model without levels switches straight away.
 `/models` opens the Models page: Library, Catalog, Actions, Defaults, and Help, with Providers under Actions. Ctrl+P also reaches Favorites, Assign model defaults, and Configure providers directly.

@@ -642,33 +642,17 @@ describe("model switcher rendering", () => {
     });
 });
 
-test("only a model listed more than once names its provider", () => {
+test("every row names its connection, whether or not another row shares the model", () => {
     const allRows = [
         { provider: "openai-codex", model: "gpt-5.6-luna", label: "GPT-5.6-Luna" },
         { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna" },
         { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
     ];
-    const state = { ...startTuiModelSwitcher(allRows), rows: allRows };
-    expect(allRows.map((row) => switcherRowProvider(state, row)))
-        .toEqual(["openai-codex", "openrouter", undefined]);
+    expect(allRows.map((row) => switcherRowProvider(row)))
+        .toEqual(["openai-codex", "openrouter", "deepseek"]);
 });
 
-test("a model two routes spell differently names both providers", () => {
-    const allRows = [
-        { provider: "deepseek", model: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", identity: "deepseek-flash" },
-        { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017", label: "DeepSeek: DeepSeek V4.1 Flash 1017", identity: "deepseek-flash" },
-        { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna", identity: "gpt-5.6-luna" },
-    ];
-    const state = { ...startTuiModelSwitcher(allRows), rows: allRows };
-    expect(allRows.map((row) => switcherRowProvider(state, row)))
-        .toEqual(["deepseek", "openrouter", undefined]);
-});
-
-test("a twin left off the list does not count", () => {
-    const allRows = [
-        { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-        { provider: "openrouter", model: "deepseek/deepseek-v4-pro", label: "DeepSeek: DeepSeek V4 Pro" },
-    ];
-    const state = { ...startTuiModelSwitcher(allRows), rows: allRows.slice(0, 1) };
-    expect(switcherRowProvider(state, allRows[0]!)).toBeUndefined();
+test("a row's label stands in for its provider id", () => {
+    const row = { provider: "openrouter", model: "deepseek/deepseek-v4-pro", label: "DeepSeek: DeepSeek V4 Pro", providerLabel: "OpenRouter" };
+    expect(switcherRowProvider(row)).toBe("OpenRouter");
 });

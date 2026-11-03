@@ -611,10 +611,9 @@ export function createTuiModelSwitcherView(
             if (scrolling) scrollHint(above, "above");
             const optionRow = (entry: SwitcherDisplayRow) => {
                 const meta = rowMeta(state, entry.row);
-                const provider = switcherRowProvider(state, entry.row);
                 return {
                     label: entry.row.label,
-                    ...(provider === undefined ? {} : { note: `· ${provider}` }),
+                    note: `· ${switcherRowProvider(entry.row)}`,
                     ...(meta === undefined ? {} : { meta }),
                     active: entry.index === state.selectedIndex,
                     current: modelSwitcherKey(entry.row) === state.current,
@@ -785,25 +784,9 @@ export function switcherUnlistedHint(
     return `${named} are connected. Ctrl+K lists their models.`;
 }
 
-/** A model listed twice names its provider on each row. Routes spell one model differently, so compare identity first, then ids. */
-export function switcherRowProvider(
-    state: TuiModelSwitcherState,
-    row: TuiModelSwitcherRow,
-): string | undefined {
-    const listedTwice = state.rows.some((other) =>
-        other.provider !== row.provider && sameModel(other, row));
-    return listedTwice ? row.providerLabel ?? row.provider : undefined;
-}
-
-/** Curation reconciles the spellings; a model it has never seen falls back to its id's last segment. */
-function sameModel(a: TuiModelSwitcherRow, b: TuiModelSwitcherRow): boolean {
-    if (a.identity !== undefined && a.identity === b.identity) return true;
-    return bareModelId(a.model) === bareModelId(b.model);
-}
-
-/** "openai/gpt-5.6-luna" and "gpt-5.6-luna" are one model. */
-function bareModelId(model: string): string {
-    return (model.split("/").pop() ?? model).toLowerCase();
+/** Every row names the connection it reached the model through. */
+export function switcherRowProvider(row: TuiModelSwitcherRow): string {
+    return row.providerLabel ?? row.provider;
 }
 
 /** The bar marks the cursor, so the check has to mark the current model on its own. */
