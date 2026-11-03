@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
+import { readLastGoodConfig } from "./main/last-good-config.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
@@ -1608,6 +1609,8 @@ export async function startTui(
     for (const row of rt.footerRows) rt.statusBand.add(row);
 
     rt.tipsConfig = loadOptionalVeraConfig();
+    // Model pages fall back to this copy if config.json breaks before they first open.
+    readLastGoodConfig(rt);
     rt.tipsEnabled = rt.tipsConfig === undefined
         || configuredTipsEnabled(rt.tipsConfig);
     rt.tipState = rt.tipsEnabled

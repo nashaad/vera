@@ -453,11 +453,13 @@ export function defaultVeraConfigPath(): string {
  */
 export class VeraConfigError extends Error {
     readonly path: string;
+    readonly problem: string;
 
     constructor(path: string, problem: string) {
         super(`Vera config at ${path} could not be read: ${problem}`);
         this.name = "VeraConfigError";
         this.path = path;
+        this.problem = problem;
     }
 }
 
@@ -487,6 +489,36 @@ export function loadOptionalVeraConfig(
     return loadVeraConfig(options);
 }
 
+export interface LastGoodVeraConfig {
+    readonly config: VeraConfig | undefined;
+    // Set when the file did not load; config is then the last one that loaded from the same path.
+    readonly error?: Error;
+}
+
+/**
+ * `loadOptionalVeraConfig` for screens that only display config: when the file
+ * stops loading, the last config loaded from the same path answers instead.
+ */
+export function createLastGoodVeraConfigReader(
+    options: LoadVeraConfigOptions = {},
+): () => LastGoodVeraConfig {
+    let lastGood: { readonly path: string; readonly config: VeraConfig } | undefined;
+    return () => {
+        const path = options.path ?? defaultVeraConfigPath();
+        try {
+            // Pass options through unchanged: an explicit path moves where hooks and extensions resolve.
+            const config = loadOptionalVeraConfig(options);
+            lastGood = config === undefined ? undefined : { path, config };
+            return { config };
+        } catch (error) {
+            return {
+                config: lastGood?.path === path ? lastGood.config : undefined,
+                error: error instanceof Error ? error : new Error(String(error)),
+            };
+        }
+    };
+}
+
 export function loadVeraConfig(
     options: LoadVeraConfigOptions = {},
 ): VeraConfig {
@@ -513,6 +545,7 @@ export function loadVeraConfig(
     }
 
     const migrated = migrateShippedProviderDeclarations(path, value);
+    checkShippedProviderDeclarations(path, migrated);
     checkDeclaredProviderCaches(path, migrated);
     const movedReviewerKeys = reviewerRouteKeys(migrated);
     if (movedReviewerKeys.length > 0) {
@@ -1459,6 +1492,22 @@ function parseCustomProviders(
 
 function isConfigRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function checkShippedProviderDeclarations(path: string, value: unknown): void {
+    if (!isConfigRecord(value) || !isConfigRecord(value.providers)) return;
+    for (const rawId of Object.keys(value.providers)) {
+        const id = rawId.trim();
+        if (!isVeraProviderId(id)) continue;
+        const redirect = isFixedEndpointProvider(id)
+            ? ""
+            : ` To send its requests to another URL, set provider_endpoints.${id}.`;
+        throw new VeraConfigError(
+            path,
+            `provider "${id}" is built into Vera, so it cannot be declared under providers.`
+                + ` Remove it from providers.${redirect}`,
+        );
+    }
 }
 
 // The loader's one-line error cannot say what is wrong with a hand-written cache block.

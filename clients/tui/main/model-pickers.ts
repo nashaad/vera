@@ -6,6 +6,7 @@ import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts
 import { modelBrowse } from "../model-browse.ts";
 import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
+import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
 import { derivedModelName } from "../../../src/config/model-catalog.ts";
 import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
@@ -128,8 +129,10 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
         undefined,
         pooled,
     ), parent);
+    const notice = lastGoodConfigNotice(readLastGoodConfig(rt));
     rt.settingsPicker = {
         ...rt.settingsPicker,
+        ...(notice === undefined ? {} : { subtitle: notice }),
         ...modelRequestOptionsFacts(rt),
         assignmentOptions: tuiModelAssignmentOptions(
             currentModelAssignmentRows(rt),
@@ -166,7 +169,7 @@ export function modelRequestOptionsFacts(rt: TuiRuntime): Pick<
     TuiSettingsPickerState,
     "requestOptionsProviders" | "configuredRequestOptions"
 > {
-    const config = loadOptionalVeraConfig();
+    const config = readLastGoodConfig(rt).config;
     const requestOptionsProviders = Object.fromEntries(
         configuredProviders(config).flatMap((provider) =>
             provider.requestOptions === undefined
@@ -251,7 +254,7 @@ export function catalogSizeOf(rt: TuiRuntime, provider: string): number {
 }
 
 export function currentModelAssignmentRows(rt: TuiRuntime): readonly ModelAssignmentRow[] {
-    const configured = loadOptionalVeraConfig() ?? startingVeraConfig();
+    const configured = readLastGoodConfig(rt).config ?? startingVeraConfig();
     return configuredModelAssignments(
         configured,
         poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
@@ -265,6 +268,7 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
     query = "",
 ): void {
     const targetState = focusedAgentState(rt);
+    const read = readLastGoodConfig(rt);
     const row = currentModelAssignmentRows(rt).find((entry) => entry.assignment === assignment);
     const parentModel = targetState.modelSettings === undefined
         ? undefined
@@ -284,12 +288,14 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
         row?.allowSelf === true,
         parentModel,
         selectedValue,
-        loadOptionalVeraConfig()?.verify_model_assignments === true,
+        read.config?.verify_model_assignments === true,
         new Set(targetState.modelSettings?.pooled?.map((entry) =>
             `${entry.provider}/${entry.model}`)),
     );
+    const notice = lastGoodConfigNotice(read);
+    const shown = notice === undefined ? started : { ...started, subtitle: notice };
     rt.settingsPicker = withTuiPickerParent(
-        query === "" ? started : withKeptSearch(started, query, selectedValue),
+        query === "" ? shown : withKeptSearch(shown, query, selectedValue),
         parent,
     );
     renderState(rt);
@@ -426,11 +432,13 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
 
 export function openAssignAllPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
     const targetState = focusedAgentState(rt);
+    const read = readLastGoodConfig(rt);
     const started = startTuiAssignAllPicker(
         targetState.modelSettings?.availableModels?.map((entry) => ({ ...entry, available: true, verified: entry.verified === true })),
-        loadOptionalVeraConfig()?.verify_model_assignments === true,
+        read.config?.verify_model_assignments === true,
     );
-    rt.settingsPicker = withTuiPickerParent(started, parent);
+    const notice = lastGoodConfigNotice(read);
+    rt.settingsPicker = withTuiPickerParent(notice === undefined ? started : { ...started, subtitle: notice }, parent);
     renderState(rt);
     focusActiveSurface(rt);
 }
@@ -823,7 +831,8 @@ export function openProviderPicker(rt: TuiRuntime,
         readonly subtitle?: string;
     } = {},
 ): void {
-    const config = loadOptionalVeraConfig();
+    const read = readLastGoodConfig(rt);
+    const config = read.config;
     const connected = new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id));
     const declared = new Set(Object.keys(config?.providers ?? {}));
     const available = setupProviders(config);
@@ -845,7 +854,7 @@ export function openProviderPicker(rt: TuiRuntime,
             shownRows,
             {
                 ...options,
-                subtitle: options.subtitle ?? (connected.size ? undefined : "No provider connected. Choose one below, or add an endpoint of your own."),
+                subtitle: lastGoodConfigNotice(read) ?? options.subtitle ?? (connected.size ? undefined : "No provider connected. Choose one below, or add an endpoint of your own."),
                 ...(!hasLocalRuntime || rt.localRuntime === undefined
                     ? {}
                     : { localRuntime: rt.localRuntime }),

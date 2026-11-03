@@ -28,7 +28,7 @@ import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
-import { loadOptionalVeraConfig } from "../../../src/config.ts";
+import { loadOptionalVeraConfig, VeraConfigError } from "../../../src/config.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import { applyModelSwitch, openModelSwitcher } from "../main/model-switcher-ops.ts";
 
@@ -703,8 +703,13 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             openAssignAllPicker(rt, previousPicker?.kind === "extension" ? undefined : previousPicker);
             return;
         } else if (selection.kind === "model_assignment_all") {
-            if (verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
-            const bindingError = bindModelToAllAssignments(rt, selection.provider, selection.model);
+            let bindingError: string | undefined;
+            try {
+                if (verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
+                bindingError = bindModelToAllAssignments(rt, selection.provider, selection.model);
+            } catch (error) {
+                bindingError = configReadFailure(error);
+            }
             if (bindingError !== undefined) {
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"
                     ? { ...previousPicker, subtitle: bindingError }
@@ -715,10 +720,15 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 return;
             }
         } else if (selection.kind === "model_assignment") {
-            if (selection.model !== undefined && selection.provider !== undefined
-                && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
-                && verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
-            const bindingError = bindModelAssignmentFromPicker(rt, selection);
+            let bindingError: string | undefined;
+            try {
+                if (selection.model !== undefined && selection.provider !== undefined
+                    && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
+                    && verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
+                bindingError = bindModelAssignmentFromPicker(rt, selection);
+            } catch (error) {
+                bindingError = configReadFailure(error);
+            }
             if (bindingError !== undefined) {
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"
                     ? { ...previousPicker, subtitle: bindingError }
@@ -889,6 +899,12 @@ function withFreshDefaultsRows(
     return rebuilt.query === ""
         ? rebuilt
         : updateTuiSettingsPickerSearch(rebuilt, rebuilt.query).state ?? rebuilt;
+}
+
+// The picker is already closed when a save reads the file, so a broken config must reopen it like a refusal.
+function configReadFailure(error: unknown): string {
+    if (error instanceof VeraConfigError) return error.message;
+    throw error;
 }
 
 // With verify_model_assignments on, an unverified model is checked first and the

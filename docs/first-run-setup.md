@@ -99,6 +99,10 @@ credentials. Fixed subscription connections offer **Reconnect** instead.
 Escape from Edit returns to the actions menu. Escape again returns to the
 same provider list and search. Endpoint and refresh shortcuts also work.
 
+A provider Vera ships, such as OpenRouter or DeepSeek, cannot be declared
+again under `providers` in `config.json`; Vera refuses to load that file. Use
+Edit to send a shipped provider's requests to another URL.
+
 ### Forget credentials
 
 **Forget credentials** asks for confirmation and shows how many library
