@@ -38,7 +38,8 @@ must also be named in an `unreviewed_tools` list in the manifest. See
 Install the directory with `/extension install <path>`, or load it from a
 development checkout with `VERA_EXTENSIONS`. See
 [Manage extensions](extensions.md). After a change, the client half reloads on
-its own; the host half needs the resident host restarted.
+its own; the host half needs the resident host restarted, which Reconnect
+host does while the client is still connected.
 
 ## Client APIs
 
@@ -310,8 +311,8 @@ export function activate() {}
   `watches.<id>` in the extension's `config.json` entry.
 
 A watch that keeps failing, for example because `path` is a file, stops until
-the host restarts. Changing a watch also needs the host restarted: choose
-**Reconnect host** from Ctrl+P.
+the host restarts. Changing a watch also needs the host restarted: while
+still connected, choose **Reconnect host** from Ctrl+P.
 
 ## Annex pages
 

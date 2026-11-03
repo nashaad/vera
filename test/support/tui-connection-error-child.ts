@@ -14,7 +14,10 @@ export interface TuiConnectionErrorOptions {
     /** Reconnect attaches, then the new stream dies without going idle. */
     readonly reconnectDiesAgain?: boolean;
     readonly onReconnect?: (
-        options?: { readonly replaceExisting?: boolean },
+        options?: {
+            readonly replaceExisting?: boolean;
+            readonly confirmWedge?: boolean;
+        },
     ) => void;
 }
 

@@ -429,7 +429,7 @@ export function beginFork(rt: TuiRuntime, boundaryId: string): void {
 export function beginHostReconnect(rt: TuiRuntime, 
     options: {
         readonly clearComposer: boolean;
-        readonly replaceExisting?: boolean;
+        readonly manual?: boolean;
     },
 ): void {
     const currentAgentId = rt.client.agentId;
@@ -445,8 +445,11 @@ export function beginHostReconnect(rt: TuiRuntime,
     }
     rt.sessionSwitchPending = true;
     rt.sessionSwitchActivity = "restarting host…";
-    const stayAttached = options.replaceExisting === true
-        && !rt.connectionFailed;
+    // Connected: restart a healthy host so host-side changes (e.g. an extension) take effect.
+    // Disconnected: attach to whatever answers instead of asking it to shut down.
+    const replaceExisting = options.manual === true && !rt.connectionFailed;
+    const confirmWedge = options.manual === true;
+    const stayAttached = replaceExisting;
     if (!stayAttached) {
         settleLostHost(rt, "Host connection closed");
     }
@@ -454,9 +457,8 @@ export function beginHostReconnect(rt: TuiRuntime,
     renderState(rt);
     void withSessionSwitchDeadline(rt, 
         rt.dependencies.reconnectSession(currentAgentId, {
-            ...(options.replaceExisting === true
-                ? { replaceExisting: true }
-                : {}),
+            ...(replaceExisting ? { replaceExisting: true } : {}),
+            ...(confirmWedge ? { confirmWedge: true } : {}),
         }),
         ((next: TuiAgentClient) => discardSwitchTarget(rt, next)),
     ).then((next) => {
@@ -487,7 +489,7 @@ export function beginHostReconnect(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        if (options.replaceExisting === true) {
+        if (replaceExisting) {
             rt.connectionFailed = true;
             rt.connectionFailure = message;
             rt.hostBuildRefusal = undefined;

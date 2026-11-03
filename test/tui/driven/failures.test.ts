@@ -108,6 +108,38 @@ test("failed auto-reconnect stays disconnected and Reconnect host from the palet
     }
 }, 15_000);
 
+test("Reconnect host from the palette while disconnected attaches without a replacement request", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-disconnected-"));
+    const reconnectCalls: Array<
+        { readonly replaceExisting?: boolean; readonly confirmWedge?: boolean } | undefined
+    > = [];
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiConnectionErrorDependencies({
+            reconnectFailures: 1,
+            onReconnect: (options) => {
+                reconnectCalls.push(options);
+            },
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("disconnected: could not start host");
+        await reconnectFromPalette(session);
+        await session.waitForVisiblePane("Host reconnected.");
+
+        expect(reconnectCalls).toHaveLength(2);
+        // The automatic retry, before the user ever sees "disconnected".
+        expect(reconnectCalls[0]?.replaceExisting).toBeUndefined();
+        expect(reconnectCalls[0]?.confirmWedge).toBeUndefined();
+        // The manual retry while disconnected: confirms a wedge, does not ask a healthy host to shut down.
+        expect(reconnectCalls[1]?.replaceExisting).toBeUndefined();
+        expect(reconnectCalls[1]?.confirmWedge).toBe(true);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("a reconnected session that dies again does not restart the host in a loop", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-die-loop-"));
     const session = await startTuiTestSession({

@@ -40,6 +40,34 @@ test("host discovery reuses an already verified resident host", async () => {
     expect(starts).toBe(0);
 });
 
+test("two clients attach to one healthy host without asking it to shut down", async () => {
+    let shutdownRequests = 0;
+    const shutdownForReplacement = async () => {
+        shutdownRequests += 1;
+        return undefined;
+    };
+    const shutdownIfIdle = async () => {
+        shutdownRequests += 1;
+        return undefined;
+    };
+    const attach = () =>
+        ensureResidentHost({
+            lockfile: scriptedLockfile([runningHost]),
+            confirmBusyUpgrade: () => true,
+            startHost: () => {
+                throw new Error("must not start");
+            },
+            shutdownForReplacement,
+            shutdownIfIdle,
+        });
+
+    const [clientA, clientB] = await Promise.all([attach(), attach()]);
+
+    expect(clientA).toEqual(runningHost);
+    expect(clientB).toEqual(runningHost);
+    expect(shutdownRequests).toBe(0);
+});
+
 test("clients from two projects reuse the same resident host", async () => {
     let starts = 0;
     const hostA = await ensureResidentHost({
