@@ -5,6 +5,7 @@ import {
     mkdirSync,
     readFileSync,
     symlinkSync,
+    writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -17,6 +18,7 @@ import {
 import { rollbackLocalInstall } from "../../src/release/rollback.ts";
 import { readStampedRelease } from "../../src/release/stamp.ts";
 import {
+    HostStartRefusedError,
     StartedHostSurvivedError,
     defaultEnsureHost,
     readUpgradeJournal,
@@ -29,8 +31,10 @@ import {
     defaultHomeOf,
     interruptedStart,
     isAlive,
+    lockPathIn,
     makeRoot,
     readLockBuild,
+    registerCleanup,
     runCleanups,
     runDefaultUpgrade,
     spawnDisposable,
@@ -40,6 +44,7 @@ import {
     writeLock,
     writeRelease,
 } from "../support/fake-host-release.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
 afterEach(runCleanups);
 
@@ -486,6 +491,63 @@ test("ensure refuses a live host that is running a different build and spawns no
 
     expect(spawnedPids(next)).toEqual([]);
     expect(isAlive(stale.pid)).toBe(true);
+});
+
+test("ensure refuses a damaged lockfile with no readable pid and spawns nothing", async () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const prefix = join(root, "prefix");
+    mkdirSync(join(home, "runtime"), { recursive: true });
+    writeFileSync(lockPathIn(home), "garbage");
+    const next = writeRelease(prefix, "vera-new", home, "publish");
+
+    await withVeraHome(home, async () => {
+        const attempt = defaultEnsureHost(next.root);
+        await expect(attempt).rejects.toBeInstanceOf(HostStartRefusedError);
+        await expect(attempt).rejects.toThrow(lockPathIn(home));
+        await expect(attempt).rejects.toThrow("Run 'bun run install:local' again.");
+    });
+
+    expect(spawnedPids(next)).toEqual([]);
+    expect(readFileSync(lockPathIn(home), "utf8")).toBe("garbage");
+});
+
+test("ensure refuses a damaged lockfile naming a Vera-looking process and spawns nothing", async () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const prefix = join(root, "prefix");
+    const survivor = spawnVeraLookingProcess(root);
+    registerCleanup(async () => {
+        survivor.kill("SIGKILL");
+        await survivor.exited;
+    });
+    mkdirSync(join(home, "runtime"), { recursive: true });
+    writeFileSync(lockPathIn(home), JSON.stringify({ schema_version: 3, pid: survivor.pid }));
+    const next = writeRelease(prefix, "vera-new", home, "publish");
+
+    await withVeraHome(home, async () => {
+        await expect(defaultEnsureHost(next.root)).rejects.toBeInstanceOf(HostStartRefusedError);
+    });
+
+    expect(spawnedPids(next)).toEqual([]);
+    expect(isAlive(survivor.pid)).toBe(true);
+});
+
+test("ensure starts the host over a damaged lockfile whose pid is not Vera", async () => {
+    const root = makeRoot();
+    const home = join(root, "home");
+    const prefix = join(root, "prefix");
+    const bystander = spawnDisposable();
+    mkdirSync(join(home, "runtime"), { recursive: true });
+    writeFileSync(lockPathIn(home), JSON.stringify({ schema_version: 3, pid: bystander.pid }));
+    const next = writeRelease(prefix, "vera-new", home, "publish");
+
+    await withVeraHome(home, async () => {
+        await defaultEnsureHost(next.root);
+    });
+
+    expect(spawnedPids(next)).toHaveLength(1);
+    expect(isAlive(bystander.pid)).toBe(true);
 });
 
 test("ensure accepts a live host that already runs the release", async () => {

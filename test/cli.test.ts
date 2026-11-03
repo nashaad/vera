@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import {
+    renderCliFailure,
     runCli,
     runCliMain,
 } from "../clients/cli/main.ts";
@@ -17,9 +18,11 @@ import type { VeraDoctorReport } from "../clients/process-doctor.ts";
 import type { LiveProcessReads } from "../src/live-process.ts";
 import {
     HostBuildMismatchError,
+    HostLockUnreadableError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
+import { spawnVeraLookingProcess } from "./support/vera-looking-process.ts";
 import { RetainedReleaseMissingError } from "../src/release/dispatch.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { CatalogRefreshUnsupportedError } from "../src/host/catalog-refresh-client.ts";
@@ -2142,4 +2145,120 @@ test("supervision on an unsupported platform fails with a usable message", async
 
     expect(exitCode).toBe(1);
     expect(errors).toContain("launchd, which linux does not have");
+});
+
+async function withDamagedHostLock<T>(
+    source: string,
+    run: (lockPath: string, root: string) => Promise<T>,
+): Promise<T> {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-damaged-"));
+    const previous = process.env.VERA_HOME;
+    process.env.VERA_HOME = join(root, ".vera");
+    const lockPath = join(root, ".vera", "runtime", "host.json");
+    try {
+        mkdirSync(dirname(lockPath), { recursive: true });
+        writeFileSync(lockPath, source);
+        return await run(lockPath, root);
+    } finally {
+        if (previous === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previous;
+        rmSync(root, { recursive: true, force: true });
+    }
+}
+
+test("vera ls, abort and close refuse a damaged lockfile instead of reporting no host", async () => {
+    await withDamagedHostLock("garbage", async (lockPath) => {
+        for (const args of [["ls"], ["ls", "--all"], ["abort", "agent-1"], ["close", "agent-1"]]) {
+            let output = "";
+            let errors = "";
+            const exitCode = await runCliMain(args, {
+                stdout: { write: (text) => output += text },
+                stderr: { write: (text) => errors += text },
+            });
+
+            expect(exitCode).toBe(1);
+            expect(errors).toContain(lockPath);
+            expect(errors).toContain("cannot tell whether a Vera host is running");
+            expect(output).not.toContain("No live agents");
+            expect(output).toBe("");
+            expect(errors).not.toContain("No live Vera host");
+            expect(errors).not.toContain("Vera failed");
+            expect(existsSync(lockPath)).toBe(true);
+        }
+    });
+});
+
+test("vera ls names the PID when a damaged lockfile names a live Vera process", async () => {
+    const hostRoot = mkdtempSync(join(tmpdir(), "vera-cli-damaged-host-"));
+    const host = spawnVeraLookingProcess(hostRoot);
+    try {
+        const source = JSON.stringify({ schema_version: 3, pid: host.pid });
+        await withDamagedHostLock(source, async (lockPath) => {
+            let errors = "";
+            const exitCode = await runCliMain(["ls"], {
+                stdout: { write: () => undefined },
+                stderr: { write: (text) => errors += text },
+            });
+
+            expect(exitCode).toBe(1);
+            expect(errors).toContain(lockPath);
+            expect(errors).toContain(`Could not confirm PID ${host.pid} is the Vera host`);
+            expect(errors).not.toContain("cannot tell whether a Vera host is running");
+            expect(host.killed).toBe(false);
+        });
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(hostRoot, { recursive: true, force: true });
+    }
+});
+
+test("vera ls reads a damaged lockfile whose pid has exited as no host", async () => {
+    const source = JSON.stringify({ schema_version: 3, pid: 2_000_000_901 });
+    await withDamagedHostLock(source, async () => {
+        let output = "";
+        const exitCode = await runCliMain(["ls"], {
+            stdout: { write: (text) => output += text },
+            stderr: { write: () => undefined },
+        });
+
+        expect(exitCode).toBe(0);
+        expect(output).not.toContain("cannot tell");
+    });
+});
+
+test("vera prune offers nothing and says so when the lockfile has no readable pid", async () => {
+    await withDamagedHostLock("garbage", async (lockPath) => {
+        let output = "";
+        let errors = "";
+        let asked = 0;
+        const exitCode = await runCli(["prune"], {
+            prune: async () => [{
+                schema_version: 1,
+                pid: 2_000_000_802,
+                kind: "host",
+                started_at: new Date().toISOString(),
+                runtime_dir: "/tmp/vera-daily",
+            }],
+            confirmPruneProcess: async () => {
+                asked += 1;
+                return true;
+            },
+            stdout: { write: (text) => output += text },
+            stderr: { write: (text) => errors += text },
+        });
+
+        expect(exitCode).toBe(1);
+        expect(errors).toContain(lockPath);
+        expect(errors).toContain("cannot tell whether a Vera host is running");
+        expect(output).toBe("");
+        expect(asked).toBe(0);
+    });
+});
+
+test("a lockfile failure prints as the unreadable-lockfile sentence alone", () => {
+    const error = new HostLockUnreadableError("/tmp/vera/runtime/host.json");
+
+    expect(renderCliFailure(error)).toBe(error.message);
+    expect(renderCliFailure(error)).toContain("/tmp/vera/runtime/host.json");
 });

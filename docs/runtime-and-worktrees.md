@@ -96,7 +96,10 @@ A lockfile that cannot be read as a whole is damaged, not absent. The same
 commands read its PID when they can and refuse a Vera PID the same way. When
 no PID can be read, they print the lockfile's path, say they cannot tell
 whether a host is running, and exit with status 1; they do not report that no
-host is running.
+host is running. `bun run dev:tui --status` shows the host PID as unknown, or
+the PID with a note, and names the lockfile. A launch, and the first launch's
+copy of the daily home, are refused the same way unless the lockfile is stale:
+its PID has gone or runs another program.
 A host that cannot finish closing, for example because a turn is stuck, exits
 anyway after a short deadline, and quitting the TUI does not wait on it.
 

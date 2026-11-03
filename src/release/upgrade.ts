@@ -27,8 +27,10 @@ import {
     defaultHostLockPath,
     HOST_STARTUP_RACE_EXIT_CODE,
     HostLockUnreadableError,
+    inspectHostLockFile,
     inspectHostLockFileSync,
     readHostLockRecordFile,
+    refuseDamagedHostLock,
     type HostLockRecord,
 } from "../host/lockfile.ts";
 import {
@@ -295,8 +297,8 @@ export class StartedHostSurvivedError extends Error {
     }
 }
 
-// A live host on another build blocks the start. Recovery leaves state untouched;
-// an install still undoes the activation it made.
+// Another build's live host, or a damaged lockfile that may stand for one,
+// blocks the start. Recovery leaves state alone; an install undoes its activation.
 export class HostStartRefusedError extends Error {
     constructor(message: string) {
         super(message);
@@ -401,6 +403,13 @@ export async function defaultEnsureHost(
     const expected = readStampedRelease(releaseRoot).build_id;
     const retry = retryCommand(options.operation ?? "install");
     const lockPath = defaultHostLockPath();
+    try {
+        // Reading a damaged lock as "no host" would start a second host.
+        refuseDamagedHostLock(await inspectHostLockFile(lockPath));
+    } catch (error) {
+        if (!(error instanceof HostLockUnreadableError)) throw error;
+        throw new HostStartRefusedError(`${error.message} Run ${retry} again.`);
+    }
     const existing = await liveHostRecord(lockPath);
     if (existing !== undefined) {
         if (existing.build_id === expected) return;

@@ -61,7 +61,8 @@ it is refused the same way: check that the PID is a Vera host before you stop
 it, and if it is not, delete `runtime/host.json` in the home.
 A lockfile that cannot be read as a whole is handled the same way: a PID that
 runs Vera is refused, and a lockfile with no readable PID is refused with its
-path. Delete the file once you have checked that no host is running.
+path. Delete the file once you have checked that no host is running. An install,
+and finishing an interrupted one, apply the same rule before they start a host.
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

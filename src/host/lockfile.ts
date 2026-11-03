@@ -50,14 +50,24 @@ export type HostLockInspection =
     | { readonly state: "valid"; readonly record: HostLockRecord }
     | { readonly state: "damaged"; readonly path: string; readonly pid?: number };
 
-// Thrown by the stop paths when a lockfile exists but names no readable PID.
+export function damagedLockPidMessage(pid: number, lockPath: string): string {
+    return `Could not confirm PID ${pid} is the Vera host (its lockfile is`
+        + " damaged)."
+        + ` Check that PID ${pid} is a Vera host before you stop it. If it`
+        + ` is not, deleting ${lockPath} is safe.`;
+}
+
+// Thrown when a lockfile exists but cannot be read and its PID, if any, may
+// still be a running Vera host. The message names the PID when one was read.
 export class HostLockUnreadableError extends Error {
-    constructor(readonly lockPath: string) {
+    constructor(readonly lockPath: string, readonly pid?: number) {
         super(
-            `The host lockfile ${lockPath} exists but cannot be read, so Vera`
-                + " cannot tell whether a Vera host is running. Check for a"
-                + " running Vera host (vera doctor lists Vera processes). If"
-                + " there is none, delete the file.",
+            pid !== undefined
+                ? damagedLockPidMessage(pid, lockPath)
+                : `The host lockfile ${lockPath} exists but cannot be read, so Vera`
+                    + " cannot tell whether a Vera host is running. Check for a"
+                    + " running Vera host (vera doctor lists Vera processes). If"
+                    + " there is none, delete the file.",
         );
         this.name = "HostLockUnreadableError";
     }
@@ -227,7 +237,16 @@ export function createHostLockfile(
             return {};
         }
         const record = parseHostLock(serialized);
-        if (record === undefined || record.socket_path !== socketPath) {
+        if (record === undefined) {
+            // Reading a damaged lock as "no host" would start a second host.
+            refuseDamagedHostLock(inspectLockSource(path, serialized), {
+                isProcessAlive,
+                readStartedAt: options.readStartedAt,
+                readCommand: options.readCommand,
+            });
+            return {};
+        }
+        if (record.socket_path !== socketPath) {
             return {};
         }
         const identity = await inspectSocket(socketPath);
@@ -256,6 +275,43 @@ export function createHostLockfile(
         return startTimeUnreadable
             ? { record: { ...record, started_at: identity.started_at } }
             : { record };
+    }
+}
+
+export interface DamagedLockProbe {
+    readonly isProcessAlive?: (pid: number) => boolean;
+    readonly readStartedAt?: ((pid: number) => number | undefined) | undefined;
+    readonly readCommand?: ((pid: number) => string | undefined) | undefined;
+}
+
+// A damaged lock stands for a host unless its PID is gone or provably not
+// Vera. A lock with no readable PID is never ruled out.
+export function damagedLockMayHoldHost(
+    inspection: Extract<HostLockInspection, { state: "damaged" }>,
+    probe: DamagedLockProbe = {},
+): boolean {
+    const pid = inspection.pid;
+    if (pid === undefined) return true;
+    const isAlive = probe.isProcessAlive ?? processIsAlive;
+    if (!isAlive(pid)) return false;
+    return checkRecordIdentity(
+        { pid, started_at: "" },
+        probe.readStartedAt,
+        probe.readCommand,
+    ) !== "mismatch";
+}
+
+// For readers that would start, replace or stop a host: they must not treat
+// a damaged lock that may hold a host as "no host".
+export function refuseDamagedHostLock(
+    inspection: HostLockInspection,
+    probe: DamagedLockProbe = {},
+): void {
+    if (
+        inspection.state === "damaged"
+        && damagedLockMayHoldHost(inspection, probe)
+    ) {
+        throw new HostLockUnreadableError(inspection.path, inspection.pid);
     }
 }
 

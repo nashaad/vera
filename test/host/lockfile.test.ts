@@ -15,6 +15,7 @@ import {
     createHostLockfile,
     defaultHostLockPath,
     defaultHostSocketPath,
+    HostLockUnreadableError,
     HostProtocolMismatchError,
     readHostLockRecordFile,
 } from "../../src/host/lockfile.ts";
@@ -334,7 +335,7 @@ test("the socket owner replaces a malformed lockfile", async () => {
     writeFileSync(path, "partial json");
     const lockfile = createTestLockfile(path);
 
-    expect(await lockfile.read()).toBeUndefined();
+    await expect(lockfile.read()).rejects.toBeInstanceOf(HostLockUnreadableError);
     const record = await lockfile.publish();
 
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(record);

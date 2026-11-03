@@ -135,6 +135,46 @@ test("removeRelease refuses any build while a damaged host lockfile may name a l
     }
 });
 
+test("gcReleases and removeRelease keep every release while a live host's lockfile names no build", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-unknown-build-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-gc-unknown-host-"));
+    const host = spawnVeraLookingProcess(directory);
+    const lockPath = defaultHostLockPath();
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, `${JSON.stringify({
+        schema_version: 2,
+        pid: host.pid,
+        started_at: new Date().toISOString(),
+        socket_path: "/tmp/vera-gc-old.sock",
+    })}\n`);
+    try {
+        writeRelease(prefix, "vera-keep");
+        writeRelease(prefix, "vera-other");
+        writeCurrent(prefix, "vera-keep");
+        const reasons: string[] = [];
+        expect(gcReleases(prefix, { onHeld: (reason) => reasons.push(reason) }))
+            .toEqual([]);
+        expect(existsSync(releaseDirectory("vera-other", prefix))).toBe(true);
+        expect(reasons).toHaveLength(1);
+        expect(reasons[0]).toContain("names no build");
+        expect(() => removeRelease("vera-other", prefix)).toThrow(ReleaseInUseError);
+        expect(() => removeRelease("vera-other", prefix)).toThrow(
+            "The host lockfile names no build",
+        );
+        expect(existsSync(releaseDirectory("vera-other", prefix))).toBe(true);
+
+        host.kill("SIGKILL");
+        await host.exited;
+        expect(gcReleases(prefix)).toEqual(["vera-other"]);
+    } finally {
+        rmSync(lockPath, { force: true });
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
 /** Runs one reference check in a fresh process, so a ps shim on PATH is honoured. */
 function runCheck(
     mode: "hold" | "remove",

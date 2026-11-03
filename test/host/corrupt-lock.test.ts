@@ -12,8 +12,12 @@ import {
     type ForceStopOutcome,
 } from "../../src/host/force-stop.ts";
 import {
+    createHostLockfile,
+    damagedLockMayHoldHost,
+    damagedLockPidMessage,
     HostLockUnreadableError,
     inspectHostLockFile,
+    type HostLockfileOptions,
 } from "../../src/host/lockfile.ts";
 
 const veraHostCommand = "bun /opt/vera/share/vera/current/clients/host/main.ts";
@@ -243,4 +247,117 @@ test("the damaged-lock messages name the pid or the path and say what to do", ()
     expect(message).toContain("/tmp/vera/runtime/host.json");
     expect(message).toContain("cannot tell whether a Vera host is running");
     expect(message).not.toContain("No resident Vera host");
+    const named = new HostLockUnreadableError("/tmp/vera/runtime/host.json", 101).message;
+    expect(named).toBe(damagedLockPidMessage(101, "/tmp/vera/runtime/host.json"));
+    expect(named).toContain("PID 101");
+    expect(named).not.toContain("cannot tell whether");
+});
+
+function readerFor(path: string, options: HostLockfileOptions = {}) {
+    return createHostLockfile({
+        path,
+        socketPath: "/tmp/vera-test.sock",
+        inspectSocket: async () => undefined,
+        ...options,
+    });
+}
+
+const veraLooking: HostLockfileOptions = {
+    isProcessAlive: () => true,
+    readStartedAt: () => Date.parse(complete.started_at),
+    readCommand: () => veraHostCommand,
+};
+
+for (const method of ["read", "diagnose"] as const) {
+    test(`${method} refuses a damaged lock that may stand for a host, and names its path`, async () => {
+        for (const damage of damagedWithPid) {
+            await withLock(damage.source, async (path) => {
+                const error = await readerFor(path, veraLooking)[method]!()
+                    .then(() => undefined, (thrown: unknown) => thrown);
+
+                expect(error, damage.name).toBeInstanceOf(HostLockUnreadableError);
+                expect((error as HostLockUnreadableError).lockPath).toBe(path);
+                expect((error as HostLockUnreadableError).pid, damage.name).toBe(101);
+                expect((error as Error).message, damage.name)
+                    .toBe(damagedLockPidMessage(101, path));
+                expect(existsSync(path), damage.name).toBe(true);
+            });
+        }
+        for (const damage of damagedWithoutPid) {
+            await withLock(damage.source, async (path) => {
+                const error = await readerFor(path, { isProcessAlive: () => false })[
+                    method
+                ]!().then(() => undefined, (thrown: unknown) => thrown);
+
+                expect(error, damage.name).toBeInstanceOf(HostLockUnreadableError);
+                expect((error as HostLockUnreadableError).pid, damage.name).toBeUndefined();
+                expect((error as Error).message, damage.name).toContain(path);
+                expect((error as Error).message, damage.name)
+                    .toContain("cannot tell whether a Vera host is running");
+            });
+        }
+    });
+
+    test(`${method} refuses a damaged lock when its pid cannot be identified`, async () => {
+        await withLock(damagedWithPid[0]!.source, async (path) => {
+            const unreadable = readerFor(path, {
+                ...veraLooking,
+                readStartedAt: () => undefined,
+            });
+            await expect(unreadable[method]!())
+                .rejects.toBeInstanceOf(HostLockUnreadableError);
+        });
+    });
+
+    test(`${method} reads a stale damaged lock as no host`, async () => {
+        for (const damage of damagedWithPid) {
+            await withLock(damage.source, async (path) => {
+                const dead = await readerFor(path, { isProcessAlive: () => false })[
+                    method
+                ]!();
+                const other = await readerFor(path, {
+                    ...veraLooking,
+                    readCommand: () => "/usr/sbin/syslogd",
+                })[method]!();
+
+                expect(dead ?? {}, damage.name).toEqual({});
+                expect(other ?? {}, damage.name).toEqual({});
+                expect(existsSync(path), damage.name).toBe(true);
+            });
+        }
+    });
+}
+
+test("a missing lock and a valid lock for another socket still read as no host", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-corrupt-lock-"));
+    try {
+        const path = join(root, "host.json");
+        expect(await readerFor(path).read()).toBeUndefined();
+        await writeFile(path, JSON.stringify({
+            ...complete,
+            socket_path: "/tmp/another.sock",
+        }));
+        expect(await readerFor(path, veraLooking).read()).toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a damaged lock may hold a host unless its pid is gone or provably not Vera", () => {
+    const damagedNoPid = { state: "damaged", path: "/tmp/host.json" } as const;
+    const damaged = { ...damagedNoPid, pid: 101 } as const;
+
+    expect(damagedLockMayHoldHost(damagedNoPid, { isProcessAlive: () => false }))
+        .toBe(true);
+    expect(damagedLockMayHoldHost(damaged, { isProcessAlive: () => false }))
+        .toBe(false);
+    expect(damagedLockMayHoldHost(damaged, veraLooking)).toBe(true);
+    expect(damagedLockMayHoldHost(damaged, {
+        ...veraLooking,
+        readCommand: () => undefined,
+    })).toBe(true);
+    expect(damagedLockMayHoldHost(damaged, {
+        ...veraLooking,
+        readCommand: () => "/usr/sbin/syslogd",
+    })).toBe(false);
 });

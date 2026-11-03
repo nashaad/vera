@@ -105,7 +105,7 @@ export function spawnDisposable(): Disposable {
     return { pid };
 }
 
-function lockPathIn(home: string): string {
+export function lockPathIn(home: string): string {
     return join(home, "runtime", "host.json");
 }
 

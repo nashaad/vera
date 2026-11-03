@@ -6,7 +6,7 @@ import {
     releasesDirectory,
 } from "./layout.ts";
 import {
-    damagedHostLockHold,
+    hostLockHold,
     referenceReasons,
     referencedBuildIds,
 } from "./references.ts";
@@ -20,7 +20,10 @@ export class ReleaseInUseError extends Error {
         const damaged = reasons.includes("host-lock-damaged")
             ? " The host lockfile is damaged, so Vera cannot tell which release a running host uses."
             : "";
-        super(`Release ${buildId} is still ${why} and cannot be removed.${damaged}`);
+        const unknown = reasons.includes("host-build-unknown")
+            ? " The host lockfile names no build, so Vera cannot tell which release the running host uses."
+            : "";
+        super(`Release ${buildId} is still ${why} and cannot be removed.${damaged}${unknown}`);
         this.name = "ReleaseInUseError";
     }
 }
@@ -42,7 +45,7 @@ export function removeRelease(
 }
 
 export interface GcOptions {
-    // Called with the reason when nothing is removed because a host may be running any release.
+    // Called with the reason when nothing is removed because a running host may use any release.
     readonly onHeld?: (reason: string) => void;
 }
 
@@ -54,9 +57,9 @@ export function gcReleases(
     if (!existsSync(root)) {
         return [];
     }
-    const hold = damagedHostLockHold();
+    const hold = hostLockHold();
     if (hold !== undefined) {
-        options.onHeld?.(hold);
+        options.onHeld?.(hold.message);
         return [];
     }
     const referenced = referencedBuildIds(prefix);

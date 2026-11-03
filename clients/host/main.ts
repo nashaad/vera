@@ -8,6 +8,7 @@ import {
     processIsDevelopmentInstance,
     registerDevInstance,
 } from "../../src/dev-instances.ts";
+import { HostLockUnreadableError } from "../../src/host/lockfile.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { waitForCheckoutRemoval } from "./checkout-watch.ts";
@@ -49,6 +50,11 @@ try {
     if (anotherHostIsServing(error)) {
         process.stderr.write(`${error.message}\n`);
         process.exit(HOST_STARTUP_RACE_EXIT_CODE);
+    }
+    // A supervised host waits this out, so only an unsupervised start gets here.
+    if (error instanceof HostLockUnreadableError) {
+        process.stderr.write(`${renderCliFailure(error)}\n`);
+        process.exit(1);
     }
     throw error;
 }

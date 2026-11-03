@@ -51,6 +51,23 @@ no PID can be read, `vera host stop` prints the lockfile's path, says it
 cannot tell whether a host is running, and exits with status 1. Check for a
 running host with `vera doctor`; if there is none, delete the file.
 
+The commands that would start or replace a host read a damaged lockfile the
+same way. Starting Vera, Reconnect host, `vera ls`, `vera abort` and `vera
+close` do not start a host or report that none is running when the lockfile may
+stand for one. Like `vera host stop`, they name the PID to check, or the
+lockfile's path when no PID can be read. A damaged lockfile whose PID has gone,
+or runs another program, is stale and reads as no host.
+
+When no PID can be read, `vera doctor` shows the resident host as unknown,
+names the lockfile, and lists no stray hosts, and `vera prune` prints the
+lockfile message, lists nothing and exits with status 1. When a PID can be read
+and runs a Vera process, `vera doctor` shows it as the resident host and
+`vera prune` does not offer it for stopping.
+
+A supervised host that finds a damaged lockfile at start, with a socket that
+does not answer, prints the message once and keeps waiting. It starts when the lockfile is fixed or deleted. A host
+started any other way prints the message and exits with status 1.
+
 A socket file existing on disk does not prove the host is answering.
 
 ### The host is a different build
