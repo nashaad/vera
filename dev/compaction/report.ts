@@ -249,15 +249,12 @@ export interface DriveReport {
     readonly capacity: CapacityOverride;
     readonly thresholds: EffectiveThresholds;
     /**
-     * The engine's own warning that the configured budget cannot pay for
-     * itself, verbatim, or null when there is none.
+     * A warning about the configured budget, or null when there is none.
      *
-     * Taken from the `compaction` update when a compaction ran, which is the
-     * only time the engine emits it. A run that configured the mismatch but
-     * never crossed the trigger has no update to read, so the same exported
-     * check is applied to the last measurement instead: the trap is a fact
-     * about the configuration, and a scenario that never fired it is exactly
-     * the one that would otherwise look green.
+     * The engine's own warning comes from the `compaction` update when a
+     * compaction ran. Otherwise a configured trigger that the context never
+     * reached is reported, so a scenario that never exercised compaction does
+     * not look green.
      */
     readonly budget_warning: string | null;
     readonly session_path?: string;
@@ -269,6 +266,22 @@ export interface DriveReport {
     };
     /** Present only when the driver itself could not finish the script. */
     readonly failure?: string;
+}
+
+/**
+ * Set when a trigger was configured, no compaction ran, and the peak context
+ * stayed below it. Null when there is nothing to compare.
+ */
+function untriggeredWarning(
+    peak: number | undefined,
+    bound: CompactionBudget | undefined,
+    attempts: number,
+): string | undefined {
+    const trigger = bound?.trigger?.tokens;
+    if (trigger === undefined || peak === undefined) return undefined;
+    if (attempts > 0 || peak >= trigger) return undefined;
+    return `trigger_tokens (${trigger}) never fired: the context peaked at`
+        + ` ${peak} tokens, so no compaction ran.`;
 }
 
 interface MutableTurn {
@@ -291,6 +304,7 @@ interface MutableTurn {
 export class DriveRecorder {
     private readonly turns: MutableTurn[] = [];
     private context: ContextMeasurement | undefined;
+    private peakTokens: number | undefined;
     private failure: string | undefined;
     private budgetWarning: string | undefined;
 
@@ -305,6 +319,10 @@ export class DriveRecorder {
         const turn = this.turns[this.turns.length - 1];
         if (update.type === "context") {
             this.context = update.measurement;
+            this.peakTokens = Math.max(
+                this.peakTokens ?? 0,
+                update.measurement.tokens,
+            );
             if (turn !== undefined) {
                 turn.context = update.measurement;
             }
@@ -389,6 +407,7 @@ export class DriveRecorder {
                 ?? (this.context === undefined
                     ? undefined
                     : compactionBudgetWarning(this.context, bound))
+                ?? untriggeredWarning(this.peakTokens, bound, attempts.length)
                 ?? null,
             turns,
             summary: {
