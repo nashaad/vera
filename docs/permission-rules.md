@@ -27,7 +27,10 @@ the variable could hold a flag that writes.
 After `cd`, relative paths are read from the new folder when the target starts
 with `/`, `~`, `./`, or `../`. For any other `cd`, such as `cd src` or `cd -`,
 later relative paths are not resolved, so a write through one goes to review in
-auto and asks in ask.
+auto and asks in ask. A `cd` that some bash would not run, such as the second
+`time` in `time time cd /Users/me/proj/a`, a `cd` after `time -p`, a `cd` in a
+`function` body or after `coproc`, or one that ends in `&` and so runs in the
+background, is treated the same way: later relative paths are not resolved.
 
 Shell write and delete targets are checked where they really land. Vera follows
 symlinks in the path, so `printf x > hold/map.txt`, with `hold` linking to a
@@ -51,8 +54,65 @@ workspace. This check runs before the mode, so an Always answer or a Session
 grant cannot allow it. Run the deletion yourself if you mean it. The check reads
 the command as written, so a target built from a variable or a command
 substitution, such as `$HOME`, is not caught.
-Shell nested more than four levels deep, such as `bash -c` inside `bash -c`
-five times, is refused too, because Vera cannot check what runs inside it.
+
+The check also reads the command inside `bash -c`, `sh -c`, `zsh -c`, `$(...)`,
+backticks (including backticks nested inside backticks), `eval`, `exec`,
+`env -S`, `xargs` and `find -exec`. Each of these counts as a level of nesting,
+like `bash -c`. Shell nested more than four levels deep, such as `bash -c`
+inside `bash -c` five times, is refused too, because Vera cannot check what
+runs inside it.
+
+Every here-document body and every here-string is read as a shell script,
+whichever command receives it, and a here-document body is also read line by
+line. So `rm -rf ~` in the body of `cat <<EOF`, or in `grep x <<< 'rm -rf /'`,
+is refused, and each body counts as a level of nesting. The command is also
+read as if it had no here-documents, so text after a `<<` is checked as
+ordinary commands too. Run the deletion yourself if you mean it.
+
+A here-document is refused when its delimiter holds an opening backtick, `$(`,
+`${` or `$[` outside single quotes, or a quoted `-` right after `<<`, because
+Vera cannot tell where the document ends. The delimiter ends at an unquoted `>`
+or `<`, so `cat <<EOF>"$out"` is not refused.
+
+A command whose nested scripts need more checking than a fixed limit is
+refused, because Vera cannot check what runs inside them. The limit grows with
+the length of the command.
+
+Text after a `#` is read too, because bash can read that `#` as part of a word:
+the command is checked once with each `#` as the start of a comment and once as
+ordinary text. So a comment that holds `; rm -rf /` or `$(rm -rf /)` is
+refused, except after an earlier comment with an unmatched quote, such as
+`# don't`, which hides the later one from the second check.
+
+The check sees through the shell's own words that come before a command: `!`,
+`time` (with `-p` or `--`), `coproc` (with or without a name), `function` (with
+its name), `if`, `while`, `then`, `do`, `{`, `command`, `env`, `exec` and
+`eval`. So `time -p rm -rf /`, `coproc { rm -rf /; }`,
+`function f { rm -rf /; }` and `! time rm -rf /` are refused. Any of these
+words can be followed by an assignment or a redirect and then by another such
+word, so `{ 2>/dev/null rm -rf /; }` and `time A=1 rm -rf /` are refused too.
+An assignment before a command can be `A=1`, `A+=1` or `A[0]=1`, and a redirect
+can name its descriptor with `{name}`, as in `{fd}>x rm -rf /`; the command
+after either is checked. A subscript that holds a space, a tab, an operator
+such as `;`, `|`, `&` or `(`, or an arithmetic expansion, such as
+`A[1 + 1]=x rm -rf /`, is not read as an assignment, and a descriptor with a
+subscript, as in `{a[0]}>x`, is not read as a redirect. Both follow the mode.
+
+Bash 3.2 reads `time` after a `case` pattern's `)` as a program and later bash
+reads it as a keyword, and bash in POSIX mode does not read `time -p` as the
+keyword. The command is checked both ways, and a `cd` after such a `time` is
+not trusted. A `#` after a `?`, `*`, `+`, `@` or `!` group, as in `!(true)#`,
+is read both as a comment and as part of the word. A backslash and newline
+inside `<<`, `<(` or `>(` join the operator, as bash does.
+
+Program wrappers such as `/usr/bin/time`, `nohup`, `sudo` and `nice` are not
+followed. `nohup rm -rf /` is not caught by this check and follows the mode.
+
+The check reads only the literal text of the command and of the scripts it
+wraps. It does not check code built from variables or command output, such as
+`eval "$cmd"` or `eval "$(ssh-agent -s)"`, a script read from a file, or a pipe
+into a shell such as `curl ... | sh`; those follow the mode. Commands like
+`find . -name '*.tmp' -exec rm {} +` and `xargs rm < list` follow the mode too.
 
 ## Answer a prompt
 

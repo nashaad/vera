@@ -10,9 +10,15 @@ import {
 } from "../sdk/permissions.ts";
 import {
     nestedShellCommands,
+    scannedExecutableIndex,
+    shellCdIndex,
     simpleCommandExecutableIndex,
-    tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
+import {
+    scanReadings,
+    scanSimpleCommands,
+    type ScanReading,
+} from "../tools/bash-scan.ts";
 import {
     commandsOf,
     isBashParserReady,
@@ -618,6 +624,14 @@ const GIT_OPTIONS_WITH_VALUE = new Set([
 ]);
 
 const MAX_NESTED_SHELL_DEPTH = 4;
+// Caps the characters the guard scans, so nested scripts read under several
+// readings and directories cannot multiply the work. It grows with the command.
+const GUARD_WORK_BASE = 1 << 20;
+const GUARD_WORK_PER_CHARACTER = 16;
+
+interface GuardWork {
+    remaining: number;
+}
 
 export function reviewedGrantProposals(
     decision: ToolPermissionDecision,
@@ -1187,10 +1201,10 @@ function executableName(words: readonly string[]): string {
 
 function nextWorkingDirectory(
     words: readonly string[],
+    executableIndex: number,
     workingDirectory: string | undefined,
     homeDirectory: string,
 ): string | undefined {
-    const executableIndex = simpleCommandExecutableIndex(words);
     if (basename(words[executableIndex] ?? "") !== "cd") {
         return workingDirectory;
     }
@@ -1209,9 +1223,17 @@ function nextTrackedDirectory(
     homeDirectory: string,
 ): string | undefined {
     const { words } = command;
-    const executableIndex = simpleCommandExecutableIndex(words);
-    if (basename(words[executableIndex] ?? "") !== "cd") {
+    const executableIndex = shellCdIndex(words);
+    if (executableIndex === undefined) {
         return workingDirectory;
+    }
+    // Bash 3.2 reads `time` after `time`, `!` or `if` as a program and does
+    // not change directory. A background `cd` changes none either.
+    if (
+        command.background === true
+        || executableIndex !== shellCdIndex(words, undefined, false)
+    ) {
+        return undefined;
     }
     const targets = words.slice(executableIndex + 1);
     const [target] = targets;
@@ -1222,7 +1244,12 @@ function nextTrackedDirectory(
     ) {
         return undefined;
     }
-    return nextWorkingDirectory(words, workingDirectory, homeDirectory);
+    return nextWorkingDirectory(
+        words,
+        executableIndex,
+        workingDirectory,
+        homeDirectory,
+    );
 }
 
 // A bare name may be found through CDPATH, and an option or `-` is not a path.
@@ -1673,7 +1700,17 @@ function accidentGuardReason(
     if (typeof command !== "string") {
         return undefined;
     }
-    return accidentGuardForBash(command, workspace, homeDirectory, workspace, 0);
+    const work: GuardWork = {
+        remaining: GUARD_WORK_BASE + GUARD_WORK_PER_CHARACTER * command.length,
+    };
+    return accidentGuardForBash(
+        command,
+        workspace,
+        homeDirectory,
+        workspace,
+        0,
+        work,
+    );
 }
 
 function accidentGuardForBash(
@@ -1682,58 +1719,128 @@ function accidentGuardForBash(
     homeDirectory: string,
     initialDirectory: string | undefined,
     depth: number,
+    work: GuardWork,
 ): string | undefined {
-    const commands = tokenizeSimpleCommands(command);
-    let workingDirectory = initialDirectory === undefined
-        ? undefined
-        : resolve(initialDirectory);
-    for (const words of commands) {
-        const executableIndex = simpleCommandExecutableIndex(words);
-        const executable = basename(words[executableIndex] ?? "");
-        if (executable === "cd") {
-            workingDirectory = nextWorkingDirectory(
-                words,
-                workingDirectory,
-                homeDirectory,
-            );
-            continue;
-        }
-        if (executable !== "rm") {
-            continue;
-        }
-        const parsedRm = parseRm(words.slice(executableIndex + 1));
-        if (!parsedRm.recursive) {
-            continue;
-        }
-        for (const target of parsedRm.targets) {
-            const reason = prohibitedDeletionReason(
-                target,
-                workingDirectory,
-                workspace,
-                homeDirectory,
-            );
-            if (reason !== undefined) {
-                return reason;
-            }
-        }
-    }
-
-    const nestedCommands = nestedShellCommands(command, commands);
-    if (depth >= MAX_NESTED_SHELL_DEPTH) {
-        return nestedCommands.length === 0
-            ? undefined
-            : `Accident guard refused a command with shell nested more than ${MAX_NESTED_SHELL_DEPTH} levels deep, because it cannot check what the inner commands delete. Run this operation manually if it is intentional.`;
-    }
-    for (const nested of nestedCommands) {
-        const reason = accidentGuardForBash(
-            nested,
+    const checked = new Set<string>();
+    for (const reading of scanReadings(command)) {
+        const reason = accidentGuardForReading(
+            command,
+            reading,
             workspace,
             homeDirectory,
-            workingDirectory,
-            depth + 1,
+            initialDirectory,
+            depth,
+            checked,
+            work,
         );
         if (reason !== undefined) {
             return reason;
+        }
+    }
+    return undefined;
+}
+
+function accidentGuardForReading(
+    command: string,
+    reading: ScanReading,
+    workspace: string,
+    homeDirectory: string,
+    initialDirectory: string | undefined,
+    depth: number,
+    checked: Set<string>,
+    work: GuardWork,
+): string | undefined {
+    work.remaining -= command.length;
+    if (work.remaining < 0) {
+        return "Accident guard refused a command that needs more checking than it allows, because it cannot check what the inner commands delete. Run this operation manually if it is intentional.";
+    }
+    const scanned = scanSimpleCommands(command, reading);
+    if (scanned.some((scannedCommand) => scannedCommand.unreadableDelimiter)) {
+        return "Accident guard refused a command whose here-document delimiter holds an expansion, because it cannot check where the document ends. Run this operation manually if it is intentional.";
+    }
+    // Bash 3.2 reads `time` after `if` or `!` as a program, so its `cd` changes
+    // nothing; later versions change the directory. Both are checked.
+    const timeReadings = scanned.some(({ words }) => words.includes("time"))
+        ? [true, false]
+        : [true];
+    for (const timeAfterControlWord of timeReadings) {
+        let workingDirectory = initialDirectory === undefined
+            ? undefined
+            : resolve(initialDirectory);
+        // The directory each scanned command runs in, for the scripts it starts.
+        const commandDirectories: Array<string | undefined> = [];
+        for (const scannedCommand of scanned) {
+            const { words } = scannedCommand;
+            commandDirectories.push(workingDirectory);
+            const cdIndex = shellCdIndex(
+                words,
+                scannedCommand,
+                timeAfterControlWord,
+            );
+            if (cdIndex !== undefined) {
+                workingDirectory = nextWorkingDirectory(
+                    words,
+                    cdIndex,
+                    workingDirectory,
+                    homeDirectory,
+                );
+                continue;
+            }
+            const executableIndex = scannedExecutableIndex(scannedCommand);
+            const executable = basename(words[executableIndex] ?? "");
+            if (executable !== "rm") {
+                continue;
+            }
+            const parsedRm = parseRm(words.slice(executableIndex + 1));
+            if (!parsedRm.recursive) {
+                continue;
+            }
+            for (const target of parsedRm.targets) {
+                const reason = prohibitedDeletionReason(
+                    target,
+                    workingDirectory,
+                    workspace,
+                    homeDirectory,
+                );
+                if (reason !== undefined) {
+                    return reason;
+                }
+            }
+        }
+
+        const nestedCommands = nestedShellCommands(command, scanned, reading);
+        if (depth >= MAX_NESTED_SHELL_DEPTH) {
+            if (nestedCommands.length === 0) {
+                continue;
+            }
+            return `Accident guard refused a command with shell nested more than ${MAX_NESTED_SHELL_DEPTH} levels deep, because it cannot check what the inner commands delete. Run this operation manually if it is intentional.`;
+        }
+        for (const { script, directoryKnown, commandIndex } of nestedCommands) {
+            // A function body or loop runs after later `cd`s, so a script is
+            // checked where it appears and where the command ends.
+            const directories = !directoryKnown
+                ? [undefined]
+                : commandIndex === undefined
+                    ? [workingDirectory]
+                    : [commandDirectories[commandIndex], workingDirectory];
+            for (const directory of directories) {
+                const key = JSON.stringify([script, directory]);
+                if (checked.has(key)) {
+                    continue;
+                }
+                checked.add(key);
+                const reason = accidentGuardForBash(
+                    script,
+                    workspace,
+                    homeDirectory,
+                    directory,
+                    depth + 1,
+                    work,
+                );
+                if (reason !== undefined) {
+                    return reason;
+                }
+            }
         }
     }
     return undefined;
