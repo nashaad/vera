@@ -5,7 +5,8 @@ import {
     upgradeLocalInstall,
 } from "../../../src/release/upgrade.ts";
 
-const [mode, prefix, releaseRoot] = Bun.argv.slice(2);
+const [mode, prefix, releaseRoot, operationArg] = Bun.argv.slice(2);
+const operation = operationArg === "rollback" ? "rollback" : "install";
 const fixtureRoot = process.env.VERA_FIXTURE_ROOT;
 
 if (
@@ -23,11 +24,12 @@ if (
 
 try {
     if (mode === "recover") {
-        const recovered = await recoverInterruptedUpgrade({ prefix });
+        const recovered = await recoverInterruptedUpgrade({ prefix, operation });
         process.stdout.write(`${JSON.stringify(recovered)}\n`);
     } else {
         const upgraded = await upgradeLocalInstall({
             prefix,
+            operation,
             pack: async () => ({
                 prefix,
                 releaseRoot,
