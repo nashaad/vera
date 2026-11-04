@@ -21,6 +21,11 @@ afterEach(() => {
 
 const REF = { provider: "cerebras", model: "m" };
 
+function daysAgo(days: number): string {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+}
+
 function poolPath(file: unknown): string {
     const directory = mkdtempSync(join(tmpdir(), "vera-effort-pool-"));
     directories.push(directory);
@@ -190,7 +195,34 @@ test("a learned image refusal answers when nothing is declared", () => {
     const path = poolPath({
         models: {
             "cerebras/m": {
-                learned: { images: { ok: false, seen: "2026-08-01" } },
+                learned: { images: { ok: false, seen: daysAgo(2) } },
+            },
+        },
+    });
+
+    expect(createPoolEffortPool({ userPath: path, path })
+        .resolveImageSupport(REF)).toBe(false);
+});
+
+test("a learned image refusal goes stale so a swapped model is tried again", () => {
+    const path = poolPath({
+        models: {
+            "cerebras/m": {
+                learned: { images: { ok: false, seen: daysAgo(31) } },
+            },
+        },
+    });
+
+    expect(createPoolEffortPool({ userPath: path, path })
+        .resolveImageSupport(REF)).toBeUndefined();
+});
+
+test("a declared refusal does not go stale", () => {
+    const path = poolPath({
+        models: {
+            "cerebras/m": {
+                images: false,
+                learned: { images: { ok: false, seen: daysAgo(400) } },
             },
         },
     });

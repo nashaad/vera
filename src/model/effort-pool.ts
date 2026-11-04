@@ -7,6 +7,7 @@ import {
     isEffortLevel,
 } from "./effort-ladder.ts";
 import { IMAGES_LEARNED_KEY, type LearnedFact } from "./pool-file.ts";
+import { resolveImageSupportFromSources } from "./image-support.ts";
 import {
     loadPoolFile,
     type LoadPoolFileOptions,
@@ -117,14 +118,16 @@ export function createPoolEffortPool(
                 loadPoolFile(options).merged,
                 providerCatalog(ref.provider, options),
             );
-            if (typeof lookup.entry?.images === "boolean") {
-                return lookup.entry.images;
-            }
             const learned = lookup.entry?.learned?.[IMAGES_LEARNED_KEY];
-            if (learned !== undefined) {
-                return learned.ok;
-            }
-            return lookup.catalogModel?.image_support;
+            return resolveImageSupportFromSources({
+                ...(typeof lookup.entry?.images === "boolean"
+                    ? { declared: lookup.entry.images }
+                    : {}),
+                ...(learned === undefined ? {} : { learned }),
+                ...(lookup.catalogModel?.image_support === undefined
+                    ? {}
+                    : { catalog: lookup.catalogModel.image_support }),
+            });
         },
         recordLearned(ref, key, fact) {
             try {

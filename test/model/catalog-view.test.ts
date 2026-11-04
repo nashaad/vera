@@ -258,7 +258,8 @@ test("the project file contributes entries alongside the user file", () => {
     ).map((entry) => entry.model)).toEqual(["no-levels", "with-levels"]);
 });
 
-const SEEN = "2026-08-01T00:00:00.000Z";
+/** A fact recent enough that only the image window could mistrust it. */
+const SEEN = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
 
 function probed(): LearnedFacts {
     return {

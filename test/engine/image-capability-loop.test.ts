@@ -309,12 +309,17 @@ test("a model nothing knows about still gets its image sent", async () => {
     });
 });
 
+function daysAgo(days: number): string {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+}
+
 const SEEDED_FALSE = JSON.stringify({
     models: {
         [POOL_ID]: {
             added: true,
             learned: {
-                images: { ok: false, seen: "2026-01-01", error: "no images" },
+                images: { ok: false, seen: daysAgo(2), error: "no images" },
             },
         },
     },
@@ -347,6 +352,41 @@ test("an image already in the history becomes a placeholder", async () => {
             { type: "text", text: "what is in this" },
             { type: "text", text: OMITTED_IMAGE_TEXT },
         ],
+    });
+});
+
+const SEEDED_STALE_FALSE = JSON.stringify({
+    models: {
+        [POOL_ID]: {
+            added: true,
+            learned: {
+                images: { ok: false, seen: daysAgo(40), error: "no images" },
+            },
+        },
+    },
+});
+
+test("a refusal past the window sends the image and learns again", async () => {
+    const context = harness(SEEDED_STALE_FALSE);
+    const recorded = poolBackedAdapter(context, (_attempt, request) =>
+        new FauxAdapter([reply("I see it")]).stream(request));
+    const channel = createInProcessChannel();
+    const { state } = turnState(context, channel, WITH_EFFORT);
+
+    channel.client.send({
+        type: "prompt",
+        content: "look",
+        attachmentIds: ["shot.png"],
+    });
+    await runTurn(recorded.adapter, MODEL, state);
+
+    // A provider that puts a newer model behind a stable id would otherwise
+    // keep a stale refusal forever.
+    expect(imageParts(recorded.requests[0])).toHaveLength(1);
+    expect(readLearned(context.poolPath).images).toEqual({
+        ok: true,
+        seen: new Date().toISOString().slice(0, 10),
+        checked: "user_key",
     });
 });
 
