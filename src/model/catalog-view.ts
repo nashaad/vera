@@ -1,3 +1,4 @@
+import { createReadCache } from "../store/read-cache.ts";
 
 import { effectiveCatalog, type EffectiveCatalogOptions } from "./catalog.ts";
 import type {
@@ -76,10 +77,32 @@ export interface CatalogViewOptions
     readonly includeUncurated?: boolean;
 }
 
+const availableCache = createReadCache<readonly AvailableModel[]>();
+const pooledCache = createReadCache<readonly PooledModel[]>();
+
+function viewKey(options: CatalogViewOptions): string {
+    return JSON.stringify([options.userPath, options.projectPath, options.projectRoot,
+        options.cacheDir, options.includeUncurated]);
+}
+
+function viewInputs(models: readonly SuggestedModel[], options: CatalogViewOptions): readonly unknown[] {
+    return [JSON.stringify(models), loadPoolFile(options).merged,
+        ...[...new Set(models.map((model) => model.provider))]
+            .map((provider) => effectiveCatalog(provider, options))];
+}
+
 /** Adds each model's levels to the host's runnable list. Label and description stay as the host supplied them: discovery knows names for models the shipped catalog has never. */
 export function availableModelsWithLevels(
     models: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
+): readonly AvailableModel[] {
+    return availableCache(viewKey(options), viewInputs(models, options),
+        () => buildAvailableModelsWithLevels(models, options));
+}
+
+function buildAvailableModelsWithLevels(
+    models: readonly SuggestedModel[],
+    options: CatalogViewOptions,
 ): readonly AvailableModel[] {
     const lookup = catalogLookup(options);
     const file = loadPoolFile(options).merged;
@@ -123,6 +146,14 @@ export function availableModelsWithLevels(
 export function pooledModels(
     available: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
+): readonly PooledModel[] {
+    return pooledCache(viewKey(options), viewInputs(available, options),
+        () => buildPooledModels(available, options));
+}
+
+function buildPooledModels(
+    available: readonly SuggestedModel[],
+    options: CatalogViewOptions,
 ): readonly PooledModel[] {
     const lookup = catalogLookup(options);
     const knownModels = new Map<string, CatalogModel>();

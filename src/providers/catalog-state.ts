@@ -1,3 +1,4 @@
+import { createReadCache } from "../store/read-cache.ts";
 import type { VeraConfig } from "../config.ts";
 import { readProviderCatalogSnapshot, type ProviderCatalogCacheOptions } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
@@ -10,17 +11,21 @@ export interface ProviderCatalogState {
     readonly refreshedAt?: string;
 }
 
+const connectionCache = createReadCache<readonly ProviderCatalogState[]>(1);
+
 export function connectedProviderCatalogs(config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
     options: ProviderConnectionOptions & ProviderCatalogCacheOptions = {}): readonly ProviderCatalogState[] {
-    return configuredProviders(config).flatMap((provider) => {
-        if (!isProviderConnected(provider, options)) return [];
-        const snapshot = readProviderCatalogSnapshot(provider.id, options);
+    const descriptors = configuredProviders(config);
+    const connected = descriptors.filter((provider) => isProviderConnected(provider, options));
+    const snapshots = connected.map((provider) => readProviderCatalogSnapshot(provider.id, options));
+    return connectionCache("connected", [descriptors, ...snapshots], () => connected.flatMap((provider, index) => {
+        const snapshot = snapshots[index]!;
         // A shipped local endpoint is a possibility until it has answered or been configured.
         if ((provider.credential === "none" || provider.credential === "api_key_optional")
             && !provider.custom && !provider.endpointOverridden && snapshot.fetched_at === undefined) return [];
         return [{ id: provider.id, label: provider.label,
             ...(snapshot.fetched_at === undefined ? {} : { refreshedAt: snapshot.fetched_at }) }];
-    });
+    }));
 }
 
 export function modelsFromConnectedCatalogs(config: VeraConfig, models: readonly SuggestedModel[],

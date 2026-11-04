@@ -1,3 +1,4 @@
+import { createReadCache } from "../store/read-cache.ts";
 
 import type { SubagentPoolPolicy } from "../engine/subagent.ts";
 import {
@@ -35,10 +36,36 @@ export interface SubagentPolicyOptions
     readonly config?: VeraConfig;
 }
 
+const policyCache = createReadCache<SubagentPoolPolicy>();
+
 export function subagentPoolPolicy(
     options: SubagentPolicyOptions = {},
 ): SubagentPoolPolicy {
     const file = loadPoolFile(options).merged;
+    const config = options.config !== undefined
+        ? options.config
+        : options.configPath === undefined
+        ? options.userPath === undefined
+            ? loadOptionalVeraConfig()
+            : undefined
+        : loadOptionalVeraConfig({ path: options.configPath });
+    const catalogs = [...new Set(Object.keys(file.models).flatMap((id) => {
+        const provider = providerOf(id);
+        return provider === undefined ? [] : [provider];
+    }))].map((provider) => effectiveCatalog(provider, options));
+    const key = JSON.stringify([options.userPath, options.projectPath, options.projectRoot,
+        options.cacheDir, options.configPath]);
+    const assignments = JSON.stringify([config?.models, config?.model_routes,
+        config?.reviewer_profiles, config?.model_assignments]);
+    return policyCache(key, [file, assignments, ...catalogs],
+        () => buildSubagentPoolPolicy(file, config, options));
+}
+
+function buildSubagentPoolPolicy(
+    file: PoolFile,
+    config: VeraConfig | undefined,
+    options: SubagentPolicyOptions,
+): SubagentPoolPolicy {
     const families: Record<string, string> = {};
     for (const [id, entry] of Object.entries(file.models)) {
         if (entry.family !== undefined) {
@@ -52,13 +79,6 @@ export function subagentPoolPolicy(
         : resolvePoolRef(file, file.defaults.subagent) ?? file.defaults.subagent;
     const failsafe = failsafeCandidates(file);
     const tools = failsafeToolSupport(failsafe, file, options);
-    const config = options.config !== undefined
-        ? options.config
-        : options.configPath === undefined
-        ? options.userPath === undefined
-            ? loadOptionalVeraConfig()
-            : undefined
-        : loadOptionalVeraConfig({ path: options.configPath });
     const assignments = config === undefined
         ? undefined
         : Object.fromEntries(MODEL_ASSIGNMENT_IDS.map((id) => {

@@ -1,3 +1,4 @@
+import { createFileReadCache, createReadCache } from "../store/read-cache.ts";
 import {
     mkdirSync,
     readdirSync,
@@ -80,19 +81,26 @@ export function readFreshProviderCatalogSnapshot(
     return age >= 0 && age < maxAgeMs ? snapshot : undefined;
 }
 
+const snapshotCache = createReadCache<ProviderCatalog>();
+
 export function readProviderCatalogSnapshot(
     provider: string,
     options: ProviderCatalogCacheOptions = {},
 ): ProviderCatalog {
     const path = providerCatalogCachePath(provider, options.cacheDir);
 
+    const snapshot = readSnapshot(path);
+    return snapshotCache(path, [snapshot], () => snapshot ?? emptyCatalog(provider));
+}
+
+const readSnapshot = createFileReadCache((path): ProviderCatalog | undefined => {
     try {
         const value: unknown = JSON.parse(readRegularFileTextSync(path));
-        return isProviderCatalog(value) ? value : emptyCatalog(provider);
+        return isProviderCatalog(value) ? value : undefined;
     } catch {
-        return emptyCatalog(provider);
+        return undefined;
     }
-}
+});
 
 export function listDiscoveredProviders(
     options: ProviderCatalogCacheOptions = {},

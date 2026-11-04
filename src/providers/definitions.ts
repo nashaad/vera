@@ -170,8 +170,11 @@ const ALLOWED_LAYERS = new Set([
     "openrouter-error",
 ]);
 
+let shippedDefinitions: readonly ProviderDefinition[] | undefined;
+let shippedIds: readonly string[] | undefined;
+
 export function shippedProviderDefinitions(): readonly ProviderDefinition[] {
-    return readdirSync(DEFINITION_DIRECTORY)
+    return shippedDefinitions ??= readdirSync(DEFINITION_DIRECTORY)
         .filter((name) => name.endsWith(".json"))
         .sort()
         .map((name) => parseProviderDefinition(
@@ -182,7 +185,7 @@ export function shippedProviderDefinitions(): readonly ProviderDefinition[] {
 }
 
 export function shippedProviderIds(): readonly string[] {
-    return shippedProviderDefinitions().map((definition) => definition.id);
+    return shippedIds ??= shippedProviderDefinitions().map((definition) => definition.id);
 }
 
 export function resolveProviders(
