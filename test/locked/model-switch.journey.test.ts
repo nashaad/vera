@@ -81,7 +81,7 @@ test("a model switch is what a new conversation starts on after Vera restarts", 
         );
         first.sendKey("Enter");
         await first.waitForVisiblePane("Applies to the next request.");
-        await footerShowing(first, `openrouter/${SWITCHED} · high`);
+        await footerShowing(first, "opnrtr/journey-switched · high");
         await journey.quit();
 
         expect(JSON.parse(readFileSync(journey.configPath, "utf8"))).toMatchObject({
@@ -94,8 +94,8 @@ test("a model switch is what a new conversation starts on after Vera restarts", 
         await second.waitForVisiblePane("V  E  R  A");
         second.sendKey("C-n");
         await second.waitForVisiblePane("Message Vera");
-        const footer = await footerShowing(second, `openrouter/${SWITCHED} · high`);
-        expect(footer).not.toContain(FIRST);
+        const footer = await footerShowing(second, "opnrtr/journey-switched · high");
+        expect(footer).not.toContain("journey-first");
         await journey.quit();
     } finally {
         await journey.dispose();
