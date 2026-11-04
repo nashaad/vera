@@ -19,6 +19,7 @@ import {
     type PoolFileModel,
     providerOf,
 } from "./pool-file.ts";
+import { resolveImageSupportFromSources } from "./image-support.ts";
 import { poolNameOf } from "./pool-names.ts";
 import { isSelectable, supportedEfforts } from "./pool-policy.ts";
 import type { SuggestedModel } from "./supported-models.ts";
@@ -161,9 +162,16 @@ export function pooledModels(
             }];
         }
         const levels = resolvedLevels(model, entry);
-        const imageSupport = entry?.images
-            ?? entry?.learned?.[IMAGES_LEARNED_KEY]?.ok
-            ?? model.image_support;
+        const learned = entry?.learned?.[IMAGES_LEARNED_KEY];
+        const imageSupport = resolveImageSupportFromSources({
+            ...(typeof entry?.images === "boolean"
+                ? { declared: entry.images }
+                : {}),
+            ...(learned === undefined ? {} : { learned }),
+            ...(model.image_support === undefined
+                ? {}
+                : { catalog: model.image_support }),
+        });
         return [{
             provider,
             model: name,
