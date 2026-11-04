@@ -1,5 +1,6 @@
 
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
+import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import { ToolHooks, type SessionStartContribution } from "../../engine/hooks.ts";
 import type {
     HostBoundary,
@@ -56,6 +57,7 @@ export interface RemoteHostBoundaryOptions {
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
     readonly toolResults?: ToolResultLimits;
+    readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly onReplicaDiverged: (error: Error) => void;
 }
 
@@ -111,9 +113,16 @@ export function createRemoteHostBoundary(
         }
         : undefined;
 
-    // Tools the worker loaded itself replace the proxies whole: a tool that runs here must not also be reachable by name over the boundary.
-    const extensionTools = options.localExtensionTools
-        ?? (options.extensionToolDefinitions ?? []).map(
+    // A tool the worker loaded wins by name; every other host tool stays reachable over the boundary.
+    const localExtensionTools = options.localExtensionTools ?? [];
+    const localNames = new Set(
+        localExtensionTools.map((tool) => tool.definition.name),
+    );
+    const extensionTools = [
+        ...localExtensionTools,
+        ...(options.extensionToolDefinitions ?? [])
+            .filter((registered) => !localNames.has(registered.definition.name))
+            .map(
         (registered): RegisteredTool => ({
             definition: registered.definition,
             ...(registered.invocation === undefined
@@ -143,7 +152,8 @@ export function createRemoteHostBoundary(
                 }
             },
         }),
-        );
+            ),
+    ];
 
     let compaction: ReturnType<typeof bindRemoteCompaction>;
     if (options.compaction !== undefined) {
@@ -313,6 +323,9 @@ export function createRemoteHostBoundary(
                 ? {}
                 : { toolResults: options.toolResults }),
             router: {
+                ...(options.onInboundReady === undefined
+                    ? {}
+                    : { onInboundReady: options.onInboundReady }),
                 ...(capabilities.selectAgent
                     ? {
                         selectAgent: async (name: string) => {

@@ -1,6 +1,6 @@
 import { FauxAdapter } from "../../support/faux-adapter.ts";
 import type { AssistantMessage, ModelAdapter } from "../../../src/model/types.ts";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 /**
  * A worker's model, built inside the worker from JSON.
@@ -16,6 +16,7 @@ export default async function scriptedAdapter(
         readonly script: AssistantMessage[];
         readonly pidPath?: string;
         readonly startupDelayMs?: number;
+        readonly requestLogPath?: string;
     };
     // The worker loads its adapter before its loop listens for events.
     if (configured.startupDelayMs !== undefined) {
@@ -25,5 +26,12 @@ export default async function scriptedAdapter(
         writeFileSync(configured.pidPath, `${process.pid}\n`, "utf8");
     }
     const script = configured.script;
-    return new FauxAdapter(script);
+    const adapter = new FauxAdapter(script);
+    if (configured.requestLogPath === undefined) return adapter;
+    const stream = adapter.stream.bind(adapter);
+    adapter.stream = (request) => {
+        appendFileSync(configured.requestLogPath!, "request\n", "utf8");
+        return stream(request);
+    };
+    return adapter;
 }
