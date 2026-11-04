@@ -3,11 +3,60 @@ import { mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { PreimageStash } from "../../src/store/preimage-stash.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { measureProjectedRequest } from "../../src/engine/context-measurement.ts";
+import type { PromptContribution } from "../../src/engine/prompt-contributions.ts";
+import { emptyUsage, type AssistantMessage, type ModelTool } from "../../src/model/types.ts";
 import { includedExtensionIds } from "../../src/extensions/included.ts";
 import { assertTrialHome, command, random } from "./common.ts";
 
-export const FACTORY_VERSION = 1;
+export const FACTORY_VERSION = 3;
+
+const MEASUREMENT_CAPACITY = 400_000;
+const CONTEXT_MESSAGE_LIMIT = 900;
+const TOOL_RESULT_LIMIT = 7_100;
+// Mid-size sessions read whole files, which keeps the corpus measurement share
+// near the daily home's while the giants keep the observed tool-result mix.
+const MEDIUM_TOOL_RESULT_LIMIT = 30_000;
+
+function toolResultLimit(targetBytes: number, small: boolean): number {
+    if (small) return TOOL_RESULT_LIMIT;
+    return targetBytes >= 1_000_000 && targetBytes < 20_000_000
+        ? MEDIUM_TOOL_RESULT_LIMIT
+        : TOOL_RESULT_LIMIT;
+}
+
+// Same shape the engine builds for a real request: instructions first, then one
+// component per message, so a measurement grows with the context it describes.
+const FACTORY_TOOLS: ModelTool[] = ["read", "edit", "grep", "bash", "glob", "write"].map((name) => ({
+    name,
+    description: `Use ${name} to inspect the pirate crow's charts and currents.`,
+    inputSchema: { type: "object", properties: { path: { type: "string" }, pattern: { type: "string" } }, required: ["path"] },
+}));
+const FACTORY_CONTRIBUTIONS: PromptContribution[] = [
+    { id: "core.identity", owner: "core", target: "stable", title: "Identity", content: "You are Vera, a pirate crow's navigator. ".repeat(20) },
+    { id: "core.narration", owner: "core", target: "stable", title: "Narration", content: "Say what you are doing as you go. ".repeat(20) },
+    { id: "core.tools", owner: "core", target: "stable", title: "Tools", content: "Prefer reading before writing. ".repeat(40) },
+    { id: "core.subagents", owner: "core", target: "stable", title: "Subagents", content: "Delegate independent work. ".repeat(20) },
+    { id: "core.workspace", owner: "core", target: "stable", title: "Workspace", content: "/Users/nash/Projects/vera\n" },
+    { id: "core.date", owner: "core", target: "contextual", title: "Date", content: "2026-11-04" },
+];
+const FACTORY_SYSTEM_PROMPT = FACTORY_CONTRIBUTIONS.map((contribution) => `## ${contribution.title}\n${contribution.content}`).join("\n\n");
+
+async function measureContext(store: SessionStore, model: string): Promise<number> {
+    const measurement = measureProjectedRequest({
+        model,
+        maxTokens: 2048,
+        systemPrompt: FACTORY_SYSTEM_PROMPT,
+        messages: store.modelContext(),
+        tools: FACTORY_TOOLS,
+        projectInstructions: { files: [], warnings: [] },
+    }, MEASUREMENT_CAPACITY, {
+        promptContributions: FACTORY_CONTRIBUTIONS,
+        compaction: { triggerFraction: 0.82, triggerTokens: Math.floor(MEASUREMENT_CAPACITY * 0.82) },
+    });
+    await store.appendContextMeasurement(measurement);
+    return measurement.tokens;
+}
 export interface FactorySession { id: string; bytes: number; targetBytes: number; }
 export interface FactoryManifest {
     version: number;
@@ -59,21 +108,27 @@ export async function buildFactory(options: FactoryOptions): Promise<FactoryMani
         const usage = { ...emptyUsage(), inputTokens: 24000, outputTokens: 200, totalTokens: 24200, cost: .0256 };
         let bytes = (await stat(path)).size;
         let turn = 0;
+        let tokens = 0;
         while (bytes < sizes[index]! - 22000) {
             const remaining = sizes[index]! - bytes - 20000;
-            const payloadSize = Math.max(1, Math.min(128_000, remaining - 2200));
+            const payloadSize = Math.max(1, Math.min(
+                toolResultLimit(sizes[index]!, options.small === true),
+                remaining - 2200,
+            ));
             await store.appendMessage({ role: "user", content: [{ type: "text", text: `Inspect the pirate crow's voyage ${turn}.` }] });
+            tokens = await measureContext(store, source.model);
             const callId = `read-${turn}`;
             await store.appendMessage({ role: "assistant", content: [{ type: "tool_call", id: callId, name: "read", input: { path: "corpus.txt", offset: 1, limit: 1000 } }], source, usage, stopReason: "tool_use" });
             const phrase = `pirate crow reef ${Math.floor(rng() * 100000)} chart and current\n`;
             await store.appendMessage({ role: "tool_result", toolCallId: callId, toolName: "read", isError: false, content: [{ type: "text", text: phrase.repeat(Math.ceil(payloadSize / phrase.length)).slice(0, payloadSize) }] });
+            tokens = await measureContext(store, source.model);
             const final = await store.appendMessage({ role: "assistant", content: [{ type: "text", text: "The pirate crow recorded the bearings and checked the chart." }], source, usage, stopReason: "stop" });
             turn++;
-            if (turn % 8 === 0 || remaining < 150_000) {
+            if (store.modelContext().length >= CONTEXT_MESSAGE_LIMIT || remaining < 150_000) {
                 await store.appendCompaction({
                     boundaryMessageId: final.id, firstRetainedMessageId: null,
                     projection: [{ role: "user", content: [{ type: "text", text: "The pirate crow inspected the charts. Continue the voyage." }] }],
-                    measured: { inputTokens: 260000, contextWindow: 32000, model: source.model, estimated: true },
+                    measured: { inputTokens: tokens, contextWindow: MEASUREMENT_CAPACITY, model: source.model, estimated: true },
                     billed: { provider: source.provider, model: source.model, usage },
                 });
                 await store.appendModelSettings({ provider: source.provider, model: `crow-${(index + turn) % 20}` });
@@ -84,7 +139,7 @@ export async function buildFactory(options: FactoryOptions): Promise<FactoryMani
         const boundary = store.entries().at(-1)!;
         await store.appendCompaction({ boundaryMessageId: boundary.id, firstRetainedMessageId: null,
             projection: [{ role: "user", content: [{ type: "text", text: "Prior voyage observations: " + "pirate crow chart reef bearings. ".repeat(600) }] }],
-            measured: { inputTokens: Math.ceil(bytes / 4), contextWindow: 32000, estimated: true },
+            measured: { inputTokens: tokens, contextWindow: MEASUREMENT_CAPACITY, estimated: true },
             billed: { provider: source.provider, model: source.model, usage },
         });
         await store.appendModelSettings({ provider: source.provider, model: source.model });
