@@ -53,6 +53,7 @@ export interface WorkerStartNotification {
     readonly session: WorkerSessionSeed;
     readonly offers: HostBoundaryOffers;
     readonly extensions?: readonly VeraExtensionConfig[];
+    readonly home?: string;
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];

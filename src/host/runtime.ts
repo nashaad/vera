@@ -602,6 +602,7 @@ export async function startResidentHost(
         approvalMode: options.config.approval_mode,
         availableModels: models,
         cacheDir: cacheDirectory,
+        home,
         refreshAvailableModels: options.createAdapter === undefined
             ? () => {
                 models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, {

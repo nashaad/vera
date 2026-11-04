@@ -137,6 +137,9 @@ export async function runInWorker(reg: AgentRegistry, options: {
             ...(workerExtensions === undefined
                 ? {}
                 : { extensions: workerExtensions }),
+            ...(reg.options.home === undefined
+                ? {}
+                : { home: reg.options.home }),
             ...(options.extensionTools === undefined
                 ? {}
                 : {
