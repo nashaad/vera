@@ -1837,6 +1837,271 @@ test("turn finished waits for the assistant message append", async () => {
     ]);
 });
 
+test("a tool call cut off by the output limit is retried whole", async () => {
+    const partialResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "checking" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "length",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "finished" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({
+                type: "text_delta",
+                contentIndex: 0,
+                text: requests.length === 1 ? "checking" : "finished",
+            });
+            stream.push({ type: "text_end", contentIndex: 0 });
+            if (requests.length === 1) {
+                stream.push({ type: "tool_call_start", contentIndex: 1 });
+                stream.push({
+                    type: "tool_call_delta",
+                    contentIndex: 1,
+                    argumentsDelta: "{\"path\":\"note.txt\"",
+                });
+                stream.push({ type: "done", message: partialResponse });
+            } else {
+                stream.push({ type: "done", message: finalResponse });
+            }
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "write the file" });
+    const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "write the file", 1);
+    await expectContextMeasured(channel, 2);
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "checking",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_activity",
+        phase: "retrying",
+        replacesPartialAttempt: true,
+    });
+    await expectContextMeasured(channel, 5);
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "finished",
+        seq: 6,
+    });
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
+        type: "turn_finished",
+        seq: 7,
+    });
+
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
+    expect(requests.map((request) => request.maxTokens)).toEqual([
+        DEFAULT_MODEL_MAX_TOKENS,
+        ESCALATED_MODEL_MAX_TOKENS,
+    ]);
+    // A retry repeats the original request; no continuation prompt is added.
+    expect(requests[1]?.messages.map(withoutCallDuration)).toEqual(
+        requests[0]?.messages.map(withoutCallDuration),
+    );
+    expect(state.messages.map(withoutCallDuration)).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "write the file" }],
+        },
+        finalResponse,
+    ]);
+    expect(observed).toContainEqual({
+        type: "model_length_continuation",
+        model: "test",
+        previousMaxTokens: DEFAULT_MODEL_MAX_TOKENS,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: 1,
+        maxContinuations: 3,
+    });
+    expect(observed).toContainEqual(expect.objectContaining({
+        type: "model_retry_scheduled",
+        nextAttempt: 2,
+        maxAttempts: 4,
+        replacesPartialAttempt: true,
+    }));
+});
+
+test("a tool call cut off again at the escalated cap ends with an output limit error", async () => {
+    const firstResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "checking" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "length",
+    };
+    const secondResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "still writing" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "length",
+    };
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            const message = requests.length === 1 ? firstResponse : secondResponse;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({
+                type: "text_delta",
+                contentIndex: 0,
+                text: message.content[0]?.type === "text"
+                    ? message.content[0].text
+                    : "",
+            });
+            stream.push({ type: "text_end", contentIndex: 0 });
+            stream.push({ type: "tool_call_start", contentIndex: 1 });
+            stream.push({
+                type: "tool_call_delta",
+                contentIndex: 1,
+                argumentsDelta: "{\"path\"",
+            });
+            stream.push({ type: "done", message });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "write the file" });
+    const turn = runTurn(adapter, "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+
+    const error = "The reply was longer than the model's output limit, so the tool call "
+        + "was cut off and did not run. Ask for the work in smaller pieces, or "
+        + "switch to a model that allows longer replies.";
+    expect(updates).toContainEqual(expect.objectContaining({
+        type: "turn_finished",
+        outcome: "error",
+        error,
+    }));
+    expect(withoutCallDuration(await turn)).toMatchObject({
+        stopReason: "error",
+        errorMessage: error,
+    });
+    expect(requests.map((request) => request.maxTokens)).toEqual([
+        DEFAULT_MODEL_MAX_TOKENS,
+        ESCALATED_MODEL_MAX_TOKENS,
+    ]);
+    expect(state.messages.map(withoutCallDuration)).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "write the file" }],
+        },
+        { ...secondResponse, stopReason: "error", errorMessage: error },
+    ]);
+    expect(observed.filter((event) => event.type === "model_retry_scheduled"))
+        .toHaveLength(1);
+    expect(observed).toContainEqual({
+        type: "model_length_continuation",
+        model: "test",
+        previousMaxTokens: DEFAULT_MODEL_MAX_TOKENS,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: 1,
+        maxContinuations: 3,
+    });
+});
+
+test("a length stop with only thinking still continues the reply", async () => {
+    const partialResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "thinking", text: "still reasoning" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "length",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([partialResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "think it through" });
+    const turn = runTurn(adapter, "test", state);
+    await receiveThroughTurnFinished(channel);
+
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
+    expect(requests[1]?.messages.map(withoutCallDuration)).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "think it through" }],
+        },
+        partialResponse,
+        {
+            role: "user",
+            content: [{ type: "text", text: LENGTH_CONTINUATION_PROMPT }],
+            internal: true,
+        },
+    ]);
+    expect(observed.filter((event) => event.type === "model_retry_scheduled"))
+        .toHaveLength(0);
+});
+
 test("a length stop preserves streamed text and continues with a larger cap", async () => {
     const partialResponse: AssistantMessage = {
         role: "assistant",
