@@ -64,6 +64,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.promptQueue === undefined
                 || isPromptQueueState(update.promptQueue))
             && (update.status === undefined || isAgentStatus(update.status))
+            && (update.page === undefined || isHistoryPageInfo(update.page))
             ? value as AgentUpdate
             : undefined;
     }
@@ -1108,6 +1109,20 @@ function isUserAuthorization(value: unknown): boolean {
 
 function isModelReasoningEffort(value: unknown): boolean {
     return typeof value === "string" && value.length > 0;
+}
+
+function isHistoryPageInfo(value: unknown): boolean {
+    const page = asRecord(value);
+    return page !== undefined
+        && isPositiveInteger(page.pageVersion)
+        && typeof page.hasMore === "boolean"
+        && (page.olderBefore === undefined
+            || (typeof page.olderBefore === "string"
+                && page.olderBefore.length > 0))
+        && (page.headId === undefined
+            || (typeof page.headId === "string" && page.headId.length > 0))
+        && (page.tailId === undefined
+            || (typeof page.tailId === "string" && page.tailId.length > 0));
 }
 
 function isAgentStatus(value: unknown): value is AgentStatus {

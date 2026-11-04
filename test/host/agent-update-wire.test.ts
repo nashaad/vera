@@ -150,6 +150,35 @@ test("turn finished and history accept only a true steered flag", () => {
     })).toBeUndefined();
 });
 
+test("history accepts a page only when every field is complete", () => {
+    const page = {
+        pageVersion: 1,
+        hasMore: true,
+        olderBefore: "message-1#0",
+        headId: "message-9#0",
+        tailId: "message-8#0",
+    };
+    const history = {
+        type: "history" as const,
+        entries: [],
+        seq: 2,
+        page,
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        page: { ...page, hasMore: "yes" },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...history,
+        page: { ...page, pageVersion: 0 },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...history,
+        page: { ...page, olderBefore: "" },
+    })).toBeUndefined();
+});
+
 test("turn finished and history carry the classifier failure that ended a turn", () => {
     const classifierFailure = {
         tool: "write",

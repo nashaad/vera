@@ -1023,6 +1023,14 @@ function receiveConnection(
             });
             return;
         }
+        if (message.type === "history_page") {
+            void send({
+                type: "history_page_failed",
+                request_id: message.request_id,
+                reason: "unavailable",
+            });
+            return;
+        }
         try {
             attachment.send(message);
         } catch {
