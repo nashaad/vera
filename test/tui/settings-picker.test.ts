@@ -4515,3 +4515,36 @@ test("Narrow catalog keeps the fact columns and spends the badges instead", asyn
         expect(line.trimEnd().endsWith("…")).toBe(false);
     }
 });
+
+test("an unchanged picker state does not rebuild its rows", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 40 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    const state = startTuiSessionPicker([{
+        id: "66666666-steady",
+        workspace: "/work/alpha",
+        session_path: "/sessions/steady.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Hold the course",
+        has_user_content: true,
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+    try {
+        view.update(state);
+        const rows = view.box.getChildren();
+        expect(rows.length).toBeGreaterThan(0);
+        view.update(state);
+        const again = view.box.getChildren();
+        expect(again.length).toBe(rows.length);
+        for (let index = 0; index < rows.length; index++) {
+            expect(again[index]).toBe(rows[index]);
+        }
+        view.update({ ...state, selectedIndex: state.selectedIndex + 2 });
+        expect(view.box.getChildren()[0]).not.toBe(rows[0]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});

@@ -48,12 +48,16 @@ function brightenTitle(header: DialogHeaderRecord): void {
     if (header.suppliedTitle && (current.r !== text.r || current.g !== text.g || current.b !== text.b)) return;
     const panel = RGBA.fromHex(TUI_PANEL);
     const target = (panel.r + panel.g + panel.b) / 3 < 0.5 ? 1 : 0;
-    header.title.fg = TUI_CHROME === "norton" ? TUI_NOTICE : RGBA.fromValues(
+    const brightened = TUI_CHROME === "norton" ? RGBA.fromHex(TUI_NOTICE) : RGBA.fromValues(
         text.r + (target - text.r) * 0.7,
         text.g + (target - text.g) * 0.7,
         text.b + (target - text.b) * 0.7,
         1,
     );
+    // renderBefore runs every frame; assigning an unchanged fg requests another render.
+    if (current.r === brightened.r && current.g === brightened.g
+        && current.b === brightened.b && current.a === brightened.a) return;
+    header.title.fg = brightened;
 }
 
 function applyHeaderChrome(header: DialogHeaderRecord): void {
