@@ -8,7 +8,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 
 export interface HostLogEntry extends Record<string, unknown> {
     readonly type: string;
@@ -16,8 +19,8 @@ export interface HostLogEntry extends Record<string, unknown> {
 
 export type HostLog = (entry: HostLogEntry) => void;
 
-export function defaultHostLogPath(): string {
-    return join(veraRuntimeDirectory(), "logs", "host.jsonl");
+export function defaultHostLogPath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "logs", "host.jsonl");
 }
 
 export interface HostLoggerOptions {

@@ -9,7 +9,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ModelUsage } from "../model/types.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 
 export type ReviewLogTier = "single" | "fast" | "strong";
 
@@ -47,8 +50,8 @@ export interface ReviewLogEntry {
 
 export type ReviewLog = (entry: ReviewLogEntry) => void;
 
-export function defaultReviewLogPath(): string {
-    return join(veraRuntimeDirectory(), "logs", "reviewer.jsonl");
+export function defaultReviewLogPath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "logs", "reviewer.jsonl");
 }
 
 export interface ReviewLoggerOptions {

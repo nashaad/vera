@@ -8,13 +8,21 @@ import {
 } from "../profile-paths.ts";
 import type { VeraExtensionStorage } from "../sdk/extensions.ts";
 
-export function extensionStorage(id: string): VeraExtensionStorage {
+export interface ExtensionStorageRoots {
+    readonly profile: string;
+    readonly machine: string;
+}
+
+export function extensionStorage(
+    id: string,
+    roots?: ExtensionStorageRoots,
+): VeraExtensionStorage {
     return Object.freeze({
         get profile(): string {
-            return ensure(veraProfileDirectory(), id);
+            return ensure(roots?.profile ?? veraProfileDirectory(), id);
         },
         get machine(): string {
-            return ensure(veraMachineDirectory(), id);
+            return ensure(roots?.machine ?? veraMachineDirectory(), id);
         },
     });
 }

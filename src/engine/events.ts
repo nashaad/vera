@@ -47,7 +47,10 @@ import type {
     ToolReviewRiskLevel,
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -641,8 +644,8 @@ export interface JsonlEventLoggerOptions {
     readonly level?: EventLogLevel;
 }
 
-export function eventLogRoot(): string {
-    return join(veraRuntimeDirectory(), "logs");
+export function eventLogRoot(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "logs");
 }
 
 export function defaultEventLogPath(

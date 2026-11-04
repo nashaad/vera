@@ -2,11 +2,11 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { EngineEvent } from "../engine/events.ts";
-import { veraProfileDirectory } from "../profile-paths.ts";
+import { selectedVeraHome } from "../profile-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
-export function defaultTrustNoticePath(): string {
-    return join(veraProfileDirectory(), "trust-notices.json");
+export function defaultTrustNoticePath(home?: string): string {
+    return join(selectedVeraHome(home), "trust-notices.json");
 }
 
 // The installed extensions that already showed the auto-mode trust notice in this home.

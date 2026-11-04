@@ -1,7 +1,10 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import type { AssistantMessage } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { readRegularFileTextSync } from "./regular-file.ts";
@@ -54,10 +57,12 @@ const MAX_RECORDS = 500;
 
 const MAX_DETAIL_LENGTH = 400;
 
-export function defaultModelFailureLedgerPath(
-    root: string = veraRuntimeDirectory(),
-): string {
-    return join(root, "failures", "ledger.jsonl");
+export function defaultModelFailureLedgerPath(home?: string): string {
+    return join(
+        veraRuntimeDirectoryIn(selectedVeraHome(home)),
+        "failures",
+        "ledger.jsonl",
+    );
 }
 
 export class ModelFailureLedger {

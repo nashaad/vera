@@ -9,7 +9,10 @@ import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
 import type { ProviderCatalog } from "./catalog-shape.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import { isSafeProviderId } from "../providers/provider-id.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
@@ -17,8 +20,8 @@ export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
 }
 
-export function providerCatalogCacheDir(): string {
-    return join(veraRuntimeDirectory(), "cache");
+export function providerCatalogCacheDir(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "cache");
 }
 
 export function providerCatalogCachePath(
