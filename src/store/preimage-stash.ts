@@ -101,6 +101,50 @@ export function sessionChangedFiles(
         .map((entry) => entry.path);
 }
 
+export class SessionChangedFileCounts {
+    private directory: string | undefined;
+    private stamp: string | undefined;
+    private count = 0;
+
+    read(sessionId: string, root: string = defaultStashRoot()): number {
+        const directory = join(root, sessionId);
+        const stamp = stashDirectoryStamp(directory);
+        if (stamp !== undefined && directory === this.directory && stamp === this.stamp) {
+            return this.count;
+        }
+        this.stamp = undefined;
+        let files: string[];
+        try {
+            files = readdirSync(directory);
+        } catch {
+            return 0;
+        }
+        let count = 0;
+        let complete = true;
+        for (const file of files) {
+            if (!file.endsWith(".json")) continue;
+            if (readSidecar(join(directory, file)) === undefined) complete = false;
+            else count += 1;
+        }
+        // A worker may have created the sidecar but not finished writing it yet.
+        if (complete && stamp === stashDirectoryStamp(directory)) {
+            this.directory = directory;
+            this.stamp = stamp;
+            this.count = count;
+        }
+        return count;
+    }
+}
+
+function stashDirectoryStamp(directory: string): string | undefined {
+    try {
+        const info = statSync(directory, { bigint: true });
+        return `${info.dev}:${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
+    } catch {
+        return undefined;
+    }
+}
+
 export function summarizeStash(
     root: string = defaultStashRoot(),
 ): StashSummary | undefined {
