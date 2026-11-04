@@ -375,7 +375,7 @@ function isProjection(value: unknown): value is ContextProjectionMeasurement | u
         && projection.components.every(isProjectionComponent);
 }
 
-function isProjectionComponent(value: unknown): boolean {
+export function isProjectionComponent(value: unknown): boolean {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
     }
