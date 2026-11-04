@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { AsyncQueue } from "./async-queue.ts";
+import { TurnWorkClock } from "./turn-work-clock.ts";
 import type {
     ConfigurationRequiredUiRequest,
     ConfigurationRequiredUiResponse,
@@ -142,6 +143,7 @@ export type ToolApprovalResult = ToolApprovalAllowed | ToolApprovalDenied;
 interface PendingApproval {
     readonly resolve: (result: ToolApprovalResult) => void;
     readonly timer: ReturnType<typeof setTimeout>;
+    readonly turnClock?: TurnWorkClock;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
@@ -175,6 +177,7 @@ export type UserQuestionResult =
 interface PendingQuestion {
     readonly request: UserQuestionUiRequest;
     readonly resolve: (result: UserQuestionResult) => void;
+    readonly turnClock?: TurnWorkClock;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
 }
@@ -184,6 +187,7 @@ export type ConfigurationRequiredResult =
 
 interface PendingConfigurationRequired {
     readonly resolve: (result: ConfigurationRequiredResult) => void;
+    readonly turnClock?: TurnWorkClock;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
 }
@@ -413,6 +417,7 @@ export class InboundCommandRouter {
         string,
         PendingConfigurationRequired
     >();
+    private activeTurnClock: TurnWorkClock | undefined;
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private activeQueueTurn: ActiveQueueTurn | undefined;
@@ -445,6 +450,20 @@ export class InboundCommandRouter {
         private readonly options: InboundCommandRouterOptions = {},
     ) {
         void this.receiveCommands(endpoint);
+    }
+
+    beginTurnTiming(clock = new TurnWorkClock()): TurnWorkClock {
+        if (this.activeTurnClock !== undefined) {
+            throw new Error("Turn timing is already active");
+        }
+        this.activeTurnClock = clock;
+        return clock;
+    }
+
+    finishTurnTiming(clock: TurnWorkClock): number {
+        const durationMs = clock.finish();
+        if (this.activeTurnClock === clock) this.activeTurnClock = undefined;
+        return durationMs;
     }
 
     async startTurn(): Promise<InboundTurn> {
@@ -1024,9 +1043,11 @@ export class InboundCommandRouter {
                     reason: "Tool approval timed out.",
                 });
             }, options.timeoutMs);
+            const turnClock = this.pauseActiveTurnClock();
             const pending: PendingApproval = {
                 resolve,
                 timer,
+                ...(turnClock === undefined ? {} : { turnClock }),
                 ...(options.permissionGrants === undefined
                     ? {}
                     : {
@@ -1094,9 +1115,11 @@ export class InboundCommandRouter {
         };
         const requestId = randomUUID();
         const result = new Promise<UserQuestionResult>((resolve) => {
+            const turnClock = this.pauseActiveTurnClock();
             const pending: PendingQuestion = {
                 request: semanticRequest,
                 resolve,
+                ...(turnClock === undefined ? {} : { turnClock }),
                 ...(options.signal === undefined
                     ? {}
                     : {
@@ -1137,8 +1160,10 @@ export class InboundCommandRouter {
             pendingAction: { ...request.pendingAction },
         };
         const result = new Promise<ConfigurationRequiredResult>((resolve) => {
+            const turnClock = this.pauseActiveTurnClock();
             const pending: PendingConfigurationRequired = {
                 resolve,
+                ...(turnClock === undefined ? {} : { turnClock }),
                 ...(options.signal === undefined ? {} : {
                     signal: options.signal,
                     onAbort: () => {
@@ -2264,6 +2289,12 @@ export class InboundCommandRouter {
         }
     }
 
+    private pauseActiveTurnClock(): TurnWorkClock | undefined {
+        const clock = this.activeTurnClock;
+        clock?.pause();
+        return clock;
+    }
+
     private finishApproval(
         requestId: string,
         result: ToolApprovalResult,
@@ -2273,6 +2304,7 @@ export class InboundCommandRouter {
             return;
         }
         this.pendingApprovals.delete(requestId);
+        pending.turnClock?.resume();
         clearTimeout(pending.timer);
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
@@ -2310,6 +2342,7 @@ export class InboundCommandRouter {
             return;
         }
         this.pendingQuestions.delete(requestId);
+        pending.turnClock?.resume();
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
         }
@@ -2333,6 +2366,7 @@ export class InboundCommandRouter {
         const pending = this.pendingConfigurations.get(requestId);
         if (pending === undefined) return;
         this.pendingConfigurations.delete(requestId);
+        pending.turnClock?.resume();
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
         }
