@@ -4,6 +4,7 @@
     "id": "omlx",
     "label": "oMLX",
     "short_label": "omlx",
+    "code": "omlx",
     "access": "local",
     "credential": "api_key_optional",
     "hint": "local, API key if required",

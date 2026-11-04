@@ -4,6 +4,7 @@
     "id": "openrouter",
     "label": "OpenRouter",
     "short_label": "openrouter",
+    "code": "opnrtr",
     "access": "api_key",
     "credential": "api_key",
     "hint": "API key, pay per token",

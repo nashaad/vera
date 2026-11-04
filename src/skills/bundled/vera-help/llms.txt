@@ -88,7 +88,7 @@ Provider catalogs distinguish never-refreshed, empty, failed, and unavailable en
 Prompt caching needs no setup: Vera keeps each conversation's request start stable and sends each provider the cache key or markers it needs; `config.json` can change how long caches are kept or give a declared provider its own cache settings. Manual: `docs/models.md`.
 `/effort` opens the levels the running model has, each with a short line on how much it reasons and, for some, what that costs. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
 Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
-The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
+The composer footer always carries all four: agent and access on the left, model and effort on the right.
 When a Codex model is selected, the terminal shows the account's subscription percentages left below the composer; `/usage` shows their reset times. Manual: `docs/usage.md`.
 `/settings` then Footer layout lets you place the items under the composer in a grid of numbered slots and hide them; items in higher slots give way first when space runs short, a move that would leave an item out on a standard terminal is refused, and the layout saves to the home's `tui.json`. Manual: `docs/footer.md`.
 Manual: `docs/models.md`.

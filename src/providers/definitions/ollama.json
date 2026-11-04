@@ -4,6 +4,7 @@
     "id": "ollama",
     "label": "Ollama",
     "short_label": "ollama",
+    "code": "ollm",
     "access": "local",
     "credential": "none",
     "hint": "local, no account",

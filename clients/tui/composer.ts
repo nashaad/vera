@@ -568,6 +568,8 @@ export function createTuiComposerPanel(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
+        // One line, always: the status row drops or shortens its own chunks.
+        wrapMode: "none",
         flexShrink: 0,
     });
     const composerSlot = new BoxRenderable(renderer, {

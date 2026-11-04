@@ -4,6 +4,7 @@
     "id": "cerebras",
     "label": "Cerebras",
     "short_label": "cerebras",
+    "code": "crbrs",
     "access": "api_key",
     "credential": "api_key",
     "hint": "API key",

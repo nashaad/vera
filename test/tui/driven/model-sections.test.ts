@@ -70,7 +70,7 @@ test("the HUD stages agent and access, and Escape cancels both", async () => {
         }) });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("openrouter/one/model");
+        await session.waitForVisiblePane("opnrtr/One");
         session.sendKey("BTab"); await session.waitForVisiblePane("› AGENT");
         // The rebuilt HUD carries agent and access only.
         const opened = session.captureVisiblePane();

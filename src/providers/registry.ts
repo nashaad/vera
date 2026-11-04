@@ -1,6 +1,7 @@
 import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 import {
+    providerCodeFor,
     resolveProviders,
     type ProviderCacheDefinition,
     type ProviderDiscoveryDefinition,
@@ -22,6 +23,8 @@ export interface ProviderDescriptor {
     readonly id: VeraProviderId;
     readonly label: string;
     readonly shortLabel: string;
+    /** A short name used where the full provider name would crowd a row. */
+    readonly code: string;
     readonly access: ProviderAccessKind;
     readonly credential: ProviderCredentialKind;
     readonly hint?: string;
@@ -87,6 +90,7 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         id: provider.id,
         label: provider.definition.label,
         shortLabel: provider.definition.short_label,
+        code: provider.definition.code ?? providerCodeFor(provider.definition.id),
         access: provider.definition.access,
         credential: provider.definition.credential,
         ...(provider.definition.hint === undefined ? {} : { hint: provider.definition.hint }),

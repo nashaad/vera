@@ -4,6 +4,7 @@
     "id": "outrider",
     "label": "Outrider",
     "short_label": "outrider",
+    "code": "otrdr",
     "access": "local",
     "credential": "none",
     "hint": "local, no account",

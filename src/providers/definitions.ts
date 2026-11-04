@@ -92,6 +92,8 @@ export interface ProviderDefinition {
     readonly id: string;
     readonly label: string;
     readonly short_label: string;
+    /** A short name used where the full provider name would crowd a row; the id supplies one when a definition names none. */
+    readonly code?: string;
     readonly access: ProviderAccess;
     readonly credential: ProviderCredential;
     readonly hint?: string;
@@ -200,6 +202,7 @@ export function resolveProviders(
     for (const contributed of input.contributed ?? []) {
         const definition: ProviderDefinition = {
             ...contributed,
+            code: contributed.code ?? providerCodeFor(contributed.id),
             cache: contributed.cache ?? NO_PROVIDER_CACHE,
         };
         addResolved(byId, {
@@ -336,6 +339,7 @@ export function parseProviderDefinition(
     }
     const discovery = parseDiscovery(value.discovery, context);
     const compatibility = parseLayers(value.compatibility, context);
+    const code = parseProviderCode(value.code, value.id as string, context);
     const cache = parseCache(value.cache, value.protocol, context);
     const requestOptions = parseRequestOptions(value.request_options, context);
     const recommend = parseRecommendation(value.recommend, context);
@@ -356,6 +360,7 @@ export function parseProviderDefinition(
         id: value.id as string,
         label: value.label as string,
         short_label: value.short_label as string,
+        code,
         access: value.access,
         credential: value.credential,
         ...(typeof value.hint === "string" ? { hint: value.hint } : {}),
@@ -376,6 +381,32 @@ export function parseProviderDefinition(
         ...(value.shortlist === true ? { shortlist: true } : {}),
         ...(noModels === undefined ? {} : { no_models: noModels }),
     };
+}
+
+const PROVIDER_CODE_LIMIT = 7;
+
+// A short code stands in for the provider where its name would crowd a row.
+function parseProviderCode(
+    value: unknown,
+    id: string,
+    context: string,
+): string {
+    if (value === undefined) return providerCodeFor(id);
+    if (typeof value !== "string" || !/^[a-z]{2,7}$/.test(value)) {
+        throw new Error(`${context}: code must be 2 to 7 lowercase letters`);
+    }
+    return value;
+}
+
+// A provider declared in the user's config names no code, so its id supplies
+// one: the first letter, then the consonants, which is how the shipped codes
+// read (deepseek is dpsk, openrouter is opnrtr).
+export function providerCodeFor(id: string): string {
+    const letters = id.replace(/[^a-z]/g, "");
+    const [first = "", ...rest] = letters;
+    const code = first + rest.filter((letter) => !"aeiou".includes(letter)).join("");
+    const short = code.length >= 2 ? code : letters.slice(0, 2);
+    return short.slice(0, PROVIDER_CODE_LIMIT);
 }
 
 function parseLines(

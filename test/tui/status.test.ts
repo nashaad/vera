@@ -189,18 +189,18 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
     );
 });
 
-test("TUI status line prefixes the model with a compact provider label", () => {
+test("TUI status line prefixes the model with the provider's two-letter code", () => {
     expect(renderTuiStatusDetailsLine(
         { model: "gpt-5.6-sol", provider: "cerebras", reasoningEffort: "high" },
         "auto",
         undefined,
         "/workspace",
     )).toBe(
-        "default · auto · cerebras/gpt-5.6-sol · high\n/workspace",
+        "default · auto · crbrs/gpt-5.6-sol · high\n/workspace",
     );
 });
 
-test("TUI status line prefixes a declared provider with the name it was given", () => {
+test("TUI status line prefixes a provider the registry does not know with its id", () => {
     expect(renderTuiStatusDetailsLine(
         { model: "gemini-2.5-flash", provider: "gemini", reasoningEffort: "high" },
         "auto",
@@ -209,6 +209,67 @@ test("TUI status line prefixes a declared provider with the name it was given", 
     )).toBe(
         "default · auto · gemini/gemini-2.5-flash · high\n/workspace",
     );
+});
+
+const DEEPSEEK_SETTINGS = {
+    model: "deepseek-flash",
+    provider: "deepseek",
+    reasoningEffort: "high" as const,
+    availableModels: [{
+        provider: "deepseek",
+        model: "deepseek-flash",
+        label: "DeepSeek V4.1 Flash 1017",
+        description: "native DeepSeek fast reasoning model",
+        levels: [],
+    }],
+};
+
+test("the footer names the model the way the picker does", () => {
+    expect(renderTuiStatusDetailsLine(
+        DEEPSEEK_SETTINGS,
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe(
+        "default · auto · dpsk/DeepSeek V4.1 Flash 1017 · high\n/workspace",
+    );
+});
+
+test("a model with no catalog label keeps its id behind the provider code", () => {
+    expect(renderTuiStatusDetailsLine(
+        {
+            ...DEEPSEEK_SETTINGS,
+            model: "deepseek-v4-pro",
+            availableModels: [{
+                ...DEEPSEEK_SETTINGS.availableModels[0]!,
+                model: "deepseek-flash",
+            }],
+        },
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe("default · auto · dpsk/deepseek-v4-pro · high\n/workspace");
+});
+
+test("a long model name loses its tail instead of pushing effort off the row", () => {
+    const row = renderTuiStatusDetailsRows(
+        DEEPSEEK_SETTINGS,
+        "auto",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        {},
+        0,
+        40,
+    )[0] ?? [];
+    const text = row.map((chunk) => chunk.text).join("");
+    expect(text.length).toBe(40);
+    expect(text.endsWith("· high")).toBe(true);
+    expect(text).toContain("dpsk/DeepSeek");
+    expect(text).toContain("…");
 });
 
 test("TUI status does not guess settings while the host query is pending", () => {
@@ -485,7 +546,7 @@ test("the footer carries agent, access, model and effort whether or not a dial w
         "/workspace",
     );
     expect(line.split("\n")[0]).toBe(
-        "default · ask · anthropic/claude-opus-5 · high",
+        "default · ask · anthrpc/claude-opus-5 · high",
     );
     const named = renderTuiStatusDetailsLine(
         { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
@@ -499,7 +560,7 @@ test("the footer carries agent, access, model and effort whether or not a dial w
         { agent: "build" },
     );
     expect(named.split("\n")[0]).toBe(
-        "build · ask · anthropic/claude-opus-5 · high",
+        "build · ask · anthrpc/claude-opus-5 · high",
     );
 });
 
@@ -520,7 +581,7 @@ test("agent and access sit left, model and effort right, padded to the width", (
     const text = row.map((chunk) => chunk.text).join("");
     expect(text.length).toBe(60);
     expect(text.startsWith("build · ask ")).toBe(true);
-    expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
+    expect(text.endsWith("anthrpc/claude-opus-5 · high")).toBe(true);
 });
 
 test("too narrow to pad, the two ends read as one row rather than wrap", () => {
@@ -538,7 +599,7 @@ test("too narrow to pad, the two ends read as one row rather than wrap", () => {
         20,
     )[0] ?? [];
     expect(row.map((chunk) => chunk.text).join("")).toBe(
-        "build · ask · anthropic/claude-opus-5 · high",
+        "build · ask · anthrpc/claude-opus-5 · high",
     );
 });
 

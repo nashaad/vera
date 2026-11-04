@@ -4,6 +4,7 @@
     "id": "openai-codex",
     "label": "OpenAI Codex",
     "short_label": "codex",
+    "code": "opncdx",
     "access": "subscription",
     "credential": "oauth",
     "hint": "ChatGPT Plus/Pro subscription",

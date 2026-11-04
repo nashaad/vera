@@ -22,6 +22,7 @@ function provider(
         id: id as ProviderDescriptor["id"],
         label: id,
         shortLabel: id,
+        code: id.slice(0, 2),
         access: "api_key",
         credential: "api_key",
         ...(recommend === undefined ? {} : { recommend }),

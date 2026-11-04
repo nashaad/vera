@@ -81,6 +81,33 @@ test("provider definitions reject unsafe, unknown, and incompatible facts", () =
     }, "fixture")).toThrow(/oauth requires contributed/);
 });
 
+test("a provider code keeps the first letter and the consonants", () => {
+    expect(shippedProviderDefinitions().map((definition) => [definition.id, definition.code]))
+        .toEqual([
+            ["cerebras", "crbrs"],
+            ["deepseek", "dpsk"],
+            ["anthropic", "anthrpc"],
+            ["openai-codex", "opncdx"],
+            ["openrouter", "opnrtr"],
+            ["outrider", "otrdr"],
+            ["ollama", "ollm"],
+            ["omlx", "omlx"],
+            ["digitalocean", "dgtlcn"],
+        ]);
+    expect(parseProviderDefinition(standard, "fixture").code).toBe("fxtrprv");
+    expect(resolveProviders({
+        providers: {
+            gateway: {
+                protocol: "openai-chat",
+                base_url: "https://gateway.example/v1",
+                credential: "api_key",
+            },
+        },
+    }).find((entry) => entry.id === "gateway")?.definition.code).toBe("gtwy");
+    expect(() => parseProviderDefinition({ ...standard, code: "DS" }, "fixture"))
+        .toThrow(/2 to 7 lowercase letters/);
+});
+
 test("every provider definition says how it caches prompts", () => {
     expect(() => parseProviderDefinition(uncached, "fixture"))
         .toThrow(/cache is required/);

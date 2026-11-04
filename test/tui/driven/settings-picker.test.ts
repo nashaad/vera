@@ -51,7 +51,7 @@ test("settings picker restores the composer and the next Enter submits", async (
         // only reads that way if Down moved the selection off High.
         session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("faux/test · max");
+        await session.waitForVisiblePane("faux/Test model · max");
 
         session.sendText("testing");
         session.sendKey("Enter");

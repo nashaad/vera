@@ -4,6 +4,7 @@
     "id": "digitalocean",
     "label": "DigitalOcean",
     "short_label": "digitalocean",
+    "code": "dgtlcn",
     "access": "api_key",
     "credential": "api_key",
     "hint": "Serverless Inference model access key",

@@ -46,7 +46,7 @@ test("the live composer shows raw tokens, not nothing, once a model with no know
         client, copyText: async () => undefined,
         createRenderer: async () => setup.renderer,
     });
-    const model = `${provider.shortLabel}/claude-haiku-5-5`;
+    const model = `${provider.code}/claude-haiku-5-5`;
     // The composer details row, not the whole frame: the worktree path below
     // it names this very branch, "fix/ctx-unknown-window".
     const detailsRow = () => setup.captureCharFrame().split("\n")

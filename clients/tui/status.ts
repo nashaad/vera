@@ -174,14 +174,9 @@ export function renderTuiStatusDetailsRows(
     width: number | undefined = undefined,
     needsYouHint = "/work",
 ): TuiStatusChunk[][] {
-    const providerLabel = settings?.provider === undefined
-        ? undefined
-        : findProvider(settings.provider)?.shortLabel ?? settings.provider;
     const model = modelSelectionCleared(settings) ? "no model selected" : settings?.model === undefined
         ? "loading"
-        : providerLabel === undefined
-            ? settings.model
-            : `${providerLabel}/${settings.model}`;
+        : modelName(settings, settings.provider, settings.model);
     const requested = modelSelectionCleared(settings) ? "default" : settings?.reasoningEffort ?? "default";
     const substituted = substitution !== undefined
         && settings?.model === substitution.model
@@ -236,7 +231,9 @@ export function renderTuiStatusDetailsRows(
             {
                 text: dials.fallbackTo === undefined
                     ? model
-                    : `${model}→${dials.fallbackTo}`,
+                    : `${model}→${
+                        modelName(settings, undefined, dials.fallbackTo)
+                    }`,
                 tone: "text",
             },
             separator,
@@ -259,7 +256,42 @@ export function renderTuiStatusDetailsRows(
     if (width !== undefined && rowWidth(first) > width) {
         first = row(false, false);
     }
-    return [first, placeChunks(workspace, branch, width)];
+    return [fitModelName(first, width), placeChunks(workspace, branch, width)];
+}
+
+// Names a model the way the picker does, behind a two-letter provider code,
+// and keeps the id when no catalog has a label for it.
+function modelName(
+    settings: ModelTurnSettings | undefined,
+    provider: string | undefined,
+    model: string,
+): string {
+    const entry = settings?.availableModels?.find((candidate) =>
+        candidate.model === model
+        && (provider === undefined || candidate.provider === provider));
+    const name = entry?.label ?? model;
+    const route = provider ?? entry?.provider;
+    if (route === undefined) return name;
+    return `${findProvider(route)?.code ?? route}/${name}`;
+}
+
+// The row is one line, so an overlong name loses its tail rather than the
+// effort beside it or a wrapped second line.
+function fitModelName(
+    row: TuiStatusChunk[],
+    width: number | undefined,
+): TuiStatusChunk[] {
+    if (width === undefined) return row;
+    const overflow = rowWidth(row) - width;
+    if (overflow <= 0) return row;
+    const index = row.length - 3;
+    const chunk = row[index];
+    if (chunk === undefined || chunk.tone !== "text") return row;
+    const room = Bun.stringWidth(chunk.text) - overflow;
+    if (room < 8) return row;
+    return row.map((entry, at) => at === index
+        ? { ...entry, text: truncateEnd(entry.text, room) }
+        : entry);
 }
 
 export function renderTuiFileViewStatusRows(

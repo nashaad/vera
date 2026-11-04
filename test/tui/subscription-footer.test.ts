@@ -65,7 +65,7 @@ test("limits sit on the row under the composer without moving it", async () => {
     });
     const rowWith = (text: string) => setup.captureCharFrame().split("\n").findIndex((row) => row.includes(text));
     const border = () => setup.captureCharFrame().split("\n").findIndex((row) => row.includes("╭"));
-    const model = `${provider.shortLabel}/gpt-6-luna`;
+    const model = `${provider.code}/gpt-6-luna`;
     try {
         await until(setup, (frame) => frame.includes("5h 42% left · week 91% left"));
         expect(rowWith("ctx ?%")).toBe(rowWith("default · auto"));
@@ -102,7 +102,7 @@ test("limits sit on the row under the composer without moving it", async () => {
         const apiProvider = configuredProviders(undefined).find((item) => item.access === "api_key")!;
         channel.engine.send({ type: "model_settings", requestId: "switch", seq: 10_000, pending: false,
             settings: { provider: apiProvider.id, model: "test", reasoningEffort: "low" } });
-        await until(setup, (frame) => frame.includes(`${apiProvider.shortLabel}/test`) && !frame.includes("% left"));
+        await until(setup, (frame) => frame.includes(`${apiProvider.code}/test`) && !frame.includes("% left"));
         expect(border()).toBe(wideTop);
         expect(rowWith("default · auto") - border()).toBe(5);
         expect(rowWith("Ctrl+P commands")).toBe(rowWith("default · auto") + 2);
@@ -177,7 +177,7 @@ async function startSubscriptionTurn(width: number): Promise<SubscriptionTurn> {
     return {
         setup,
         exit,
-        model: `${provider.shortLabel}/gpt-6-luna`,
+        model: `${provider.code}/gpt-6-luna`,
         rowWith: (text) => rows().findIndex((row) => row.includes(text)),
         row: (index) => rows()[index] ?? "",
         border: () => rows().findIndex((row) => row.includes("╭")),
