@@ -8,6 +8,22 @@ export interface ConversationCost {
     readonly unpriced: number;
 }
 
+export interface SpendTotals {
+    dollars: number;
+    priced: number;
+    unpriced: number;
+}
+
+interface RecordedEntry {
+    readonly type?: string;
+    readonly message?: {
+        readonly role?: string;
+        readonly source?: { readonly api?: string };
+        readonly usage?: { readonly cost?: unknown };
+    };
+    readonly billed?: { readonly usage?: { readonly cost?: unknown } } | null;
+}
+
 interface BudgetSetting {
     readonly dollars: number;
     readonly notified: number;
@@ -15,23 +31,31 @@ interface BudgetSetting {
 }
 
 export function conversationCost(path: string): ConversationCost {
-    let dollars = 0;
-    let priced = 0;
-    let unpriced = 0;
-    if (!existsSync(path)) return { dollars, priced, unpriced };
+    if (!existsSync(path)) return { dollars: 0, priced: 0, unpriced: 0 };
+    const totals: SpendTotals = { dollars: 0, priced: 0, unpriced: 0 };
     for (const line of readFileSync(path, "utf8").split("\n")) {
         if (!line.trim()) continue;
-        const entry = JSON.parse(line);
-        if (entry.type !== "compaction" && (entry.type !== "message" || entry.message?.role !== "assistant"
-            || entry.message.source?.api === "none")) continue;
-        if (entry.type === "compaction" && entry.billed === undefined) continue;
-        const cost = entry.type === "compaction" ? entry.billed?.usage?.cost : entry.message.usage?.cost;
-        if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
-            dollars += cost;
-            priced++;
-        } else unpriced++;
+        addRecordedSpend(totals, JSON.parse(line));
     }
-    return { dollars: Math.round(dollars * 1e9) / 1e9, priced, unpriced };
+    return { dollars: Math.round(totals.dollars * 1e9) / 1e9, priced: totals.priced, unpriced: totals.unpriced };
+}
+
+// Must select the records SessionStore.usageMessages() counts as spending.
+export function addRecordedSpend(totals: SpendTotals, entry: RecordedEntry): void {
+    let cost: unknown;
+    if (entry.type === "message") {
+        if (entry.message?.role !== "assistant" || entry.message.source?.api === "none") return;
+        cost = entry.message.usage?.cost;
+    } else if (entry.type === "compaction") {
+        if (entry.billed === undefined) return;
+        cost = entry.billed?.usage?.cost;
+    } else if (entry.type === "session_ask") {
+        cost = entry.billed?.usage?.cost;
+    } else return;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+        totals.dollars += cost;
+        totals.priced++;
+    } else totals.unpriced++;
 }
 
 export function costLabel(cost: ConversationCost): string {

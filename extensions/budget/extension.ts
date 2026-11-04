@@ -1,10 +1,12 @@
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/model/types.ts";
 import type { VeraExtensionApi, VeraClientExtensionApi } from "../../src/sdk/extensions.ts";
-import { ConversationBudget, conversationCost, costLabel, budgetPercent } from "./budget.ts";
+import { ConversationBudget, costLabel, budgetPercent } from "./budget.ts";
+import { ConversationCosts } from "./conversation-cost.ts";
 
 export function activate(vera: VeraExtensionApi): void {
     const budgets = new ConversationBudget(vera.storage.profile);
+    const costs = new ConversationCosts();
     vera.sessions.registerState((sessionId) => ({ dollars: budgets.read(sessionId).dollars }));
     vera.commands.register({
         name: "budget",
@@ -18,7 +20,7 @@ export function activate(vera: VeraExtensionApi): void {
             }
             budgets.set(sessionId, value === "" ? -1 : Number(value));
             const setting = budgets.read(sessionId);
-            const cost = conversationCost(sessionPath);
+            const cost = costs.read(sessionPath);
             if (value !== "" && setting.dollars !== -1 && (cost.priced > 0 || cost.unpriced === 0)) {
                 return { kind: "text", text: `Budget changed to $${setting.dollars.toFixed(2)}. ${cost.unpriced > 0 ? "Known spend" : "Spent"}: $${cost.dollars.toFixed(2)}. Remaining: $${Math.max(0, setting.dollars - cost.dollars).toFixed(2)}.` };
             }
@@ -36,7 +38,10 @@ export function activate(vera: VeraExtensionApi): void {
             let terminal = false;
             const produce = async (): Promise<void> => {
                 request.signal?.throwIfAborted();
-                const cost = conversationCost(context.sessionPath);
+                const setting = budgets.read(context.sessionId);
+                const cost = setting.dollars < 0 || setting.ignored === true
+                    ? { dollars: 0, priced: 0, unpriced: 0 }
+                    : costs.read(context.sessionPath);
                 const approval = budgets.approval(context.sessionId, cost);
                 let update: string | undefined;
                 if (approval !== undefined) {

@@ -50,9 +50,9 @@ the same running host.
 
 ## Understand the cost total
 
-The total includes intermediate model replies and billed compactions.
-Rewinding does not erase spending. Each child conversation has its own budget
-and total.
+The total includes intermediate model replies, billed compactions, and billed
+side questions asked of the conversation. Rewinding does not erase spending.
+Each child conversation has its own budget and total.
 
 When some calls have no reported price, the notices and the prompt count
 known spend only and say *Known spend only; some replies have no reported
