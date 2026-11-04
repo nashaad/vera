@@ -416,6 +416,10 @@ export function oneshotModelMessage(message: OneshotMessage): ModelMessage {
 
 export const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
+export function workerExtensionsEnabled(): boolean {
+    return (process.env[WORKER_EXTENSIONS_ENV] ?? "") === "1";
+}
+
 export function cancelledSubagentConfiguration(): SpawnModelResolution {
     return {
         ok: false,

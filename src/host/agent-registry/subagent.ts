@@ -10,7 +10,7 @@ import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { SessionStore } from "../../store/session-store.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../../tools/types.ts";
-import { HOST_OWNED_COMMANDS, WORKER_EXTENSIONS_ENV, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, readSessionSeed, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerOutcomeDetail } from "./helpers.ts";
+import { HOST_OWNED_COMMANDS, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, readSessionSeed, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
 import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { ResidentAgent, type AgentAttachment } from "../resident-agent.ts";
@@ -30,7 +30,7 @@ export function workerAdapterSpecFor(reg: AgentRegistry, store: SessionStore, en
     }
 
 export function workerExtensions(reg: AgentRegistry): readonly VeraExtensionConfig[] | undefined {
-        if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
+        if (!workerExtensionsEnabled()) {
             return undefined;
         }
         const configured = reg.options.workerExtensions?.() ?? [];

@@ -37,8 +37,7 @@ import {
     mergeModelRequestBody,
 } from "../providers/routing.ts";
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
-import { includedExtensionConfigs } from "../extensions/included.ts";
-import { mergeExtensionScopes } from "../extensions/discovery.ts";
+import { hostExtensionConfigs, workerExtensionConfigs } from "../extensions/host-set.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
     veraHomeDirectory,
@@ -190,6 +189,7 @@ import {
 } from "./agent-registry.ts";
 import type { SessionArtifacts } from "./session-trash.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
+import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
 import {
     ImportableSessionScanner,
@@ -361,15 +361,11 @@ export async function startResidentHost(
     );
     const startupFindings = options.startupFindings ?? new StartupFindings();
     const extensionLoadFailures: ExtensionLoadFailure[] = [];
+    const hostExtensionSet = hostExtensionConfigs(options.config);
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
-            extensions: mergeExtensionScopes(
-                includedExtensionConfigs(
-                    options.config.disabled_included_extensions ?? [],
-                ),
-                options.config.extensions ?? [],
-            ),
+            extensions: hostExtensionSet,
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -533,7 +529,8 @@ export async function startResidentHost(
         createAdapter,
         modelMiddleware: extensions.modelMiddleware(),
         ...(options.createAdapter !== undefined || hasModelRequestHooks
-                || extensions.modelMiddleware().length > 0
+                || (!workerExtensionsEnabled()
+                    && extensions.modelMiddleware().length > 0)
             ? {}
             : {
                 workerAdapterSpec: (context: {
@@ -818,7 +815,7 @@ export async function startResidentHost(
             tools: extensions.installedUnreviewedTools(),
             store: new TrustNoticeStore(),
         },
-        workerExtensions: () => currentConfig().extensions ?? [],
+        workerExtensions: () => workerExtensionConfigs(currentConfig()),
         registeredAgents: extensions.agents(),
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>

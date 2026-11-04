@@ -1,11 +1,22 @@
 
 import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
+import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
 import { startExtensionRegistry } from "../../extensions/registry.ts";
+import type {
+    ExtensionRegistry,
+    ExtensionRegistryFailure,
+} from "../../extensions/registry.ts";
+import {
+    failingWorkerAdapter,
+    workerAdapterWithMiddleware,
+    workerModelContext,
+    workerProvider,
+} from "./middleware.ts";
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 import { installLiveProcess } from "../../live-process.ts";
@@ -45,22 +56,37 @@ export async function runWorker(
     });
 
     const options = await started;
-    const adapter = await loadAdapter(options.adapter);
-
-    const extensions = options.extensions === undefined
-            || options.extensions.length === 0
-        ? undefined
-        : await startExtensionRegistry({
-            extensions: options.extensions,
-            onFailure: () => {},
-        });
     let failure: string | undefined;
+    let activationFailure: string | undefined;
+    let inbound: InboundCommandRouter | undefined;
+    const activationFailures: ExtensionRegistryFailure[] = [];
+    let extensions: ExtensionRegistry | undefined;
+    if (options.extensions !== undefined && options.extensions.length > 0) {
+        try {
+            extensions = await startExtensionRegistry({
+                extensions: options.extensions,
+                onFailure: (extensionFailure) => {
+                    activationFailures.push(extensionFailure);
+                },
+            });
+        } catch (error) {
+            failure = error instanceof Error ? error.message : String(error);
+        }
+    }
+    if (activationFailures.length > 0) {
+        activationFailure = activationFailures.map(activationFailureDetail)
+            .join("; ");
+    }
     let replicaDiverged: (error: Error) => void = () => {};
     const replicaFailure = new Promise<never>((_resolve, reject) => {
         replicaDiverged = reject;
     });
     replicaFailure.catch(() => {});
-    try {
+    if (failure === undefined) {
+        try {
+        const adapter = activationFailure === undefined
+            ? await loadAdapter(options.adapter)
+            : failingWorkerAdapter(activationFailure, options.model);
         const remote = createRemoteHostBoundary({
             pipe,
             onReplicaDiverged: (error) => replicaDiverged(error),
@@ -83,6 +109,9 @@ export async function runWorker(
             ...(options.toolResults === undefined
                 ? {}
                 : { toolResults: options.toolResults }),
+            onInboundReady: (ready) => {
+                inbound = ready;
+            },
         });
         acceptHostNotification = remote.acceptNotification;
         for (const body of pendingHost.splice(0)) {
@@ -106,7 +135,18 @@ export async function runWorker(
         await Promise.race([
             runHeadlessLoop(
                 channel.engine as never,
-                adapter,
+                activationFailure === undefined
+                    ? workerAdapterWithMiddleware(
+                        adapter,
+                        extensions?.modelMiddleware() ?? [],
+                        {
+                            session: options.session,
+                            provider: workerProvider(options.adapter),
+                            events: remote.boundary.owned.eventBus,
+                            inbound: () => inbound,
+                        },
+                    )
+                    : adapter,
                 options.model,
                 options.reasoningEffort,
                 options.data,
@@ -115,8 +155,9 @@ export async function runWorker(
             ),
             replicaFailure,
         ]);
-    } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
+        } catch (error) {
+            failure = error instanceof Error ? error.message : String(error);
+        }
     }
     await extensions?.close();
     pipe.notify({
@@ -135,6 +176,11 @@ function forwardUpdates(
             pipe.notify({ method: "client.update", update });
         }
     })();
+}
+
+function activationFailureDetail(failure: ExtensionRegistryFailure): string {
+    return `Extension ${failure.extensionId ?? failure.path} failed to activate: `
+        + failure.message;
 }
 
 async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
