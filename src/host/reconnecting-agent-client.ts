@@ -5,7 +5,7 @@ import {
     type AttachedAgentClient,
 } from "./attached-client.ts";
 import {
-    HOST_CAPABILITIES,
+    CLIENT_CAPABILITIES,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 } from "./capabilities.ts";
 import { requestHostIdentity } from "./protocol.ts";
@@ -22,6 +22,8 @@ export interface ReconnectingAgentOptions {
     readonly buildId: string;
     readonly interactive?: boolean;
     readonly clientId?: string;
+    /** Defaults to CLIENT_CAPABILITIES; paging clients pass PAGING_CAPABILITIES. */
+    readonly requestedCapabilities?: readonly string[];
 }
 
 export class HostBuildChangedError extends Error {
@@ -57,7 +59,8 @@ export async function attachReconnectingAgent(
         return attachAgent({
             socketPath,
             agentId: options.agentId,
-            requestedCapabilities: HOST_CAPABILITIES,
+            requestedCapabilities: options.requestedCapabilities
+                ?? CLIENT_CAPABILITIES,
             ...(options.interactive === true
                 ? { interactive: true, clientId: options.clientId }
                 : {}),

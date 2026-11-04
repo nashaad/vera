@@ -10,6 +10,7 @@ export const HOST_CAPABILITY_AGENT_ATTACH_RESUME = "agent.attach-resume.v1";
 export const HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE =
     "agent.attachment-release.v1";
 export const HOST_CAPABILITY_AGENT_CONTEXT_SYNC = "agent.context-sync.v1";
+export const HOST_CAPABILITY_AGENT_HISTORY_PAGING = "agent.history-paging.v1";
 export const HOST_CAPABILITY_HARNESS_MESSAGES = "harness-messages.v1";
 export const HOST_CAPABILITY_PROMPT_QUEUE_RELEASE = "prompt-queue.release.v1";
 export const HOST_CAPABILITY_PROMPT_QUEUE_WITHDRAW =
@@ -29,6 +30,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
     HOST_CAPABILITY_PROMPT_QUEUE_WITHDRAW,
@@ -40,6 +42,14 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_SESSION_IMPORT,
     HOST_CAPABILITY_SESSION_TITLE,
 ] as const;
+
+/** What a client requests unless it implements history page requests. */
+export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES.filter(
+    (capability) => capability !== HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+);
+
+/** The client list plus paging. Only a client that serves pages asks for this. */
+export const PAGING_CAPABILITIES: readonly string[] = HOST_CAPABILITIES;
 
 export function parseHostCapabilities(
     value: unknown,

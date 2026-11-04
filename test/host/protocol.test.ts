@@ -399,6 +399,25 @@ test("host protocol parses attached extension command requests", () => {
         command: "../bad",
         arguments_text: "",
     }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "history_page",
+        request_id: "page-1",
+        before: "message-1#0",
+    }))).toEqual({
+        type: "history_page",
+        request_id: "page-1",
+        before: "message-1#0",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "history_page",
+        request_id: "",
+        before: "message-1#0",
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "history_page",
+        request_id: "page-2",
+        before: "",
+    }))).toBeUndefined();
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(

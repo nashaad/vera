@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
 import {
+    CLIENT_CAPABILITIES,
+    HOST_CAPABILITIES,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    PAGING_CAPABILITIES,
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "../../src/host/capabilities.ts";
@@ -23,4 +27,22 @@ test("negotiation preserves request order and returns only shared capabilities",
         ["agent.future.v1", "agent.branch-options.v1"],
         ["agent.branch-options.v1"],
     )).toEqual(["agent.branch-options.v1"]);
+});
+
+test("history paging is supported but granted only when requested", () => {
+    expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
+    expect(CLIENT_CAPABILITIES).not.toContain(
+        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    );
+    expect(PAGING_CAPABILITIES).toContain(
+        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    );
+    expect(negotiateHostCapabilities(
+        ["agent.attach-resume.v1"],
+        HOST_CAPABILITIES,
+    )).toEqual(["agent.attach-resume.v1"]);
+    expect(negotiateHostCapabilities(
+        [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        HOST_CAPABILITIES,
+    )).toEqual([HOST_CAPABILITY_AGENT_HISTORY_PAGING]);
 });

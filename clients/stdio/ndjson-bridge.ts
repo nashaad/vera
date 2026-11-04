@@ -199,6 +199,14 @@ export async function runAttachedStdioBridge(
                     await forwardExtensionRun(message);
                     continue;
                 }
+                if (message.type === "history_page") {
+                    writeJson(output, {
+                        type: "history_page_failed",
+                        request_id: message.request_id,
+                        reason: "unavailable",
+                    });
+                    continue;
+                }
                 await client.send(message);
             }
             if (!stopping) {

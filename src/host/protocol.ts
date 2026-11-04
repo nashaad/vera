@@ -6,6 +6,8 @@ import { isAbsolute } from "node:path";
 import {
     parseClientCommand,
     type ClientCommand,
+    type HistoryPageInfo,
+    type TranscriptEntry,
 } from "../engine/protocol.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
@@ -394,6 +396,31 @@ export interface RunExtensionCommandRequest {
     readonly arguments_text: string;
 }
 
+export interface HistoryPageRequest {
+    readonly type: "history_page";
+    readonly request_id: string;
+    /** Exclusive: return entries before this entry id. */
+    readonly before: string;
+}
+
+export interface HistoryPageResponse {
+    readonly type: "history_page";
+    readonly request_id: string;
+    readonly before: string;
+    readonly entries: readonly TranscriptEntry[];
+    readonly page: HistoryPageInfo;
+}
+
+export interface HistoryPageFailedResponse {
+    readonly type: "history_page_failed";
+    readonly request_id: string;
+    readonly reason:
+        | "cursor_not_found"
+        | "page_too_large"
+        | "busy"
+        | "unavailable";
+}
+
 export interface ExtensionCommandListResponse {
     readonly type: "extension_command_list";
     readonly request_id: string;
@@ -705,7 +732,8 @@ export type AttachedClientMessage =
     | DetachRequest
     | ReleaseAttachmentRequest
     | ListExtensionCommandsRequest
-    | RunExtensionCommandRequest;
+    | RunExtensionCommandRequest
+    | HistoryPageRequest;
 export type HostResponse =
     | ModelOperationProgressResponse
     | ModelOperationStepResponse
@@ -748,6 +776,8 @@ export type HostResponse =
     | DetachedResponse
     | AttachmentReleasedResponse
     | AttachmentReleaseRejectedResponse
+    | HistoryPageResponse
+    | HistoryPageFailedResponse
     | ExtensionCommandHostResponse
     | AnnexUrlResponse
     | AnnexUnavailableResponse
@@ -1174,6 +1204,18 @@ export function parseAttachedClientMessage(
             request_id: value.request_id,
             command: value.command,
             arguments_text: value.arguments_text,
+        };
+    }
+    if (
+        value?.type === "history_page"
+        && isRequestId(value.request_id)
+        && typeof value.before === "string"
+        && value.before.length > 0
+    ) {
+        return {
+            type: "history_page",
+            request_id: value.request_id,
+            before: value.before,
         };
     }
     return parseClientCommand(value);

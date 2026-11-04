@@ -566,6 +566,22 @@ export type ClientCommand =
     | CompactCommand
     | TimelineCommand;
 
+/**
+ * Where a transcript page sits. The host adds this for a client that
+ * negotiated history paging; the engine never sets it.
+ */
+export interface HistoryPageInfo {
+    readonly pageVersion: number;
+    /** True when entries exist before `olderBefore`. */
+    readonly hasMore: boolean;
+    /** Exclusive cursor for the next older page. */
+    readonly olderBefore?: string;
+    /** Active leaf entry at the time the page was produced. */
+    readonly headId?: string;
+    /** Newest entry in the page; absent on an empty page. */
+    readonly tailId?: string;
+}
+
 export interface HistoryUpdate {
     readonly extensionState?: import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly type: "history";
@@ -580,6 +596,8 @@ export interface HistoryUpdate {
     readonly context?: ContextMeasurement;
     readonly usage?: SessionModelUsage;
     readonly promptQueue?: PromptQueueState;
+    /** Present only on a bounded page sent to a paging client. */
+    readonly page?: HistoryPageInfo;
 }
 
 export interface PromptQueueUpdate {
