@@ -247,7 +247,14 @@ export async function resolveReadPath(
 ): Promise<string> {
     const root = await realpath(workspace);
     const candidate = resolve(root, requestedPath);
-    return realpath(candidate);
+    try {
+        return await realpath(candidate);
+    } catch (error) {
+        if (!isMissingPathError(error)) throw error;
+        throw new Error(
+            `Path not found: ${requestedPath}. \`path\` takes a single file or folder, not several paths.`,
+        );
+    }
 }
 
 export async function resolveWritePath(
