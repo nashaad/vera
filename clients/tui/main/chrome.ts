@@ -294,14 +294,18 @@ export function setSurfaceBottomInsets(rt: TuiRuntime, rows: number): void {
 
 export function setComposerMargin(rt: TuiRuntime, rows: number): void {
     rt.composerMarginRows = rows;
-    rt.composerBox.marginBottom = rows;
-    rt.resumeOverlay.surface.marginBottom = rows;
+    // These setters request a frame even when the margin has not changed.
+    if (rt.appliedComposerMarginRows !== rows) {
+        rt.composerBox.marginBottom = rows;
+        rt.resumeOverlay.surface.marginBottom = rows;
+        rt.appliedComposerMarginRows = rows;
+    }
     setSurfaceBottomInsets(rt, composerSlotHeight(rt) + rows);
     positionCommandSuggestions(rt);
 }
 
 export function positionCommandSuggestions(rt: TuiRuntime): void {
-    rt.commandSuggestionsBox.bottom = composerSlotHeight(rt)
+    const bottom = composerSlotHeight(rt)
         + rt.composerMarginRows
         + rt.experimentalTuiHost.bottomInsetRows()
         + (rt.composerTipText.visible ? 1 : 0)
@@ -309,7 +313,12 @@ export function positionCommandSuggestions(rt: TuiRuntime): void {
         + (rt.heldAddressText.visible ? 1 : 0)
         + rt.agentNoticeRows
         + 1;
-    rt.jumpMenuBox.bottom = rt.commandSuggestionsBox.bottom;
+    if (rt.commandSuggestionsBox.bottom !== bottom) {
+        rt.commandSuggestionsBox.bottom = bottom;
+    }
+    if (rt.jumpMenuBox.bottom !== bottom) {
+        rt.jumpMenuBox.bottom = bottom;
+    }
 }
 
 export function resizeComposer(rt: TuiRuntime, requestedRows: number): void {

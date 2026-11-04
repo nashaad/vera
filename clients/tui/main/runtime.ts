@@ -1,5 +1,6 @@
 import type { ModeToastItem } from "./notices.ts";
 import type { TuiLiveReasoningRows } from "../theme-preference.ts";
+import type { LiveReasoningCache } from "../thinking-window.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { HostExtensionLoadFailure } from "../../../src/host/extension-load-failures-client.ts";
@@ -391,6 +392,8 @@ export interface TuiRuntime {
     materializedEntryEnd: number;
     measuredEntryRows: number[];
     measuredEntryRowsWidth: number;
+    /** Row estimates for thinking entries that are outside the materialized window. */
+    reasoningRowCaches?: Map<number, LiveReasoningCache>;
     pendingTranscriptScrollRestore: {
         readonly scrollTop: number;
         readonly atBottom: boolean;
@@ -465,6 +468,7 @@ export interface TuiRuntime {
     jumpMenuText: TextRenderable;
     jumpMenuBox: BoxRenderable;
     composerMarginRows: number;
+    appliedComposerMarginRows?: number;
     agentNoticeRows: number;
     resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
     jsonlCommandMode: boolean;
@@ -509,6 +513,8 @@ export interface TuiRuntime {
     stopWatchingTerminal: () => void;
     renderCoalescer: RenderCoalescer;
     statusTimer: NodeJS.Timeout;
+    /** The interval the running status timer was started with. */
+    statusTimerInterval: number;
     lastIdleEscapeAt: number | undefined;
     lastInputRecordAt: number;
     settingsSnapshotRetries: WeakMap<TuiAgentClient, number>;

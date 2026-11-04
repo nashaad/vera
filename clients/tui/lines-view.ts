@@ -186,8 +186,12 @@ export function createTuiLinesView(
         registerCard: options.railDivider !== true,
     });
     surface.paddingBottom = COMPOSER_RESERVE;
+    let appliedBottomInset = COMPOSER_RESERVE;
     const applyBottomInset = (): void => {
-        surface.paddingBottom = rail === undefined ? bottomInset : 0;
+        const padding = rail === undefined ? bottomInset : 0;
+        if (padding === appliedBottomInset) return;
+        surface.paddingBottom = padding;
+        appliedBottomInset = padding;
     };
 
     const view: LinesView = {
