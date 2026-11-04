@@ -1,5 +1,5 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync, type BigIntStats } from "node:fs";
-import type { ConversationCost } from "./budget.ts";
+import { addRecordedSpend, type ConversationCost, type SpendTotals } from "./budget.ts";
 
 interface CostCursor {
     readonly stat: BigIntStats;
@@ -54,9 +54,11 @@ export class ConversationCosts {
 }
 
 function scan(file: number, stat: BigIntStats, prior?: CostCursor): CostCursor {
-    let dollars = prior?.dollars ?? 0;
-    let priced = prior?.priced ?? 0;
-    let unpriced = prior?.unpriced ?? 0;
+    const totals: SpendTotals = {
+        dollars: prior?.dollars ?? 0,
+        priced: prior?.priced ?? 0,
+        unpriced: prior?.unpriced ?? 0,
+    };
     let position = prior?.offset ?? 0;
     let offset = position;
     let pending: Buffer[] = [];
@@ -64,15 +66,7 @@ function scan(file: number, stat: BigIntStats, prior?: CostCursor): CostCursor {
     const size = Number(stat.size);
     const add = (line: string): void => {
         if (!line.trim()) return;
-        const entry = JSON.parse(line);
-        if (entry.type !== "compaction" && (entry.type !== "message" || entry.message?.role !== "assistant"
-            || entry.message.source?.api === "none")) return;
-        if (entry.type === "compaction" && entry.billed === undefined) return;
-        const cost = entry.type === "compaction" ? entry.billed?.usage?.cost : entry.message.usage?.cost;
-        if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
-            dollars += cost;
-            priced++;
-        } else unpriced++;
+        addRecordedSpend(totals, JSON.parse(line));
     };
     while (position < size) {
         const count = readSync(file, chunk, 0, Math.min(chunk.length, size - position), position);
@@ -89,9 +83,9 @@ function scan(file: number, stat: BigIntStats, prior?: CostCursor): CostCursor {
         position += count;
     }
     // A valid final record without a newline counts now, but must be reread after an append.
-    const complete = { dollars, priced, unpriced };
+    const complete = { ...totals };
     if (pending.length > 0) add(Buffer.concat(pending).toString("utf8"));
-    const result = rounded({ dollars, priced, unpriced });
+    const result = rounded(totals);
     const tail = Buffer.alloc(Math.min(tailBytes, offset));
     if (tail.length > 0 && readSync(file, tail, 0, tail.length, offset - tail.length) !== tail.length) {
         throw new Error("Session file changed while reading cost");

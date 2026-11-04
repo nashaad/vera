@@ -8,7 +8,7 @@ import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
-import { budgetReply, writeBudgetTranscript } from "../support/budget-transcript.ts";
+import { budgetAsk, budgetReply, writeBudgetTranscript } from "../support/budget-transcript.ts";
 
 function fixture(run: (path: string, costs: ConversationCosts) => void): void {
     const directory = fs.mkdtempSync(join(tmpdir(), "budget-totals-"));
@@ -56,7 +56,7 @@ test("unknown prices, skipped records, nonterminated lines and UTF-8 chunk bound
             '{"type":"message","message":{"role":"user"}}\n',
             '{"type":"compaction"}\n', '{"type":"compaction","billed":null}\n',
             '{"type":"compaction","billed":{"usage":{"cost":0.5}}}\n',
-            '{"type":"session_ask","billed":{"usage":{"cost":12}}}\n',
+            budgetAsk(12), budgetAsk(),
             budgetReply(0.25, "🏴‍☠️".repeat(20000)), "  \r\n",
             budgetReply(0.75).trimEnd(),
         ];
@@ -95,6 +95,53 @@ test("rewind keeps recorded spending and a branch has its own totals", async () 
         expect(costs.read(branchPath)).toEqual(conversationCost(branchPath));
         expect(costs.read(branchPath).dollars).toBe(0.3);
         expect(costs.read(path).dollars).toBe(0.6);
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("both readers total what session usage counts, including side questions", async () => {
+    const directory = fs.mkdtempSync(join(tmpdir(), "budget-usage-"));
+    const path = join(directory, "voyage.jsonl");
+    const costs = new ConversationCosts();
+    try {
+        const store = await SessionStore.create(path, { sessionId: "voyage", cwd: directory });
+        const first = await store.appendMessage({ role: "user", content: [{ type: "text", text: "Find the treasure." }] });
+        await store.appendMessage({ role: "assistant", content: [{ type: "text", text: "Charting." }],
+            source: { provider: "fixture", api: "fixture", model: "fixture" },
+            usage: { ...emptyUsage(), cost: 0.25 }, stopReason: "stop" });
+        await store.rewindBefore(first.id);
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Try again." }] });
+        const second = await store.appendMessage({ role: "assistant", content: [{ type: "text", text: "A new course." }],
+            source: { provider: "fixture", api: "fixture", model: "fixture" },
+            usage: { ...emptyUsage(), cost: 0.125 }, stopReason: "stop" });
+        await store.appendCompaction({
+            boundaryMessageId: second.id,
+            firstRetainedMessageId: null,
+            projection: [{ role: "user", content: [{ type: "text", text: "A map of the islands." }] }],
+            measured: { inputTokens: 12, estimated: true },
+            billed: { provider: "fixture", model: "fixture", usage: { ...emptyUsage(), cost: 0.5 } },
+        });
+        await store.appendMessage({ role: "assistant", content: [{ type: "text", text: "No price." }],
+            source: { provider: "fixture", api: "fixture", model: "fixture" },
+            usage: emptyUsage(), stopReason: "stop" });
+        await store.appendMessage({ role: "assistant", content: [{ type: "text", text: "Imported." }],
+            source: { provider: "claude-code", api: "none", model: "claude-code" },
+            usage: { ...emptyUsage(), cost: 10 }, stopReason: "stop" });
+        await store.appendAskBilling({ provider: "fixture", model: "fixture",
+            usage: { ...emptyUsage(), cost: 0.75 } });
+        await store.appendAskBilling({ provider: "fixture", model: "fixture", usage: emptyUsage() });
+
+        const usage = store.usageMessages();
+        const reported = usage.reduce((sum, message) => sum + (message.usage.cost ?? 0), 0);
+        expect(reported).toBe(1.625);
+        expect(usage.filter((message) => message.usage.cost === undefined)).toHaveLength(2);
+        for (const reader of [conversationCost(path), costs.read(path)]) {
+            expect(reader.dollars).toBe(reported);
+            expect(reader.priced).toBe(4);
+            expect(reader.unpriced).toBe(2);
+        }
+        expect(conversationCost(path)).toEqual(costs.read(path));
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });
     }

@@ -8,6 +8,12 @@ export function budgetReply(cost?: number, text = "The pirate crow found the tre
             usage: { ...emptyUsage(), ...(cost === undefined ? {} : { cost }) }, stopReason: "stop" } }) + "\n";
 }
 
+export function budgetAsk(cost?: number): string {
+    return JSON.stringify({ type: "session_ask", id: "ask", timestamp: "2026-11-04T12:00:00Z",
+        billed: { provider: "fixture", model: "fixture",
+            usage: { ...emptyUsage(), ...(cost === undefined ? {} : { cost }) } } }) + "\n";
+}
+
 export function writeBudgetTranscript(path: string, minimumBytes: number): number {
     const file = openSync(path, "w");
     let bytes = 0;
@@ -37,6 +43,11 @@ export function writeBudgetTranscript(path: string, minimumBytes: number): numbe
             if (index % 23 === 0) {
                 write({ type: "rewind", timestamp, userMessageId: user, previousHeadId: reply, headId: previous });
             } else previous = reply;
+            if (index % 29 === 0) {
+                write({ type: "session_ask", id: `ask-${index}`, timestamp,
+                    billed: { provider: "fixture", model: "fixture",
+                        usage: { ...emptyUsage(), ...(index % 58 === 0 ? {} : { cost: 0.0002 }) } } });
+            }
         }
         return bytes;
     } finally {

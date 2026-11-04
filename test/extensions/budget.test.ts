@@ -92,6 +92,36 @@ test("commands and reminders use recorded cost and missing confirmation stops sp
     }
 });
 
+test("side-question spending counts toward the budget before the next request", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "budget-ask-"));
+    const id = randomUUID();
+    const sessionPath = join(directory, `${id}.jsonl`);
+    const store = await SessionStore.create(sessionPath, { sessionId: id, cwd: directory });
+    await store.appendAskBilling({ provider: "faux", model: "fixture", usage: { ...emptyUsage(), cost: 0.75 } });
+    const registry = await startExtensionRegistry({ extensions: [{ path, enabled: true, config: {} }] });
+    const received: ModelRequest[] = [];
+    const questions: string[] = [];
+    try {
+        expect((await registry.invokeCommand("budget", ".5", directory, undefined, id, sessionPath)).body)
+            .toMatchObject({ text: expect.stringContaining("Spent: $0.75") });
+        const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
+            received.push(request);
+            return new FauxAdapter([assistantText("done")]).stream(request);
+        } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn",
+            ask: async (request) => {
+                questions.push(request.question);
+                return { outcome: "selected", choice: { id: "stop", label: "Stop" } };
+            } });
+        expect((await wrapped.stream({ model: "fixture", messages: [] }).result()).stopReason).toBe("aborted");
+        expect(questions).toHaveLength(1);
+        expect(questions[0]).toContain("Budget exceeded: $0.75 / $0.50.");
+        expect(received).toHaveLength(0);
+    } finally {
+        await registry.close();
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
 test("sidebar distinguishes reported, partial, zero, and unavailable cost", async () => {
     const registry = await startClientExtensionRegistry({
         extensions: [{ path, enabled: true, config: {} }],
