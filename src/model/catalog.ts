@@ -1,3 +1,4 @@
+import { createFileReadCache, createReadCache } from "../store/read-cache.ts";
 import {
     providerCatalogCacheDir,
     providerCatalogCachePath,
@@ -59,26 +60,32 @@ export function loadDiscoveryCatalog(
     return catalog === undefined ? undefined : toProviderCatalog(catalog);
 }
 
+const catalogCache = createReadCache<ProviderCatalog>();
+
 export function effectiveCatalog(
     provider: string,
     options: EffectiveCatalogOptions = {},
 ): ProviderCatalog {
     const discovery = loadDiscoverySource(provider, options.cacheDir);
-    const listed = (discovery?.models ?? [])
-        .map(toCatalogModel)
-        .filter((model): model is CatalogModel => model !== undefined)
-        .map((model) => withSettingsOverlay(provider, model, options.overlay));
-    const curated = curatedSelection(
-        listed.map((model) => model.id),
-        curatedKeys(options.curated ?? curatedModels()),
-    );
-    return {
-        schema_version: 2,
-        provider,
-        models: listed
-            .map((model) => withCuration(model, curated))
-            .sort(compareModels),
-    };
+    const picks = options.curated ?? curatedModels();
+    const key = JSON.stringify([provider, options.cacheDir ?? providerCatalogCacheDir()]);
+    return catalogCache(key, [discovery, picks, options.overlay], () => {
+        const listed = (discovery?.models ?? [])
+            .map(toCatalogModel)
+            .filter((model): model is CatalogModel => model !== undefined)
+            .map((model) => withSettingsOverlay(provider, model, options.overlay));
+        const curated = curatedSelection(
+            listed.map((model) => model.id),
+            curatedKeys(picks),
+        );
+        return {
+            schema_version: 2,
+            provider,
+            models: listed
+                .map((model) => withCuration(model, curated))
+                .sort(compareModels),
+        };
+    });
 }
 
 function withSettingsOverlay(
@@ -112,17 +119,20 @@ function loadDiscoverySource(
     cacheDir = providerCatalogCacheDir(),
 ): SourceCatalog | undefined {
     try {
-        const value: unknown = JSON.parse(
-            readRegularFileTextSync(
-                providerCatalogCachePath(provider, cacheDir),
-            ),
-        );
-        const catalog = parseCatalog(value);
+        const catalog = readDiscoverySource(providerCatalogCachePath(provider, cacheDir));
         return catalog?.provider === provider ? catalog : undefined;
     } catch {
         return undefined;
     }
 }
+
+const readDiscoverySource = createFileReadCache((path): SourceCatalog | undefined => {
+    try {
+        return parseCatalog(JSON.parse(readRegularFileTextSync(path)));
+    } catch {
+        return undefined;
+    }
+});
 
 function parseCatalog(value: unknown): SourceCatalog | undefined {
     const catalog = asRecord(value);

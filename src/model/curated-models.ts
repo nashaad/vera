@@ -1,3 +1,4 @@
+import { createFileReadCache } from "../store/read-cache.ts";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -54,13 +55,16 @@ export interface CuratedResult {
 export function readCuratedCache(
     path = curatedCachePath(),
 ): CuratedCache | undefined {
+    return cachedCuratedList(path);
+}
+
+const cachedCuratedList = createFileReadCache((path): CuratedCache | undefined => {
     try {
-        const value: unknown = JSON.parse(readRegularFileTextSync(path));
-        return parseCache(value);
+        return parseCache(JSON.parse(readRegularFileTextSync(path)));
     } catch {
         return undefined;
     }
-}
+});
 
 /** The list shipped with the build, which answers until a fetch lands. */
 const CURATED_SEED_PATH = fileURLToPath(
@@ -68,12 +72,16 @@ const CURATED_SEED_PATH = fileURLToPath(
 );
 
 export function curatedSeed(path = CURATED_SEED_PATH): readonly CuratedModel[] {
+    return cachedSeed(path);
+}
+
+const cachedSeed = createFileReadCache((path): readonly CuratedModel[] => {
     try {
         return parseCuratedList(JSON.parse(readRegularFileTextSync(path)))?.models ?? [];
     } catch {
         return [];
     }
-}
+});
 
 export function curatedModels(
     path = curatedCachePath(),

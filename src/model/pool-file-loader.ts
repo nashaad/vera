@@ -1,9 +1,11 @@
+import { createFileReadCache, createReadCache } from "../store/read-cache.ts";
 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     EMPTY_POOL_FILE,
+    NO_PRESERVED_POOL_FIELDS,
     type LearnedFacts,
     type PoolFile,
     type PoolFileDefaults,
@@ -64,12 +66,15 @@ export function projectPoolFilePath(projectRoot: string): string {
     return join(projectRoot, ".vera", "pool.json");
 }
 
+const mergedPoolCache = createReadCache<LoadedPoolFile>();
+
 export function loadPoolFile(
     options: LoadPoolFileOptions = {},
 ): LoadedPoolFile {
     const issues: ScopedPoolIssue[] = [];
+    const userPath = options.userPath ?? userPoolFilePath();
     const user = readScope(
-        options.userPath ?? userPoolFilePath(),
+        userPath,
         "user",
         issues,
     );
@@ -81,7 +86,8 @@ export function loadPoolFile(
         ? EMPTY_POOL_FILE
         : readScope(projectPath, "project", issues);
 
-    return { merged: mergePoolFiles(user, project), user, project, issues };
+    return mergedPoolCache(JSON.stringify([userPath, projectPath]), [user, project, JSON.stringify(issues)],
+        () => ({ merged: mergePoolFiles(user, project), user, project, issues }));
 }
 
 export function mergePoolFiles(under: PoolFile, over: PoolFile): PoolFile {
@@ -144,15 +150,17 @@ function readScope(
     scope: PoolScope,
     issues: ScopedPoolIssue[],
 ): PoolFile {
-    let text: string;
-    try {
-        text = readRegularFileTextSync(path);
-    } catch {
-        return EMPTY_POOL_FILE;
-    }
-    const parsed = parsePoolFileText(text);
+    const parsed = readParsedPool(path);
     for (const issue of parsed.issues) {
         issues.push({ ...issue, scope });
     }
     return parsed.file;
 }
+
+const readParsedPool = createFileReadCache((path): ReturnType<typeof parsePoolFileText> => {
+    try {
+        return parsePoolFileText(readRegularFileTextSync(path));
+    } catch {
+        return { file: EMPTY_POOL_FILE, issues: [], preserved: NO_PRESERVED_POOL_FIELDS };
+    }
+});

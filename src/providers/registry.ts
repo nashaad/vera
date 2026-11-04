@@ -1,3 +1,4 @@
+import { createReadCache } from "../store/read-cache.ts";
 import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 import {
@@ -66,13 +67,16 @@ export function findProvider(id: string): ProviderDescriptor | undefined {
     return configuredProviders(undefined).find((provider) => provider.id === id);
 }
 
+const descriptorCache = createReadCache<readonly ProviderDescriptor[]>(1);
+
 export function configuredProviders(
     config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
 ): readonly ProviderDescriptor[] {
-    return resolveProviders({
+    const key = JSON.stringify([config?.providers, config?.provider_endpoints]);
+    return descriptorCache("providers", [key], () => resolveProviders({
         providers: config?.providers,
         provider_endpoints: config?.provider_endpoints,
-    }).map((provider) => descriptorFromResolved(provider));
+    }).map((provider) => descriptorFromResolved(provider)));
 }
 
 export function setupProviders(

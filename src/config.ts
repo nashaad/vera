@@ -1,3 +1,4 @@
+import { fileReadStamp } from "./store/read-cache.ts";
 import { eligibleForDefault } from "./model/model-operations.ts";
 import { loadPoolFile as loadAssignmentPool } from "./model/pool-file-loader.ts";
 import {
@@ -972,8 +973,8 @@ export function createLiveVeraConfigReader(
     let lastStamp = "";
     return () => {
         try {
-            const stat = statSync(path);
-            const stamp = `${stat.mtimeMs}:${stat.size}`;
+            const stamp = fileReadStamp(path);
+            if (stamp === undefined) return lastConfig;
             if (stamp === lastStamp) return lastConfig;
             const loaded = loadVeraConfig({ ...options, path });
             lastStamp = stamp;
