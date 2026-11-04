@@ -29,6 +29,18 @@ The first launch should omit `-c`, since there is no prior conversation to
 continue. Starting a TUI from a checkout without this launcher can attach to
 the daily host instead of testing that checkout's code.
 
+### Provider keys
+
+A new instance has no stored provider credentials and copies none from
+`~/.vera`. Its host reads the provider keys exported in the shell that runs
+`bun run dev:tui`. The factory configuration uses OpenRouter, so an exported
+`OPENROUTER_API_KEY` is enough to start a conversation. For another provider,
+export its key, such as `DEEPSEEK_API_KEY`, or connect it from the model pane
+inside the instance; a key entered there is stored in the instance home.
+
+A running host keeps the environment it started with. After exporting a new
+key, run `bun run dev:tui --stop` and launch again.
+
 ### Inspect or stop it
 
 Run these from the same worktree:
