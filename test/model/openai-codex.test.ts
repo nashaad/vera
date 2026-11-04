@@ -650,7 +650,7 @@ describe("OpenAI Codex adapter", () => {
         expect(message.content).toEqual([{ type: "text", text: "Complete." }]);
     });
 
-    test("does not retry a length-truncated tool call", async () => {
+    test("drops a tool call cut off by the output limit", async () => {
         let attempts = 0;
         const adapter = new OpenAICodexAdapter(async () => {
             attempts += 1;
@@ -671,11 +671,12 @@ describe("OpenAI Codex adapter", () => {
             ]);
         });
 
+        const observed: string[] = [];
         const message = await requestModelWithRecovery(
             adapter,
             { model: "gpt-5.6-sol", messages: [] },
             {
-                onEvent: () => {},
+                onEvent: (event) => observed.push(event.type),
                 onRetry: () => {
                     throw new Error("truncated tool call must not be retried");
                 },
@@ -685,10 +686,11 @@ describe("OpenAI Codex adapter", () => {
         );
 
         expect(attempts).toBe(1);
+        expect(observed).toContain("tool_call_start");
+        expect(observed).not.toContain("tool_call_end");
         expect(message).toMatchObject({
             content: [],
-            stopReason: "error",
-            errorMessage: "OpenAI Codex reached its output limit during a tool call",
+            stopReason: "length",
         });
     });
 

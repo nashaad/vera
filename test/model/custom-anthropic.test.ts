@@ -246,6 +246,47 @@ test("tool results from separate assistant turns stay in separate user messages"
     ]);
 });
 
+test("a tool call cut off by max_tokens is dropped and reported as a length stop", async () => {
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "lab-anthropic",
+        model: "claude-test",
+        approval_mode: "ask",
+        providers: {
+            "lab-anthropic": {
+                protocol: "anthropic-messages",
+                base_url: "https://models.example.com/v1",
+                credential: "none",
+            },
+        },
+    }, {
+        fetch: async () => anthropicStream([
+            { type: "message_start", message: { model: "claude-test", usage: { input_tokens: 4 } } },
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "tool_use", id: "tool_1", name: "read_chart", input: {} },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "input_json_delta", partial_json: "{\"path\":" },
+            },
+            { type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 8 } },
+            { type: "message_stop" },
+        ]),
+    });
+
+    const result = await adapter.stream({
+        model: "claude-test",
+        messages: [userText("Read the chart.")],
+    }).result();
+
+    expect(result.stopReason).toBe("length");
+    expect(result.content).toEqual([]);
+    expect(result.errorMessage).toBeUndefined();
+});
+
 interface SentMessage {
     readonly role: string;
     readonly content: unknown;

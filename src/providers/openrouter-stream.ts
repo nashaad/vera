@@ -98,17 +98,11 @@ export class OpenRouterStreamDecoder {
             this.output.push({ type: "thinking_end", contentIndex: this.thinkingIndex });
         }
         const stopReason = this.finishReason ?? this.inferredStopReason();
-        if (stopReason === "length" && this.toolCalls.size > 0) {
-            throw new ProviderFailureError(
-                {
-                    kind: "unknown",
-                    resolution: "none",
-                    message: `Provider ${this.source.provider} reached its output limit during a tool call`,
-                },
-                undefined,
-            );
+        // Arguments cut off by the output cap cannot be run or resumed. Leave them
+        // out of the message; the engine retries the request with a larger cap.
+        if (stopReason !== "length") {
+            this.finishToolCalls();
         }
-        this.finishToolCalls();
         return this.message(stopReason);
     }
 

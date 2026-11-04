@@ -783,27 +783,31 @@ describe("OpenRouter adapter", () => {
         expect(message.stopReason).toBe("length");
     });
 
-    test("does not retry a length-truncated tool call", async () => {
+    test("drops a tool call cut off by the output limit", async () => {
         let attempts = 0;
         const adapter = new OpenRouterAdapter(async () => {
             attempts += 1;
-            return chunks([chatChunk({
-                delta: {
-                    toolCalls: [{
-                        index: 0,
-                        id: "call-1",
-                        function: { name: "read", arguments: "{\"path\":" },
-                    }],
-                },
-                finishReason: "length",
-            })]);
+            return chunks([
+                chatChunk({ delta: { content: "planning" } }),
+                chatChunk({
+                    delta: {
+                        toolCalls: [{
+                            index: 0,
+                            id: "call-1",
+                            function: { name: "read", arguments: "{\"path\":" },
+                        }],
+                    },
+                    finishReason: "length",
+                }),
+            ]);
         });
 
+        const events: string[] = [];
         const message = await requestModelWithRecovery(
             adapter,
             { model: "test/model", messages: [] },
             {
-                onEvent: () => {},
+                onEvent: (event) => events.push(event.type),
                 onRetry: () => {
                     throw new Error("truncated tool call must not be retried");
                 },
@@ -813,10 +817,11 @@ describe("OpenRouter adapter", () => {
         );
 
         expect(attempts).toBe(1);
+        expect(events).toContain("tool_call_start");
+        expect(events).not.toContain("tool_call_end");
         expect(message).toMatchObject({
-            content: [],
-            stopReason: "error",
-            errorMessage: "Provider openrouter reached its output limit during a tool call",
+            content: [{ type: "text", text: "planning" }],
+            stopReason: "length",
         });
     });
 

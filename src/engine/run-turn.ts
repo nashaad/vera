@@ -217,6 +217,10 @@ const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const PRE_TURN_HOOK_TIMEOUT_MS = 60_000;
 const TURN_ENDING_HOOK_TIMEOUT_MS = 60_000;
 const MAX_TURN_CONTINUATIONS = 1;
+const OUTPUT_LIMIT_TOOL_CALL_MESSAGE =
+    "The reply was longer than the model's output limit, so the tool call was cut off "
+    + "and did not run. Ask for the work in smaller pieces, or switch to a model "
+    + "that allows longer replies.";
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
@@ -1440,11 +1444,15 @@ export async function runTurn(
             }
             const modelRequestStarted = performance.now();
             let lastFailure: ProviderFailure | undefined;
+            let sawToolCall = false;
             assistantMessage = await requestModelWithRecovery(
                 adapter,
                 modelRequest,
                 {
                     onEvent(event): void {
+                        if (event.type === "tool_call_start") {
+                            sawToolCall = true;
+                        }
                         if (event.type === "error") {
                             lastFailure = event.error instanceof ProviderFailureError
                                 ? sanitizedProviderFailure(event.error.failure)
@@ -1502,6 +1510,7 @@ export async function runTurn(
                         state.events.emit({ type: "model_stream", event });
                     },
                     onRetry(retry): void {
+                        sawToolCall = false;
                         state.events.emit({
                             type: "model_retry_scheduled",
                             ...retry,
@@ -1509,6 +1518,7 @@ export async function runTurn(
                         });
                     },
                     onCoarsened(coarsened): void {
+                        sawToolCall = false;
                         turnReasoningEffort = coarsened.using;
                         substitutions.push({
                             model: coarsened.model,
@@ -1523,6 +1533,7 @@ export async function runTurn(
                         });
                     },
                     onEffortSubstituted(substituted): void {
+                        sawToolCall = false;
                         substitutions.push({
                             model: substituted.model,
                             requested: substituted.requested,
@@ -1538,6 +1549,7 @@ export async function runTurn(
                         });
                     },
                     onFallback(fallback): void {
+                        sawToolCall = false;
                         activeModel = fallback.toModel;
                         substitutions.push({
                             model: fallback.fromModel,
@@ -1614,6 +1626,55 @@ export async function runTurn(
                 && assistantMessage.stopReason === "tool_use"
             ) {
                 assistantMessage = rejectUnavailableToolCalls(assistantMessage);
+            }
+            if (
+                assistantMessage.stopReason === "length"
+                && (sawToolCall
+                    || assistantMessage.content.some((block) =>
+                        block.type === "tool_call"
+                    ))
+            ) {
+                const continuation = nextLengthContinuation(
+                    maxTokens,
+                    lengthContinuations,
+                );
+                // Retrying at the same cap regenerates the same cut-off call.
+                if (
+                    continuation !== undefined
+                    && continuation.nextMaxTokens > maxTokens
+                ) {
+                    state.events.emit({
+                        type: "model_length_continuation",
+                        model: activeModel,
+                        previousMaxTokens: continuation.previousMaxTokens,
+                        nextMaxTokens: continuation.nextMaxTokens,
+                        continuation: continuation.continuation,
+                        maxContinuations: continuation.maxContinuations,
+                    });
+                    // The retry replaces the streamed partial reply in the client.
+                    state.events.emit({
+                        type: "model_retry_scheduled",
+                        model: activeModel,
+                        nextAttempt: continuation.continuation + 1,
+                        maxAttempts: continuation.maxContinuations + 1,
+                        delayMs: 0,
+                        failure: sanitizedProviderFailure({
+                            kind: "unknown",
+                            resolution: "none",
+                            message:
+                                "Tool call cut off by the model's output limit",
+                        }),
+                        replacesPartialAttempt: true,
+                    });
+                    maxTokens = continuation.nextMaxTokens;
+                    lengthContinuations = continuation.continuation;
+                    continue;
+                }
+                assistantMessage = {
+                    ...assistantMessage,
+                    stopReason: "error",
+                    errorMessage: OUTPUT_LIMIT_TOOL_CALL_MESSAGE,
+                };
             }
             if (substitutions.length > 0) {
                 assistantMessage = { ...assistantMessage, substitutions };

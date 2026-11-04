@@ -339,18 +339,19 @@ export class OpenAICodexStreamDecoder {
             });
             this.thinkingBlocks.delete(outputIndex);
         }
+        // Arguments cut off by the output cap cannot be run or resumed. Drop any
+        // completed or pending calls; the engine retries with a larger cap.
+        if (this.finishReason === "length") {
+            this.toolCalls.clear();
+            for (let index = this.content.length - 1; index >= 0; index -= 1) {
+                if (this.content[index]?.type === "tool_call") {
+                    this.content.splice(index, 1);
+                }
+            }
+            return;
+        }
         if (this.toolCalls.size > 0) {
             const outputIndex = this.toolCalls.keys().next().value;
-            if (this.finishReason === "length") {
-                throw new ProviderFailureError(
-                    {
-                        kind: "unknown",
-                        resolution: "none",
-                        message: "OpenAI Codex reached its output limit during a tool call",
-                    },
-                    undefined,
-                );
-            }
             throw malformedOpenAICodexToolCall(
                 `OpenAI Codex returned incomplete tool call at index ${outputIndex}`,
                 undefined,
