@@ -52,6 +52,9 @@ vera stdio --attach <agent-id>
 vera stdio --resume <session-id|path>
 ```
 
+On attach and resume, `vera stdio` sends the whole conversation history as one
+`history` message.
+
 The exchange includes prompts and responses to UI requests. This is the
 message shape, with omitted fields shown as ellipses:
 
