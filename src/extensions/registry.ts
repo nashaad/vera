@@ -18,7 +18,10 @@ import {
     findLiteralSecrets,
     type LiteralSecretFinding,
 } from "./literal-secret.ts";
-import { extensionStorage } from "./storage.ts";
+import {
+    extensionStorage,
+    type ExtensionStorageRoots,
+} from "./storage.ts";
 import { SearchProviderSet } from "./search-providers.ts";
 import type {
     VeraExtensionApi,
@@ -136,6 +139,7 @@ export interface RegisteredTurnEndingHook {
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
+    readonly storageRoots?: ExtensionStorageRoots;
     readonly activationTimeoutMs?: number;
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
@@ -317,6 +321,7 @@ export async function startExtensionRegistry(
                 disposeTimeoutMs,
                 searchProviders,
                 host,
+                options.storageRoots,
             );
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
@@ -627,6 +632,7 @@ async function activateExtension(
     disposeTimeoutMs: number,
     searchProviders: SearchProviderSet,
     host: ExtensionHostSlot,
+    storageRoots: ExtensionStorageRoots | undefined,
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
@@ -656,7 +662,7 @@ async function activateExtension(
     let activationSettled = false;
     const api: VeraExtensionApi = Object.freeze({
         config: structuredClone(config),
-        storage: extensionStorage(loaded.manifest.id),
+        storage: extensionStorage(loaded.manifest.id, storageRoots),
         annex: Object.freeze({
             pageUrl(pageId: string): string | undefined {
                 const declared = loaded.manifest.contributes.pages.some(

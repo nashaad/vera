@@ -1,9 +1,27 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { defaultVeraConfigPath } from "../src/config.ts";
+import { eventLogRoot } from "../src/engine/events.ts";
+import { defaultPermissionPreferencesPath } from "../src/engine/permission-preferences.ts";
+import { defaultReviewLogPath } from "../src/engine/review-log.ts";
 import { extensionRegistryPathFor } from "../src/extensions/manager.ts";
+import { defaultHostLogPath } from "../src/host/host-log.ts";
+import { defaultSpawnConsentPath } from "../src/host/inbox-spawn.ts";
+import {
+    defaultHostLockPath,
+    defaultHostSocketPath,
+} from "../src/host/lockfile.ts";
+import { defaultTrustNoticePath } from "../src/host/trust-notice.ts";
+import { providerCatalogCacheDir } from "../src/model/catalog-cache.ts";
+import { curatedCachePath } from "../src/model/curated-models.ts";
+import { defaultAuthStoragePath } from "../src/providers/auth-storage.ts";
+import { defaultSchedulePath } from "../src/scheduler/store.ts";
+import { defaultInboxPath } from "../src/store/inbox.ts";
+import { defaultModelFailureLedgerPath } from "../src/store/model-failures.ts";
+import { defaultSessionDirectory } from "../src/store/session-store.ts";
 import {
     assertProfileLayout,
     legacyLayoutEntries,
@@ -137,4 +155,64 @@ test("a stray directory named like a managed extension is unrecognised", () => {
 test("a home that does not exist yet has nothing to complain about", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
+test("every path helper accepts one selected home", () => {
+    const veraHome = mkdtempSync(join(tmpdir(), "vera-selected-home-"));
+    const helpers: readonly [
+        string,
+        (home?: string) => string,
+        string,
+    ][] = [
+        ["defaultSessionDirectory", defaultSessionDirectory, "runtime/sessions"],
+        ["defaultHostSocketPath", defaultHostSocketPath, "runtime/host.sock"],
+        ["defaultHostLockPath", defaultHostLockPath, "runtime/host.json"],
+        ["defaultInboxPath", defaultInboxPath, "runtime/inbox.db"],
+        ["defaultSchedulePath", defaultSchedulePath, "runtime/schedules.db"],
+        ["defaultHostLogPath", defaultHostLogPath, "runtime/logs/host.jsonl"],
+        [
+            "defaultReviewLogPath",
+            defaultReviewLogPath,
+            "runtime/logs/reviewer.jsonl",
+        ],
+        ["defaultVeraConfigPath", defaultVeraConfigPath, "config.json"],
+        [
+            "defaultModelFailureLedgerPath",
+            defaultModelFailureLedgerPath,
+            "runtime/failures/ledger.jsonl",
+        ],
+        ["defaultAuthStoragePath", defaultAuthStoragePath, "machine/auth.json"],
+        [
+            "defaultPermissionPreferencesPath",
+            defaultPermissionPreferencesPath,
+            "preferences.json",
+        ],
+        ["defaultTrustNoticePath", defaultTrustNoticePath, "trust-notices.json"],
+        ["defaultSpawnConsentPath", defaultSpawnConsentPath, "spawn-consent.json"],
+        ["providerCatalogCacheDir", providerCatalogCacheDir, "runtime/cache"],
+        ["curatedCachePath", curatedCachePath, "runtime/curated-models.json"],
+        ["eventLogRoot", eventLogRoot, "runtime/logs"],
+    ];
+    const resolved = (home?: string): Record<string, string> =>
+        Object.fromEntries(helpers.map(([name, helper]) => [name, helper(home)]));
+    const expectedIn = (root: string): Record<string, string> =>
+        Object.fromEntries(helpers.map(([name, , suffix]) => [
+            name,
+            join(root, ...suffix.split("/")),
+        ]));
+
+    const saved = process.env.VERA_HOME;
+    try {
+        delete process.env.VERA_HOME;
+        const defaultHome = join(homedir(), ".vera");
+        expect(resolved()).toEqual(expectedIn(defaultHome));
+        expect(resolved(veraHome)).toEqual(expectedIn(veraHome));
+
+        process.env.VERA_HOME = veraHome;
+        expect(resolved()).toEqual(expectedIn(veraHome));
+        expect(resolved(veraHome)).toEqual(expectedIn(veraHome));
+    } finally {
+        if (saved === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = saved;
+    }
 });

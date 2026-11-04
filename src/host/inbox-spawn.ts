@@ -6,7 +6,7 @@ import type { ConsumerRegistry } from "./consumers.ts";
 import type { Inbox, InboxEntry } from "../store/inbox.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
-import { veraProfileDirectory } from "../profile-paths.ts";
+import { selectedVeraHome } from "../profile-paths.ts";
 
 const PEER_MESSAGE_KIND = "peer.message";
 
@@ -425,8 +425,8 @@ function fileStamp(path: string): string | null {
     }
 }
 
-export function defaultSpawnConsentPath(): string {
-    return join(veraProfileDirectory(), "spawn-consent.json");
+export function defaultSpawnConsentPath(home?: string): string {
+    return join(selectedVeraHome(home), "spawn-consent.json");
 }
 
 function readConfirmedAt(path: string): string | null {

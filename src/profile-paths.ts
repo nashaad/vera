@@ -22,6 +22,16 @@ export function veraMachineDirectoryIn(veraHome: string): string {
     return join(veraHome, "machine");
 }
 
+// The Vera home itself: the argument, else VERA_HOME, else ~/.vera.
+// Helper `home` options are this, not the user's home that veraHomeDirectory takes.
+export function selectedVeraHome(home?: string): string {
+    return home === undefined ? veraHomeDirectory() : home;
+}
+
+export function veraRuntimeDirectoryIn(veraHome: string): string {
+    return join(veraHome, "runtime");
+}
+
 export function veraMachineDirectory(home?: string): string {
     return veraMachineDirectoryIn(veraHomeDirectory(home));
 }
@@ -31,7 +41,7 @@ export function veraProfileDirectory(_env = process.env, home?: string): string 
 }
 
 export function veraRuntimeDirectory(_env = process.env, home?: string): string {
-    return join(veraHomeDirectory(home), "runtime");
+    return veraRuntimeDirectoryIn(veraHomeDirectory(home));
 }
 
 export class VeraProfileError extends Error {}

@@ -954,7 +954,8 @@ test("vera.tool runs one tool without calling the model", async () => {
 
         const missing = await vera.tool("read", { path: "absent.txt" });
         expect(missing.outcome).toBe("failed");
-        expect(missing.output).toContain("ENOENT");
+        expect(missing.output).toContain("Path not found: absent.txt");
+        expect(missing.output).toContain("single file or folder");
 
         const write = await vera.tool("write", { path: "new.txt", content: "x" });
         expect(write.outcome).toBe("denied");

@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const CURATED_SCHEMA_VERSION = 3;
@@ -30,8 +33,11 @@ export interface CuratedCache {
 
 export const CURATED_FRESHNESS_MS = 24 * 60 * 60 * 1_000;
 
-export function curatedCachePath(runtimeDir = veraRuntimeDirectory()): string {
-    return join(runtimeDir, "curated-models.json");
+export function curatedCachePath(home?: string): string {
+    return join(
+        veraRuntimeDirectoryIn(selectedVeraHome(home)),
+        "curated-models.json",
+    );
 }
 
 export interface CuratedFetch {

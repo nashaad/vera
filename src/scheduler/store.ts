@@ -9,7 +9,10 @@ import type {
     ScheduleDefinition,
     ScheduleRun,
 } from "./types.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import { backupSqliteDatabase } from "../store/sqlite-backup.ts";
 
 export const SCHEDULE_SCHEMA_VERSION = 1;
@@ -279,8 +282,8 @@ export class ScheduleStore {
     }
 }
 
-export function defaultSchedulePath(): string {
-    return join(veraRuntimeDirectory(), "schedules.db");
+export function defaultSchedulePath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "schedules.db");
 }
 
 function scheduleFromRow(row: ScheduleRow): ScheduleDefinition {

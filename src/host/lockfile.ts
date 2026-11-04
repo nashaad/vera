@@ -16,7 +16,10 @@ import {
     requestHostIdentity,
     type HostIdentity,
 } from "./protocol.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import { checkRecordIdentity } from "./process-identity.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 
@@ -150,12 +153,12 @@ export function assertMatchingHostBuild(
     }
 }
 
-export function defaultHostLockPath(): string {
-    return join(veraRuntimeDirectory(), "host.json");
+export function defaultHostLockPath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "host.json");
 }
 
-export function defaultHostSocketPath(): string {
-    return join(veraRuntimeDirectory(), "host.sock");
+export function defaultHostSocketPath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "host.sock");
 }
 
 export function createHostLockfile(

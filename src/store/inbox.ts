@@ -2,7 +2,10 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import { backupSqliteDatabase } from "./sqlite-backup.ts";
 
 export const INBOX_SCHEMA_VERSION = 3;
@@ -389,8 +392,8 @@ function readPredicate(
     return { clauses, parameters };
 }
 
-export function defaultInboxPath(): string {
-    return join(veraRuntimeDirectory(), "inbox.db");
+export function defaultInboxPath(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "inbox.db");
 }
 
 function migrate(database: Database): void {

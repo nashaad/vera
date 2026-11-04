@@ -66,7 +66,7 @@ import {
     discoverManagedExtensionConfigs,
     mergeExtensionConfigs,
 } from "./extensions/discovery.ts";
-import { veraProfileDirectory } from "./profile-paths.ts";
+import { selectedVeraHome, veraProfileDirectory } from "./profile-paths.ts";
 import {
     isFixedEndpointProvider,
     parseCache,
@@ -444,8 +444,8 @@ export interface VeraConfigDefaultsPatch {
     readonly compaction?: Readonly<Record<string, number | null | undefined>>;
 }
 
-export function defaultVeraConfigPath(): string {
-    return join(veraProfileDirectory(), "config.json");
+export function defaultVeraConfigPath(home?: string): string {
+    return join(selectedVeraHome(home), "config.json");
 }
 
 /**

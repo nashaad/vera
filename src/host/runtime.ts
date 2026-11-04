@@ -1,5 +1,5 @@
 import { forgetProviderConnection } from "../providers/forget-provider.ts";
-import { TrustNoticeStore } from "./trust-notice.ts";
+import { defaultTrustNoticePath, TrustNoticeStore } from "./trust-notice.ts";
 import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
 import { readModelCatalog } from "../providers/read-model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
@@ -39,18 +39,14 @@ import {
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { hostExtensionConfigs, workerExtensionConfigs } from "../extensions/host-set.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
-import {
-    veraHomeDirectory,
-    veraMachineDirectory,
-    veraProfileDirectory,
-} from "../profile-paths.ts";
+import { selectedVeraHome, VERA_HOME_ENV, veraMachineDirectoryIn } from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
-import { defaultEventLogPath } from "../engine/events.ts";
+import { defaultEventLogPath, eventLogRoot } from "../engine/events.ts";
 import {
-    ModelFailureLedger,
     defaultModelFailureLedgerPath,
+    ModelFailureLedger,
     readModelFailures,
 } from "../store/model-failures.ts";
 import {
@@ -73,27 +69,27 @@ import type {
 } from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
+    providerCatalogCacheDir,
     readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
-import { createHostLogger, type HostLog } from "./host-log.ts";
+import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
+import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
     openSidecarLogPaths,
     pruneLogs,
 } from "./log-retention.ts";
-import { createReviewLogger } from "../engine/review-log.ts";
+import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
 import { readStampedRelease } from "../release/stamp.ts";
 
-const hostLog = createHostLogger();
-const reviewLog = createReviewLogger();
 import {
     addPoolModel,
     recordLearned,
@@ -108,7 +104,7 @@ import { poolReachability } from "../model/assignment-reachability.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
-import { startCuratedRefresh } from "../model/curated-models.ts";
+import { curatedCachePath, startCuratedRefresh } from "../model/curated-models.ts";
 import {
     refreshDeepSeekCatalog,
 } from "../model/deepseek-catalog.ts";
@@ -128,6 +124,7 @@ import {
 import {
     apiKey,
     createAuthStorage,
+    defaultAuthStoragePath,
     credentialFingerprint,
     type AuthStorage,
 } from "../providers/auth-storage.ts";
@@ -145,7 +142,10 @@ import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guar
 import { providerEndpointUrl } from "../providers/endpoint-url.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { normalizeOllamaHost } from "../providers/ollama-openai.ts";
-import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
+import {
+    defaultPermissionPreferencesPath,
+    PermissionPreferenceStore,
+} from "../engine/permission-preferences.ts";
 import {
     defaultSessionDirectory,
     readSessionIndexMetadata,
@@ -163,7 +163,7 @@ import {
     StartupFindings,
 } from "./startup-findings.ts";
 import { skillScriptTool } from "../skills/script.ts";
-import { Inbox, defaultInboxPath } from "../store/inbox.ts";
+import { defaultInboxPath, Inbox } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import { InboxAdmissionPolicy } from "./inbox-admission.ts";
@@ -177,7 +177,6 @@ import {
     startSidecarRuntimeIfNeeded,
     type SidecarRuntime,
 } from "./sidecar-runtime.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
 import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
 import {
@@ -233,7 +232,7 @@ import {
     NO_SEARCH_RESULTS,
     searchSessions,
 } from "../store/session-search.ts";
-import { ScheduleStore } from "../scheduler/store.ts";
+import { defaultSchedulePath, ScheduleStore } from "../scheduler/store.ts";
 import {
     startSchedulerRuntime,
     type SchedulerRuntime,
@@ -247,6 +246,8 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    // The Vera home itself, not the user's home. Every unset path below stays under it.
+    readonly home?: string;
     // Where Claude Code and Codex keep their sessions. Read, never written.
     readonly importRoots?: ImportRoots;
     readonly configPath?: string;
@@ -304,6 +305,22 @@ export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
     const startupStarted = performance.now();
+    const selectedHome = options.home
+        ?? process.env[VERA_HOME_ENV]?.trim();
+    if (
+        (selectedHome === undefined || selectedHome.length === 0)
+        && overridesHomeState(options)
+    ) {
+        throw new Error(
+            "startResidentHost was given explicit paths but no home. Pass `home` or set VERA_HOME so every path comes from one home.",
+        );
+    }
+    const home = selectedVeraHome(options.home);
+    const logDirectory = eventLogRoot(home);
+    const hostLog = createHostLogger({ path: defaultHostLogPath(home) });
+    const reviewLog = createReviewLogger({
+        path: defaultReviewLogPath(home),
+    });
     const startupLog = options.startupLog ?? hostLog;
     const timed = async <T>(
         phase: string,
@@ -329,12 +346,18 @@ export async function startResidentHost(
             throw error;
         }
     };
-    const migration = migrateConfigPool();
+    // The config as it stands on disk, not as it stood when the host came up. Every setting below is read through this, so changing one in the settings pane reaches a session.
+    const configPath = options.configPath ?? defaultVeraConfigPath(home);
+    const poolPath = options.home === undefined
+        ? undefined
+        : join(home, "pool.json");
+    const migration = migrateConfigPool({
+        configPath,
+        ...(poolPath === undefined ? {} : { poolPath }),
+    });
     if (migration.notice !== undefined) {
         hostLog({ type: "pool_migrated", message: migration.notice });
     }
-    // The config as it stands on disk, not as it stood when the host came up. Every setting below is read through this, so changing one in the settings pane reaches a session.
-    const configPath = options.configPath ?? defaultVeraConfigPath();
     const currentConfig = createLiveVeraConfigReader(options.config, {
         path: configPath,
         ...(options.projectRoot === undefined
@@ -342,22 +365,39 @@ export async function startResidentHost(
             : { projectRoot: options.projectRoot }),
     });
     rememberSkillSettings(options.projectRoot);
-    const currentReachability = () => poolReachability(loadPoolFile({}).merged);
+    const currentReachability = () => poolReachability(
+        loadPoolFile(poolPath === undefined ? {} : { userPath: poolPath }).merged,
+    );
+    const cacheDirectory = providerCatalogCacheDir(home);
+    const socketPath = options.socketPath
+        ?? defaultHostSocketPath(home);
+    const lockPath = options.lockPath ?? defaultHostLockPath(home);
+    const modelFailureLedgerPath = options.modelFailureLedgerPath
+        ?? defaultModelFailureLedgerPath(home);
     const sessionDirectory = options.sessionDirectory
-        ?? defaultSessionDirectory();
+        ?? defaultSessionDirectory(home);
     const sessionIdentityReservationRoot = options.sessionDirectory === undefined
-        ? veraMachineDirectory()
+        ? veraMachineDirectoryIn(home)
         : sessionDirectory;
     const eventLogDirectory = options.eventLogDirectory;
-    const authStorage = options.authStorage ?? createAuthStorage();
+    const authStorage = options.authStorage
+        ?? createAuthStorage({ path: defaultAuthStoragePath(home) });
     let models = await timed("model_discovery", () =>
         options.createAdapter === undefined
-            ? discoverAvailableModels(options.config, authStorage)
-            : configuredCatalog(options.config)
+            ? discoverAvailableModels(
+                options.config,
+                authStorage,
+                hostLog,
+                cacheDirectory,
+            )
+            : configuredCatalog(options.config, cacheDirectory)
     );
     let catalogRefreshes: Promise<void> = Promise.resolve();
     const permissionPreferences = await timed("permission_preferences", () =>
-        PermissionPreferenceStore.open(options.permissionPreferencesPath)
+        PermissionPreferenceStore.open(
+            options.permissionPreferencesPath
+                ?? defaultPermissionPreferencesPath(home),
+        )
     );
     const startupFindings = options.startupFindings ?? new StartupFindings();
     const extensionLoadFailures: ExtensionLoadFailure[] = [];
@@ -366,6 +406,10 @@ export async function startResidentHost(
         "extension_registry",
         () => startExtensionRegistry({
             extensions: hostExtensionSet,
+            storageRoots: {
+                profile: home,
+                machine: veraMachineDirectoryIn(home),
+            },
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -439,7 +483,9 @@ export async function startResidentHost(
                     : { captureFailedRequest }),
             });
         });
-    const inbox = Inbox.open(options.inboxPath ?? defaultInboxPath());
+    const inbox = Inbox.open(
+        options.inboxPath ?? defaultInboxPath(home),
+    );
     const consumers = createConsumerRegistry(inbox);
     const inboxDelivery = new InboxDeliveryCoordinator(consumers, {
         admissionFor: (projectRoot) => projectRoot === undefined
@@ -447,7 +493,7 @@ export async function startResidentHost(
             : InboxAdmissionPolicy.fromConfig(
                 options.config,
                 projectRoot,
-                options.inboxUserConfigPath,
+                options.inboxUserConfigPath ?? configPath,
             ),
     });
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
@@ -460,11 +506,13 @@ export async function startResidentHost(
             }
         }
     };
-    const scheduleStore = ScheduleStore.open(options.schedulePath);
+    const scheduleStore = ScheduleStore.open(
+        options.schedulePath ?? defaultSchedulePath(home),
+    );
     let watches: WatchRuntime | null = null;
     let scheduler: SchedulerRuntime | null = null;
     let sidecars: SidecarRuntime | null = null;
-    let publishedSocketPath = options.socketPath ?? "";
+    let publishedSocketPath = socketPath;
     const closeSidecars = async (): Promise<void> => {
         curatedRefresh.close();
         await sidecars?.close();
@@ -477,11 +525,12 @@ export async function startResidentHost(
         inboxDelivery.close();
         inbox.close();
     };
-    const curatedRefresh = startCuratedRefresh(
-        options.config.curated_models_url === undefined
+    const curatedRefresh = startCuratedRefresh({
+        path: curatedCachePath(home),
+        ...(options.config.curated_models_url === undefined
             ? {}
-            : { url: options.config.curated_models_url },
-    );
+            : { url: options.config.curated_models_url }),
+    });
     const readFeedRow = createFeedRowReader(
         options.config.model_feed_url === undefined
             ? {}
@@ -490,7 +539,7 @@ export async function startResidentHost(
     const eventLogPathForId = eventLogEnabled(currentConfig())
         ? (agentId: string, cwd: string) =>
             eventLogDirectory === undefined
-                ? defaultEventLogPath(agentId, cwd)
+                ? defaultEventLogPath(agentId, cwd, logDirectory)
                 : join(eventLogDirectory, `${agentId}.jsonl`)
         : undefined;
     // Config commands run before extension hooks, as they do in every other phase.
@@ -552,9 +601,13 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
+        cacheDir: cacheDirectory,
         refreshAvailableModels: options.createAdapter === undefined
             ? () => {
-                models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, { authStorage }), currentConfig());
+                models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, {
+                    authStorage,
+                    cacheDir: cacheDirectory,
+                }), currentConfig());
                 return models;
             }
             : undefined,
@@ -583,17 +636,27 @@ export async function startResidentHost(
                             ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {}) })
                             .catch(() => undefined);
                         if (catalog === undefined) return undefined;
-                        writeProviderCatalogSnapshot(catalog);
-                        models = modelsFromConnectedCatalogs(config, models, { authStorage });
+                        writeProviderCatalogSnapshot(catalog, {
+                            cacheDir: cacheDirectory,
+                        });
+                        models = modelsFromConnectedCatalogs(config, models, {
+                            authStorage,
+                            cacheDir: cacheDirectory,
+                        });
                         return models;
                     }
                     if (provider === OPENAI_CODEX_PROVIDER_ID) {
                         if (!hasCodexCredential(authStorage)) return undefined;
                         const outcome = await refreshCodexCatalog(authStorage, {
+                            log: hostLog,
+                            cacheDir: cacheDirectory,
                             ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
                         });
                         if (outcome?.failure !== undefined) return undefined;
-                        const rows = discoveredCodexModels(config, { authStorage });
+                        const rows = discoveredCodexModels(config, {
+                            authStorage,
+                            cacheDir: cacheDirectory,
+                        });
                         models = withProviderRefreshability(
                             replaceProviderRows(models, provider, rows),
                             config,
@@ -700,7 +763,7 @@ export async function startResidentHost(
         removeFromPool: (entry) => {
             refusedPoolWrite(() => {
                 setPoolMembership([`${entry.provider}/${entry.model}`], false);
-            });
+            }, hostLog);
         },
         namePoolEntry: (entry, name, projectRoot) => {
             const id = `${entry.provider}/${entry.model}`;
@@ -716,7 +779,7 @@ export async function startResidentHost(
                 const file = namePoolModel(id, name ?? undefined);
                 named = file.models[id] !== undefined
                     && file.models[id]?.name === (name ?? undefined);
-            });
+            }, hostLog);
             return refused === undefined && named;
         },
         movePoolEntry: (entry, delta) => {
@@ -725,7 +788,7 @@ export async function startResidentHost(
             const refused = refusedPoolWrite(() => {
                 held = Object.hasOwn(readUserPoolFile().models, id);
                 if (held) movePoolModel(id, delta);
-            });
+            }, hostLog);
             return refused === undefined && held;
         },
         updateModelDefaults: (settings) => {
@@ -813,7 +876,7 @@ export async function startResidentHost(
         extensionTools: [...extensions.tools(), skillScriptTool],
         trustNotices: {
             tools: extensions.installedUnreviewedTools(),
-            store: new TrustNoticeStore(),
+            store: new TrustNoticeStore(defaultTrustNoticePath(home)),
         },
         workerExtensions: () => workerExtensionConfigs(currentConfig()),
         registeredAgents: extensions.agents(),
@@ -839,7 +902,7 @@ export async function startResidentHost(
             const standing = context === undefined || context.turn === "delivery"
                 ? undefined
                 : standingNudgeContribution(
-                    loadStandingNudges(veraProfileDirectory()),
+                    loadStandingNudges(home),
                     context,
                     cadence,
                 );
@@ -926,7 +989,7 @@ export async function startResidentHost(
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         modelFailureLedger: new ModelFailureLedger(
-            options.modelFailureLedgerPath ?? defaultModelFailureLedgerPath(),
+            modelFailureLedgerPath,
         ),
         ...(eventLogPathForId === undefined ? {} : { eventLogPathForId }),
         ...(options.trashSessionArtifacts === undefined
@@ -1081,22 +1144,18 @@ export async function startResidentHost(
             "server_listen_and_lockfile",
             () => startHostServer({
                 capabilities: HOST_CAPABILITIES,
-            ...(options.socketPath === undefined
-                ? {}
-                : { socketPath: options.socketPath }),
-            ...(options.lockPath === undefined
-                ? {}
-                : { lockPath: options.lockPath }),
-            ...(options.pid === undefined ? {} : { pid: options.pid }),
-            ...(options.startedAt === undefined
-                ? {}
-                : { startedAt: options.startedAt }),
-            ...(options.buildId === undefined
-                ? {}
-                : { buildId: options.buildId }),
-            ...(options.projectRoot === undefined
-                ? {}
-                : { projectRoot: options.projectRoot }),
+                socketPath,
+                lockPath,
+                ...(options.pid === undefined ? {} : { pid: options.pid }),
+                ...(options.startedAt === undefined
+                    ? {}
+                    : { startedAt: options.startedAt }),
+                ...(options.buildId === undefined
+                    ? {}
+                    : { buildId: options.buildId }),
+                ...(options.projectRoot === undefined
+                    ? {}
+                    : { projectRoot: options.projectRoot }),
             findAgent: (agentId) => findOrRestoreAgent(
                 registry,
                 agentId,
@@ -1126,7 +1185,9 @@ export async function startResidentHost(
                     discovered: registry.modelsForClient(),
                     assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
                     createAdapter: (provider) => createAdapter(provider),
-                    catalog: (provider, model) => effectiveCatalog(provider).models.find((row) => row.id === model),
+                    catalog: (provider, model) =>
+                        effectiveCatalog(provider, { cacheDir: cacheDirectory })
+                            .models.find((row) => row.id === model),
                     onResult,
                     onStep,
                 });
@@ -1147,7 +1208,12 @@ export async function startResidentHost(
                     const outcomes = await refreshProviderCatalogs(config, {
                         authStorage,
                     });
-                    models = await discoverAvailableModels(config, authStorage);
+                    models = await discoverAvailableModels(
+                        config,
+                        authStorage,
+                        hostLog,
+                        cacheDirectory,
+                    );
                     registry.availableModels = models;
                     return outcomes;
                 });
@@ -1169,8 +1235,7 @@ export async function startResidentHost(
                 enrichSessionsWithFacts(
                     sessions,
                     include,
-                    options.modelFailureLedgerPath
-                        ?? defaultModelFailureLedgerPath(),
+                    modelFailureLedgerPath,
                 ),
             listBackgroundAgents: () => registry.list(),
             readWorkIndex: () => {
@@ -1364,7 +1429,7 @@ export async function startResidentHost(
         );
         try {
             annex = await startAnnexProcess({
-                home: veraHomeDirectory(),
+                home,
                 hostSocketPath: server.socketPath,
                 extensionDirectories: [
                     ...new Set(
@@ -1409,7 +1474,7 @@ export async function startResidentHost(
             sidecars: extensions.contributions().sidecars(),
             socketPath: server.socketPath,
             logDirectory: options.sidecarLogDirectory
-                ?? join(veraRuntimeDirectory(), "logs", "sidecars"),
+                ?? join(logDirectory, "sidecars"),
             onStateChange: (status) => hostLog({
                 type: "sidecar_state",
                 sidecar: status.sidecarId,
@@ -1420,9 +1485,11 @@ export async function startResidentHost(
                     : { message: status.lastError }),
             }),
         });
-        void indexStoredSessions(sessionDirectory, storedSessionIndex).then(
-            publishStoredSessions,
-        );
+        void indexStoredSessions(
+            sessionDirectory,
+            storedSessionIndex,
+            hostLog,
+        ).then(publishStoredSessions);
     } catch (error) {
         try {
             await closeSidecars();
@@ -1446,7 +1513,7 @@ export async function startResidentHost(
             .catch(() => {});
     }, 30_000);
     const pruneOldLogs = () => {
-        void pruneLogs(join(veraRuntimeDirectory(), "logs"), {
+        void pruneLogs(logDirectory, {
             maxAgeMs: logMaxAgeMs(currentConfig()),
             keep: (path) => openSidecarLogPaths(sidecars?.statuses() ?? [])
                 .has(resolve(path)),
@@ -1496,6 +1563,7 @@ function hostErrorFields(error: unknown): Record<string, unknown> {
 
 function refusedPoolWrite(
     write: () => void,
+    log: HostLog,
 ): {
     readonly verdict: "pool_write_refused";
     readonly reason: string;
@@ -1507,9 +1575,24 @@ function refusedPoolWrite(
         if (!(error instanceof PoolFileWriteRefusedError)) {
             throw error;
         }
-        hostLog({ type: "pool_write_refused", message: error.message });
+        log({ type: "pool_write_refused", message: error.message });
         return { verdict: "pool_write_refused", reason: error.message };
     }
+}
+
+// Explicit paths select parts of a home, so the rest needs the same home.
+function overridesHomeState(options: StartResidentHostOptions): boolean {
+    return options.configPath !== undefined
+        || options.socketPath !== undefined
+        || options.lockPath !== undefined
+        || options.sessionDirectory !== undefined
+        || options.permissionPreferencesPath !== undefined
+        || options.eventLogDirectory !== undefined
+        || options.modelFailureLedgerPath !== undefined
+        || options.inboxPath !== undefined
+        || options.schedulePath !== undefined
+        || options.sidecarLogDirectory !== undefined
+        || options.spawnConsentPath !== undefined;
 }
 
 export function catalogMaxAgeMs(config: VeraConfig): number {
@@ -1585,15 +1668,20 @@ export async function refreshProviderCatalogs(
 // Signed out returns undefined: Codex is optional, unlike the configured providers.
 export async function refreshCodexCatalog(
     authStorage: AuthStorage,
-    options: { readonly cacheDir?: string; readonly fetch?: typeof globalThis.fetch },
+    options: {
+        readonly cacheDir?: string;
+        readonly fetch?: typeof globalThis.fetch;
+        readonly log?: HostLog;
+    },
 ): Promise<CatalogRefreshOutcome | undefined> {
     if (!hasCodexCredential(authStorage)) return undefined;
+    const log = options.log ?? createHostLogger();
     try {
         const catalog = await fetchCodexCatalog({ authStorage, ...options });
         return { provider: OPENAI_CODEX_PROVIDER_ID, models: catalog.models.length };
     } catch (error) {
         const failure = error instanceof CodexCatalogError ? error.failure : "unavailable";
-        hostLog({
+        log({
             type: "codex_catalog_refresh_failed",
             failure,
             message: error instanceof Error ? error.message : String(error),
@@ -1750,21 +1838,28 @@ export function withProviderRows(
 async function discoverAvailableModels(
     config: VeraConfig,
     authStorage: AuthStorage,
+    log: HostLog,
+    cacheDir?: string,
     maxAgeMs = catalogMaxAgeMs(config),
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
+    const cacheOptions = cacheDir === undefined ? {} : { cacheDir };
     const [ollama, openrouter, standard] = await Promise.all([
         discoveredOllamaModels({
-            log: hostLog,
+            log,
+            ...cacheOptions,
             ...(config.provider_endpoints?.ollama === undefined
                 ? {}
                 : { host: config.provider_endpoints.ollama }),
         }),
-        discoveredOpenRouterModels(config, { maxAgeMs }),
+        discoveredOpenRouterModels(config, { ...cacheOptions, maxAgeMs }),
         Promise.all(standardProviderDescriptors(config).map((descriptor) =>
-            standardProviderModels(descriptor, config, authStorage, { maxAgeMs })
+            standardProviderModels(descriptor, config, authStorage, {
+                ...cacheOptions,
+                maxAgeMs,
+            })
         )),
-        refreshWebDevArena({ maxAgeMs }).catch(() => undefined),
+        refreshWebDevArena({ ...cacheOptions, maxAgeMs }).catch(() => undefined),
     ]);
     catalog.push(...ollama);
     catalog.push(...standard.flatMap((result) => result.models));
@@ -1776,11 +1871,15 @@ async function discoverAvailableModels(
         }
         catalog.push(...openrouter);
     }
-    catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
-    catalog.push(...discoveredCodexModels(config));
+    catalog.push(...discoveredDeepSeekModels(config, {
+        authStorage,
+        ...cacheOptions,
+    }));
+    catalog.push(...discoveredCodexModels(config, cacheOptions));
     catalog.push(...cachedProviderModels(
         configuredProviders(config).map((provider) => provider.id),
         catalog,
+        cacheOptions,
     ));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -1793,7 +1892,7 @@ async function discoverAvailableModels(
         });
     }
     return withProviderRefreshability(
-        withCachedWindows(catalog, readCachedWindowIndex()),
+        withCachedWindows(catalog, readCachedWindowIndex(cacheOptions)),
         config,
     );
 }
@@ -2314,7 +2413,10 @@ function positiveModelLength(value: unknown): number | undefined {
         : undefined;
 }
 
-export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
+export function configuredCatalog(
+    config: VeraConfig,
+    cacheDir?: string,
+): readonly SuggestedModel[] {
     const catalog = catalogModels(config);
     const complete = catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -2326,7 +2428,10 @@ export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[]
             label: config.model,
             description: "configured model",
         }, ...catalog];
-    return withCachedWindows(complete, readCachedWindowIndex());
+    return withCachedWindows(
+        complete,
+        readCachedWindowIndex(cacheDir === undefined ? {} : { cacheDir }),
+    );
 }
 
 function catalogModels(config: VeraConfig): SuggestedModel[] {
@@ -2562,13 +2667,14 @@ async function storedSessionPath(
 async function indexStoredSessions(
     sessionDirectory: string,
     sessions = new Map<string, RegisteredAgentSummary>(),
+    log: HostLog = () => {},
 ): Promise<ReadonlyMap<string, RegisteredAgentSummary>> {
     let names: readonly string[];
     try {
         names = await readdir(sessionDirectory);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            hostLog({
+            log({
                 type: "session_index_failed",
                 message: error instanceof Error ? error.message : String(error),
             });

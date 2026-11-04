@@ -42,7 +42,10 @@ import {
     isContextAssemblyMode,
     type ContextAssemblyMode,
 } from "../startup-profile.ts";
-import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraRuntimeDirectoryIn,
+} from "../profile-paths.ts";
 import {
     isContextMeasurement,
     type ContextMeasurement,
@@ -1582,8 +1585,8 @@ export function defaultSessionPath(sessionId: string): string {
     return join(defaultSessionDirectory(), `${sessionId}.jsonl`);
 }
 
-export function defaultSessionDirectory(): string {
-    return join(veraRuntimeDirectory(), "sessions");
+export function defaultSessionDirectory(home?: string): string {
+    return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "sessions");
 }
 
 function messageStamps(

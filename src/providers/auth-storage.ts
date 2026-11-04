@@ -7,7 +7,10 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { veraMachineDirectory } from "../profile-paths.ts";
+import {
+    selectedVeraHome,
+    veraMachineDirectoryIn,
+} from "../profile-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
@@ -71,8 +74,8 @@ export interface AuthStorageOptions {
     readonly onQuarantine?: (quarantinePath: string) => void;
 }
 
-export function defaultAuthStoragePath(): string {
-    return join(veraMachineDirectory(), "auth.json");
+export function defaultAuthStoragePath(home?: string): string {
+    return join(veraMachineDirectoryIn(selectedVeraHome(home)), "auth.json");
 }
 
 export function createAuthStorage(

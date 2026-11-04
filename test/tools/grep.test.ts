@@ -32,6 +32,27 @@ test("grep finds matches and defaults to files_with_matches", async () => {
     }
 });
 
+test("grep names a missing path and says path takes one file or folder", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
+    try {
+        const error = await grepTool.execute(
+            { pattern: "needle", path: "src/host src/engine" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        ).catch((failure: unknown) => failure);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain(
+            "Path not found: src/host src/engine",
+        );
+        expect((error as Error).message).toContain("path");
+        expect((error as Error).message).toContain("single file or folder");
+        expect((error as Error).message).not.toContain("ENOENT");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("grep treats an empty path as the workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
     try {
