@@ -63,7 +63,7 @@ import {
 } from "../model/cached-windows.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
-import { refreshWebDevArena } from "../model/webdev-arena.ts";
+import { refreshWebDevArena, readWebDevArenaSnapshot } from "../model/webdev-arena.ts";
 import type {
     CatalogModel,
 } from "../model/catalog-shape.ts";
@@ -382,8 +382,9 @@ export async function startResidentHost(
     const eventLogDirectory = options.eventLogDirectory;
     const authStorage = options.authStorage
         ?? createAuthStorage({ path: defaultAuthStoragePath(home) });
+    const discoversModelsAtStartup = options.createAdapter === undefined;
     let models = await timed("model_discovery", () =>
-        options.createAdapter === undefined
+        discoversModelsAtStartup
             ? discoverAvailableModels(
                 options.config,
                 authStorage,
@@ -393,6 +394,29 @@ export async function startResidentHost(
             : configuredCatalog(options.config, cacheDirectory)
     );
     let catalogRefreshes: Promise<void> = Promise.resolve();
+    let webDevArenaRefresh: Promise<void> | undefined;
+    // Arena scores are a nicety: the download runs on its own and tells sessions once it lands.
+    const refreshWebDevArenaInBackground = (maxAgeMs: number): void => {
+        if (webDevArenaRefresh !== undefined) return;
+        const before = readWebDevArenaSnapshot(cacheDirectory)?.fetched_at;
+        webDevArenaRefresh = refreshWebDevArena({
+            maxAgeMs,
+            cacheDir: cacheDirectory,
+            ...(options.catalogFetch === undefined
+                ? {}
+                : { fetch: options.catalogFetch }),
+        })
+            .then((snapshot) => {
+                if (snapshot === undefined || snapshot.fetched_at === before) {
+                    return;
+                }
+                registry.notifyModelCatalogChanged();
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                webDevArenaRefresh = undefined;
+            });
+    };
     const permissionPreferences = await timed("permission_preferences", () =>
         PermissionPreferenceStore.open(
             options.permissionPreferencesPath
@@ -624,7 +648,6 @@ export async function startResidentHost(
         refreshCatalog: (provider) => {
             const refreshed = catalogRefreshes.then(async () => {
                 const config = currentConfig();
-                const webdev = refreshWebDevArena({ maxAgeMs: 0 });
                 try {
 
                     const descriptor = configuredProviders(config)
@@ -729,7 +752,7 @@ export async function startResidentHost(
                     );
                     return models;
                 } finally {
-                    await webdev.catch(() => undefined);
+                    refreshWebDevArenaInBackground(0);
                 }
             });
             // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
@@ -1032,6 +1055,10 @@ export async function startResidentHost(
         onSessionsClosed: (members): Promise<void> =>
             indexClosedMembers(registry, members, storedSessionIndex),
     });
+    // Scores fill in after startup; discovery never waits for the arena download.
+    if (discoversModelsAtStartup) {
+        refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
+    }
     extensions.bindHost(createExtensionHostServices({
         registry,
         currentConfig,
@@ -1206,8 +1233,10 @@ export async function startResidentHost(
             refreshCatalogs: () => {
                 const refreshed = catalogRefreshes.then(async () => {
                     const config = currentConfig();
+                    refreshWebDevArenaInBackground(0);
                     const outcomes = await refreshProviderCatalogs(config, {
                         authStorage,
+                        cacheDir: cacheDirectory,
                     });
                     models = await discoverAvailableModels(
                         config,
@@ -1649,7 +1678,6 @@ export async function refreshProviderCatalogs(
             ...cacheOptions,
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         }),
-        refreshWebDevArena({ ...cacheOptions, maxAgeMs: 0 }).catch(() => undefined),
     ]);
     return [
         ollama.available
@@ -1860,7 +1888,6 @@ async function discoverAvailableModels(
                 maxAgeMs,
             })
         )),
-        refreshWebDevArena({ ...cacheOptions, maxAgeMs }).catch(() => undefined),
     ]);
     catalog.push(...ollama);
     catalog.push(...standard.flatMap((result) => result.models));

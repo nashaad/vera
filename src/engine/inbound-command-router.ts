@@ -1521,6 +1521,11 @@ export class InboundCommandRouter {
         this.compactionInFlight = settled;
     }
 
+    /** Re-sends the current model settings to attached clients without a request. */
+    publishModelSettings(): void {
+        this.sendModelSettings(randomUUID());
+    }
+
     private sendModelSettings(requestId: string): void {
         const settings = this.options.readModelSettings?.();
         if (settings === undefined) {

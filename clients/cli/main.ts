@@ -96,6 +96,7 @@ import {
 } from "../../src/model/pool-admission.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { createAuthStorage } from "../../src/providers/auth-storage.ts";
+import { refreshWebDevArena } from "../../src/model/webdev-arena.ts";
 import {
     refreshProviderCatalogs,
     type CatalogRefreshOutcome,
@@ -199,10 +200,13 @@ async function refreshDiscoveredCatalogs(
     if (dependencies.refreshLocalCatalogs !== undefined) {
         return dependencies.refreshLocalCatalogs();
     }
-    return refreshProviderCatalogs(
-        loadOptionalVeraConfig() ?? startingVeraConfig(),
-        { authStorage: createAuthStorage() },
-    );
+    const config = loadOptionalVeraConfig() ?? startingVeraConfig();
+    // A one-shot fallback has nothing waiting on it, so the score download is awaited too.
+    const [outcomes] = await Promise.all([
+        refreshProviderCatalogs(config, { authStorage: createAuthStorage() }),
+        refreshWebDevArena({ maxAgeMs: 0 }),
+    ]);
+    return outcomes;
 }
 
 async function readAnsweringHost(): Promise<
