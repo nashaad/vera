@@ -15,6 +15,7 @@ import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
 import { IDLE_KEYS_HINT, QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
+import { syncStatusTimer } from "./animation-level.ts";
 import { paneHeaderText, quitArmedNow, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-nodes.ts";
@@ -24,7 +25,7 @@ import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI
 import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
-import { StyledText, bg, fg } from "@opentui/core";
+import { StyledText, bg, fg, parseColor } from "@opentui/core";
 
 export function renderStatus(rt: TuiRuntime): void {
     if (rt.shuttingDown) {
@@ -238,7 +239,10 @@ export function renderStatus(rt: TuiRuntime): void {
         const maxLines = Math.floor(rt.renderer.height / 2) - TUI_KEYS_CARD_CHROME_ROWS;
         rt.keysCardView.update(turn, dialWidth, maxLines);
     }
-    rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
+    const dialBackground = parseColor(TUI_HUD?.background ?? TUI_PANEL);
+    if (!rt.dialCard.backgroundColor.equals(dialBackground)) {
+        rt.dialCard.backgroundColor = dialBackground;
+    }
     const hudRows = stripLines?.slice(0, -1) ?? [];
     rt.dialCardTitle.selectable = false;
     rt.dialCardTitle.onMouseDown = (event) => {
@@ -478,6 +482,7 @@ export function renderStatus(rt: TuiRuntime): void {
         )));
     });
     setComposerMargin(rt, footerRowCount(rt.footerLayout));
+    syncStatusTimer(rt);
 }
 
 function turnRunningNow(state: { readonly working: boolean; readonly compactingSince?: number }): boolean {

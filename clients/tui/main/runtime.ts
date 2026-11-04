@@ -465,6 +465,7 @@ export interface TuiRuntime {
     jumpMenuText: TextRenderable;
     jumpMenuBox: BoxRenderable;
     composerMarginRows: number;
+    appliedComposerMarginRows?: number;
     agentNoticeRows: number;
     resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
     jsonlCommandMode: boolean;
@@ -509,6 +510,8 @@ export interface TuiRuntime {
     stopWatchingTerminal: () => void;
     renderCoalescer: RenderCoalescer;
     statusTimer: NodeJS.Timeout;
+    /** The interval the running status timer was started with. */
+    statusTimerInterval: number;
     lastIdleEscapeAt: number | undefined;
     lastInputRecordAt: number;
     settingsSnapshotRetries: WeakMap<TuiAgentClient, number>;
