@@ -33,6 +33,8 @@ const MAX_PENDING_EXTENSION_REQUESTS = 16;
 export interface AttachAgentOptions {
     readonly socketPath: string;
     readonly agentId: string;
+    // Only the load test sets this; the default keeps the 64 MiB ceiling.
+    readonly maxLineBytes?: number;
     readonly maxPendingUpdates?: number;
     readonly requestedCapabilities?: readonly string[];
     readonly afterSequence?: number;
@@ -144,6 +146,9 @@ export async function attachAgent(
     }
     const connection = await connectHost({
         socketPath: options.socketPath,
+        ...(options.maxLineBytes === undefined
+            ? {}
+            : { maxLineBytes: options.maxLineBytes }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     try {

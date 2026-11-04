@@ -18,6 +18,7 @@ import { HOST_CAPABILITY_AGENT_ATTACH_RESUME } from "../../src/host/capabilities
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { MAX_FRAME_BYTES } from "../../src/host/connection.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
@@ -1130,4 +1131,42 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
             }
         }
     },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an attach without an explicit limit keeps the 64 MiB frame ceiling",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.write(`${JSON.stringify({
+                    type: "attached",
+                    agent_id: "agent-1",
+                    workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
+                })}\n`);
+                socket.write(`${JSON.stringify({
+                    type: "history",
+                    entries: [],
+                    pad: "a".repeat(MAX_FRAME_BYTES),
+                    seq: 0,
+                })}\n`);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            await expect(client.receive()).rejects.toThrow(
+                `limit ${MAX_FRAME_BYTES})`,
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+    60_000,
 );
