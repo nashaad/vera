@@ -1227,3 +1227,217 @@ test("the turn-holding request and latest context are readable, and fact changes
         agent.close();
     }
 });
+
+test("a paging attach gets a page marker even on an empty session", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const attachment = agent.attach(undefined, { paging: true });
+    try {
+        expect(await attachment.receive()).toEqual({
+            type: "history",
+            entries: [],
+            seq: 0,
+            page: { pageVersion: 1, hasMore: false },
+        });
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});
+
+test("a paging attach gets the tail and older pages follow the cursor", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const entries = Array.from({ length: 500 }, (_, index) => ({
+        kind: "assistant" as const,
+        id: `message-${index}#0`,
+        text: `message ${index}`,
+    }));
+    agent.engine.send({ type: "history", entries, seq: 0 });
+    const paging = agent.attach(undefined, { paging: true });
+    const legacy = agent.attach();
+    try {
+        const tail = await paging.receive();
+        if (tail.type !== "history") throw new Error("expected history");
+        expect(tail.entries).toHaveLength(240);
+        expect(tail.entries[0]!.id).toBe("message-260#0");
+        expect(tail.page).toEqual({
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "message-260#0",
+            headId: "message-499",
+            tailId: "message-499#0",
+        });
+
+        const older = await agent.historyPage(tail.page!.olderBefore!);
+        if (older.kind !== "page") throw new Error("expected a page");
+        expect(older.entries).toHaveLength(240);
+        expect(older.entries[0]!.id).toBe("message-20#0");
+        expect(older.page.olderBefore).toBe("message-20#0");
+
+        const oldest = await agent.historyPage(older.page.olderBefore!);
+        if (oldest.kind !== "page") throw new Error("expected a page");
+        expect(oldest.entries).toHaveLength(20);
+        expect(oldest.page.hasMore).toBe(false);
+
+        const full = await legacy.receive();
+        if (full.type !== "history") throw new Error("expected history");
+        expect(full.entries).toHaveLength(500);
+        expect(full.page).toBeUndefined();
+    } finally {
+        paging.detach();
+        legacy.detach();
+        agent.close();
+    }
+});
+
+test("a paging attach to a huge history sends a bounded tail", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const body = "x".repeat(410 * 1024);
+    const entries = Array.from({ length: 200 }, (_, index) => ({
+        kind: "assistant" as const,
+        id: `message-${index}#0`,
+        text: body,
+    }));
+    agent.engine.send({ type: "history", entries, seq: 0 });
+    const attachment = agent.attach(undefined, { paging: true });
+    try {
+        const tail = await attachment.receive();
+        if (tail.type !== "history") throw new Error("expected history");
+        expect(tail.entries).toHaveLength(2);
+        expect(Buffer.byteLength(JSON.stringify(tail.entries))).toBeLessThan(
+            1024 * 1024,
+        );
+        expect(tail.page?.hasMore).toBe(true);
+        expect(tail.page?.olderBefore).toBe("message-198#0");
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});
+
+test("a paging attach at the current cursor still sends the tail", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.engine.send({
+        type: "history",
+        entries: [{ kind: "assistant", id: "message-0#0", text: "hello" }],
+        seq: 0,
+    });
+    const attachment = agent.attach(0, { paging: true });
+    try {
+        expect(await attachment.receive()).toMatchObject({
+            type: "history",
+            entries: [{ kind: "assistant", id: "message-0#0", text: "hello" }],
+            page: { pageVersion: 1, hasMore: false },
+        });
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});
+
+test("a live history broadcast is full for a legacy attach and paged for a paging one", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const legacy = agent.attach();
+    const paging = agent.attach(undefined, { paging: true });
+    try {
+        await legacy.receive();
+        await paging.receive();
+        const entries = Array.from({ length: 500 }, (_, index) => ({
+            kind: "assistant" as const,
+            id: `message-${index}#0`,
+            text: `message ${index}`,
+        }));
+        agent.engine.send({ type: "history", entries, seq: 0 });
+
+        const legacyUpdate = await legacy.receive();
+        if (legacyUpdate.type !== "history") throw new Error("expected history");
+        expect(legacyUpdate.entries).toHaveLength(500);
+        expect(legacyUpdate.page).toBeUndefined();
+
+        const pagingUpdate = await paging.receive();
+        if (pagingUpdate.type !== "history") throw new Error("expected history");
+        expect(pagingUpdate.entries).toHaveLength(240);
+        expect(pagingUpdate.page?.hasMore).toBe(true);
+    } finally {
+        legacy.detach();
+        paging.detach();
+        agent.close();
+    }
+});
+
+test("a page outside the checkpoint comes from the owner's store source", async () => {
+    const calls: string[] = [];
+    const fallback = {
+        kind: "page" as const,
+        entries: [{ kind: "assistant" as const, id: "older#0", text: "older" }],
+        page: {
+            pageVersion: 1,
+            hasMore: false,
+            headId: "newest",
+            tailId: "older#0",
+        },
+    };
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        historyPageSource: (before) => {
+            calls.push(before);
+            return fallback;
+        },
+    });
+    agent.engine.send({
+        type: "history",
+        entries: [{ kind: "assistant", id: "newest#0", text: "newest" }],
+        seq: 0,
+    });
+    try {
+        await expect(agent.historyPage("older#0")).resolves.toEqual(fallback);
+        expect(calls).toEqual(["older#0"]);
+        const fromCheckpoint = await agent.historyPage("newest#0");
+        expect(fromCheckpoint.kind).toBe("page");
+        expect(calls).toEqual(["older#0"]);
+    } finally {
+        agent.close();
+    }
+});
+
+test("a paging attach does not clone the full history", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const entries = Array.from({ length: 500 }, (_, index) => ({
+        kind: "assistant" as const,
+        id: `message-${index}#0`,
+        text: `message ${index}`,
+    }));
+    agent.engine.send({ type: "history", entries, seq: 0 });
+
+    const original = globalThis.structuredClone;
+    const historyClones: string[] = [];
+    globalThis.structuredClone = ((
+        value: unknown,
+        options?: Parameters<typeof structuredClone>[1],
+    ) => {
+        if (
+            typeof value === "object"
+            && value !== null
+            && (value as { type?: string }).type === "history"
+        ) {
+            historyClones.push("history");
+        }
+        return original(value, options);
+    }) as typeof structuredClone;
+    const legacy = agent.attach();
+    try {
+        expect(historyClones).toHaveLength(1);
+        const paging = agent.attach(undefined, { paging: true });
+        expect(historyClones).toHaveLength(1);
+        await paging.receive();
+        historyClones.length = 0;
+
+        agent.engine.send({ type: "history", entries, seq: 0 });
+        expect(historyClones).toHaveLength(1);
+        await legacy.receive();
+        await paging.receive();
+        paging.detach();
+    } finally {
+        globalThis.structuredClone = original;
+        legacy.detach();
+        agent.close();
+    }
+});

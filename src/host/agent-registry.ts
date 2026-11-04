@@ -57,6 +57,7 @@ import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/han
 import type { WorkerAdapterSpec } from "./worker/start.ts";
 import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { historyPageFromStore } from "./history-page.ts";
 import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
 import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
 
@@ -706,6 +707,7 @@ export class AgentRegistry {
             IMAGE_ATTACHMENT_LIMITS,
         );
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
+            historyPageSource: (before) => historyPageFromStore(store, before),
             modelCatalogFacts: () => ({
                 providerCatalogs: this.options.providerCatalogs?.(),
                 selectionCleared: modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings),

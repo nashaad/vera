@@ -328,6 +328,19 @@ export interface MessageStamp {
     readonly recordedAt: number;
 }
 
+export interface SessionPageSource {
+    readonly messages: readonly ModelMessage[];
+    readonly messageStamps: ReadonlyMap<ModelMessage, MessageStamp>;
+    readonly deliveredMessages: ReadonlyMap<ModelMessage, SessionDeliveryEntry>;
+    readonly harnessMessages: readonly {
+        readonly afterMessage: number;
+        readonly text: string;
+        readonly tone: "primary" | "soft" | "error";
+    }[];
+    readonly attachmentName: (id: string) => string | undefined;
+    readonly headId?: string;
+}
+
 export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
@@ -501,6 +514,58 @@ export class SessionStore {
             usage: entry.billed.usage,
         }));
         return [...replies, ...compactions, ...asks];
+    }
+
+    /** The ancestor chain ending at `messageId`, for a page request outside the active branch. */
+    pageSourceTo(messageId: string): SessionPageSource | undefined {
+        const byId = new Map(
+            this.projection.messageEntries.map((entry) => [entry.id, entry]),
+        );
+        const target = byId.get(messageId);
+        if (target === undefined) {
+            return undefined;
+        }
+        const chain: SessionMessageEntry[] = [];
+        const seen = new Set<string>();
+        let current: SessionMessageEntry | undefined = target;
+        while (current !== undefined) {
+            if (seen.has(current.id)) {
+                return undefined;
+            }
+            seen.add(current.id);
+            chain.push(current);
+            if (current.parentId === null) {
+                current = undefined;
+            } else {
+                current = byId.get(current.parentId);
+                if (current === undefined) {
+                    return undefined;
+                }
+            }
+        }
+        chain.reverse();
+        const attachmentNames = new Map(
+            this.projection.attachmentEntries.map((entry) => [
+                entry.attachment.id,
+                entry.attachment.name,
+            ]),
+        );
+        return {
+            messages: chain.map((entry) => entry.message),
+            messageStamps: messageStamps(chain),
+            deliveredMessages: deliveredMessages(
+                chain,
+                this.projection.deliveryEntries,
+            ),
+            harnessMessages: projectHarnessMessages(
+                this.projection.harnessMessageEntries,
+                chain,
+            ),
+            attachmentName: (id) => attachmentNames.get(id),
+            ...(this.projection.leafId === null
+                ? {}
+                : { headId: this.projection.leafId }),
+        };
     }
 
     activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {

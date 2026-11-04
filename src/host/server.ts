@@ -81,6 +81,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_SESSION_TITLE,
     HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
@@ -96,6 +97,7 @@ import {
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
 const MAX_REQUEST_BYTES = MAX_FRAME_BYTES;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
+const MAX_PENDING_HISTORY_PAGES = 2;
 // Idle time, not elapsed time: a frame carrying a large transcript or an attachment streams for longer than this and must not be mistaken for a stalled client.
 const REQUEST_TIMEOUT_MS = 1_000;
 const REQUEST_CEILING_MS = 60_000;
@@ -621,6 +623,8 @@ function receiveConnection(
     }
     armDeadline();
     let attachment: AgentAttachment | undefined;
+    let attachedAgent: ResidentAgent | undefined;
+    let pendingHistoryPages = 0;
     const lines = new LineBuffer({ maxLineBytes: limits.maxRequestBytes });
     let finished = false;
     let initialRequestPending = false;
@@ -658,6 +662,7 @@ function receiveConnection(
         stopWatchingRoster = undefined;
         attachment?.detach();
         attachment = undefined;
+        attachedAgent = undefined;
         const abandonedAgentId = attachedAgentId;
         attachedAgentId = undefined;
         attachedClientId = undefined;
@@ -722,6 +727,45 @@ function receiveConnection(
     function refuseOversizedFrame(): void {
         void send({ type: "protocol_error", reason: "frame_too_large" })
             .catch(() => socket.destroy());
+    }
+
+    async function sendHistoryPage(
+        requestId: string,
+        before: string,
+    ): Promise<void> {
+        const pageAgent = attachedAgent;
+        if (pageAgent === undefined) {
+            void send({
+                type: "history_page_failed",
+                request_id: requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        try {
+            const result = await pageAgent.historyPage(before);
+            if (result.kind === "page") {
+                void send({
+                    type: "history_page",
+                    request_id: requestId,
+                    before,
+                    entries: result.entries,
+                    page: result.page,
+                });
+            } else {
+                void send({
+                    type: "history_page_failed",
+                    request_id: requestId,
+                    reason: result.kind,
+                });
+            }
+        } catch {
+            void send({
+                type: "history_page_failed",
+                request_id: requestId,
+                reason: "unavailable",
+            });
+        }
     }
 
     function receiveLine(line: string): void {
@@ -1024,11 +1068,28 @@ function receiveConnection(
             return;
         }
         if (message.type === "history_page") {
-            void send({
-                type: "history_page_failed",
-                request_id: message.request_id,
-                reason: "unavailable",
-            });
+            if (
+                !attachedCapabilities.includes(
+                    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+                )
+                || pendingHistoryPages >= MAX_PENDING_HISTORY_PAGES
+            ) {
+                void send({
+                    type: "history_page_failed",
+                    request_id: message.request_id,
+                    reason: attachedCapabilities.includes(
+                        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+                    )
+                        ? "busy"
+                        : "unavailable",
+                });
+                return;
+            }
+            pendingHistoryPages += 1;
+            void sendHistoryPage(message.request_id, message.before)
+                .finally(() => {
+                    pendingHistoryPages -= 1;
+                });
             return;
         }
         try {
@@ -1644,9 +1705,22 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        const negotiated = negotiateHostCapabilities(
+            request.requested_capabilities ?? [],
+            capabilities,
+        ).filter((capability) =>
+            capability !== HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE
+            || request.attachment_kind === "interactive"
+        );
+        const paging = negotiated.includes(
+            HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+        );
         let attached: AgentAttachment;
         try {
-            attached = agent.attach(request.after_seq);
+            attached = agent.attach(request.after_seq, {
+                paging,
+                forceCheckpoint: paging,
+            });
         } catch {
             finished = true;
             void send({
@@ -1657,19 +1731,13 @@ function receiveConnection(
             return;
         }
         attachment = attached;
+        attachedAgent = agent;
         attachedAgentId = agent.id;
         attachedClientId = request.client_id;
         attachedWorkspace = agent.workspace;
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
         sentBackgroundAgents = readBackgroundAgents(attachedId);
-        const negotiated = negotiateHostCapabilities(
-            request.requested_capabilities ?? [],
-            capabilities,
-        ).filter((capability) =>
-            capability !== HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE
-            || request.attachment_kind === "interactive"
-        );
         attachedCapabilities = negotiated;
         if (request.attachment_kind === "interactive") {
             interactiveAttachment = interactiveAttachments.open(

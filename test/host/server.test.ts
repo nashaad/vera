@@ -13,6 +13,7 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
+import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../src/host/capabilities.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { sessionScratchDir } from "../../src/engine/run-turn.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
@@ -1487,3 +1488,233 @@ function summary(
     },
     3_000,
 );
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host sends a tail page and serves an older page to a paging client",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(500),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "attach",
+                agent_id: agent.id,
+                requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            });
+            expect(await connection.receive()).toMatchObject({
+                type: "attached",
+                agent_id: agent.id,
+                capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            });
+            const tail = await connection.receive() as {
+                readonly type: string;
+                readonly entries: readonly { readonly id?: string }[];
+                readonly page?: {
+                    readonly hasMore: boolean;
+                    readonly olderBefore?: string;
+                };
+                readonly seq?: number;
+            };
+            expect(tail.type).toBe("history");
+            expect(tail.entries).toHaveLength(240);
+            expect(tail.entries[0]?.id).toBe("message-260#0");
+            expect(tail.page).toMatchObject({
+                hasMore: true,
+                olderBefore: "message-260#0",
+            });
+            expect(tail.seq).toBe(0);
+
+            await connection.send({
+                type: "history_page",
+                request_id: "page-1",
+                before: tail.page!.olderBefore!,
+            });
+            const page = await connection.receive() as {
+                readonly type: string;
+                readonly request_id: string;
+                readonly before: string;
+                readonly entries: readonly { readonly id?: string }[];
+                readonly page: {
+                    readonly hasMore: boolean;
+                    readonly tailId?: string;
+                };
+                readonly seq?: number;
+            };
+            expect(page.type).toBe("history_page");
+            expect(page.request_id).toBe("page-1");
+            expect(page.before).toBe("message-260#0");
+            expect(page.entries).toHaveLength(240);
+            expect(page.entries[0]?.id).toBe("message-20#0");
+            expect(page.page.tailId).toBe("message-259#0");
+            expect(page.seq).toBeUndefined();
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host keeps the full history and refuses page requests from a legacy client",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(500),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            expect(await connection.receive()).toMatchObject({
+                type: "attached",
+                capabilities: [],
+            });
+            const history = await connection.receive() as {
+                readonly entries: readonly unknown[];
+                readonly page?: unknown;
+            };
+            expect(history.entries).toHaveLength(500);
+            expect(history.page).toBeUndefined();
+
+            await connection.send({
+                type: "history_page",
+                request_id: "page-1",
+                before: "message-260#0",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "history_page_failed",
+                request_id: "page-1",
+                reason: "unavailable",
+            });
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host refuses a third page while two are pending",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        let calls = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fallback = {
+            kind: "page" as const,
+            entries: [{ kind: "assistant" as const, id: "older#0", text: "older" }],
+            page: {
+                pageVersion: 1,
+                hasMore: false,
+                headId: "message-0",
+                tailId: "older#0",
+            },
+        };
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: async () => {
+                calls += 1;
+                await gate;
+                return fallback;
+            },
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "attach",
+                agent_id: agent.id,
+                requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            });
+            await connection.receive();
+            await connection.receive();
+            await connection.send({
+                type: "history_page",
+                request_id: "page-1",
+                before: "outside#0",
+            });
+            await connection.send({
+                type: "history_page",
+                request_id: "page-2",
+                before: "outside#0",
+            });
+            const deadline = Date.now() + 2_000;
+            while (calls < 2 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            expect(calls).toBe(2);
+
+            await connection.send({
+                type: "history_page",
+                request_id: "page-3",
+                before: "outside#0",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "history_page_failed",
+                request_id: "page-3",
+                reason: "busy",
+            });
+
+            release();
+            expect(await connection.receive()).toMatchObject({
+                type: "history_page",
+                request_id: "page-1",
+            });
+            expect(await connection.receive()).toMatchObject({
+                type: "history_page",
+                request_id: "page-2",
+            });
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+function transcriptEntries(count: number): readonly {
+    readonly kind: "assistant";
+    readonly id: string;
+    readonly text: string;
+}[] {
+    return Array.from({ length: count }, (_, index) => ({
+        kind: "assistant" as const,
+        id: `message-${index}#0`,
+        text: `message ${index}`,
+    }));
+}

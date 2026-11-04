@@ -23,6 +23,10 @@ import {
 } from "../engine/protocol.ts";
 import type { UiRequest } from "../engine/events.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
+import {
+    historyPageFromEntries,
+    type HistoryPageResult,
+} from "./history-page.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
 import {
     scaleProjectionTo,
@@ -50,7 +54,18 @@ export class AgentCommandQueueFullError extends Error {
     }
 }
 
+export interface ResidentAgentAttachOptions {
+    /** Send one bounded tail page instead of the full checkpoint. */
+    readonly paging?: boolean;
+    /** Send the page even when `afterSequence` already covers the checkpoint. */
+    readonly forceCheckpoint?: boolean;
+}
+
 export interface ResidentAgentOptions {
+    /** Reads a page outside the current checkpoint from the owner's store. */
+    readonly historyPageSource?: (
+        before: string,
+    ) => HistoryPageResult | Promise<HistoryPageResult>;
     readonly modelCatalogFacts?: () => Pick<HostModelCatalogSettings, "providerCatalogs" | "selectionCleared">;
     readonly maxPendingCommands?: number;
     readonly clientPromptRefusal?: string | (() => string | undefined);
@@ -98,6 +113,7 @@ export class ResidentAgent {
 
     private readonly inbound = new AsyncQueue<QueuedCommand>();
     private readonly attachments = new Map<string, AsyncQueue<AgentUpdate>>();
+    private readonly pagingAttachments = new Set<string>();
     private readonly attachmentListeners = new Set<
         (attached: boolean) => void
     >();
@@ -159,7 +175,10 @@ export class ResidentAgent {
         };
     }
 
-    attach(afterSequence?: number): AgentAttachment {
+    attach(
+        afterSequence?: number,
+        options: ResidentAgentAttachOptions = {},
+    ): AgentAttachment {
         if (this.isClosed) {
             throw new ResidentAgentClosedError();
         }
@@ -181,9 +200,20 @@ export class ResidentAgent {
         let attached = true;
         this.issuedAttachmentIds.add(attachmentId);
         this.attachments.set(attachmentId, outgoing);
+        const paging = options.paging === true;
+        if (paging) {
+            this.pagingAttachments.add(attachmentId);
+        }
         this.notifyAttachmentChanged(true);
-        if (afterSequence === undefined || afterSequence < this.checkpoint.seq) {
-            const replayed = clone(this.checkpoint);
+        if (
+            paging
+            || options.forceCheckpoint === true
+            || afterSequence === undefined
+            || afterSequence < this.checkpoint.seq
+        ) {
+            const replayed = paging
+                ? pagedTail(this.checkpoint)
+                : clone(this.checkpoint);
             outgoing.push(this.currentStatus === "idle"
                 ? replayed
                 : { ...replayed, status: this.currentStatus });
@@ -272,6 +302,7 @@ export class ResidentAgent {
                 }
                 attached = false;
                 this.attachments.delete(attachmentId);
+                this.pagingAttachments.delete(attachmentId);
                 this.notifyAttachmentChanged(this.attachments.size > 0);
                 this.abortImageAttachments(attachmentId);
                 outgoing.fail(new AgentDetachedError(), {
@@ -604,8 +635,16 @@ export class ResidentAgent {
         const outgoingUpdate = snapshot.type === "history"
             ? this.checkpoint
             : snapshot;
-        for (const outgoing of this.attachments.values()) {
-            outgoing.push(clone(outgoingUpdate));
+        for (const [attachmentId, outgoing] of this.attachments) {
+            if (outgoingUpdate.type === "history") {
+                // History is read-only on the way out; sharing it avoids one
+                // full clone per attachment. Paging clients get a bounded tail.
+                outgoing.push(this.pagingAttachments.has(attachmentId)
+                    ? pagedTail(outgoingUpdate)
+                    : outgoingUpdate);
+            } else {
+                outgoing.push(clone(outgoingUpdate));
+            }
         }
         if (
             this.currentStatus !== previousStatus
@@ -634,6 +673,20 @@ export class ResidentAgent {
                 // A listener that throws must not break the update it observed.
             }
         }
+    }
+
+    async historyPage(before: string): Promise<HistoryPageResult> {
+        const fromCheckpoint = historyPageFromEntries(
+            this.checkpoint.entries,
+            before,
+        );
+        if (fromCheckpoint.kind !== "cursor_not_found") {
+            return fromCheckpoint;
+        }
+        if (this.options.historyPageSource === undefined) {
+            return fromCheckpoint;
+        }
+        return this.options.historyPageSource(before);
     }
 
     private notifyRunStateChanged(): void {
@@ -715,6 +768,18 @@ export class ResidentAgent {
 
 function clone<T>(value: T): T {
     return structuredClone(value);
+}
+
+function pagedTail(history: HistoryUpdate): HistoryUpdate {
+    const result = historyPageFromEntries(
+        history.entries,
+        undefined,
+        { allowOversizedTail: true },
+    );
+    if (result.kind !== "page") {
+        throw new Error("The history tail page could not be built");
+    }
+    return { ...history, entries: result.entries, page: result.page };
 }
 
 function withLastContextRecipe(
