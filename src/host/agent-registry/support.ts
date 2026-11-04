@@ -427,6 +427,7 @@ export interface AgentRegistryOptions {
     readonly subagentModel?: SpawnModelDefault;
     readonly readPolicy?: (projectRoot?: string) => SubagentPoolPolicy;
     readonly cacheDir?: string;
+    readonly home?: string;
     readonly inboxDelivery?: InboxDeliveryCoordinator;
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }

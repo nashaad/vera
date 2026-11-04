@@ -53,6 +53,7 @@ export interface StartWorkerOptions {
     readonly state?: LoopState;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly extensions?: readonly VeraExtensionConfig[];
+    readonly home?: string;
     readonly toolRuntime?: ToolRuntime;
     readonly deadlineMs?: number;
     readonly onUpdate?: (update: AgentUpdate, ownerId?: string) => void;
@@ -195,6 +196,7 @@ export async function startWorker(
         ...(options.extensions === undefined || options.extensions.length === 0
             ? {}
             : { extensions: options.extensions }),
+        ...(options.home === undefined ? {} : { home: options.home }),
         state: options.state ?? { policy: {} },
         ...(services.compaction === undefined
             ? {}

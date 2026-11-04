@@ -6,6 +6,7 @@ import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
+import { veraMachineDirectoryIn } from "../../profile-paths.ts";
 import { startExtensionRegistry } from "../../extensions/registry.ts";
 import type {
     ExtensionRegistry,
@@ -65,6 +66,14 @@ export async function runWorker(
         try {
             extensions = await startExtensionRegistry({
                 extensions: options.extensions,
+                ...(options.home === undefined
+                    ? {}
+                    : {
+                        storageRoots: {
+                            profile: options.home,
+                            machine: veraMachineDirectoryIn(options.home),
+                        },
+                    }),
                 onFailure: (extensionFailure) => {
                     activationFailures.push(extensionFailure);
                 },

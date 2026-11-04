@@ -625,6 +625,15 @@ export class AgentRegistry {
         return registryRoster.notifyRosterChanged(this);
     }
 
+    /** Fresh host catalog facts reach every attached client, not only the session that asked. */
+    notifyModelCatalogChanged(): void {
+        for (const entry of this.agents.values()) {
+            if (entry.agent.attached) {
+                entry.inbound?.publishModelSettings();
+            }
+        }
+    }
+
     announceSessionUpdated(entry: RegisteredAgentEntry): void {
         if (this.options.onSessionUpdated === undefined) {
             return;

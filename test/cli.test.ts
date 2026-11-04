@@ -26,6 +26,8 @@ import { spawnVeraLookingProcess } from "./support/vera-looking-process.ts";
 import { RetainedReleaseMissingError } from "../src/release/dispatch.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { CatalogRefreshUnsupportedError } from "../src/host/catalog-refresh-client.ts";
+import { providerCatalogCacheDir } from "../src/model/catalog-cache.ts";
+import { readWebDevArenaSnapshot } from "../src/model/webdev-arena.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
@@ -2039,6 +2041,80 @@ test("vera models refresh writes disk when no host is running", async () => {
     expect(exitCode).toBe(0);
     expect(wroteDisk).toBe(true);
     expect(output).toBe("outrider_t1: 1 models\n");
+});
+
+test("vera models refresh fetches arena scores when no host is running", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-arena-"));
+    const server = Bun.serve({
+        port: 0,
+        fetch: () => Response.json({ data: [{ id: "arena-model" }] }),
+    });
+    writeFileSync(join(root, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "test-gateway",
+        model: "arena-model",
+        approval_mode: "ask",
+        providers: {
+            "test-gateway": {
+                protocol: "openai-chat",
+                base_url: `http://127.0.0.1:${server.port}/v1`,
+                credential: "none",
+                discovery: { mode: "models", credential: "none" },
+            },
+        },
+    }));
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = root;
+    const originalFetch = globalThis.fetch;
+    let arenaRequests = 0;
+    globalThis.fetch = (async (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => {
+        const url = typeof input === "string"
+            ? input
+            : input instanceof URL ? input.toString() : input.url;
+        if (!url.startsWith("https://datasets-server.huggingface.co/")) {
+            return await originalFetch(input, init);
+        }
+        arenaRequests += 1;
+        return Response.json({
+            num_rows_total: 1,
+            rows: [{
+                row: {
+                    model_name: "arena-model",
+                    category: "overall",
+                    rating: 1234,
+                    rank: 1,
+                },
+            }],
+        });
+    }) as typeof globalThis.fetch;
+
+    try {
+        let output = "";
+        const exitCode = await runCli(["models", "refresh"], {
+            stdout: { write: (text) => output += text },
+            readLiveHost: async () => undefined,
+            refreshCatalogsThroughHost: async () => {
+                throw new Error("must not ask a host");
+            },
+        });
+        expect(exitCode).toBe(0);
+        expect(arenaRequests).toBe(1);
+        expect(readWebDevArenaSnapshot(providerCatalogCacheDir(root))?.rows)
+            .toContainEqual(expect.objectContaining({
+                model_name: "arena-model",
+                rating: 1234,
+            }));
+        expect(output).toContain("test-gateway: 1 models\n");
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        server.stop(true);
+        rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test("vera models refresh writes disk when the host does not refresh catalogs", async () => {
