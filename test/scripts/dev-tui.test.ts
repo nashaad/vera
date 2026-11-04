@@ -1255,7 +1255,7 @@ test("the default source is the factory home, not the daily home", async () => {
     }
 });
 
-test("candidate launch env drops runtime islands and names the DEV instance", () => {
+test("candidate launch env drops runtime islands, keeps provider keys and names the DEV instance", () => {
     const env = candidateLaunchEnv(
         "/tmp/vera-dev/abc/.vera",
         "/Users/nash/Projects/vera/.worktrees/ovu26",
@@ -1264,12 +1264,14 @@ test("candidate launch env drops runtime islands and names the DEV instance", ()
             VERA_RUNTIME_DIR: "/tmp/old-runtime",
             VERA_WORKTREE_RUNTIME: "/tmp/old-runtime",
             PATH: "/bin",
+            OPENROUTER_API_KEY: "sk-or-crows-nest",
         },
     );
     expect(env.VERA_HOME).toBe("/tmp/vera-dev/abc/.vera");
     expect(env.VERA_RUNTIME_DIR).toBeUndefined();
     expect(env.VERA_WORKTREE_RUNTIME).toBeUndefined();
     expect(env.VERA_DEV_INSTANCE).toBe("ovu26 vera-deadbeef");
+    expect(env.OPENROUTER_API_KEY).toBe("sk-or-crows-nest");
 });
 
 /** A machine with `pids` running against the home. `politely` says whether they stop on SIGTERM; SIGKILL always stops them. */
