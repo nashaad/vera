@@ -48,6 +48,15 @@ import {
     type TuiDiagnosticDetail,
 } from "./diagnostic-severity.ts";
 import { classifierFailureText, modelFailureText } from "./failure-text.ts";
+import {
+    processReadId,
+    settleActiveWait,
+    WAIT_LIVE_HEADER,
+    WAIT_SETTLED_HEADER,
+    waitCommandText,
+    withWaitPoll,
+    withWaitResult,
+} from "./wait-streak.ts";
 
 const SUBSTITUTION_MARKER = "\u21c4";
 const INTERRUPTED_TURN_TEXT = "Interrupted";
@@ -119,6 +128,10 @@ export interface TuiTextTranscriptEntry {
     readonly command?: string;
     readonly activity?: string;
     readonly hint?: boolean;
+    // Set on the bash row that returned a background process.
+    readonly startedProcessId?: string;
+    // Set on every row of a wait group watching that process.
+    readonly waitProcessId?: string;
     readonly admission?: string;
     readonly diagnostic?: TuiDiagnostic;
     readonly tone?: "primary" | "soft" | "error" | "success";
@@ -382,15 +395,21 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         return appendThinkingText(state, update.text);
     }
     if (update.type === "tool_started") {
+        const waitProcessId = processReadId(update.tool, update.args);
+        const entries = waitProcessId === undefined
+            ? withToolEntry(state.entries, update.tool, update.args, true)
+            : withWaitPoll(
+                state.entries,
+                waitProcessId,
+                waitCommandText(state.entries, waitProcessId),
+                true,
+            );
         return {
             ...state,
             ...(state.autoApprovals === undefined ? {} : {
                 autoApprovals: pairAutoApproval(state.autoApprovals, update.tool, update.args),
             }),
-            entries: applyToolDetailPreference(
-                withToolEntry(state.entries, update.tool, update.args, true),
-                state.toolDetailsExpanded,
-            ),
+            entries: applyToolDetailPreference(entries, state.toolDetailsExpanded),
         };
     }
     if (update.type === "tool_review") {
@@ -442,10 +461,23 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         });
     }
     if (update.type === "tool_finished") {
+        const settled = update.tool === "process"
+            ? settleActiveWait(
+                state.entries,
+                update.output === undefined
+                    ? undefined
+                    : toolResultText(update.output, update.tool),
+            )
+            : undefined;
         return {
             ...state,
             entries: applyToolDetailPreference(
-                finishToolEntry(state.entries, update.tool, update.output),
+                settled ?? finishToolEntry(
+                    state.entries,
+                    update.tool,
+                    update.output,
+                    update.processId,
+                ),
                 state.toolDetailsExpanded,
             ),
         };
@@ -2120,6 +2152,7 @@ function finishToolEntry(
     entries: readonly TuiTranscriptEntry[],
     tool: string,
     output?: string,
+    processId?: string,
 ): TuiTranscriptEntry[] {
     const toolIndex = entries.findIndex((entry) =>
         entry.kind === "tool" && entry.active === true && entry.tool === tool
@@ -2172,6 +2205,9 @@ function finishToolEntry(
                 ...completed,
                 ...(output === undefined ? {} : { prefix: "  │ " }),
                 ...(hasAnotherActiveCall ? {} : { header: completedHeader }),
+                ...(tool === "bash" && processId !== undefined
+                    ? { startedProcessId: processId }
+                    : {}),
             };
         }
         if (hasAnotherActiveCall || index < headerIndex || index >= groupEnd) {
@@ -2424,6 +2460,11 @@ function settleToolEntries(
 ): readonly TuiTranscriptEntry[] {
     let settled = entries;
     while (true) {
+        const waiting = settleActiveWait(settled);
+        if (waiting !== undefined) {
+            settled = waiting;
+            continue;
+        }
         const active = settled.find((entry) =>
             entry.kind === "tool" && entry.active === true
         );
@@ -2436,30 +2477,69 @@ function settleToolEntries(
 
 const WORKED_DIVIDER_THRESHOLD_MS = 5 * 60 * 1_000;
 
+function toolCallPairs(
+    entries: readonly TranscriptEntry[],
+): ReadonlyMap<TranscriptEntry, TranscriptEntry> {
+    const pending: TranscriptEntry[] = [];
+    const pairs = new Map<TranscriptEntry, TranscriptEntry>();
+    for (const entry of entries) {
+        if (entry.kind === "tool") {
+            pending.push(entry);
+        } else if (entry.kind === "tool_result") {
+            const call = pending.shift();
+            if (call !== undefined) pairs.set(entry, call);
+        }
+    }
+    return pairs;
+}
+
 function toTuiTranscriptEntries(
     entries: readonly TranscriptEntry[],
     reopenedTurnFinishedAt?: number,
 ): TuiTranscriptEntry[] {
     let converted: TuiTranscriptEntry[] = [];
     const withheld = withheldToolEntries(entries);
+    const pairs = toolCallPairs(entries);
     for (const entry of entries) {
         // A body that was only whitespace never opened a row live, so a rebuild drops it.
         const blankAssistant = entry.kind === "assistant" && entry.text.trim().length === 0;
-        converted = blankAssistant
-            ? converted
-            : entry.kind === "tool"
-            ? withToolEntry(converted, entry.tool, entry.args, false, withheld.has(entry))
-            : entry.kind === "tool_result"
-            ? withHistoricalToolResult(
-                converted,
-                entry.tool,
-                entry.output,
-                entry.classifierOutcome,
-            )
-            : [...converted, withStoreEntryId(
+        if (!blankAssistant && entry.kind === "tool") {
+            const waitProcessId = withheld.has(entry)
+                ? undefined
+                : processReadId(entry.tool, entry.args);
+            converted = waitProcessId === undefined
+                ? withToolEntry(converted, entry.tool, entry.args, false, withheld.has(entry))
+                : withWaitPoll(
+                    converted,
+                    waitProcessId,
+                    waitCommandText(converted, waitProcessId),
+                    false,
+                );
+        } else if (!blankAssistant && entry.kind === "tool_result") {
+            const call = pairs.get(entry);
+            const waitProcessId = call?.kind === "tool" && !withheld.has(call)
+                ? processReadId(call.tool, call.args)
+                : undefined;
+            converted = waitProcessId === undefined
+                    || entry.classifierOutcome !== undefined
+                ? withHistoricalToolResult(
+                    converted,
+                    entry.tool,
+                    entry.output,
+                    entry.classifierOutcome,
+                    entry.processId,
+                )
+                : withWaitResult(
+                    converted,
+                    entry.processId ?? waitProcessId,
+                    toolResultText(entry.output, entry.tool),
+                ) ?? converted;
+        } else if (!blankAssistant) {
+            converted = [...converted, withStoreEntryId(
                 toSingleTuiTranscriptEntry(entry),
                 entry,
             )];
+        }
         if (entry.turnTiming !== undefined
             && (entry.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
                 || entry.turnTiming.finishedAt === reopenedTurnFinishedAt)) {
@@ -2594,11 +2674,13 @@ function withHistoricalToolResult(
     tool: string,
     output: string,
     classifierOutcome: ClassifierOutcome | undefined,
+    processId?: string,
 ): TuiTranscriptEntry[] {
     const callIndex = entries.findIndex((entry) =>
         entry.kind === "tool"
         && entry.result !== true
         && entry.hasResult !== true
+        && entry.waitProcessId === undefined
     );
     const row = classifierOutcome === undefined
         ? undefined
@@ -2624,7 +2706,14 @@ function withHistoricalToolResult(
     const call = entries[callIndex]!;
     const next = entries.map((entry, index) =>
         index === callIndex && entry.kind === "tool"
-            ? { ...entry, hasResult: true, prefix: "  │ " }
+            ? {
+                ...entry,
+                hasResult: true,
+                prefix: "  │ ",
+                ...(tool === "bash" && processId !== undefined
+                    ? { startedProcessId: processId }
+                    : {}),
+            }
             : entry
     );
     next.splice(callIndex + 1, 0, {
@@ -3035,6 +3124,9 @@ function comparableEntryText(entry: TuiTranscriptEntry | undefined): string {
     const text = entry.text.replace(/^[+-] /, "");
     if (entry.active !== true) {
         return text;
+    }
+    if (text === WAIT_LIVE_HEADER) {
+        return WAIT_SETTLED_HEADER;
     }
     const completed = Object.entries(LIVE_TOOL_HEADERS)
         .find(([, live]) => live === text)?.[0];

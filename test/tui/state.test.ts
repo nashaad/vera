@@ -3846,3 +3846,359 @@ test("a checkpoint turn that ends on a blank body keeps its worked divider", () 
 
     expect(state.entries.some((entry) => entry.kind === "worked")).toBe(true);
 });
+
+const WAIT_COMMAND = "bun test test/tui/driven/footer-layout.test.ts";
+
+function startBackgroundProcess(state: TuiState): TuiState {
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: WAIT_COMMAND },
+        seq: 1,
+    });
+    return applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "Process still running after 10.0s (process_id: p-1, pid: 4411).",
+        processId: "p-1",
+        seq: 2,
+    });
+}
+
+function pollProcess(
+    state: TuiState,
+    output: string,
+    processId = "p-1",
+): TuiState {
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "process",
+        args: { action: "read", process_id: processId },
+        seq: 3,
+    });
+    return applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "process",
+        output,
+        ...(processId === "p-missing" ? {} : { processId }),
+        seq: 4,
+    });
+}
+
+function waitLines(state: TuiState): string[] {
+    return state.entries
+        .filter((entry) => entry.kind !== "diff"
+            && (entry.waitProcessId !== undefined
+                || (entry.kind === "tool_header"
+                    && (entry.header === "Waited" || entry.header === "Waiting"))))
+        .map(entryLine);
+}
+
+function waitHeaders(state: TuiState): string[] {
+    return state.entries
+        .filter((entry) => entry.kind === "tool_header"
+            && (entry.header === "Waited" || entry.header === "Waiting"))
+        .map((entry) => entry.kind === "tool_header" ? entry.header ?? "" : "");
+}
+
+test("polls on one background process fold into one waited row", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running (1)");
+    state = pollProcess(state, "still running (2)");
+    state = pollProcess(state, "Process p-1 exited with code 0.");
+
+    expect(waitHeaders(state)).toEqual(["Waited"]);
+    expect(waitLines(state)).toEqual([
+        "+ Waited",
+        `  │ ${WAIT_COMMAND}`,
+        "  └ Process p-1 exited with code 0.",
+    ]);
+});
+
+test("each poll replaces the newest result under the waited row", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running (1)");
+    state = pollProcess(state, "still running (2)");
+
+    const results = state.entries.filter((entry) =>
+        entry.kind === "tool" && entry.result === true
+        && entry.waitProcessId !== undefined
+    );
+    expect(results.length).toBe(1);
+    expect(state.entries.some((entry) =>
+        entry.kind === "tool" && entry.text === "still running (1)"
+    )).toBe(false);
+});
+
+test("a poll on a different process breaks the streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running p-1");
+    state = pollProcess(state, "still running p-2", "p-2");
+
+    expect(waitHeaders(state)).toEqual(["Waited", "Waited"]);
+});
+
+test("assistant text breaks the wait streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running");
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "Still working on it.",
+        seq: 5,
+    });
+    state = pollProcess(state, "still running again");
+
+    expect(waitHeaders(state)).toEqual(["Waited", "Waited"]);
+});
+
+test("a user message breaks the wait streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running");
+    state = beginTuiTurn(state, "anything else?");
+    state = pollProcess(state, "still running again");
+
+    expect(waitHeaders(state)).toEqual(["Waited", "Waited"]);
+});
+
+test("another tool breaks the wait streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "note.txt" },
+        seq: 5,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "note",
+        seq: 6,
+    });
+    state = pollProcess(state, "still running again");
+
+    expect(waitHeaders(state)).toEqual(["Waited", "Waited"]);
+});
+
+test("thinking between polls does not break the wait streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running (1)");
+    state = applyAgentUpdate(state, {
+        type: "assistant_thinking",
+        text: "It is probably still compiling.",
+        seq: 5,
+    });
+    state = pollProcess(state, "still running (2)");
+
+    expect(waitHeaders(state)).toEqual(["Waited"]);
+    expect(waitLines(state).at(-1)).toBe("  └ still running (2)");
+});
+
+test("a wait streak rebuilt from history matches the live rows", () => {
+    let live = startBackgroundProcess(createTuiState());
+    live = pollProcess(live, "still running (1)");
+    live = pollProcess(live, "still running (2)");
+
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 9,
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: WAIT_COMMAND } },
+            {
+                kind: "tool_result",
+                tool: "bash",
+                output: "Process still running after 10.0s (process_id: p-1, pid: 4411).",
+                isError: false,
+                processId: "p-1",
+            },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-1" } },
+            {
+                kind: "tool_result",
+                tool: "process",
+                output: "still running (1)",
+                isError: false,
+                processId: "p-1",
+            },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-1" } },
+            {
+                kind: "tool_result",
+                tool: "process",
+                output: "still running (2)",
+                isError: false,
+                processId: "p-1",
+            },
+        ],
+    });
+
+    expect(replay.entries.map(entryLine)).toEqual(live.entries.map(entryLine));
+});
+
+test("a poll for a process the transcript never started shows the process id", () => {
+    let state = pollProcess(createTuiState(), "still running", "p-missing");
+
+    expect(waitLines(state)).toEqual([
+        "+ Waited",
+        "  │ p-missing",
+        "  └ still running",
+    ]);
+});
+
+test("process kill keeps its own row", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "process",
+        args: { action: "kill", process_id: "p-1" },
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "process",
+        output: "Process p-1 terminated with exit code 0.",
+        processId: "p-1",
+        seq: 4,
+    });
+
+    expect(waitHeaders(state)).toEqual([]);
+    expect(state.entries.map(entryLine)).toContain("  └ Process p-1 terminated with exit code 0.");
+});
+
+test("a turn that ends mid-poll settles the wait with its newest result", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running (1)");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "process",
+        args: { action: "read", process_id: "p-1" },
+        seq: 5,
+    });
+    state = failTuiConnection(state);
+
+    expect(waitHeaders(state)).toEqual(["Waited"]);
+    expect(waitLines(state).at(-1)).toBe("  └ still running (1)");
+});
+
+test("a review between polls does not break the wait streak", () => {
+    let state = startBackgroundProcess(createTuiState());
+    state = pollProcess(state, "still running (1)");
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "process",
+        args: { action: "read", process_id: "p-1" },
+        decision: "allow",
+        reason: "Reads a process the model already started.",
+        riskLevel: "medium",
+        userAuthorization: "medium",
+        seq: 5,
+    });
+    state = pollProcess(state, "still running (2)");
+
+    expect(waitHeaders(state)).toEqual(["Waited"]);
+    expect(waitLines(state).at(-1)).toBe("  └ still running (2)");
+});
+
+test("a message with several tool calls replays each result under its own row", () => {
+    let live = startBackgroundProcess(createTuiState());
+    live = pollProcess(live, "still running");
+    live = applyAgentUpdate(live, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "notes.md" },
+        seq: 5,
+    });
+    live = applyAgentUpdate(live, {
+        type: "tool_finished",
+        tool: "read",
+        output: "1  crow",
+        seq: 6,
+    });
+
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 9,
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: WAIT_COMMAND } },
+            {
+                kind: "tool_result",
+                tool: "bash",
+                output: "Process still running after 10.0s (process_id: p-1, pid: 4411).",
+                isError: false,
+                processId: "p-1",
+            },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-1" } },
+            { kind: "tool", tool: "read", args: { path: "notes.md" } },
+            {
+                kind: "tool_result",
+                tool: "process",
+                output: "still running",
+                isError: false,
+                processId: "p-1",
+            },
+            { kind: "tool_result", tool: "read", output: "1  crow", isError: false },
+        ],
+    });
+
+    expect(replay.entries.map(entryLine)).toEqual(live.entries.map(entryLine));
+    expect(replay.entries.map(entryLine)).toContain("  └ still running");
+    expect(replay.entries.map(entryLine)).toContain("  └ 1  crow");
+});
+
+test("two reads on different processes in one message each settle their own row", () => {
+    let live = startBackgroundProcess(createTuiState());
+    live = pollProcess(live, "p-1 still running");
+    live = applyAgentUpdate(live, {
+        type: "tool_started",
+        tool: "process",
+        args: { action: "read", process_id: "p-2" },
+        seq: 5,
+    });
+    live = applyAgentUpdate(live, {
+        type: "tool_finished",
+        tool: "process",
+        output: "p-2 still running",
+        processId: "p-2",
+        seq: 6,
+    });
+
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 9,
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: WAIT_COMMAND } },
+            {
+                kind: "tool_result",
+                tool: "bash",
+                output: "Process still running after 10.0s (process_id: p-1, pid: 4411).",
+                isError: false,
+                processId: "p-1",
+            },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-1" } },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-2" } },
+            {
+                kind: "tool_result",
+                tool: "process",
+                output: "p-1 still running",
+                isError: false,
+                processId: "p-1",
+            },
+            {
+                kind: "tool_result",
+                tool: "process",
+                output: "p-2 still running",
+                isError: false,
+                processId: "p-2",
+            },
+        ],
+    });
+
+    expect(replay.entries.map(entryLine)).toEqual(live.entries.map(entryLine));
+    expect(waitHeaders(replay)).toEqual(["Waited", "Waited"]);
+    expect(waitLines(replay)).toEqual([
+        "+ Waited",
+        `  │ ${WAIT_COMMAND}`,
+        "  └ p-1 still running",
+        "+ Waited",
+        "  │ p-2",
+        "  └ p-2 still running",
+    ]);
+});
