@@ -692,3 +692,38 @@ skipIfNoNetwork("receiveWithin rejects when the host stays silent", async () => 
         },
     );
 });
+
+skipIfNoNetwork("parses several frames arriving in one chunk", async () => {
+    await withServer(
+        (socket) => socket.write('{"n":1}\n{"n":2}\n{"n":3}\n'),
+        async (socketPath) => {
+            const connection = await connectHost({ socketPath });
+            try {
+                expect(await connection.receive()).toEqual({ n: 1 });
+                expect(await connection.receive()).toEqual({ n: 2 });
+                expect(await connection.receive()).toEqual({ n: 3 });
+            } finally {
+                connection.close();
+            }
+        },
+    );
+});
+
+skipIfNoNetwork("starts the next frame when a chunk begins with its newline", async () => {
+    await withServer(
+        (socket) => {
+            socket.write('{"n":1}');
+            socket.write('\n{"n":2}');
+            socket.write('\n');
+        },
+        async (socketPath) => {
+            const connection = await connectHost({ socketPath });
+            try {
+                expect(await connection.receive()).toEqual({ n: 1 });
+                expect(await connection.receive()).toEqual({ n: 2 });
+            } finally {
+                connection.close();
+            }
+        },
+    );
+});

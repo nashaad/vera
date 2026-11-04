@@ -1,10 +1,10 @@
 import { createConnection, type Socket } from "node:net";
+import { LineBuffer } from "./line-buffer.ts";
 
 export const MAX_FRAME_BYTES = 64 * 1_024 * 1_024;
 const DEFAULT_MAX_LINE_BYTES = MAX_FRAME_BYTES;
 const DEFAULT_MAX_PENDING_VALUES = 1_024;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
-const NEWLINE_BYTE = 0x0a;
 
 export interface HostConnectionOptions {
     readonly socketPath: string;
@@ -96,9 +96,8 @@ function createConnection_(
 ): HostConnection {
     const decoder = new TextDecoder("utf-8", { fatal: true });
 
-    let buffered = Buffer.alloc(0);
+    const lines = new LineBuffer({ maxLineBytes });
     let chunksReceived = 0;
-    let discardingBytes = 0;
     let closed = false;
     let remoteEnded = false;
     let peerCloseExpected = false;
@@ -127,7 +126,7 @@ function createConnection_(
         if (closed) {
             return;
         }
-        if (buffered.length > 0) {
+        if (lines.bufferedBytes > 0) {
             teardown(new Error("host connection received an incomplete line"));
             return;
         }
@@ -179,35 +178,17 @@ function createConnection_(
                 socket.pause();
                 return;
             }
-            const newlineAt = buffered.indexOf(NEWLINE_BYTE);
-            if (discardingBytes > 0) {
-                if (newlineAt === -1) {
-                    discardingBytes += buffered.length;
-                    buffered = buffered.subarray(buffered.length);
-                    return;
-                }
-                deliver(new OversizedFrame(discardingBytes + newlineAt));
-                discardingBytes = 0;
-                buffered = buffered.subarray(newlineAt + 1);
-                continue;
-            }
-            if (newlineAt === -1) {
-                if (buffered.length > maxLineBytes) {
-                    discardingBytes = buffered.length;
-                    buffered = buffered.subarray(buffered.length);
-                }
+            const result = lines.next();
+            if (result.kind === "need-more") {
                 return;
             }
-            const lineBytes = buffered.subarray(0, newlineAt);
-            if (lineBytes.length > maxLineBytes) {
-                buffered = buffered.subarray(newlineAt + 1);
-                deliver(new OversizedFrame(lineBytes.length));
+            if (result.kind === "oversized") {
+                deliver(new OversizedFrame(result.byteLength));
                 continue;
             }
-            buffered = buffered.subarray(newlineAt + 1);
             let value: unknown;
             try {
-                value = JSON.parse(decoder.decode(lineBytes));
+                value = JSON.parse(decoder.decode(result.bytes));
             } catch {
                 fail(new Error("host connection received malformed JSON"));
                 return;
@@ -244,7 +225,7 @@ function createConnection_(
             return;
         }
         chunksReceived += 1;
-        buffered = Buffer.concat([buffered, chunk]);
+        lines.push(chunk);
         processBufferedLines();
     });
     socket.once("error", (error: Error) => fail(error));
