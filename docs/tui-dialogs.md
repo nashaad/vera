@@ -21,6 +21,9 @@ waits its turn. It does not change the dialog's size.
 
 Completed web searches show a count and a short query for each search in the
 collapsed group. Ctrl+T shows or hides the full tool calls and results.
+Reads of one background process fold into one Waited row, named by the command
+that started the process. Each read replaces the result under the row, and
+Ctrl+T shows the newest result in full.
 Reasoning summary rows show the time spent on that phase. Ctrl+O shows or hides
 the readable reasoning text returned by the provider.
 
