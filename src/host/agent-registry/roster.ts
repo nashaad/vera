@@ -1,9 +1,9 @@
-import { statSync } from "node:fs";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
-import { sessionChangedFiles } from "../../store/preimage-stash.ts";
+import { SessionChangedFileCounts } from "../../store/preimage-stash.ts";
+import { sessionSummary } from "./roster-summary.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ToolOutput } from "../../tools/types.ts";
 import { workspaceKey } from "../../workspace-key.ts";
-import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, importedSessionSummary, gitRosterFacts, normalizeSessionName, participantLabel, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
+import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, gitRosterFacts, normalizeSessionName, participantLabel, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { UNCOUNTED_INBOX_KINDS, type InboxAdmissionCandidate, type InboxAdmissionDecision } from "../inbox-delivery.ts";
 import { PEER_MESSAGE_KIND, RETIRED_PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "../local-participation.ts";
@@ -11,7 +11,20 @@ import { EXTENSION_MESSAGE_KIND, extensionMessageFamily, parseExtensionMessage }
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
-import { firstPromptEntry, listedTitle } from "./session-title.ts";
+
+interface RosterNotification {
+    summaries?: RegisteredAgentSummary[];
+    facts?: readonly WorkAgentFacts[];
+}
+
+interface PendingSources {
+    readonly revision: number;
+    readonly sources: readonly string[];
+}
+
+const notifications = new WeakMap<AgentRegistry, RosterNotification>();
+const pendingSources = new WeakMap<RegisteredAgentEntry["store"], PendingSources>();
+const changedFileCounts = new WeakMap<RegisteredAgentEntry, SessionChangedFileCounts>();
 
 export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
@@ -393,82 +406,45 @@ export function onRosterChanged(reg: AgentRegistry, listener: () => void): () =>
     }
 
 export function notifyRosterChanged(reg: AgentRegistry): void {
-        for (const listener of [...reg.rosterListeners]) {
-            try {
-                listener();
-            } catch {
-                // One client's failure must not stop the others being told.
+        const previous = notifications.get(reg);
+        notifications.set(reg, {});
+        try {
+            for (const listener of [...reg.rosterListeners]) {
+                try {
+                    listener();
+                } catch {
+                    // One client's failure must not stop the others being told.
+                }
+            }
+        } finally {
+            if (previous === undefined) notifications.delete(reg);
+            else {
+                delete previous.summaries;
+                delete previous.facts;
+                notifications.set(reg, previous);
             }
         }
     }
 
 export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
-        const sizeOnDisk = (path: string): number | undefined => {
-            try {
-                return statSync(path).size;
-            } catch {
-                return undefined;
-            }
-        };
-
-        return [...reg.agents.values()]
+        const notification = notifications.get(reg);
+        if (notification?.summaries !== undefined) return notification.summaries;
+        const summaries = [...reg.agents.values()]
             .filter((entry) => !entry.ephemeral && !entry.pendingPublication)
-            .map((entry) => {
-                const activeEntries = entry.store.activeEntries();
-                const firstUserEntry = firstPromptEntry(activeEntries);
-                const title = listedTitle(entry.store.name(), firstUserEntry);
-                const size = sizeOnDisk(entry.store.path);
-                return {
-                    id: entry.agent.id,
-                    name: entry.identity?.name,
-                    workspace: entry.agent.workspace,
-                    session_path: entry.store.path,
-                    kind: entry.kind,
-                    status: entry.failure !== undefined
-                        ? "failed" as const
-                        : entry.agent.closed
-                            ? "closed" as const
-                            : entry.completed && entry.agent.status === "idle"
-                                ? "completed" as const
-                                : entry.agent.status,
-                    live: entryIsLive(entry),
-                    ...(entry.worker === undefined
-                        ? {}
-                        : {
-                            worker_pid: entry.worker.pid,
-                            ...(entry.worker.supervisor?.pid === null
-                                    || entry.worker.supervisor?.pid === undefined
-                                ? {}
-                                : { supervisor_pid: entry.worker.supervisor.pid }),
-                        }),
-                    ...(title === undefined ? {} : { title }),
-                    has_user_content: firstUserEntry !== undefined,
-                    ...(entry.store.header.origin === undefined
-                        ? {}
-                        : { forked_from: entry.store.header.origin.sessionId }),
-                    ...importedSessionSummary(entry.store.header),
-                    ...(entry.parentId === undefined
-                        ? {}
-                        : { parent_id: entry.parentId }),
-                    updated_at: entry.store.agentFailure()?.timestamp
-                        ?? activeEntries.at(-1)?.timestamp
-                        ?? entry.store.header.timestamp,
-                    ...(size === undefined ? {} : { size_bytes: size }),
-                };
-            })
+            .map(sessionSummary)
             .sort((left, right) => left.id.localeCompare(right.id));
+        if (notification !== undefined) notification.summaries = summaries;
+        return summaries;
     }
 
 export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
+        const notification = notifications.get(reg);
+        if (notification?.facts !== undefined) return notification.facts;
         const unreadResults = new Set<string>();
         for (const entry of reg.agents.values()) {
-            for (const delivery of entry.store.pendingDeliveries()) {
-                if (delivery.kind !== "attention") {
-                    unreadResults.add(delivery.sourceAgentId);
-                }
-            }
+            for (const source of unreadSources(entry)) unreadResults.add(source);
         }
-        return reg.list().flatMap((summary) => {
+        const facts = reg.list().flatMap((summary) => {
             const entry = reg.agents.get(summary.id);
             if (entry === undefined) return [];
             const failure = entry.store.agentFailure()?.detail;
@@ -476,7 +452,7 @@ export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
             const changed = summary.status === "working"
                     || summary.status === "waiting"
                 ? 0
-                : sessionChangedFiles(summary.id).length;
+                : changedFiles(entry);
             return [{
                 id: summary.id,
                 session_path: summary.session_path,
@@ -499,7 +475,29 @@ export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
                 ...(failure === undefined ? {} : { failure }),
             }];
         });
+        if (notification !== undefined) notification.facts = facts;
+        return facts;
     }
+
+function unreadSources(entry: RegisteredAgentEntry): readonly string[] {
+    const revision = entry.store.appendedLineCount();
+    const cached = pendingSources.get(entry.store);
+    if (cached?.revision === revision) return cached.sources;
+    const sources = entry.store.pendingDeliveries()
+        .filter((delivery) => delivery.kind !== "attention")
+        .map((delivery) => delivery.sourceAgentId);
+    pendingSources.set(entry.store, { revision, sources });
+    return sources;
+}
+
+function changedFiles(entry: RegisteredAgentEntry): number {
+    let counts = changedFileCounts.get(entry);
+    if (counts === undefined) {
+        counts = new SessionChangedFileCounts();
+        changedFileCounts.set(entry, counts);
+    }
+    return counts.read(entry.agent.id);
+}
 
 export function scheduleWorkFacts(_reg: AgentRegistry, runs: readonly EmittedScheduleRun[], agents: readonly WorkAgentFacts[]): readonly WorkScheduleFacts[] {
         const listed = new Map(agents.map((agent) => [agent.id, agent]));

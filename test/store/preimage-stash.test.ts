@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     PreimageStash,
+    SessionChangedFileCounts,
     stashKey,
     sweepStaleStashes,
 } from "../../src/store/preimage-stash.ts";
@@ -117,5 +118,28 @@ test("summarizeStash reports sessions, blobs, bytes, and the oldest capture", as
             bytes: 25,
         });
         expect(typeof summary?.oldestCapturedAt).toBe("string");
+    });
+});
+
+
+test("cached stash counts follow captures, incomplete sidecars, removal and root changes", async () => {
+    await withRoot(async (root) => {
+        const counts = new SessionChangedFileCounts();
+        expect(counts.read("crow", root)).toBe(0);
+        const stash = new PreimageStash("crow", root);
+        await stash.capture("/crow.txt", "pirate crow");
+        expect(counts.read("crow", root)).toBe(1);
+        expect(counts.read("crow", root)).toBe(1);
+        const path = join(stash.directory, "incomplete.json");
+        await Bun.write(path, "{");
+        expect(counts.read("crow", root)).toBe(1);
+        await Bun.write(path, JSON.stringify({ path: "/nest.txt", sessionId: "crow", capturedAt: new Date().toISOString(), bytes: 3 }));
+        expect(counts.read("crow", root)).toBe(2);
+        expect(counts.read("crow", join(root, "elsewhere"))).toBe(0);
+        expect(counts.read("crow", root)).toBe(2);
+        await rm(stash.directory, { recursive: true });
+        expect(counts.read("crow", root)).toBe(0);
+        await new PreimageStash("crow", root).capture("/feather.txt", "crow");
+        expect(counts.read("crow", root)).toBe(1);
     });
 });
