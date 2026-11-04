@@ -4,7 +4,6 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
-    readdirSync,
     realpathSync,
     renameSync,
     rmSync,
@@ -38,7 +37,7 @@ import {
 import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
-    HOME_OWNED_ROOT_ENTRIES,
+    unrecognisedEntriesIn,
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
@@ -378,12 +377,8 @@ function uniqueLeftoverPath(leftover: string, entry: string): string {
 
 /** Move leftover root files into machine/leftover so the clone can start. */
 export function quarantineUnknownHomeEntries(home: string): void {
-    if (!existsSync(home)) return;
     const leftover = join(home, "machine", "leftover");
-    const owned = new Set<string>(HOME_OWNED_ROOT_ENTRIES);
-    for (const entry of readdirSync(home)) {
-        if (entry.startsWith(".")) continue;
-        if (owned.has(entry)) continue;
+    for (const entry of unrecognisedEntriesIn(home)) {
         mkdirSync(leftover, { recursive: true, mode: 0o700 });
         renameSync(join(home, entry), uniqueLeftoverPath(leftover, entry));
     }

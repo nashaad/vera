@@ -129,14 +129,17 @@ function readExtensionManifestId(directory: string): string | undefined {
     }
 }
 
-export function unrecognisedHomeEntries(home?: string): readonly string[] {
-    const root = veraHomeDirectory(home);
-    if (!existsSync(root)) return [];
+export function unrecognisedEntriesIn(veraHome: string): readonly string[] {
+    if (!existsSync(veraHome)) return [];
     const owned = new Set<string>(HOME_OWNED_ROOT_ENTRIES);
-    return readdirSync(root)
+    return readdirSync(veraHome)
         .filter((entry) => !entry.startsWith("."))
         .filter((entry) => !owned.has(entry))
         .sort();
+}
+
+export function unrecognisedHomeEntries(home?: string): readonly string[] {
+    return unrecognisedEntriesIn(veraHomeDirectory(home));
 }
 
 export function legacyLayoutEntries(home?: string): readonly string[] {
