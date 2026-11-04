@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
+import {
+    parseAgentUpdate,
+    parseHistoryPagePayload,
+} from "../../src/host/agent-update-wire.ts";
 
 test("host wire carries streamed reasoning and rejects a missing text field", () => {
     const thinking = {
@@ -1301,4 +1304,44 @@ test("host wire carries what a compaction started from and rejects a bad trigger
     expect(parseAgentUpdate({ ...started, trigger: "storm" })).toBeUndefined();
     expect(parseAgentUpdate({ ...started, tokens: -1 })).toBeUndefined();
     expect(parseAgentUpdate({ ...started, capacity: "big" })).toBeUndefined();
+});
+
+test("history page payloads carry validated entries and page information", () => {
+    const payload = {
+        type: "history_page",
+        request_id: "history-page-1",
+        before: "message-260#0",
+        entries: [{
+            kind: "assistant",
+            id: "message-259#0",
+            text: "older",
+        }],
+        page: {
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "message-20#0",
+            headId: "message-499",
+            tailId: "message-259#0",
+        },
+    } as const;
+    expect(parseHistoryPagePayload(payload)).toEqual({
+        before: "message-260#0",
+        entries: payload.entries,
+        page: payload.page,
+    });
+    expect(parseHistoryPagePayload({ ...payload, extra: true }))
+        .toMatchObject({ before: "message-260#0" });
+    expect(parseHistoryPagePayload({
+        ...payload,
+        page: { pageVersion: 0 },
+    })).toBeUndefined();
+    expect(parseHistoryPagePayload({
+        ...payload,
+        entries: [{ kind: "assistant" }],
+    })).toBeUndefined();
+    expect(parseHistoryPagePayload({ ...payload, before: "" })).toBeUndefined();
+    expect(parseHistoryPagePayload({
+        ...payload,
+        type: "history_page_failed",
+    })).toBeUndefined();
 });

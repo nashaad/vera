@@ -9,7 +9,10 @@ import {
     type ExtensionCommandDescriptor,
     type ExtensionCommandResult,
 } from "../extensions/commands.ts";
-import { parseAgentUpdate } from "./agent-update-wire.ts";
+import {
+    parseAgentUpdate,
+    parseHistoryPagePayload,
+} from "./agent-update-wire.ts";
 import { TRASHING_REFUSAL } from "./agent-close-client.ts";
 import { connectHost, type HostConnection } from "./connection.ts";
 import {
@@ -23,9 +26,14 @@ import {
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     parseHostCapabilities,
 } from "./capabilities.ts";
-import type { AttachmentReleasePolicy } from "./protocol.ts";
+import type {
+    AttachmentReleasePolicy,
+    HistoryPageFailedResponse,
+    HistoryPageResponse,
+} from "./protocol.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -69,6 +77,10 @@ export interface AttachedAgentClient {
     onSessionTitle(listener: (title: string | undefined) => void): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
+    requestHistoryPage(
+        before: string,
+        signal?: AbortSignal,
+    ): Promise<HistoryPageResponse>;
     listExtensionCommands(): Promise<readonly ExtensionCommandDescriptor[]>;
     runExtensionCommand(
         command: string,
@@ -80,6 +92,24 @@ export interface AttachedAgentClient {
     detach(): Promise<void>;
     close(): void;
     readonly closed: boolean;
+}
+
+export type HistoryPageFailureReason = HistoryPageFailedResponse["reason"];
+
+export class HistoryPageRequestError extends Error {
+    constructor(readonly reason: HistoryPageFailureReason) {
+        super(`History page request failed: ${reason}`);
+        this.name = "HistoryPageRequestError";
+    }
+}
+
+interface PendingHistoryPage {
+    readonly requestId: string;
+    readonly before: string;
+    readonly resolve: (response: HistoryPageResponse) => void;
+    readonly reject: (error: Error) => void;
+    readonly signal?: AbortSignal;
+    onAbort(): void;
 }
 
 export class ExtensionCommandError extends Error {
@@ -260,6 +290,8 @@ function createAttachedClient(
     let lastDeliveredSequence = initialSequence;
     let awaitingFirstSequencedReplay = initialSequence !== undefined;
     let nextExtensionRequestId = 1;
+    let nextHistoryPageRequestId = 1;
+    let pendingHistoryPage: PendingHistoryPage | undefined;
     const extensionRequests = new Map<string, {
         readonly kind: "list" | "run";
         readonly resolve: (value: unknown) => void;
@@ -278,6 +310,7 @@ function createAttachedClient(
     void readMessages();
     void connection.closedReason().then((error) => {
         failExtensionRequests(error);
+        failHistoryPage(error);
         rejectDetached?.(error);
         rejectReleased?.(error);
     });
@@ -340,6 +373,61 @@ function createAttachedClient(
                     lastDeliveredSequence = update.seq;
                 }
                 return update;
+            });
+        },
+        requestHistoryPage(before, signal): Promise<HistoryPageResponse> {
+            if (!negotiatedCapabilities.includes(
+                HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+            )) {
+                return Promise.reject(
+                    new Error("Host connection does not support history paging"),
+                );
+            }
+            if (isClosed || connection.closed || isDetaching) {
+                return Promise.reject(new Error("Agent attachment is closed"));
+            }
+            if (before.length === 0) {
+                return Promise.reject(new Error("History page cursor is required"));
+            }
+            if (pendingHistoryPage !== undefined) {
+                return Promise.reject(
+                    new Error("A history page request is already pending"),
+                );
+            }
+            if (signal?.aborted === true) {
+                return Promise.reject(
+                    new Error("History page request was aborted"),
+                );
+            }
+            const requestId = `history-page-${nextHistoryPageRequestId}`;
+            nextHistoryPageRequestId += 1;
+            return new Promise<HistoryPageResponse>((resolve, reject) => {
+                const pending: PendingHistoryPage = {
+                    requestId,
+                    before,
+                    resolve,
+                    reject,
+                    ...(signal === undefined ? {} : { signal }),
+                    onAbort: () => undefined,
+                };
+                pending.onAbort = (): void => {
+                    if (pendingHistoryPage !== pending) return;
+                    settleHistoryPage();
+                    reject(new Error("History page request was aborted"));
+                };
+                pendingHistoryPage = pending;
+                signal?.addEventListener("abort", pending.onAbort, {
+                    once: true,
+                });
+                void connection.send({
+                    type: "history_page",
+                    request_id: requestId,
+                    before,
+                }).catch((error: unknown) => {
+                    if (pendingHistoryPage !== pending) return;
+                    settleHistoryPage();
+                    reject(asError(error));
+                });
             });
         },
         listExtensionCommands(): Promise<
@@ -430,6 +518,9 @@ function createAttachedClient(
                         failExtensionRequests(
                             new Error("Agent attachment is released"),
                         );
+                        failHistoryPage(
+                            new Error("Agent attachment is released"),
+                        );
                         updates.fail(new Error("Agent attachment is released"), {
                             discardBuffered: true,
                         });
@@ -445,6 +536,7 @@ function createAttachedClient(
                         isClosed = true;
                         pendingUpdateCount = 0;
                         failExtensionRequests(releaseError);
+                        failHistoryPage(releaseError);
                         updates.fail(releaseError, { discardBuffered: true });
                         connection.close();
                         rejectReleased?.(releaseError);
@@ -455,6 +547,9 @@ function createAttachedClient(
                     isClosed = true;
                     pendingUpdateCount = 0;
                     failExtensionRequests(
+                        new Error("Agent attachment is detached"),
+                    );
+                    failHistoryPage(
                         new Error("Agent attachment is detached"),
                     );
                     updates.fail(new Error("Agent attachment is detached"), {
@@ -479,6 +574,9 @@ function createAttachedClient(
                     continue;
                 }
                 if (receiveSessionTitle(value)) {
+                    continue;
+                }
+                if (receiveHistoryPage(value)) {
                     continue;
                 }
                 const update = parseAgentUpdate(value);
@@ -536,9 +634,80 @@ function createAttachedClient(
         resumeReading = undefined;
         updates.fail(error);
         failExtensionRequests(error);
+        failHistoryPage(error);
         rejectDetached?.(error);
         rejectReleased?.(error);
         connection.close();
+    }
+
+    function settleHistoryPage(): void {
+        const pending = pendingHistoryPage;
+        if (pending === undefined) return;
+        pendingHistoryPage = undefined;
+        pending.signal?.removeEventListener("abort", pending.onAbort);
+    }
+
+    function failHistoryPage(error: Error): void {
+        const pending = pendingHistoryPage;
+        if (pending === undefined) return;
+        settleHistoryPage();
+        pending.reject(error);
+    }
+
+    function receiveHistoryPage(value: unknown): boolean {
+        const response = asRecord(value);
+        if (response === undefined) return false;
+        if (
+            response.type !== "history_page"
+            && response.type !== "history_page_failed"
+        ) {
+            return false;
+        }
+        if (
+            typeof response.request_id !== "string"
+            || response.request_id.length === 0
+        ) {
+            return true;
+        }
+        const pending = pendingHistoryPage;
+        if (pending === undefined || pending.requestId !== response.request_id) {
+            return true;
+        }
+        if (response.type === "history_page_failed") {
+            const reason = parseHistoryPageFailureReason(response.reason);
+            if (reason === undefined) {
+                throw new Error(
+                    "History page response has an unknown failure reason",
+                );
+            }
+            settleHistoryPage();
+            pending.reject(new HistoryPageRequestError(reason));
+            return true;
+        }
+        const parsed = parseHistoryPagePayload(response);
+        if (parsed === undefined || parsed.before !== pending.before) {
+            throw new Error("History page response does not match its request");
+        }
+        settleHistoryPage();
+        pending.resolve({
+            type: "history_page",
+            request_id: pending.requestId,
+            before: parsed.before,
+            entries: parsed.entries,
+            page: parsed.page,
+        });
+        return true;
+    }
+
+    function parseHistoryPageFailureReason(
+        value: unknown,
+    ): HistoryPageFailureReason | undefined {
+        return value === "cursor_not_found"
+            || value === "page_too_large"
+            || value === "busy"
+            || value === "unavailable"
+            ? value
+            : undefined;
     }
 
     function requestExtension(

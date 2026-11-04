@@ -523,6 +523,57 @@ test("a second concurrent receive is rejected explicitly", async () => {
     client.close();
 });
 
+test("a paging client retries a page on its replacement attachment", async () => {
+    const response = {
+        type: "history_page" as const,
+        request_id: "history-page-1",
+        before: "older#0",
+        entries: [{
+            kind: "assistant" as const,
+            id: "older#0",
+            text: "older",
+        }],
+        page: {
+            pageVersion: 1,
+            hasMore: false,
+            headId: "message-4",
+            tailId: "older#0",
+        },
+    };
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4),
+        requestHistoryPage: async () => {
+            throw new Error("host connection closed");
+        },
+    };
+    let retried: string | undefined;
+    const recovered: AttachedAgentClient = {
+        ...fakeClient([{
+            type: "assistant_delta",
+            text: "continued",
+            seq: 5,
+        }], 4),
+        requestHistoryPage: async (before) => {
+            retried = before;
+            return response;
+        },
+    };
+    const cursors: Array<number | undefined> = [];
+    const client = createReconnectingAgentClient(initial, async (cursor) => {
+        cursors.push(cursor);
+        return recovered;
+    });
+    await expect(client.requestHistoryPage("older#0")).rejects
+        .toThrow("closed");
+    expect(await client.receive()).toMatchObject({ seq: 5 });
+    expect(cursors).toEqual([4]);
+
+    const page = await client.requestHistoryPage("older#0");
+    expect(page.entries[0]!.id).toBe("older#0");
+    expect(retried).toBe("older#0");
+    client.close();
+});
+
 function temporaryDirectory(): string {
     const directory = mkdtempSync(join("/private/tmp", "vera-reconnect-client-"));
     temporaryDirectories.push(directory);
@@ -624,6 +675,9 @@ function fakeClientFromQueue(
             const update = await updates.receive(signal);
             if ("seq" in update) lastSequence = update.seq;
             return update;
+        },
+        requestHistoryPage: async () => {
+            throw new Error("History paging is not supported by this fake");
         },
         listExtensionCommands: async () => [],
         runExtensionCommand: async () => ({

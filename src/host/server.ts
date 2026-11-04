@@ -739,7 +739,7 @@ function receiveConnection(
                 type: "history_page_failed",
                 request_id: requestId,
                 reason: "unavailable",
-            });
+            }).catch(() => undefined);
             return;
         }
         try {
@@ -751,20 +751,20 @@ function receiveConnection(
                     before,
                     entries: result.entries,
                     page: result.page,
-                });
+                }).catch(() => undefined);
             } else {
                 void send({
                     type: "history_page_failed",
                     request_id: requestId,
                     reason: result.kind,
-                });
+                }).catch(() => undefined);
             }
         } catch {
             void send({
                 type: "history_page_failed",
                 request_id: requestId,
                 reason: "unavailable",
-            });
+            }).catch(() => undefined);
         }
     }
 
