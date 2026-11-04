@@ -80,7 +80,6 @@ import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts"
 import { workspaceKey } from "../../src/workspace-key.ts";
 import {
     assertProfileLayout,
-    unrecognisedHomeEntries,
     veraHomeDirectory,
     veraRuntimeDirectory,
     VeraProfileError,
@@ -1766,18 +1765,6 @@ if (import.meta.main) {
         stderr.write(`${renderCliFailure(layoutError)}\n`);
         process.exitCode = 1;
     } else {
-        if (cliRequiresMigratedHome(args)) {
-            const strays = unrecognisedHomeEntries();
-            if (strays.length > 0) {
-                stderr.write(
-                    `${veraHomeDirectory()} contains ${strays.length === 1 ? "1 entry" : `${strays.length} entries`}`
-                    + ` Vera does not use: ${strays.join(", ")}\n`
-                    + "Vera reads none of them, so they are most likely left over"
-                    + " from an older version. Move or delete them and this"
-                    + " notice goes away.\n",
-                );
-            }
-        }
         process.exitCode = await runCliMain(args);
     }
 }
