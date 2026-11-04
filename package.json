@@ -20,6 +20,7 @@
     "dev:tui": "bun run pack:release && bun run scripts/dev-tui.ts",
     "dev:load": "bun dev/load/run.ts",
     "factory:home": "bun run scripts/synthesize-factory-home.ts",
+    "records:compact": "bun run scripts/compact-context-records.ts",
     "shot:usage": "bun run scripts/manual-shots/usage-page.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "models:discover": "bun run scripts/verify-model-catalog.ts --discover",

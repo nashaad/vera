@@ -49,7 +49,18 @@ import {
 import {
     isContextMeasurement,
     type ContextMeasurement,
+    type ContextProjectionComponent,
 } from "../engine/context-measurement.ts";
+import {
+    aggregateContextMeasurement,
+    applyContextMeasurementRecipe,
+    compactContextMeasurement,
+    CONTEXT_MEASUREMENT_KEYFRAME_INTERVAL,
+    contextMeasurementDelta,
+    contextMeasurementKeyframe,
+    isContextMeasurementRecipe,
+    type ContextMeasurementRecipe,
+} from "./context-measurement-record.ts";
 import {
     isSessionImportProvenance,
     type SessionImportProvenance,
@@ -252,6 +263,8 @@ export interface SessionContextMeasurementEntry {
     readonly timestamp: string;
     readonly afterMessageId: string | null;
     readonly measurement: ContextMeasurement;
+    /** Present when the components are held as a delta against the previous retained entry. */
+    readonly retainedRecipe?: ContextMeasurementRecipe;
 }
 
 export interface SessionCompactionBilled {
@@ -890,10 +903,15 @@ export class SessionStore {
 
     latestContextMeasurement(): ContextMeasurement | undefined {
         const active = new Set(this.activeEntries().map((entry) => entry.id));
-        return this.projection.contextMeasurementEntries.findLast((entry) =>
-            entry.afterMessageId === null
-            || active.has(entry.afterMessageId)
-        )?.measurement;
+        const entries = this.projection.contextMeasurementEntries;
+        for (let index = entries.length - 1; index >= 0; index -= 1) {
+            const entry = entries[index]!;
+            if (entry.afterMessageId !== null && !active.has(entry.afterMessageId)) {
+                continue;
+            }
+            return materializeContextMeasurement(entries, index);
+        }
+        return undefined;
     }
 
     unprojectedModelContext(): readonly ModelMessage[] {
@@ -1062,8 +1080,28 @@ export class SessionStore {
             afterMessageId: this.projection.leafId,
             measurement,
         };
-        await this.appendRecord(entry);
+        const keyframe = !this.projection.contextMeasurementLastRecordCompact
+            || this.projection.contextMeasurementBase === undefined
+            || this.projection.contextMeasurementsSinceKeyframe
+                >= CONTEXT_MEASUREMENT_KEYFRAME_INTERVAL;
+        const compact = compactContextMeasurement(
+            measurement,
+            this.projection.contextMeasurementBase,
+            keyframe,
+        );
+        await this.appendRecord({
+            type: entry.type,
+            timestamp: entry.timestamp,
+            afterMessageId: entry.afterMessageId,
+            measurement: compact.measurement,
+            contextRecipe: compact.recipe,
+        });
         this.projection.contextMeasurementEntries.push(entry);
+        this.projection.contextMeasurementBase = measurement.projection.components;
+        this.projection.contextMeasurementLastRecordCompact = true;
+        this.projection.contextMeasurementsSinceKeyframe = keyframe
+            ? 0
+            : this.projection.contextMeasurementsSinceKeyframe + 1;
         retainContextMeasurements(this.projection);
         return entry;
     }
@@ -1717,6 +1755,13 @@ export interface SessionProjectionState {
     readonly compactionEntries: SessionCompactionEntry[];
     readonly askEntries: SessionAskEntry[];
     readonly contextMeasurementEntries: SessionContextMeasurementEntry[];
+    /** Components of the last context measurement record on disk. */
+    contextMeasurementBase: readonly ContextProjectionComponent[] | undefined;
+    contextMeasurementLastRecordCompact: boolean;
+    contextMeasurementsSinceKeyframe: number;
+    /** Full components of the last retained entry, used to extend its delta chain. */
+    contextMeasurementLastComponents:
+        readonly ContextProjectionComponent[] | undefined;
     readonly knownMessageIds: Set<string>;
     readonly knownDeliveryIds: Set<string>;
     readonly knownAttachmentIds: Set<string>;
@@ -1742,6 +1787,10 @@ export function createSessionProjectionState(): SessionProjectionState {
         compactionEntries: [],
         askEntries: [],
         contextMeasurementEntries: [],
+        contextMeasurementBase: undefined,
+        contextMeasurementLastRecordCompact: false,
+        contextMeasurementsSinceKeyframe: 0,
+        contextMeasurementLastComponents: undefined,
         knownMessageIds: new Set(),
         knownDeliveryIds: new Set(),
         knownAttachmentIds: new Set(),
@@ -1773,6 +1822,10 @@ function copyProjectionState(
         compactionEntries: [...state.compactionEntries],
         askEntries: [...state.askEntries],
         contextMeasurementEntries: [...state.contextMeasurementEntries],
+        contextMeasurementBase: state.contextMeasurementBase,
+        contextMeasurementLastRecordCompact: state.contextMeasurementLastRecordCompact,
+        contextMeasurementsSinceKeyframe: state.contextMeasurementsSinceKeyframe,
+        contextMeasurementLastComponents: state.contextMeasurementLastComponents,
         knownMessageIds: new Set(state.knownMessageIds),
         knownDeliveryIds: new Set(state.knownDeliveryIds),
         knownAttachmentIds: new Set(state.knownAttachmentIds),
@@ -2086,7 +2139,12 @@ function parseSessionFile(path: string, source: string): ParsedSessionFile {
         if (line.startsWith(CONTEXT_MEASUREMENT_LINE_PREFIX)) {
             const afterMessageId = measuredAfterMessageId(line);
             if (afterMessageId !== undefined) {
-                deferred.push({ lineNumber, afterMessageId, line });
+                deferred.push({
+                    lineNumber,
+                    afterMessageId,
+                    line,
+                    compact: line.includes('"contextRecipe":'),
+                });
                 continue;
             }
         }
@@ -2099,7 +2157,13 @@ function parseSessionFile(path: string, source: string): ParsedSessionFile {
                     `line ${lineNumber} is not a valid context measurement entry`,
                 );
             }
-            deferred.push({ lineNumber, afterMessageId, line, record: value });
+            deferred.push({
+                lineNumber,
+                afterMessageId,
+                line,
+                compact: value.contextRecipe !== undefined,
+                record: value,
+            });
             continue;
         }
         ingestSessionRecord(path, lineNumber, value, state);
@@ -2125,6 +2189,7 @@ interface DeferredContextMeasurement {
     readonly lineNumber: number;
     readonly afterMessageId: string | null;
     readonly line: string;
+    readonly compact: boolean;
     readonly record?: Record<string, unknown>;
 }
 
@@ -2177,13 +2242,30 @@ function ingestDeferredContextMeasurements(
         deferred.map((candidate) => candidate.afterMessageId),
     );
     for (let index = 0; index < deferred.length; index += 1) {
-        if (!kept.has(index)) continue;
         const candidate = deferred[index]!;
+        const isKept = kept.has(index);
+        // Compact records carry the base for later deltas, so they are parsed
+        // even when dropped. A dropped full record is still skipped.
+        if (!isKept && !candidate.compact) {
+            state.contextMeasurementBase = undefined;
+            state.contextMeasurementLastRecordCompact = false;
+            state.contextMeasurementsSinceKeyframe = 0;
+            continue;
+        }
         const value = candidate.record
             ?? parseJsonObject(path, candidate.lineNumber, candidate.line);
-        state.contextMeasurementEntries.push(
-            parseContextMeasurementEntry(path, candidate.lineNumber, value),
+        const parsed = parseContextMeasurementEntry(
+            path,
+            candidate.lineNumber,
+            value,
         );
+        const entry = applyContextMeasurementEntry(
+            path,
+            candidate.lineNumber,
+            parsed,
+            state,
+        );
+        if (isKept) state.contextMeasurementEntries.push(entry);
     }
     retainContextMeasurements(state);
 }
@@ -2194,8 +2276,9 @@ function ingestContextMeasurementRecord(
     value: Record<string, unknown>,
     state: SessionProjectionState,
 ): void {
+    const parsed = parseContextMeasurementEntry(path, lineNumber, value);
     state.contextMeasurementEntries.push(
-        parseContextMeasurementEntry(path, lineNumber, value),
+        applyContextMeasurementEntry(path, lineNumber, parsed, state),
     );
     retainContextMeasurements(state);
 }
@@ -2208,17 +2291,147 @@ function ingestContextMeasurementRecord(
  */
 function retainContextMeasurements(state: SessionProjectionState): void {
     const entries = state.contextMeasurementEntries;
-    if (entries.length === 0) return;
+    if (entries.length === 0) {
+        state.contextMeasurementLastComponents = undefined;
+        return;
+    }
     const kept = reachableContextMeasurementIndexes(
         state,
         entries.map((entry) => entry.afterMessageId),
     );
-    if (kept.size === entries.length) return;
+    if (kept.size === entries.length) {
+        compactContextMeasurementEntries(state, entries.length);
+        return;
+    }
+    const indexes = [...kept].sort((left, right) => left - right);
+    let prefix = true;
+    for (let position = 0; position < indexes.length; position += 1) {
+        if (indexes[position] !== position) {
+            prefix = false;
+            break;
+        }
+    }
+    if (prefix) {
+        entries.length = indexes.length;
+        if (entries.at(-1)?.retainedRecipe !== undefined) {
+            state.contextMeasurementLastComponents = contextMeasurementComponentsAt(
+                entries,
+                entries.length - 1,
+            );
+        }
+        compactContextMeasurementEntries(state, entries.length);
+        return;
+    }
+    rebuildRetainedContextMeasurements(state, indexes);
+}
+
+/**
+ * Replaces full component lists with deltas against the previous retained
+ * entry. Entries before `first` are already compact and `lastComponents`
+ * holds the full list of the entry just before it.
+ */
+function compactContextMeasurementEntries(
+    state: SessionProjectionState,
+    limit: number,
+): void {
+    const entries = state.contextMeasurementEntries;
+    let first = 0;
+    while (first < limit && entries[first]!.retainedRecipe !== undefined) {
+        first += 1;
+    }
+    if (first === limit) {
+        state.contextMeasurementLastComponents = first === 0
+            ? undefined
+            : contextMeasurementComponentsAt(entries, first - 1);
+        return;
+    }
+    let previous = first === 0
+        ? undefined
+        : state.contextMeasurementLastComponents;
+    for (let index = first; index < limit; index += 1) {
+        const entry = entries[index]!;
+        const components = entry.measurement.projection?.components;
+        if (components === undefined) {
+            throw new Error("Retained context measurement lost its components");
+        }
+        entries[index] = {
+            ...entry,
+            measurement: aggregateContextMeasurement(entry.measurement),
+            retainedRecipe: previous === undefined
+                ? contextMeasurementKeyframe(components)
+                : contextMeasurementDelta(previous, components),
+        };
+        previous = components;
+    }
+    state.contextMeasurementLastComponents = previous;
+}
+
+function rebuildRetainedContextMeasurements(
+    state: SessionProjectionState,
+    indexes: readonly number[],
+): void {
+    const entries = state.contextMeasurementEntries;
+    const componentsByIndex: (readonly ContextProjectionComponent[])[] = [];
+    let components: readonly ContextProjectionComponent[] | undefined;
+    for (const entry of entries) {
+        components = entry.retainedRecipe === undefined
+            ? entry.measurement.projection?.components
+            : applyContextMeasurementRecipe(components, entry.retainedRecipe);
+        if (components === undefined) {
+            throw new Error("Retained context measurement lost its components");
+        }
+        componentsByIndex.push(components);
+    }
     const retained: SessionContextMeasurementEntry[] = [];
-    for (let index = 0; index < entries.length; index += 1) {
-        if (kept.has(index)) retained.push(entries[index]!);
+    let previous: readonly ContextProjectionComponent[] | undefined;
+    for (const index of indexes) {
+        const entry = entries[index]!;
+        const current = componentsByIndex[index]!;
+        retained.push({
+            ...entry,
+            measurement: aggregateContextMeasurement(entry.measurement),
+            retainedRecipe: previous === undefined
+                ? contextMeasurementKeyframe(current)
+                : contextMeasurementDelta(previous, current),
+        });
+        previous = current;
     }
     entries.splice(0, entries.length, ...retained);
+    state.contextMeasurementLastComponents = previous;
+}
+
+function contextMeasurementComponentsAt(
+    entries: readonly SessionContextMeasurementEntry[],
+    index: number,
+): readonly ContextProjectionComponent[] | undefined {
+    let components: readonly ContextProjectionComponent[] | undefined;
+    for (let position = 0; position <= index; position += 1) {
+        const entry = entries[position]!;
+        components = entry.retainedRecipe === undefined
+            ? entry.measurement.projection?.components
+            : applyContextMeasurementRecipe(components, entry.retainedRecipe);
+        if (components === undefined) return undefined;
+    }
+    return components;
+}
+
+function materializeContextMeasurement(
+    entries: readonly SessionContextMeasurementEntry[],
+    index: number,
+): ContextMeasurement {
+    const entry = entries[index]!;
+    const components = contextMeasurementComponentsAt(entries, index);
+    const projection = entry.measurement.projection;
+    if (components === undefined || projection === undefined) {
+        throw new Error("Retained context measurement lost its components");
+    }
+    return {
+        ...entry.measurement,
+        projection: {
+            estimatedTokens: projection.estimatedTokens,
+            components,
+        },
+    };
 }
 
 function reachableContextMeasurementIndexes(
@@ -2662,16 +2875,23 @@ function parseModelSettingsEntry(
     };
 }
 
+interface ParsedContextMeasurement {
+    readonly entry: SessionContextMeasurementEntry;
+    readonly recipe?: ContextMeasurementRecipe;
+}
+
 function parseContextMeasurementEntry(
     path: string,
     lineNumber: number,
     value: Record<string, unknown>,
-): SessionContextMeasurementEntry {
+): ParsedContextMeasurement {
     if (
         typeof value.timestamp !== "string"
         || (value.afterMessageId !== null && typeof value.afterMessageId !== "string")
         || !isContextMeasurement(value.measurement)
         || value.measurement.projection === undefined
+        || (value.contextRecipe !== undefined
+            && !isContextMeasurementRecipe(value.contextRecipe))
     ) {
         throw invalidSession(
             path,
@@ -2679,10 +2899,49 @@ function parseContextMeasurementEntry(
         );
     }
     return {
-        type: "context_measurement",
-        timestamp: value.timestamp,
-        afterMessageId: value.afterMessageId,
-        measurement: value.measurement,
+        entry: {
+            type: "context_measurement",
+            timestamp: value.timestamp,
+            afterMessageId: value.afterMessageId,
+            measurement: value.measurement,
+        },
+        ...(value.contextRecipe === undefined
+            ? {}
+            : { recipe: value.contextRecipe }),
+    };
+}
+
+function applyContextMeasurementEntry(
+    path: string,
+    lineNumber: number,
+    parsed: ParsedContextMeasurement,
+    state: SessionProjectionState,
+): SessionContextMeasurementEntry {
+    const recipe = parsed.recipe;
+    const components = recipe === undefined
+        ? parsed.entry.measurement.projection?.components
+        : applyContextMeasurementRecipe(state.contextMeasurementBase, recipe);
+    if (components === undefined) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid context measurement entry`,
+        );
+    }
+    state.contextMeasurementBase = components;
+    state.contextMeasurementLastRecordCompact = recipe !== undefined;
+    state.contextMeasurementsSinceKeyframe = recipe === undefined || recipe.keyframe
+        ? 0
+        : state.contextMeasurementsSinceKeyframe + 1;
+    if (recipe === undefined) return parsed.entry;
+    return {
+        ...parsed.entry,
+        measurement: {
+            ...parsed.entry.measurement,
+            projection: {
+                estimatedTokens: parsed.entry.measurement.projection!.estimatedTokens,
+                components,
+            },
+        },
     };
 }
 
