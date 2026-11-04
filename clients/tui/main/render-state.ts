@@ -633,6 +633,7 @@ export function shiftTranscriptEntrySlots(rt: TuiRuntime,
         delete rt.entryNodes[index];
         delete rt.entryNodeKinds[index];
         delete rt.measuredEntryRows[index];
+        rt.reasoningRowCaches?.delete(index);
     }
     moved.forEach((slot, offset) => {
         const target = from + delta + offset;
@@ -641,6 +642,7 @@ export function shiftTranscriptEntrySlots(rt: TuiRuntime,
         rt.entryNodeKinds[target] = slot.kind;
         if (slot.rows === undefined) delete rt.measuredEntryRows[target];
         else rt.measuredEntryRows[target] = slot.rows;
+        rt.reasoningRowCaches?.delete(target);
     });
 }
 
@@ -708,6 +710,7 @@ export function clearTranscriptNodes(rt: TuiRuntime): void {
     rt.entryNodes.length = 0;
     rt.entryNodeKinds.length = 0;
     rt.measuredEntryRows.length = 0;
+    rt.reasoningRowCaches?.clear();
     rt.materializedEntryStart = 0;
     rt.materializedEntryEnd = 0;
     rt.pendingTranscriptScrollAnchor = undefined;

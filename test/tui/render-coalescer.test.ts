@@ -48,6 +48,17 @@ test("a burst of deltas paints once", () => {
     expect(clock.renders()).toBe(1);
 });
 
+test("a burst of reasoning deltas paints once", () => {
+    const clock = testClock();
+    for (let index = 0; index < 200; index += 1) {
+        clock.coalescer.request("assistant_thinking");
+    }
+
+    expect(clock.renders()).toBe(0);
+    clock.tick();
+    expect(clock.renders()).toBe(1);
+});
+
 test("the last delta of a burst still lands", () => {
     const clock = testClock();
     clock.coalescer.request("assistant_delta");
@@ -93,6 +104,7 @@ test("stopping drops a pending repaint", () => {
 
 test("only streaming updates are coalesced", () => {
     expect(isCoalescedUpdate("assistant_delta")).toBe(true);
+    expect(isCoalescedUpdate("assistant_thinking")).toBe(true);
     expect(isCoalescedUpdate("model_activity")).toBe(true);
     // A type nobody listed is immediate, which is the safe direction for one
     // added later.

@@ -7,7 +7,7 @@ import { updateTuiNoticeCard } from "../notice-card.ts";
 import { updateTuiErrorRow } from "../error-row.ts";
 import { updateTuiReasoningBlock } from "../reasoning-block.ts";
 import { renderTuiEntry, tuiEntryIsErrorRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
-import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningText, updateTuiThinkingWindow } from "../thinking-window.ts";
+import { animateTuiThinkingWindow, createLiveReasoningCache, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningRowCount, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
 import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
@@ -130,11 +130,19 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
     if (entry.kind === "thinking") {
         if (rt.liveReasoningRows !== "all") return margin + liveReasoningHeight(rt.liveReasoningRows);
-        return margin + Math.max(1, transcriptEstimatedRows(
-            rt,
-            liveReasoningText(entry.text, true),
+        let cache = rt.reasoningRowCaches?.get(index);
+        if (cache === undefined) {
+            if (rt.reasoningRowCaches === undefined) {
+                rt.reasoningRowCaches = new Map();
+            }
+            cache = createLiveReasoningCache();
+            rt.reasoningRowCaches.set(index, cache);
+        }
+        return margin + liveReasoningRowCount(
+            cache,
+            entry.text,
             Math.max(8, width - ELLIPSIS_COLUMNS),
-        ));
+        );
     }
     return margin + Math.max(
         1,
@@ -246,6 +254,8 @@ export function createTranscriptEntryNode(rt: TuiRuntime,
         streaming,
     );
     updateTranscriptEntryNode(rt, node, entry);
+    // The node's own cache takes over; the estimate cache is for evicted rows.
+    rt.reasoningRowCaches?.delete(index);
     rt.entryNodes[index] = node;
     rt.entryNodeKinds[index] = entry.kind;
     rt.entryNodeSources.set(node, entry);

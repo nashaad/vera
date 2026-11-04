@@ -1,5 +1,6 @@
 import type { ModeToastItem } from "./notices.ts";
 import type { TuiLiveReasoningRows } from "../theme-preference.ts";
+import type { LiveReasoningCache } from "../thinking-window.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { HostExtensionLoadFailure } from "../../../src/host/extension-load-failures-client.ts";
@@ -391,6 +392,8 @@ export interface TuiRuntime {
     materializedEntryEnd: number;
     measuredEntryRows: number[];
     measuredEntryRowsWidth: number;
+    /** Row estimates for thinking entries that are outside the materialized window. */
+    reasoningRowCaches?: Map<number, LiveReasoningCache>;
     pendingTranscriptScrollRestore: {
         readonly scrollTop: number;
         readonly atBottom: boolean;
