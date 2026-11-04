@@ -152,6 +152,72 @@ test("conversation rewind publishes the on-branch context, not the dropped turn"
     ).toEqual(["user message"]);
 });
 
+test("rewind publishes the measurement recorded at each rewind point", async () => {
+    const directory = temporaryDirectory();
+    const sessionPath = join(directory, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "session-1",
+        cwd: directory,
+        createId: values(
+            "message-1",
+            "message-2",
+            "message-3",
+            "message-4",
+            "message-5",
+            "message-6",
+        ),
+    });
+    const first = await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "first" }],
+    });
+    await store.appendContextMeasurement(measurement(100, "first request"));
+    await store.appendMessage(assistantMessage("first answer"));
+    const firstAnswer = measurement(110, "first answer");
+    await store.appendContextMeasurement(firstAnswer);
+    const second = await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "second" }],
+    });
+    await store.appendContextMeasurement(measurement(200, "second request"));
+    await store.appendMessage(assistantMessage("second answer"));
+    const secondAnswer = measurement(210, "second answer");
+    await store.appendContextMeasurement(secondAnswer);
+    const third = await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "third" }],
+    });
+    await store.appendContextMeasurement(measurement(300, "third request"));
+    await store.appendMessage(assistantMessage("third answer"));
+    await store.appendContextMeasurement(measurement(310, "third answer"));
+    const state = {
+        messages: [...store.messages()],
+        store,
+    };
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    await rewindConversationBefore(state, protocol, third.id);
+    expect(latestHistoryContext(updates)).toEqual(secondAnswer);
+
+    await rewindConversationBefore(state, protocol, second.id);
+    expect(latestHistoryContext(updates)).toEqual(firstAnswer);
+
+    await rewindConversationBefore(state, protocol, first.id);
+    expect(latestHistoryContext(updates)).toBeUndefined();
+});
+
+function latestHistoryContext(
+    updates: readonly AgentUpdate[],
+): ContextMeasurement | undefined {
+    const history = updates.findLast((update) => update.type === "history");
+    return history?.type === "history" ? history.context : undefined;
+}
+
 function assistantMessage(text: string): ModelMessage {
     return {
         role: "assistant",

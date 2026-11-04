@@ -1064,6 +1064,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.contextMeasurementEntries.push(entry);
+        retainContextMeasurements(this.projection);
         return entry;
     }
 
@@ -1301,6 +1302,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.leafId = entry.headId;
+        retainContextMeasurements(this.projection);
         return entry;
     }
 
@@ -1801,7 +1803,6 @@ export function ingestSessionRecord(
         attachmentEntries,
         compactionEntries,
         askEntries,
-        contextMeasurementEntries,
         knownMessageIds,
         knownDeliveryIds,
         knownAttachmentIds,
@@ -2045,6 +2046,7 @@ export function ingestSessionRecord(
             );
         }
         state.leafId = rewind.headId;
+        retainContextMeasurements(state);
         return;
     }
     if (value.type === "compaction") {
@@ -2058,9 +2060,7 @@ export function ingestSessionRecord(
         return;
     }
     if (value.type === "context_measurement") {
-        contextMeasurementEntries.push(
-            parseContextMeasurementEntry(path, lineNumber, value),
-        );
+        ingestContextMeasurementRecord(path, lineNumber, value, state);
         return;
     }
     if (value.type === "checkpoint") {
@@ -2077,18 +2077,197 @@ function parseSessionFile(path: string, source: string): ParsedSessionFile {
     const lines = source.slice(0, -1).split("\n");
     const header = parseHeader(path, lines[0]);
     const state = createSessionProjectionState();
+    const deferred: DeferredContextMeasurement[] = [];
+    let failureLine: number | undefined;
 
     for (let index = 1; index < lines.length; index += 1) {
         const lineNumber = index + 1;
-        ingestSessionRecord(
-            path,
-            lineNumber,
-            parseJsonObject(path, lineNumber, lines[index]),
-            state,
+        const line = lines[index]!;
+        if (line.startsWith(CONTEXT_MEASUREMENT_LINE_PREFIX)) {
+            const afterMessageId = measuredAfterMessageId(line);
+            if (afterMessageId !== undefined) {
+                deferred.push({ lineNumber, afterMessageId, line });
+                continue;
+            }
+        }
+        const value = parseJsonObject(path, lineNumber, line);
+        if (value.type === "context_measurement") {
+            const afterMessageId = value.afterMessageId;
+            if (afterMessageId !== null && typeof afterMessageId !== "string") {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} is not a valid context measurement entry`,
+                );
+            }
+            deferred.push({ lineNumber, afterMessageId, line, record: value });
+            continue;
+        }
+        ingestSessionRecord(path, lineNumber, value, state);
+        if (state.agentFailure !== undefined && failureLine === undefined) {
+            failureLine = lineNumber;
+        }
+    }
+
+    for (const candidate of deferred) {
+        if (failureLine !== undefined && candidate.lineNumber > failureLine) {
+            throw invalidSession(
+                path,
+                `line ${candidate.lineNumber} follows the terminal agent failure`,
+            );
+        }
+    }
+    ingestDeferredContextMeasurements(path, state, deferred);
+
+    return { header, state, lineCount: lines.length };
+}
+
+interface DeferredContextMeasurement {
+    readonly lineNumber: number;
+    readonly afterMessageId: string | null;
+    readonly line: string;
+    readonly record?: Record<string, unknown>;
+}
+
+const CONTEXT_MEASUREMENT_LINE_PREFIX = '{"type":"context_measurement"';
+
+/**
+ * Reads the top-level afterMessageId without parsing a measurement recipe that
+ * may never be kept. Returns undefined when the line needs a full parse.
+ */
+function measuredAfterMessageId(line: string): string | null | undefined {
+    if (!line.endsWith("}")) return undefined;
+    const key = '"afterMessageId":';
+    const measurementAt = line.indexOf('"measurement":', CONTEXT_MEASUREMENT_LINE_PREFIX.length);
+    const keyAt = line.indexOf(key, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
+    if (keyAt === -1 || (measurementAt !== -1 && keyAt > measurementAt)) {
+        return undefined;
+    }
+    const valueAt = keyAt + key.length;
+    if (line.startsWith("null", valueAt)) return null;
+    if (line[valueAt] !== '"') return undefined;
+    let end = valueAt + 1;
+    let escaped = false;
+    for (; end < line.length; end += 1) {
+        const character = line[end]!;
+        if (escaped) {
+            escaped = false;
+        } else if (character === "\\") {
+            escaped = true;
+        } else if (character === '"') {
+            break;
+        }
+    }
+    if (end >= line.length) return undefined;
+    try {
+        const parsed: unknown = JSON.parse(line.slice(valueAt, end + 1));
+        return typeof parsed === "string" ? parsed : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function ingestDeferredContextMeasurements(
+    path: string,
+    state: SessionProjectionState,
+    deferred: readonly DeferredContextMeasurement[],
+): void {
+    if (deferred.length === 0) return;
+    const kept = reachableContextMeasurementIndexes(
+        state,
+        deferred.map((candidate) => candidate.afterMessageId),
+    );
+    for (let index = 0; index < deferred.length; index += 1) {
+        if (!kept.has(index)) continue;
+        const candidate = deferred[index]!;
+        const value = candidate.record
+            ?? parseJsonObject(path, candidate.lineNumber, candidate.line);
+        state.contextMeasurementEntries.push(
+            parseContextMeasurementEntry(path, candidate.lineNumber, value),
+        );
+    }
+    retainContextMeasurements(state);
+}
+
+function ingestContextMeasurementRecord(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+    state: SessionProjectionState,
+): void {
+    state.contextMeasurementEntries.push(
+        parseContextMeasurementEntry(path, lineNumber, value),
+    );
+    retainContextMeasurements(state);
+}
+
+/**
+ * Keeps the latest measurement for every head a rewind can reach: null, the
+ * parents of active user messages, and the current leaf. Measurements on a
+ * branch already left cannot become active again because rewinds only move to
+ * an ancestor of the current leaf.
+ */
+function retainContextMeasurements(state: SessionProjectionState): void {
+    const entries = state.contextMeasurementEntries;
+    if (entries.length === 0) return;
+    const kept = reachableContextMeasurementIndexes(
+        state,
+        entries.map((entry) => entry.afterMessageId),
+    );
+    if (kept.size === entries.length) return;
+    const retained: SessionContextMeasurementEntry[] = [];
+    for (let index = 0; index < entries.length; index += 1) {
+        if (kept.has(index)) retained.push(entries[index]!);
+    }
+    entries.splice(0, entries.length, ...retained);
+}
+
+function reachableContextMeasurementIndexes(
+    state: SessionProjectionState,
+    afterMessageIds: readonly (string | null)[],
+): Set<number> {
+    const active = activeBranchEntries(state.messageEntries, state.leafId);
+    const positionById = new Map(
+        active.map((entry, index) => [entry.id, index] as const),
+    );
+    const points = new Set<number>([-1]);
+    if (active.length > 0) points.add(active.length - 1);
+    for (let index = 0; index < active.length; index += 1) {
+        const entry = active[index]!;
+        if (entry.message.role !== "user" || entry.message.internal === true) {
+            continue;
+        }
+        points.add(
+            entry.parentId === null
+                ? -1
+                : positionById.get(entry.parentId) ?? -1,
         );
     }
 
-    return { header, state, lineCount: lines.length };
+    const latestAt = new Map<number, number>();
+    let latestNull = -1;
+    for (let index = 0; index < afterMessageIds.length; index += 1) {
+        const afterMessageId = afterMessageIds[index]!;
+        if (afterMessageId === null) {
+            latestNull = index;
+            continue;
+        }
+        const position = positionById.get(afterMessageId);
+        if (position !== undefined) latestAt.set(position, index);
+    }
+
+    const positions = [...latestAt.keys()].sort((left, right) => left - right);
+    const sortedPoints = [...points].sort((left, right) => left - right);
+    const kept = new Set<number>();
+    let running = latestNull;
+    let cursor = 0;
+    for (const point of sortedPoints) {
+        while (cursor < positions.length && positions[cursor]! <= point) {
+            running = Math.max(running, latestAt.get(positions[cursor]!)!);
+            cursor += 1;
+        }
+        if (running >= 0) kept.add(running);
+    }
+    return kept;
 }
 
 function parseHarnessMessageEntry(
