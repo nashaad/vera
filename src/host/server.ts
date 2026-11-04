@@ -87,6 +87,7 @@ import {
     parseHostCapabilities,
 } from "./capabilities.ts";
 import { MAX_FRAME_BYTES } from "./connection.ts";
+import { LineBuffer } from "./line-buffer.ts";
 import {
     InteractiveAttachmentRegistry,
     type InteractiveAttachmentLease,
@@ -620,8 +621,7 @@ function receiveConnection(
     }
     armDeadline();
     let attachment: AgentAttachment | undefined;
-    let buffered = Buffer.alloc(0);
-    let discardingOversized = false;
+    const lines = new LineBuffer({ maxLineBytes: limits.maxRequestBytes });
     let finished = false;
     let initialRequestPending = false;
     let writes: Promise<void> = Promise.resolve();
@@ -695,38 +695,22 @@ function receiveConnection(
         if (finished) {
             return;
         }
-        buffered = Buffer.concat([buffered, chunk]);
+        lines.push(chunk);
         if (idleTimer !== undefined) armDeadline();
         receiveLines();
     });
 
     function receiveLines(): void {
         while (!finished && !initialRequestPending) {
-            const newlineAt = buffered.indexOf(0x0a);
-            if (discardingOversized) {
-                if (newlineAt === -1) {
-                    buffered = buffered.subarray(buffered.length);
-                    return;
-                }
-                buffered = buffered.subarray(newlineAt + 1);
-                discardingOversized = false;
-                refuseOversizedFrame();
-                continue;
-            }
-            if (newlineAt === -1) {
-                if (buffered.length > limits.maxRequestBytes) {
-                    discardingOversized = true;
-                    buffered = buffered.subarray(buffered.length);
-                }
+            const result = lines.next();
+            if (result.kind === "need-more") {
                 return;
             }
-            if (newlineAt > limits.maxRequestBytes) {
-                buffered = buffered.subarray(newlineAt + 1);
+            if (result.kind === "oversized") {
                 refuseOversizedFrame();
                 continue;
             }
-            const line = decode(buffered.subarray(0, newlineAt));
-            buffered = buffered.subarray(newlineAt + 1);
+            const line = decode(result.bytes);
             if (line === undefined) {
                 socket.destroy();
                 return;

@@ -1,4 +1,6 @@
 
+import { LineBuffer } from "../line-buffer.ts";
+
 export interface PipeStreams {
     readonly input: NodeJS.ReadableStream;
     readonly output: NodeJS.WritableStream;
@@ -118,18 +120,22 @@ function readLines(
     onLine: (line: string) => void,
     onEnd: () => void,
 ): void {
-    let buffer = "";
-    stream.setEncoding("utf8");
-    stream.on("data", (chunk: string) => {
-        buffer += chunk;
-        let index = buffer.indexOf("\n");
-        while (index !== -1) {
-            const line = buffer.slice(0, index).trim();
-            buffer = buffer.slice(index + 1);
+    const decoder = new TextDecoder("utf-8");
+    const lines = new LineBuffer();
+    stream.on("data", (chunk: Buffer | string) => {
+        lines.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+        for (;;) {
+            const result = lines.next();
+            if (result.kind === "need-more") {
+                return;
+            }
+            if (result.kind === "oversized") {
+                continue;
+            }
+            const line = decoder.decode(result.bytes).trim();
             if (line !== "") {
                 onLine(line);
             }
-            index = buffer.indexOf("\n");
         }
     });
     stream.on("end", onEnd);
