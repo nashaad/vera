@@ -663,6 +663,10 @@ class FakeAttachedAgentClient implements AttachedAgentClient {
         return false;
     }
 
+    requestHistoryPage(): Promise<never> {
+        return Promise.reject(new Error("History paging is not supported"));
+    }
+
     get backgroundAgents(): BackgroundAgentsSnapshot {
         return this.currentBackgroundAgents;
     }

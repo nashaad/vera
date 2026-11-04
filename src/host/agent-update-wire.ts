@@ -8,6 +8,7 @@ import {
 import type {
     AgentStatus,
     AgentUpdate,
+    HistoryPageInfo,
     TranscriptEntry,
 } from "../engine/protocol.ts";
 import type { PermissionInspection } from "../engine/permissions.ts";
@@ -872,6 +873,36 @@ function isTimelinePlan(value: unknown): boolean {
         && isTimelineBoundary(plan.boundary)
         && isSequence(plan.keptMessageCount)
         && isSequence(plan.setAsideMessageCount);
+}
+
+export interface ParsedHistoryPage {
+    readonly before: string;
+    readonly entries: readonly TranscriptEntry[];
+    readonly page: HistoryPageInfo;
+}
+
+export function parseHistoryPagePayload(
+    value: unknown,
+): ParsedHistoryPage | undefined {
+    const response = asRecord(value);
+    if (
+        response === undefined
+        || response.type !== "history_page"
+        || typeof response.request_id !== "string"
+        || response.request_id.length === 0
+        || typeof response.before !== "string"
+        || response.before.length === 0
+        || !Array.isArray(response.entries)
+        || !response.entries.every(isTranscriptEntry)
+        || !isHistoryPageInfo(response.page)
+    ) {
+        return undefined;
+    }
+    return {
+        before: response.before,
+        entries: response.entries,
+        page: response.page as HistoryPageInfo,
+    };
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {

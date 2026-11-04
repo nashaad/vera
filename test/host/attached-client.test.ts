@@ -11,10 +11,14 @@ import {
     AgentAttachError,
     attachAgent,
     ExtensionCommandError,
+    HistoryPageRequestError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
-import { HOST_CAPABILITY_AGENT_ATTACH_RESUME } from "../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+} from "../../src/host/capabilities.ts";
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
@@ -1169,4 +1173,436 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
         }
     },
     60_000,
+);
+
+function transcriptEntries(count: number): readonly {
+    readonly kind: "assistant";
+    readonly id: string;
+    readonly text: string;
+}[] {
+    return Array.from({ length: count }, (_, index) => ({
+        kind: "assistant" as const,
+        id: `message-${index}#0`,
+        text: `message ${index}`,
+    }));
+}
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a paging client reads older pages without advancing its sequence",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(500),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            expect(client.supportsHostCapability(
+                HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+            )).toBe(true);
+            const tail = await client.receive();
+            if (tail.type !== "history") throw new Error("expected history");
+            expect(tail.entries).toHaveLength(240);
+            expect(client.lastSequence).toBe(0);
+
+            const page = await client.requestHistoryPage(
+                tail.page!.olderBefore!,
+            );
+            expect(page.type).toBe("history_page");
+            expect(page.before).toBe("message-260#0");
+            expect(page.entries).toHaveLength(240);
+            expect(page.entries[0]!.id).toBe("message-20#0");
+            expect(client.lastSequence).toBe(0);
+
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "next",
+                seq: 1,
+            });
+            expect(await client.receive()).toMatchObject({
+                type: "assistant_delta",
+                seq: 1,
+            });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a page request without the negotiated capability is refused",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+        });
+        try {
+            await client.receive();
+            await expect(client.requestHistoryPage("message-0#0")).rejects
+                .toThrow("does not support history paging");
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "only one page request may be in flight",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        let calls = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fallback = {
+            kind: "page" as const,
+            entries: [{
+                kind: "assistant" as const,
+                id: "older#0",
+                text: "older",
+            }],
+            page: {
+                pageVersion: 1,
+                hasMore: false,
+                headId: "message-0",
+                tailId: "older#0",
+            },
+        };
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: async () => {
+                calls += 1;
+                await gate;
+                return fallback;
+            },
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            await client.receive();
+            const first = client.requestHistoryPage("outside#0");
+            await expect(client.requestHistoryPage("outside#0")).rejects
+                .toThrow("already pending");
+            const deadline = Date.now() + 2_000;
+            while (calls < 1 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            expect(calls).toBe(1);
+            release();
+            await expect(first).resolves.toMatchObject({
+                type: "history_page",
+                before: "outside#0",
+                entries: [{ id: "older#0" }],
+            });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an aborted page request ignores its late reply and can be retried",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        let calls = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fallback = {
+            kind: "page" as const,
+            entries: [{
+                kind: "assistant" as const,
+                id: "older#0",
+                text: "older",
+            }],
+            page: {
+                pageVersion: 1,
+                hasMore: false,
+                headId: "message-0",
+                tailId: "older#0",
+            },
+        };
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: async () => {
+                calls += 1;
+                await gate;
+                return fallback;
+            },
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            await client.receive();
+            const controller = new AbortController();
+            const aborted = client.requestHistoryPage(
+                "outside#0",
+                controller.signal,
+            );
+            controller.abort();
+            await expect(aborted).rejects.toThrow("aborted");
+            const deadline = Date.now() + 2_000;
+            while (calls < 1 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            release();
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "next",
+                seq: 1,
+            });
+            expect(await client.receive()).toMatchObject({ seq: 1 });
+            expect(client.closed).toBe(false);
+
+            const retried = await client.requestHistoryPage("outside#0");
+            expect(retried.entries[0]!.id).toBe("older#0");
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a pending page request rejects on close and a new attachment retries",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fallback = {
+            kind: "page" as const,
+            entries: [{
+                kind: "assistant" as const,
+                id: "older#0",
+                text: "older",
+            }],
+            page: {
+                pageVersion: 1,
+                hasMore: false,
+                headId: "message-0",
+                tailId: "older#0",
+            },
+        };
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: async () => {
+                await gate;
+                return fallback;
+            },
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const first = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            await first.receive();
+            const pending = first.requestHistoryPage("outside#0");
+            first.close();
+            await expect(pending).rejects.toThrow("closed");
+            release();
+
+            const second = await attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            });
+            try {
+                await second.receive();
+                const page = await second.requestHistoryPage("outside#0");
+                expect(page.entries[0]!.id).toBe("older#0");
+            } finally {
+                second.close();
+            }
+        } finally {
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a refused page rejects with the host's reason",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: (before) => before === "huge#0"
+                ? { kind: "page_too_large" }
+                : { kind: "cursor_not_found" },
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            await client.receive();
+            const tooLarge = await client.requestHistoryPage("huge#0").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            expect(tooLarge).toBeInstanceOf(HistoryPageRequestError);
+            expect(tooLarge).toMatchObject({ reason: "page_too_large" });
+
+            const missing = await client.requestHistoryPage("missing#0").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            expect(missing).toMatchObject({ reason: "cursor_not_found" });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a page response does not count toward the pending update limit",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: async () => ({
+                kind: "page",
+                entries: [{
+                    kind: "assistant",
+                    id: "older#0",
+                    text: "older",
+                }],
+                page: {
+                    pageVersion: 1,
+                    hasMore: false,
+                    headId: "message-0",
+                    tailId: "older#0",
+                },
+            }),
+        });
+        agent.engine.send({
+            type: "history",
+            entries: transcriptEntries(1),
+            seq: 0,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            maxPendingUpdates: 2,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            await client.receive();
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "one",
+                seq: 1,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            await expect(client.requestHistoryPage("outside#0"))
+                .resolves.toMatchObject({ before: "outside#0" });
+
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "two",
+                seq: 2,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            expect(await client.receive()).toMatchObject({ seq: 1 });
+            expect(await client.receive()).toMatchObject({ seq: 2 });
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
 );

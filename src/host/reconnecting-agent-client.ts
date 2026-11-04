@@ -168,6 +168,12 @@ export function createReconnectingAgentClient(
                 throw error;
             });
         },
+        requestHistoryPage(before, signal) {
+            if (closed) {
+                return Promise.reject(new Error("Agent attachment is closed"));
+            }
+            return current.requestHistoryPage(before, signal);
+        },
         async receive(signal): Promise<AgentUpdate> {
             if (receiving) {
                 throw new Error("Agent attachment already has a pending receive");
