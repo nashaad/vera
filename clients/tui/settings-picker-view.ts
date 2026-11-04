@@ -523,6 +523,12 @@ export function createTuiSettingsPickerView(
 ): TuiSettingsPickerView {
     let nodes: Renderable[] = [];
     let searchLive = false;
+    let lastState: TuiAnySettingsPickerState | undefined;
+    let lastTip: TuiSettingsPickerView["tip"];
+    let lastVerification: TuiSettingsPickerView["verification"];
+    let lastRailInset = 0;
+    let lastWidth = 0;
+    let lastHeight = 0;
     const browseScroll = { top: 0 };
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
@@ -631,6 +637,21 @@ export function createTuiSettingsPickerView(
             );
         },
         update(state, railInset = 0): void {
+            // An unrelated host event must not rebuild every visible row.
+            if (state === lastState
+                && view.tip === lastTip
+                && view.verification === lastVerification
+                && railInset === lastRailInset
+                && renderer.width === lastWidth
+                && renderer.height === lastHeight) {
+                return;
+            }
+            lastState = state;
+            lastTip = view.tip;
+            lastVerification = view.verification;
+            lastRailInset = railInset;
+            lastWidth = renderer.width;
+            lastHeight = renderer.height;
             search.box.parent?.remove(search.box.id);
             for (const node of nodes) {
                 node.destroyRecursively();
