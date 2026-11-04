@@ -1,5 +1,9 @@
 import { stdin, stdout } from "node:process";
 
+import {
+    CLIENT_CAPABILITIES,
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+} from "../../src/host/capabilities.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
     createAgentThroughHost,
@@ -12,6 +16,11 @@ import {
     resolveResumeTarget,
 } from "../tui/session-target.ts";
 import { runAttachedStdioBridge } from "./ndjson-bridge.ts";
+
+// A stdio caller reads one complete transcript and cannot ask for another page.
+export const STDIO_CAPABILITIES: readonly string[] = CLIENT_CAPABILITIES.filter(
+    (capability) => capability !== HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+);
 
 export interface StdioCreateTarget {
     readonly type: "create";
@@ -69,6 +78,7 @@ export async function runStdioProcess(
         socketPath: () => host.socket_path,
         agentId,
         buildId,
+        requestedCapabilities: STDIO_CAPABILITIES,
     });
     const stopping = new AbortController();
     const onSignal = (): void => stopping.abort();
