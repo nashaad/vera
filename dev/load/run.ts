@@ -26,7 +26,11 @@ async function footprint(pid: number, path: string): Promise<Footprint> {
     }
 }
 
-export async function runScenario(scenario: Scenario, root = LOAD_ROOT): Promise<Result> {
+export interface RunOptions {
+    readonly cpuProfile?: boolean;
+}
+
+export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options: RunOptions = {}): Promise<Result> {
     assertTrialHome();
     await command(["/bin/ps", "-p", String(process.pid), "-o", "pid="]);
     await mkdir(root, { recursive: true });
@@ -69,7 +73,9 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT): Promise
         await waitFor(() => { if (provider.exitCode !== null) throw new Error("Provider exited"); return existsSync(join(run, "provider-ready.json")); }, 10_000, "provider start");
         const { port } = await Bun.file(join(run, "provider-ready.json")).json();
         await configureHome(home, port, scenario.extensions);
-        const host = owner.start("host", join(REPO, "clients/host/main.ts"), { LOAD_DRIFT_FILE: join(run, "drift.ndjson") }, join(REPO, "dev/load/drift.ts"));
+        // The host writes its CPU profile into the run directory on a clean exit (SIGTERM).
+        const hostEnv: Record<string, string> = { LOAD_DRIFT_FILE: join(run, "drift.ndjson"), ...(options.cpuProfile === true ? { BUN_OPTIONS: "--cpu-prof" } : {}) };
+        const host = owner.start("host", join(REPO, "clients/host/main.ts"), hostEnv, join(REPO, "dev/load/drift.ts"));
         await waitFor(async () => {
             if (host.exitCode !== null) throw new Error(`Host exited: ${await Bun.file(join(run, "host.stderr")).text()}`);
             if (interrupted) throw new Error("Interrupted");
@@ -132,7 +138,7 @@ if (import.meta.main) {
     const { values } = parseArgs({ args: Bun.argv.slice(2), options: {
         sessions: { type: "string", default: "8" }, clients: { type: "string", default: "1" }, duration: { type: "string", default: "120" },
         seed: { type: "string", default: "1" }, extensions: { type: "string", default: "included" },
-        matrix: { type: "boolean" }, check: { type: "boolean" }, "small-fixture": { type: "boolean" }, paging: { type: "boolean" },
+        matrix: { type: "boolean" }, check: { type: "boolean" }, "small-fixture": { type: "boolean" }, paging: { type: "boolean" }, "cpu-profile": { type: "boolean" },
     }, strict: true });
     const number = (value: string, name: string) => {
         const parsed = Number(value);
@@ -144,7 +150,7 @@ if (import.meta.main) {
     const scenarios = values.matrix ? [8, 50, 100].flatMap((sessions) => [1, 3].map((clients) => ({ ...base, sessions, clients }))) : [base];
     const results: Result[] = [];
     for (const scenario of scenarios) {
-        const result = await runScenario(scenario);
+        const result = await runScenario(scenario, LOAD_ROOT, { cpuProfile: values["cpu-profile"] ?? false });
         results.push(result);
         if (result.errors.length) break;
     }
