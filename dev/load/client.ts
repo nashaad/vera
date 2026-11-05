@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
-import { HOST_CAPABILITY_WORK_INDEX } from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_WORK_INDEX, PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
+import type { HistoryUpdate } from "../../src/engine/protocol.ts";
 import { assertTrialHome, hash, log, random, waitFor } from "./common.ts";
 
 // The fixture's largest session attaches as a 78.9 MB history frame.
@@ -15,6 +16,7 @@ const run = process.env.LOAD_RUN!;
 const batch = process.env.LOAD_BATCH!;
 const primary = process.env.LOAD_PRIMARY === "1";
 const ids = JSON.parse(process.env.LOAD_IDS!) as string[];
+const paging = process.env.LOAD_PAGING === "1";
 const socketPath = join(home, "runtime", "host.sock");
 const output = join(run, `client-${batch}.ndjson`);
 const clients: AttachedAgentClient[] = [];
@@ -22,6 +24,13 @@ let stopping = false;
 const stop = () => { stopping = true; for (const client of clients) client.close(); };
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
+
+async function receiveHistory(client: AttachedAgentClient): Promise<HistoryUpdate> {
+    for (;;) {
+        const update = await client.receive(AbortSignal.timeout(HISTORY_TIMEOUT_MS));
+        if (update.type === "history") return update;
+    }
+}
 
 async function session(id: string): Promise<void> {
     let client: AttachedAgentClient | undefined;
@@ -38,9 +47,18 @@ async function session(id: string): Promise<void> {
             await waitFor(() => existsSync(join(run, `resumed-${id}`)) || stopping, 180_000, `resume ${id}`);
         }
         if (stopping) return;
-        client = await attachAgent({ socketPath, agentId: id, maxLineBytes: HISTORY_FRAME_BYTES, requestedCapabilities: [HOST_CAPABILITY_WORK_INDEX], signal: AbortSignal.timeout(HISTORY_TIMEOUT_MS) });
+        client = await attachAgent({ socketPath, agentId: id, maxLineBytes: HISTORY_FRAME_BYTES, requestedCapabilities: paging ? PAGING_CAPABILITIES : [HOST_CAPABILITY_WORK_INDEX], signal: AbortSignal.timeout(HISTORY_TIMEOUT_MS) });
         clients.push(client);
-        while ((await client.receive(AbortSignal.timeout(HISTORY_TIMEOUT_MS))).type !== "history") {}
+        const history = await receiveHistory(client);
+        if (paging) {
+            let page = history.page;
+            let pages = 1;
+            while (page?.hasMore === true && page.olderBefore !== undefined) {
+                page = (await client.requestHistoryPage(page.olderBefore, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).page;
+                pages += 1;
+            }
+            log(output, { type: "paged", id, pages });
+        }
         log(output, { type: "ready", id, primary });
         await waitFor(() => existsSync(join(run, "go.json")) || stopping, 300_000, "start barrier");
         if (stopping) return;

@@ -17,7 +17,7 @@ interface Sample {
     children?: { pid: number; command: string }[];
     error?: string;
 }
-export interface Scenario { sessions: number; clients: number; duration: number; extensions: "included" | "none"; seed: number; small: boolean; }
+export interface Scenario { sessions: number; clients: number; duration: number; extensions: "included" | "none"; seed: number; small: boolean; paging?: boolean; }
 export interface Footprint { bytes: number | null; path: string; error?: string; }
 
 export function collectResult(run: string, scenario: Scenario, start: number, end: number, sha: string, footprint: { start: Footprint; end: Footprint }, errors: string[]) {
