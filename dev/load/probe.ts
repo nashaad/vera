@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { attachAgent } from "../../src/host/attached-client.ts";
+import { PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -54,7 +55,7 @@ await Promise.all([
     }),
     periodic(10_000, async () => {
         const start = performance.now();
-        const client = await attachAgent({ socketPath, agentId: process.env.LOAD_ATTACH_ID!, maxLineBytes: HISTORY_FRAME_BYTES, signal: AbortSignal.timeout(ATTACH_TIMEOUT_MS) });
+        const client = await attachAgent({ socketPath, agentId: process.env.LOAD_ATTACH_ID!, maxLineBytes: HISTORY_FRAME_BYTES, ...(process.env.LOAD_PAGING === "1" ? { requestedCapabilities: PAGING_CAPABILITIES } : {}), signal: AbortSignal.timeout(ATTACH_TIMEOUT_MS) });
         try {
             while ((await client.receive(AbortSignal.timeout(ATTACH_TIMEOUT_MS))).type !== "history") {}
             log(output, { type: "attach", ms: performance.now() - start });

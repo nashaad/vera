@@ -85,10 +85,11 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT): Promise
                 owner.start(`client-${batch}`, join(REPO, "dev/load/client.ts"), {
                     LOAD_BATCH: batch, LOAD_PRIMARY: client === 0 ? "1" : "0",
                     LOAD_IDS: JSON.stringify(ids.slice(offset, offset + 10)), LOAD_SEED: String(scenario.seed),
+                    LOAD_PAGING: scenario.paging === true ? "1" : "0",
                 });
             }
         }
-        owner.start("probe", join(REPO, "dev/load/probe.ts"), { LOAD_HOST_PID: String(host.pid), LOAD_ATTACH_ID: ids[0]! });
+        owner.start("probe", join(REPO, "dev/load/probe.ts"), { LOAD_HOST_PID: String(host.pid), LOAD_ATTACH_ID: ids[0]!, LOAD_PAGING: scenario.paging === true ? "1" : "0" });
         await waitFor(() => {
             if (interrupted) throw new Error("Interrupted");
             const samples = batches.flatMap((batch) => rows<{ type: string; error?: string }>(join(run, `client-${batch}.ndjson`)));
@@ -131,7 +132,7 @@ if (import.meta.main) {
     const { values } = parseArgs({ args: Bun.argv.slice(2), options: {
         sessions: { type: "string", default: "8" }, clients: { type: "string", default: "1" }, duration: { type: "string", default: "120" },
         seed: { type: "string", default: "1" }, extensions: { type: "string", default: "included" },
-        matrix: { type: "boolean" }, check: { type: "boolean" }, "small-fixture": { type: "boolean" },
+        matrix: { type: "boolean" }, check: { type: "boolean" }, "small-fixture": { type: "boolean" }, paging: { type: "boolean" },
     }, strict: true });
     const number = (value: string, name: string) => {
         const parsed = Number(value);
@@ -139,7 +140,7 @@ if (import.meta.main) {
         return parsed;
     };
     if (values.extensions !== "included" && values.extensions !== "none") throw new Error("--extensions must be included or none");
-    const base: Scenario = { sessions: number(values.sessions!, "sessions"), clients: number(values.clients!, "clients"), duration: number(values.duration!, "duration"), seed: number(values.seed!, "seed"), extensions: values.extensions, small: values["small-fixture"] ?? false };
+    const base: Scenario = { sessions: number(values.sessions!, "sessions"), clients: number(values.clients!, "clients"), duration: number(values.duration!, "duration"), seed: number(values.seed!, "seed"), extensions: values.extensions, small: values["small-fixture"] ?? false, paging: values.paging ?? false };
     const scenarios = values.matrix ? [8, 50, 100].flatMap((sessions) => [1, 3].map((clients) => ({ ...base, sessions, clients }))) : [base];
     const results: Result[] = [];
     for (const scenario of scenarios) {
