@@ -105,6 +105,7 @@ export interface ModelRecoveryOptions {
     readonly policy?: ModelRetryPolicy;
     readonly fallback?: ModelFallbackPolicy;
     readonly wait?: WaitForModelRetry;
+    readonly random?: () => number;
     readonly idleTimeoutMs?: number;
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
@@ -119,6 +120,13 @@ export interface ModelRecoveryOptions {
 interface PendingModelRetry {
     readonly scheduled: ModelRetryScheduled;
     readonly message: AssistantMessage;
+}
+
+export function jitterRetryDelay(
+    baseMs: number,
+    random: () => number,
+): number {
+    return Math.round(baseMs * (0.8 + 0.4 * random()));
 }
 
 export function nextLengthContinuation(
@@ -144,6 +152,7 @@ export async function requestModelWithRecovery(
     options: ModelRecoveryOptions,
 ): Promise<AssistantMessage> {
     const wait = options.wait ?? waitForModelRetry;
+    const random = options.random ?? Math.random;
     let activeRequest = request;
     let requestAttempt = 0;
     let retryAttempt = 0;
@@ -234,7 +243,7 @@ export async function requestModelWithRecovery(
                         isOverloadFailure(failure) || isNetworkFailure(failure)
                         ? DEFAULT_OVERLOAD_RETRY_POLICY
                         : DEFAULT_MODEL_RETRY_POLICY);
-                    const delayMs = policy.delaysMs[retryAttempt];
+                    const baseDelayMs = policy.delaysMs[retryAttempt];
                     if (
                         failure.resolution === "retry"
                         && (
@@ -242,14 +251,14 @@ export async function requestModelWithRecovery(
                             || failure.partialOutputReplaceable === true
                             || (isNetworkFailure(failure) && !visibleTextStarted)
                         )
-                        && delayMs !== undefined
+                        && baseDelayMs !== undefined
                     ) {
                         retry = {
                             scheduled: {
                                 model: activeRequest.model,
                                 nextAttempt: retryAttempt + 2,
                                 maxAttempts: policy.delaysMs.length + 1,
-                                delayMs,
+                                delayMs: jitterRetryDelay(baseDelayMs, random),
                                 failure,
                                 ...(contentStarted
                                     ? { replacesPartialAttempt: true as const }

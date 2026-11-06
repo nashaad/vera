@@ -5,6 +5,7 @@ import {
     ESCALATED_MODEL_MAX_TOKENS,
     LENGTH_CONTINUATION_PROMPT,
     MAX_LENGTH_CONTINUATIONS,
+    jitterRetryDelay,
     nextLengthContinuation,
     requestModelWithRecovery,
     type ModelFallbackSelected,
@@ -69,6 +70,109 @@ test("length recovery raises the cap once and bounds continuations", () => {
     )).toBeUndefined();
 });
 
+test("retry jitter spans 80% to 120% of the base delay", () => {
+    expect(jitterRetryDelay(1_000, () => 0)).toBe(800);
+    expect(jitterRetryDelay(1_000, () => 0.5)).toBe(1_000);
+    expect(jitterRetryDelay(1_000, () => 0.999_999)).toBe(1_200);
+    expect(jitterRetryDelay(30_000, () => 0)).toBe(24_000);
+    expect(jitterRetryDelay(30_000, () => 0.999_999)).toBe(36_000);
+});
+
+test("retry jitter returns whole milliseconds", () => {
+    for (const random of [0, 0.123_456, 0.333_333, 0.777_777, 0.999_999]) {
+        for (const baseMs of [500, 1_000, 1_001, 15_000]) {
+            const delayMs = jitterRetryDelay(baseMs, () => random);
+            expect(Number.isInteger(delayMs)).toBe(true);
+            expect(delayMs).toBeGreaterThanOrEqual(Math.round(baseMs * 0.8));
+            expect(delayMs).toBeLessThanOrEqual(Math.round(baseMs * 1.2));
+        }
+    }
+});
+
+test("the reported retry delay is the delay that is waited", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, overloadFailure),
+        (stream) => fail(stream, overloadFailure),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const retries: ModelRetryScheduled[] = [];
+    const delays: number[] = [];
+    const draws = [0.1, 0.9];
+
+    await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            random: () => draws.shift() ?? 0.5,
+            wait: async (delayMs) => { delays.push(delayMs); },
+        },
+    );
+
+    expect(delays).toEqual([840, 2_320]);
+    expect(retries.map((retry) => retry.delayMs)).toEqual(delays);
+    expect(draws).toEqual([]);
+});
+
+test("each retry draws one random value, and policy delays are jittered too", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const delays: number[] = [];
+    let draws = 0;
+
+    await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            policy: { delaysMs: [100] },
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            random: () => {
+                draws += 1;
+                return 0;
+            },
+            wait: async (delayMs) => { delays.push(delayMs); },
+        },
+    );
+
+    expect(draws).toBe(1);
+    expect(delays).toEqual([80]);
+});
+
+test("different random draws give different delays for the same failure", async () => {
+    async function delayFor(randomValue: number): Promise<number> {
+        const adapter = scriptedAdapter([
+            (stream) => fail(stream, overloadFailure),
+            (stream) => succeed(stream, "complete"),
+        ]);
+        const delays: number[] = [];
+        await requestModelWithRecovery(
+            adapter,
+            { model: "test", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {},
+                onFallback: () => {},
+                random: () => randomValue,
+                wait: async (delayMs) => { delays.push(delayMs); },
+            },
+        );
+        return delays[0] ?? -1;
+    }
+
+    const low = await delayFor(0.1);
+    const high = await delayFor(0.9);
+
+    expect(low).toBe(840);
+    expect(high).toBe(1_160);
+    expect(low).not.toBe(high);
+});
+
 test("engine recovery retries a transient pre-content failure", async () => {
     const adapter = scriptedAdapter([
         (stream) => fail(stream, transientFailure),
@@ -85,6 +189,7 @@ test("engine recovery retries a transient pre-content failure", async () => {
             onEvent: (event) => events.push(event),
             onRetry: (retry) => retries.push(retry),
             onFallback: () => {},
+            random: () => 0.5,
             wait: async (delayMs) => {
                 delays.push(delayMs);
             },
@@ -119,6 +224,7 @@ test("engine recovery stops after its retry budget", async () => {
             onEvent: (event) => events.push(event),
             onRetry: () => {},
             onFallback: () => {},
+            random: () => 0.5,
             wait: async (delayMs) => {
                 delays.push(delayMs);
             },
@@ -155,6 +261,7 @@ for (const kind of ["server", "rate_limit"] as const) {
                     onEvent: (event) => events.push(event),
                     onRetry: (retry) => retries.push(retry),
                     onFallback: () => {},
+                    random: () => 0.5,
                     wait: async (delayMs) => { delays.push(delayMs); },
                 },
             );
@@ -186,6 +293,7 @@ test("cancelling the final overload wait prevents the seventh request", async ()
             onEvent: () => {},
             onRetry: () => {},
             onFallback: () => {},
+            random: () => 0.5,
             wait: async (delayMs) => {
                 if (delayMs === 30_000) {
                     controller.abort(new Error("stop now"));
@@ -451,6 +559,7 @@ test("engine recovery replaces partial output for a discard-safe failure", async
             onEvent: (event) => events.push(event),
             onRetry: (retry) => retries.push(retry),
             onFallback: () => {},
+            random: () => 0.5,
             wait: async () => {},
         },
     );
@@ -608,6 +717,7 @@ test("a dropped connection retries on the overload ladder", async () => {
             onEvent: () => {},
             onRetry: (retry) => retries.push(retry),
             onFallback: () => {},
+            random: () => 0.5,
             wait: async () => {},
         },
     );

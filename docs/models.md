@@ -207,10 +207,11 @@ marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
 Vera retries rate-limit, server, and dropped-connection failures up to six
-times, waiting 1, 2, 4, 8, 15, and 30 seconds. Other transient request failures
-get up to two retries. A connection that drops while the model is still
-reasoning is retried too; once answer text has appeared, Vera keeps it and
-shows the error instead. If a model sends nothing for 5 minutes, Vera treats
+times, waiting about 1, 2, 4, 8, 15, and 30 seconds. Other transient request
+failures get up to two retries. Each wait varies at random by up to 20% either
+way, so sessions that fail at the same moment do not all retry together. A
+connection that drops while the model is still reasoning is retried too; once
+answer text has appeared, Vera keeps it and shows the error instead. If a model sends nothing for 5 minutes, Vera treats
 that as a timeout and retries. Retry activity shows the next attempt and total
 attempt count. Press Escape to cancel at any point, including while a request
 is stuck. Missing credentials or provider credit need your attention and stop

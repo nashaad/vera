@@ -2273,18 +2273,22 @@ test("a transient model failure reports its retry to attached clients", async ()
     await expectUserPrompt(channel, "recover", 1);
     await expectContextMeasured(channel, 2);
 
-    expect(await channel.client.receive()).toMatchObject({
+    const retrying = await channel.client.receive();
+    expect(retrying).toMatchObject({
         type: "model_activity",
         phase: "retrying",
         model: "test",
         nextAttempt: 2,
         maxAttempts: 7,
-        delayMs: 1_000,
         failure: {
             kind: "connection",
         },
         seq: 3,
     });
+    const reportedDelayMs = retrying.type === "model_activity"
+        ? retrying.delayMs
+        : -1;
+    expectJitteredDelay(reportedDelayMs, 1_000);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "recovered",
@@ -2296,7 +2300,7 @@ test("a transient model failure reports its retry to attached clients", async ()
     });
     expect(withoutCallDuration(await turn)).toEqual(response);
     expect(attempts).toBe(2);
-    expect(delays).toEqual([1_000]);
+    expect(delays).toEqual([reportedDelayMs]);
 
     const logged = readFileSync(logPath, "utf8")
         .trim()
@@ -2306,7 +2310,7 @@ test("a transient model failure reports its retry to attached clients", async ()
         type: "model_retry_scheduled",
         model: "test",
         nextAttempt: 2,
-        delayMs: 1_000,
+        delayMs: reportedDelayMs,
         failure: expect.objectContaining({
             kind: "connection",
             resolution: "retry",
@@ -2328,6 +2332,7 @@ for (const recovers of [true, false]) {
             stopReason: "stop",
         };
         let attempts = 0;
+        const waited: number[] = [];
         const adapter: ModelAdapter = {
             stream(request): ModelEventStream {
                 attempts += 1;
@@ -2364,21 +2369,29 @@ for (const recovers of [true, false]) {
             events,
             hooks: new ToolHooks(),
             approvalMode: "auto",
-            waitForModelRetry: async () => {},
+            waitForModelRetry: async (delayMs) => {
+                waited.push(delayMs);
+            },
         };
         channel.client.send({ type: "prompt", content: "recover" });
         const turn = runTurn(adapter, "test", state);
         await expectUserPrompt(channel, "recover", 1);
         await expectContextMeasured(channel, 2);
-        const delays = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
-        for (const [index, delayMs] of delays.entries()) {
-            expect(await channel.client.receive()).toMatchObject({
+        const reported: number[] = [];
+        const baseDelays = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
+        for (const [index, baseMs] of baseDelays.entries()) {
+            const activity = await channel.client.receive();
+            expect(activity).toMatchObject({
                 type: "model_activity",
                 phase: "retrying",
                 nextAttempt: index + 2,
                 maxAttempts: 7,
-                delayMs,
             });
+            const delayMs = activity.type === "model_activity"
+                ? activity.delayMs
+                : -1;
+            expectJitteredDelay(delayMs, baseMs);
+            reported.push(delayMs);
         }
         if (recovers) {
             expect(await channel.client.receive()).toMatchObject({
@@ -2397,6 +2410,7 @@ for (const recovers of [true, false]) {
         expect(message.modelFailure).toEqual(modelFailure);
         expect(finished.type === "turn_finished" ? finished.modelFailure : undefined).toEqual(modelFailure);
         expect(attempts).toBe(7);
+        expect(waited).toEqual(reported);
         channel.client.send({ type: "prompt", content: "next" });
         expect((await runTurn(adapter, "test", state)).stopReason).toBe("stop");
         expect(attempts).toBe(8);
@@ -2474,14 +2488,18 @@ test("an overload inside a 200 Codex stream is retried and the turn completes", 
     const updates = await receiveThroughTurnFinished(channel);
     const message = await turn;
 
-    expect(updates.filter((update) => update.type === "model_activity")).toEqual([
+    const activity = updates.filter((update) => update.type === "model_activity");
+    expect(activity).toEqual([
         expect.objectContaining({
             phase: "retrying",
             nextAttempt: 2,
-            delayMs: 1_000,
             failure: { kind: "server" },
         }),
     ]);
+    const reportedDelayMs = activity[0]?.type === "model_activity"
+        ? activity[0].delayMs
+        : -1;
+    expectJitteredDelay(reportedDelayMs, 1_000);
     expect(updates.filter((update) => update.type === "assistant_delta")).toEqual([
         expect.objectContaining({ text: "recovered" }),
     ]);
@@ -2495,7 +2513,7 @@ test("an overload inside a 200 Codex stream is retried and the turn completes", 
     expect(message.modelFailure).toBeUndefined();
     expect(sent).toHaveLength(2);
     expect(sent[1]).toBe(sent[0]!);
-    expect(delays).toEqual([1_000]);
+    expect(delays).toEqual([reportedDelayMs]);
 
     const logged = readFileSync(logPath, "utf8")
         .trim()
@@ -2504,6 +2522,7 @@ test("an overload inside a 200 Codex stream is retried and the turn completes", 
         .filter((entry) => entry.type === "model_retry_scheduled");
     expect(logged).toEqual([expect.objectContaining({
         nextAttempt: 2,
+        delayMs: reportedDelayMs,
         failure: expect.objectContaining({
             kind: "server",
             resolution: "retry",
@@ -5161,6 +5180,11 @@ test("a classifier that cannot answer ends the turn with its failure facts", asy
         classifierFailure: { tool: "bash", ...failure },
     });
 });
+
+function expectJitteredDelay(delayMs: number, baseMs: number): void {
+    expect(delayMs).toBeGreaterThanOrEqual(Math.round(baseMs * 0.8));
+    expect(delayMs).toBeLessThanOrEqual(Math.round(baseMs * 1.2));
+}
 
 function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
     const events = new EngineEventBus();
