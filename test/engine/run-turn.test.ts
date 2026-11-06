@@ -54,6 +54,7 @@ import {
     LENGTH_CONTINUATION_PROMPT,
 } from "../../src/engine/recovery.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
+import { createOpenAICodexAdapter } from "../../src/providers/openai-codex.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -2401,6 +2402,122 @@ for (const recovers of [true, false]) {
         expect(attempts).toBe(8);
     });
 }
+
+test("an overload inside a 200 Codex stream is retried and the turn completes", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-codex-overload-"));
+    temporaryWorkspaces.push(workspace);
+    const logPath = join(workspace, "events.jsonl");
+    const overload = "Our servers are currently overloaded. Please try again later.";
+    const sse = (...payloads: readonly unknown[]): string =>
+        payloads.map((payload) => `data: ${JSON.stringify(payload)}\n\n`).join("");
+    const completion = (text: string): string => sse(
+        { type: "response.output_item.added", output_index: 0, item: { type: "message" } },
+        { type: "response.output_text.delta", output_index: 0, delta: text },
+        { type: "response.completed", response: {} },
+    );
+    const bodies = [
+        sse({
+            type: "error",
+            error: {
+                type: "service_unavailable_error",
+                code: "server_is_overloaded",
+                message: overload,
+            },
+        }),
+        completion("recovered"),
+        completion("next"),
+    ];
+    const sent: string[] = [];
+    const adapter = createOpenAICodexAdapter({
+        authStorage: {
+            getCredential: () => ({
+                type: "oauth" as const,
+                token: JSON.stringify({
+                    schema_version: 1,
+                    access_token: "access-token",
+                    refresh_token: "refresh-token",
+                    expires_at: 60_000,
+                }),
+            }),
+            setCredential() {},
+            deleteCredential() {},
+        },
+        now: () => 0,
+        fetch: (async (_input: string, init: RequestInit) => {
+            const body = bodies[sent.length];
+            sent.push(String(init.body));
+            return new Response(body, {
+                status: 200,
+                headers: { "Content-Type": "text/event-stream" },
+            });
+        }) as unknown as typeof fetch,
+    });
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    events.subscribe(createJsonlEventLogger({ path: logPath, sessionId: "codex-overload" }));
+    const delays: number[] = [];
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        waitForModelRetry: async (delayMs) => {
+            delays.push(delayMs);
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "recover" });
+    const turn = runTurn(adapter, "gpt-5.6-sol", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(updates.filter((update) => update.type === "model_activity")).toEqual([
+        expect.objectContaining({
+            phase: "retrying",
+            nextAttempt: 2,
+            delayMs: 1_000,
+            failure: { kind: "server" },
+        }),
+    ]);
+    expect(updates.filter((update) => update.type === "assistant_delta")).toEqual([
+        expect.objectContaining({ text: "recovered" }),
+    ]);
+    const finished = updates.at(-1);
+    expect(finished).toMatchObject({ type: "turn_finished" });
+    expect(finished).not.toHaveProperty("outcome");
+    expect(finished).not.toHaveProperty("modelFailure");
+    expect(JSON.stringify(updates)).not.toContain("overloaded");
+    expect(message.stopReason).toBe("stop");
+    expect(message.content).toEqual([{ type: "text", text: "recovered" }]);
+    expect(message.modelFailure).toBeUndefined();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toBe(sent[0]!);
+    expect(delays).toEqual([1_000]);
+
+    const logged = readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((entry) => entry.type === "model_retry_scheduled");
+    expect(logged).toEqual([expect.objectContaining({
+        nextAttempt: 2,
+        failure: expect.objectContaining({
+            kind: "server",
+            resolution: "retry",
+            message: overload,
+            providerErrorType: "service_unavailable_error",
+            providerCode: "server_is_overloaded",
+            providerMessage: overload,
+        }),
+    })]);
+
+    channel.client.send({ type: "prompt", content: "again" });
+    expect((await runTurn(adapter, "gpt-5.6-sol", state)).stopReason).toBe("stop");
+    expect(sent).toHaveLength(3);
+});
 
 test("a discard-safe partial failure tells clients to replace the attempt", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-partial-retry-"));
