@@ -4,6 +4,7 @@ import {
     CLIENT_CAPABILITIES,
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_SESSION_ROUTING,
     PAGING_CAPABILITIES,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -45,4 +46,16 @@ test("history paging is supported but granted only when requested", () => {
         [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
         HOST_CAPABILITIES,
     )).toEqual([HOST_CAPABILITY_AGENT_HISTORY_PAGING]);
+});
+
+test("session routing is a host capability every client requests", () => {
+    expect(HOST_CAPABILITY_SESSION_ROUTING).toBe("host.session-routing.v1");
+    expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_SESSION_ROUTING);
+    expect(CLIENT_CAPABILITIES).toContain(HOST_CAPABILITY_SESSION_ROUTING);
+    expect(parseHostCapabilities([HOST_CAPABILITY_SESSION_ROUTING]))
+        .toEqual([HOST_CAPABILITY_SESSION_ROUTING]);
+    expect(negotiateHostCapabilities(
+        [HOST_CAPABILITY_SESSION_ROUTING],
+        HOST_CAPABILITIES,
+    )).toEqual([HOST_CAPABILITY_SESSION_ROUTING]);
 });
