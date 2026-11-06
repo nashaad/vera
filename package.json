@@ -27,6 +27,7 @@
     "models:verify": "bun run scripts/verify-model-catalog.ts",
     "smoke:codex": "bun run scripts/codex-smoke.ts",
     "test": "bun test",
+    "test:soak": "bun test ./dev/soak/memory-soak.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
