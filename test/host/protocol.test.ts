@@ -7,6 +7,7 @@ import {
     encodeHostResponse,
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
+    parseAgentLocationReply,
     parseAttachedClientMessage,
     parseHostRequest,
     requestHostIdentity,
@@ -715,3 +716,111 @@ test("host protocol parses messages after attach", () => {
         }
     },
 );
+
+async function requestIdentityFromPeer(reply: string) {
+    const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
+    const socketPath = join(directory, "host.sock");
+    const server = createServer((socket) => socket.end(reply));
+    try {
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        return await requestHostIdentity(socketPath);
+    } finally {
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => error === undefined
+                ? resolve()
+                : reject(error));
+        });
+        rmSync(directory, { recursive: true, force: true });
+    }
+}
+
+test("host identity round trips role and worker fields", async () => {
+    expect(await requestIdentityFromPeer(encodeHostResponse({
+        type: "host_identity",
+        pid: 202,
+        started_at: "2026-07-17T12:00:00.000Z",
+        protocol_version: HOST_PROTOCOL_VERSION,
+        minimum_compatible_protocol_version:
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        build_id: "vera-abc1234",
+        role: "worker",
+        worker_id: "w1",
+        worker_index: 1,
+        worker_count: 4,
+        workers_ready: 2,
+    }))).toEqual({
+        pid: 202,
+        started_at: "2026-07-17T12:00:00.000Z",
+        protocol_version: HOST_PROTOCOL_VERSION,
+        minimum_compatible_protocol_version:
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        build_id: "vera-abc1234",
+        role: "worker",
+        worker_id: "w1",
+        worker_index: 1,
+        worker_count: 4,
+        workers_ready: 2,
+    });
+});
+
+test("an identity without a role parses as the host role", async () => {
+    const oldIdentity = JSON.stringify({
+        type: "host_identity",
+        pid: 101,
+        started_at: "2026-07-17T12:00:00.000Z",
+        protocol_version: HOST_PROTOCOL_VERSION,
+        minimum_compatible_protocol_version:
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        build_id: "vera-abc1234",
+    });
+    expect(await requestIdentityFromPeer(`${oldIdentity}\n`)).toEqual({
+        pid: 101,
+        started_at: "2026-07-17T12:00:00.000Z",
+        protocol_version: HOST_PROTOCOL_VERSION,
+        minimum_compatible_protocol_version:
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        build_id: "vera-abc1234",
+        role: "host",
+    });
+});
+
+test("locate_agent requests need a non-empty agent id", () => {
+    expect(parseHostRequest('{"type":"locate_agent","agent_id":"agent-1"}'))
+        .toEqual({ type: "locate_agent", agent_id: "agent-1" });
+    expect(parseHostRequest('{"type":"locate_agent","agent_id":""}'))
+        .toBeUndefined();
+    expect(parseHostRequest('{"type":"locate_agent"}')).toBeUndefined();
+});
+
+test("agent location replies round trip through the wire encoding", () => {
+    const found = {
+        type: "agent_location",
+        socket_path: "/runtime/host.sock",
+        worker_id: "host",
+        worker_generation: 1,
+        build_id: "vera-abc1234",
+    } as const;
+    const failed = {
+        type: "agent_location_failed",
+        reason: "worker_unavailable",
+        message: "The session is closed.",
+    } as const;
+    expect(parseAgentLocationReply(encodeHostResponse(found))).toEqual(found);
+    expect(parseAgentLocationReply(encodeHostResponse(failed)))
+        .toEqual(failed);
+    expect(parseAgentLocationReply(JSON.stringify({
+        ...found,
+        socket_path: "host.sock",
+    }))).toBeUndefined();
+    expect(parseAgentLocationReply(JSON.stringify({
+        ...found,
+        worker_generation: 0,
+    }))).toBeUndefined();
+    expect(parseAgentLocationReply(JSON.stringify({
+        ...failed,
+        reason: "unknown",
+    }))).toBeUndefined();
+});

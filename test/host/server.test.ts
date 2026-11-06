@@ -427,6 +427,7 @@ afterEach(() => {
                 minimum_compatible_protocol_version:
                     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
                 build_id: server.identity.build_id,
+                role: "host",
             });
             connection.close();
         } finally {

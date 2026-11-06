@@ -28,6 +28,8 @@ import {
     parseHostRequest,
     requestHostIdentity,
     type HostIdentity,
+    type AgentLocationFailedResponse,
+    type AgentLocationResponse,
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
     type CatalogRefreshOutcome,
@@ -389,6 +391,7 @@ export async function startHostServer(
         receiveConnection(
             socket,
             identity,
+            socketPath,
             capabilities,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
@@ -498,9 +501,52 @@ export async function startHostServer(
     }
 }
 
+async function answerLocateAgent(
+    agentId: string,
+    findAgent: (
+        agentId: string,
+    ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>,
+    socketPath: string,
+    buildId: string,
+): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+    let agent: ResidentAgent | undefined;
+    try {
+        agent = await findAgent(agentId);
+    } catch (error) {
+        return {
+            type: "agent_location_failed",
+            reason: "worker_unavailable",
+            message: userFacingMessage(error)
+                ?? "The session could not be loaded.",
+        };
+    }
+    if (agent === undefined) {
+        return {
+            type: "agent_location_failed",
+            reason: "not_found",
+            message: "No session with this id is on this host.",
+        };
+    }
+    if (agent.closed) {
+        return {
+            type: "agent_location_failed",
+            reason: "worker_unavailable",
+            message: "The session is closed.",
+        };
+    }
+    return {
+        type: "agent_location",
+        socket_path: socketPath,
+        worker_id: "host",
+        worker_generation: 1,
+        build_id: buildId,
+    };
+}
+
 function receiveConnection(
     socket: Socket,
     identity: HostIdentity & { readonly build_id: string },
+    socketPath: string,
     capabilities: readonly string[],
     findAgent: (
         agentId: string,
@@ -1117,6 +1163,7 @@ function receiveConnection(
                 minimum_compatible_protocol_version:
                     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
                 build_id: identity.build_id,
+                role: "host",
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1355,6 +1402,21 @@ function receiveConnection(
         }
         if (isShutdownFenced()) {
             socket.destroy();
+            return;
+        }
+        if (request?.type === "locate_agent") {
+            clearDeadline();
+            finished = true;
+            const operationClosed = operationOpened();
+            void answerLocateAgent(
+                request.agent_id,
+                findAgent,
+                socketPath,
+                identity.build_id,
+            )
+                .then((reply) => send(reply))
+                .then(() => socket.end(), () => socket.destroy())
+                .finally(operationClosed);
             return;
         }
         if (request?.type === "search_sessions") {

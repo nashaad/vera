@@ -34,12 +34,20 @@ import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 export const HOST_PROTOCOL_VERSION = 35;
 export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 35;
 
+export type HostRole = "host" | "worker";
+
+// A missing role means "host": hosts that predate roles do not send the field.
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
     readonly protocol_version?: number;
     readonly minimum_compatible_protocol_version?: number;
     readonly build_id?: string;
+    readonly role?: HostRole;
+    readonly worker_id?: string;
+    readonly worker_index?: number;
+    readonly worker_count?: number;
+    readonly workers_ready?: number;
 }
 
 export interface HostIdentityRequest {
@@ -251,6 +259,11 @@ export interface ResumeAgentRequest {
     readonly session_path: string;
 }
 
+export interface LocateAgentRequest {
+    readonly type: "locate_agent";
+    readonly agent_id: string;
+}
+
 export interface BranchAgentRequest {
     readonly type: "branch_agent";
     readonly source_agent_id: string;
@@ -357,6 +370,30 @@ export interface HostIdentityResponse {
     readonly minimum_compatible_protocol_version:
         typeof HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
     readonly build_id: string;
+    readonly role?: HostRole;
+    readonly worker_id?: string;
+    readonly worker_index?: number;
+    readonly worker_count?: number;
+    readonly workers_ready?: number;
+}
+
+export interface AgentLocationResponse {
+    readonly type: "agent_location";
+    readonly socket_path: string;
+    readonly worker_id: string;
+    readonly worker_generation: number;
+    readonly build_id: string;
+}
+
+export type AgentLocationFailureReason =
+    | "not_found"
+    | "starting"
+    | "worker_unavailable";
+
+export interface AgentLocationFailedResponse {
+    readonly type: "agent_location_failed";
+    readonly reason: AgentLocationFailureReason;
+    readonly message: string;
 }
 
 export interface AttachRequest {
@@ -726,6 +763,7 @@ export type HostRequest =
     | AnnexUrlRequest
     | ExtensionLoadFailuresRequest
     | CheckpointStoresRequest
+    | LocateAgentRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -739,6 +777,8 @@ export type HostResponse =
     | ModelOperationStepResponse
     | ModelOperationCompleteResponse
     | HostIdentityResponse
+    | AgentLocationResponse
+    | AgentLocationFailedResponse
     | ModelSettingsResponse
     | CatalogRefreshResponse
     | CatalogRefreshFailedResponse
@@ -966,6 +1006,13 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.session_path.length > 0
     ) {
         return { type: "resume_agent", session_path: value.session_path };
+    }
+    if (
+        value?.type === "locate_agent"
+        && typeof value.agent_id === "string"
+        && value.agent_id.length > 0
+    ) {
+        return { type: "locate_agent", agent_id: value.agent_id };
     }
     if (
         value?.type === "branch_agent"
@@ -1225,6 +1272,58 @@ export function encodeHostResponse(response: HostResponse): string {
     return `${JSON.stringify(response)}\n`;
 }
 
+export function parseAgentLocationReply(
+    source: string,
+): AgentLocationResponse | AgentLocationFailedResponse | undefined {
+    const value = parseJsonObject(source);
+    if (
+        value?.type === "agent_location"
+        && typeof value.socket_path === "string"
+        && isAbsolute(value.socket_path)
+        && typeof value.worker_id === "string"
+        && value.worker_id.length > 0
+        && isPositiveSafeInteger(value.worker_generation)
+        && typeof value.build_id === "string"
+        && value.build_id.length > 0
+    ) {
+        return {
+            type: "agent_location",
+            socket_path: value.socket_path,
+            worker_id: value.worker_id,
+            worker_generation: value.worker_generation,
+            build_id: value.build_id,
+        };
+    }
+    if (
+        value?.type === "agent_location_failed"
+        && isAgentLocationFailureReason(value.reason)
+        && typeof value.message === "string"
+    ) {
+        return {
+            type: "agent_location_failed",
+            reason: value.reason,
+            message: value.message,
+        };
+    }
+    return undefined;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isAgentLocationFailureReason(
+    value: unknown,
+): value is AgentLocationFailureReason {
+    return value === "not_found"
+        || value === "starting"
+        || value === "worker_unavailable";
+}
+
 export function requestHostIdentity(
     socketPath: string,
 ): Promise<HostIdentity | undefined> {
@@ -1410,6 +1509,20 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
         ...(typeof response.build_id === "string"
             && response.build_id.length > 0
             ? { build_id: response.build_id }
+            : {}),
+        role: response.role === "worker" ? "worker" : "host",
+        ...(typeof response.worker_id === "string"
+            && response.worker_id.length > 0
+            ? { worker_id: response.worker_id }
+            : {}),
+        ...(isNonNegativeSafeInteger(response.worker_index)
+            ? { worker_index: response.worker_index }
+            : {}),
+        ...(isNonNegativeSafeInteger(response.worker_count)
+            ? { worker_count: response.worker_count }
+            : {}),
+        ...(isNonNegativeSafeInteger(response.workers_ready)
+            ? { workers_ready: response.workers_ready }
             : {}),
     };
 }
