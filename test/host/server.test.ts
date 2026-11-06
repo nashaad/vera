@@ -1459,6 +1459,52 @@ function summary(
     },
 );
 
+test(
+    "host reads a request that waited out a stall longer than the idle timeout",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            limits: { requestIdleMs: 100, requestCeilingMs: 10_000 },
+        });
+        const waiting = createConnection(socketPath);
+        let stalling: ReturnType<typeof createConnection> | undefined;
+        try {
+            const reply = new Promise<string>((resolve, reject) => {
+                let text = "";
+                waiting.on("data", (chunk: Buffer) => {
+                    text += chunk.toString("utf8");
+                    if (text.includes("\n")) resolve(text);
+                });
+                waiting.once("close", () => {
+                    reject(new Error("host closed the connection before replying"));
+                });
+                waiting.once("error", reject);
+            });
+            await new Promise<void>((resolve) =>
+                waiting.once("connect", resolve)
+            );
+            // Lets the host accept the waiting connection and arm its idle timer.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            stalling = createConnection(socketPath);
+            stalling.on("error", () => {});
+            // Writes from an I/O callback, then blocks past the idle timeout.
+            // The loop runs the expired idle timer before it reads the request.
+            stalling.once("connect", () => {
+                waiting.write(`${JSON.stringify({ type: "host_identity" })}\n`);
+                Bun.sleepSync(400);
+            });
+            expect(await reply).toContain("host_identity");
+        } finally {
+            waiting.destroy();
+            stalling?.destroy();
+            await server.close();
+        }
+    },
+);
+
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host drops a client that dribbles bytes under the idle timeout",
     async () => {

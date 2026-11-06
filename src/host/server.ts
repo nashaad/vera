@@ -609,11 +609,16 @@ function receiveConnection(
     let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
     function armDeadline(): void {
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => socket.destroy(), limits.requestIdleMs);
+        idleTimer = setTimeout(deferIdleClose, limits.requestIdleMs);
         ceilingTimer ??= setTimeout(
             () => socket.destroy(),
             limits.requestCeilingMs,
         );
+    }
+    // An expired idle timer can run before a request that arrived during a stall is read.
+    // The close waits one turn so the pending read runs first.
+    function deferIdleClose(): void {
+        idleTimer = setTimeout(() => socket.destroy(), 0);
     }
     function clearDeadline(): void {
         clearTimeout(idleTimer);
