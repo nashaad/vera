@@ -1,5 +1,6 @@
 import { ModelEventStream } from "../model/stream.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
+import { classifyOpenAICodexStreamError } from "./openai-codex-stream-error.ts";
 import {
     encodeOpenAICodexReasoningItem,
     malformedOpenAICodexToolCall,
@@ -133,7 +134,8 @@ export class OpenAICodexStreamDecoder {
             return;
         }
         if (event.type === "response.failed" || event.type === "error") {
-            throw new Error(openAICodexStreamError(event));
+            const failure = classifyOpenAICodexStreamError(event);
+            throw new ProviderFailureError(failure, new Error(failure.message));
         }
     }
 
@@ -378,14 +380,6 @@ export class OpenAICodexStreamDecoder {
             ...(errorMessage === undefined ? {} : { errorMessage }),
         };
     }
-}
-
-function openAICodexStreamError(event: OpenAICodexStreamEvent): string {
-    const response = objectValue(event.response);
-    const error = objectValue(event.error ?? response.error);
-    return optionalString(error.message)
-        ?? optionalString(response.message)
-        ?? "OpenAI Codex stream failed";
 }
 
 function responseItem(value: unknown): ResponseItem | undefined {

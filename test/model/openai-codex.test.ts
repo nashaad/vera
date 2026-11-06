@@ -1211,3 +1211,270 @@ test("the session key reaches Codex as a cache key and session headers", async (
     expect(sent[1]?.headers.get("session-id")).toBeNull();
     expect(sent[1]?.headers.get("x-client-request-id")).toBeNull();
 });
+
+const OVERLOAD_MESSAGE = "Our servers are currently overloaded. Please try again later.";
+
+async function finalStreamEvent(
+    values: readonly OpenAICodexStreamEvent[],
+): Promise<ModelStreamEvent | undefined> {
+    const adapter = new OpenAICodexAdapter(async () => events(values));
+    const observed: ModelStreamEvent[] = [];
+    for await (const event of adapter.stream({ model: "gpt-5.6-sol", messages: [] })) {
+        observed.push(event);
+    }
+    return observed.at(-1);
+}
+
+describe("OpenAI Codex in-stream errors", () => {
+    test("an overload error event is a retryable server failure", async () => {
+        const last = await finalStreamEvent([{
+            type: "error",
+            error: {
+                type: "service_unavailable_error",
+                code: "server_is_overloaded",
+                message: OVERLOAD_MESSAGE,
+            },
+        }]);
+
+        expect(last?.type).toBe("error");
+        if (last?.type !== "error") return;
+        expect(last.error).toBeInstanceOf(ProviderFailureError);
+        expect(last.error).toMatchObject({
+            message: OVERLOAD_MESSAGE,
+            failure: {
+                kind: "server",
+                resolution: "retry",
+                message: OVERLOAD_MESSAGE,
+                providerErrorType: "service_unavailable_error",
+                providerCode: "server_is_overloaded",
+                providerMessage: OVERLOAD_MESSAGE,
+            },
+        });
+        expect(last.message.stopReason).toBe("error");
+        expect(last.message.errorMessage).toBe(OVERLOAD_MESSAGE);
+        if (last.error instanceof ProviderFailureError) {
+            expect(last.error.failure.partialOutputReplaceable).toBeUndefined();
+            expect(last.error.failure.statusCode).toBeUndefined();
+        }
+    });
+
+    test("an overload nested in response.failed is a retryable server failure", async () => {
+        const last = await finalStreamEvent([{
+            type: "response.failed",
+            response: {
+                id: "resp_1",
+                status: "failed",
+                error: {
+                    type: "service_unavailable_error",
+                    code: "server_is_overloaded",
+                    message: OVERLOAD_MESSAGE,
+                },
+            },
+        }]);
+
+        expect(last).toMatchObject({
+            type: "error",
+            error: {
+                message: OVERLOAD_MESSAGE,
+                failure: {
+                    kind: "server",
+                    resolution: "retry",
+                    providerErrorType: "service_unavailable_error",
+                    providerCode: "server_is_overloaded",
+                    providerMessage: OVERLOAD_MESSAGE,
+                },
+            },
+        });
+    });
+
+    test("a bare error event carries its code and message at the top level", async () => {
+        const last = await finalStreamEvent([{
+            type: "error",
+            code: "server_is_overloaded",
+            message: OVERLOAD_MESSAGE,
+        }]);
+
+        expect(last).toMatchObject({
+            type: "error",
+            error: {
+                message: OVERLOAD_MESSAGE,
+                failure: {
+                    kind: "server",
+                    resolution: "retry",
+                    providerCode: "server_is_overloaded",
+                },
+            },
+        });
+    });
+
+    for (const error of [
+        { code: "slow_down", message: "Slow down" },
+        { code: "server_error", message: "The server had an error" },
+        { type: "server_error", message: "The server had an error" },
+        { type: "service_unavailable_error", code: "temporarily_unavailable", message: "Try later" },
+    ]) {
+        test(`retries the server family: ${JSON.stringify(error)}`, async () => {
+            expect(await finalStreamEvent([{ type: "error", error }])).toMatchObject({
+                type: "error",
+                error: { failure: { kind: "server", resolution: "retry" } },
+            });
+        });
+    }
+
+    for (const code of [
+        "context_length_exceeded",
+        "insufficient_quota",
+        "usage_limit_reached",
+        "invalid_prompt",
+    ]) {
+        test(`${code} stays unclassified and is not retried`, async () => {
+            const last = await finalStreamEvent([{
+                type: "response.failed",
+                response: { error: { type: "invalid_request_error", code, message: "No." } },
+            }]);
+
+            expect(last).toMatchObject({
+                type: "error",
+                error: {
+                    message: "No.",
+                    failure: {
+                        kind: "unknown",
+                        resolution: "none",
+                        providerErrorType: "invalid_request_error",
+                        providerCode: code,
+                        providerMessage: "No.",
+                    },
+                },
+            });
+        });
+    }
+
+    test("an event with no error object still names the failure", async () => {
+        for (const event of [
+            { type: "response.failed" },
+            { type: "response.failed", response: {} },
+            { type: "error" },
+            { type: "error", error: "overloaded" },
+            { type: "error", error: { code: "", message: "   " } },
+        ]) {
+            const last = await finalStreamEvent([event]);
+
+            expect(last).toMatchObject({
+                type: "error",
+                error: {
+                    message: "OpenAI Codex stream failed",
+                    failure: {
+                        kind: "unknown",
+                        resolution: "none",
+                        message: "OpenAI Codex stream failed",
+                    },
+                },
+            });
+            if (last?.type === "error" && last.error instanceof ProviderFailureError) {
+                expect(last.error.failure.providerCode).toBeUndefined();
+                expect(last.error.failure.providerMessage).toBeUndefined();
+                expect(last.message.errorMessage).toBe("OpenAI Codex stream failed");
+            }
+        }
+    });
+
+    test("a code without a message is named in the failure text", async () => {
+        expect(await finalStreamEvent([{
+            type: "error",
+            error: { code: "server_is_overloaded" },
+        }])).toMatchObject({
+            type: "error",
+            error: {
+                message: "OpenAI Codex stream failed (server_is_overloaded)",
+                failure: { kind: "server", resolution: "retry" },
+            },
+        });
+    });
+
+    test("redacts credentials from the diagnostic message but not the user message", async () => {
+        const message = "Bearer sk-abcdefghijklmnop rejected";
+        const last = await finalStreamEvent([{
+            type: "error",
+            error: { code: "server_is_overloaded", message },
+        }]);
+
+        expect(last).toMatchObject({
+            type: "error",
+            error: {
+                message,
+                failure: { providerMessage: "Bearer [REDACTED] rejected" },
+            },
+        });
+    });
+
+    test("an overload after output started is not replayed", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return events([
+                {
+                    type: "response.output_text.delta",
+                    output_index: 0,
+                    delta: "Partial answer",
+                },
+                {
+                    type: "error",
+                    error: { code: "server_is_overloaded", message: OVERLOAD_MESSAGE },
+                },
+            ]);
+        });
+        const retries: unknown[] = [];
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: (retry) => retries.push(retry),
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(1);
+        expect(retries).toEqual([]);
+        expect(message).toMatchObject({
+            stopReason: "error",
+            errorMessage: OVERLOAD_MESSAGE,
+            content: [{ type: "text", text: "Partial answer" }],
+        });
+    });
+
+    test("an overload that never clears ends with the provider message after bounded retries", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return events([{
+                type: "error",
+                error: { code: "server_is_overloaded", message: OVERLOAD_MESSAGE },
+            }]);
+        });
+        const retries: unknown[] = [];
+        const observed: ModelStreamEvent[] = [];
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                policy: { delaysMs: [0, 0] },
+                onEvent: (event) => observed.push(event),
+                onRetry: (retry) => retries.push(retry),
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(3);
+        expect(retries).toHaveLength(2);
+        expect(message).toMatchObject({
+            stopReason: "error",
+            errorMessage: OVERLOAD_MESSAGE,
+        });
+        expect(observed.filter((event) => event.type === "error")).toHaveLength(1);
+    });
+});
