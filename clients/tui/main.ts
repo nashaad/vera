@@ -7,6 +7,13 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
+import {
+    launcherKeyFromEnv,
+    RELAUNCH_LAUNCHER_ENV,
+    takeRelaunchRecord,
+    writeRelaunchRecord,
+} from "../../src/release/relaunch.ts";
+import { launcherRelaunch, type TuiRelaunchRequest } from "./restart-notice.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { readLastGoodConfig } from "./main/last-good-config.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
@@ -534,6 +541,8 @@ export interface TuiDependencies {
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
+    /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
+    readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -704,11 +713,19 @@ async function hostHasSessions(socketPath: string): Promise<boolean> {
 const HOME_SESSION_PROBE_PAGES = 4;
 
 export async function startConfiguredTui(
-    target: TuiStartTarget,
+    requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
+    const launcherKey = launcherKeyFromEnv();
+    delete process.env[RELAUNCH_LAUNCHER_ENV];
+    const restored = launcherKey === undefined ? undefined : takeRelaunchRecord(launcherKey);
+    const target: TuiStartTarget = restored === undefined
+        ? requestedTarget
+        : restored.sessionId === undefined
+        ? { type: "home", workspace: process.cwd() }
+        : { type: "attach", agentId: restored.sessionId };
     // Read once: the stamp on disk can change while this TUI runs.
     const clientBuildId = thisProcessBuildId();
     // Optional: requiring config made attach fail against an already-running host.
@@ -782,6 +799,12 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            initialDraft: restored?.draft,
+            relaunchTui: launcherRelaunch(launcherKey, {
+                writeRecord: writeRelaunchRecord,
+                markTerminalRestored,
+                exit: (code) => process.exit(code),
+            }),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
@@ -1001,6 +1024,8 @@ export async function startTui(
     });
     rt.connectionFailed = false;
     rt.hostBuildRefusal = undefined;
+    // The restart notice ends once this TUI is attached to a host again.
+    rt.relaunching = undefined;
     // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.

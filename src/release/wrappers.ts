@@ -9,6 +9,7 @@ import {
     RELEASE_SUPERVISOR_NAME,
     RELEASE_WORKER_NAME,
 } from "./layout.ts";
+import { RELAUNCH_EXIT_CODE, RELAUNCH_LAUNCHER_ENV } from "./relaunch.ts";
 
 export interface ReleaseWrapperSources {
     readonly cli: string;
@@ -30,7 +31,11 @@ export function releaseSourceEntries(sourceRoot: string): ReleaseWrapperSources 
 
 export function writeSelfContainedWrappers(releaseRoot: string): void {
     const bun = `"$here/${RELEASE_BUN_NAME}"`;
-    writeWrapper(join(releaseRoot, RELEASE_CLI_NAME), bun, `"$here/clients/cli/main.ts"`);
+    writeLauncher(join(releaseRoot, RELEASE_CLI_NAME), {
+        bun: `"$release/bun"`,
+        entry: `"$release/clients/cli/main.ts"`,
+        relocatable: true,
+    });
     writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), bun, `"$here/clients/host/main.ts"`);
     writeWrapper(
         join(releaseRoot, RELEASE_WORKER_NAME),
@@ -55,7 +60,11 @@ export function writeExternalWrappers(
     sources: ReleaseWrapperSources,
 ): void {
     const bun = shellSingleQuote(bunPath);
-    writeWrapper(join(releaseRoot, RELEASE_CLI_NAME), bun, shellSingleQuote(sources.cli));
+    writeLauncher(join(releaseRoot, RELEASE_CLI_NAME), {
+        bun: shellSingleQuote(bunPath),
+        entry: shellSingleQuote(sources.cli),
+        relocatable: false,
+    });
     writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), bun, shellSingleQuote(sources.host));
     writeWrapper(
         join(releaseRoot, RELEASE_WORKER_NAME),
@@ -102,6 +111,52 @@ export function writeCheckoutPackWrappers(
         bun,
         shellSingleQuote(sources.supervisor),
     );
+}
+
+interface LauncherTarget {
+    readonly bun: string;
+    readonly entry: string;
+    // A relocatable launcher re-resolves `current` after a relaunch exit.
+    readonly relocatable: boolean;
+}
+
+// The CLI launcher stays a shell so a TUI can ask for a restart into the new build
+// in the same terminal. Bun has no in-place exec. Only the relaunch code loops; any
+// other status ends the loop with that status. Ctrl+C reaches the child in the
+// foreground and the shell ignores it.
+function writeLauncher(path: string, target: LauncherTarget): void {
+    const resolve = target.relocatable
+        ? `    release=$(CDPATH= cd -P -- "$root/current" 2>/dev/null && pwd) || release=$here\n`
+        : "";
+    const setup = target.relocatable
+        ? `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`
+            + `root=\${here%/*/*}\n`
+            + `release=$here\n`
+        : `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`;
+    writeFileSync(
+        path,
+        `#!/bin/sh\n`
+            + setup
+            + `stop=0\n`
+            + `named=0\n`
+            + `if (exec -a vera true) 2>/dev/null; then named=1; fi\n`
+            + `trap ':' INT\n`
+            + `trap 'stop=1' TERM HUP\n`
+            + `while :; do\n`
+            + `    if [ "$named" -eq 1 ]; then\n`
+            + `        ( ${RELAUNCH_LAUNCHER_ENV}=$$ exec -a vera ${target.bun} ${target.entry} "$@" )\n`
+            + `    else\n`
+            + `        ${RELAUNCH_LAUNCHER_ENV}=$$ ${target.bun} ${target.entry} "$@"\n`
+            + `    fi\n`
+            + `    code=$?\n`
+            + `    if [ "$code" -ne ${RELAUNCH_EXIT_CODE} ] || [ "$stop" -ne 0 ]; then\n`
+            + `        exit "$code"\n`
+            + `    fi\n`
+            + resolve
+            + `done\n`,
+        { encoding: "utf8", mode: 0o755 },
+    );
+    chmodSync(path, 0o755);
 }
 
 function writeWrapper(path: string, bun: string, entry: string): void {

@@ -9,6 +9,7 @@ import { renderState } from "../main/render-state.ts";
 import { renderStatus } from "../main/render-status.ts";
 import { refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
 import { applyStopWaitEvent, nextStopWaitCard } from "../stop-wait.ts";
+import { handleHostRestarting } from "../restart-notice.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { appendTuiThought, dropTuiThinking } from "../state.ts";
 import { meterStreamedText, meterThought, turnMeterSegments } from "../turn-meter.ts";
@@ -56,6 +57,10 @@ export function watchStopWait(rt: TuiRuntime, next: TuiAgentClient): void {
     rt.stopWaitCard = nextStopWaitCard(undefined, rt.stopWait);
     rt.stopWatchingStopWait = next.onStopWait?.((event) => {
         if (rt.client !== next || rt.shuttingDown) return;
+        if (event.type === "host_restarting") {
+            handleHostRestarting(rt, rt.dependencies.relaunchTui);
+            return;
+        }
         rt.stopWait = applyStopWaitEvent(rt.stopWait, event);
         rt.stopWaitCard = nextStopWaitCard(rt.stopWaitCard, rt.stopWait);
         if (rt.stopWaitCard?.open === true) focusActiveSurface(rt);

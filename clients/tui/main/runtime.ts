@@ -224,6 +224,8 @@ export interface TuiRuntime {
     stopWait: TuiStopWait | undefined;
     stopWaitCard: TuiStopWaitCard | undefined;
     stopWatchingStopWait: (() => void) | undefined;
+    // Set once the host reports a restart; the notice shows until the TUI exits or reconnects.
+    relaunching: boolean | undefined;
     searchInFlight: boolean;
     pendingSearchTarget: {
         readonly sessionId: string;

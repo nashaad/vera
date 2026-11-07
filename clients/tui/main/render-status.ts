@@ -23,6 +23,7 @@ import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
 import { stopWaitNoticeText } from "../stop-wait.ts";
+import { RESTARTING_NOTICE_TEXT } from "../restart-notice.ts";
 import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -413,7 +414,9 @@ export function renderStatus(rt: TuiRuntime): void {
         rt.workIndex?.needs_you ?? 0,
     );
     const noticeIndent = " ".repeat(rt.composerContentIndent);
-    const stopNotice = stopWaitNoticeText(rt.stopWait);
+    const stopNotice = rt.relaunching === true
+        ? RESTARTING_NOTICE_TEXT
+        : stopWaitNoticeText(rt.stopWait);
     const stopRow = stopNotice === undefined
         ? []
         : [fg(TUI_ACCENT)(
