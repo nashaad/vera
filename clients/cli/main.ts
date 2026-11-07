@@ -18,6 +18,16 @@ import {
     closeAgentThroughHost,
     type CloseAgentResult,
 } from "../../src/host/agent-close-client.ts";
+import {
+    blockSessionThroughHost,
+    unblockSessionThroughHost,
+} from "../../src/host/session-block-client.ts";
+import { readStoredSessionTree } from "../../src/host/session-block.ts";
+import {
+    runBlockCommand,
+    runUnblockCommand,
+    type SessionBlockCommandDependencies,
+} from "./session-block-command.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
@@ -80,10 +90,12 @@ import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts"
 import { workspaceKey } from "../../src/workspace-key.ts";
 import {
     assertProfileLayout,
+    veraBlockedDirectory,
     veraHomeDirectory,
     veraRuntimeDirectory,
     VeraProfileError,
 } from "../../src/profile-paths.ts";
+import { defaultSessionDirectory } from "../../src/store/session-store.ts";
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
@@ -247,6 +259,7 @@ type RollbackInstallResult =
 
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
+    readonly sessionBlock?: Partial<SessionBlockCommandDependencies>;
     readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly scheduleOperation?: (
@@ -603,6 +616,16 @@ export async function runCli(
         await (dependencies.openConfigure ?? (() =>
             openFileInEditor(veraConfigPath())))();
         return 0;
+    }
+
+    if (args[0] === "block" || args[0] === "unblock") {
+        const deps = {
+            ...sessionBlockDependencies(output, errorOutput),
+            ...dependencies.sessionBlock,
+        };
+        return args[0] === "block"
+            ? runBlockCommand(args, deps)
+            : runUnblockCommand(args, deps);
     }
 
     if (
@@ -1320,6 +1343,36 @@ export function renderAgentList(
 
 function truncate(value: string, limit: number): string {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}\u2026`;
+}
+
+function sessionBlockDependencies(
+    output: { write(text: string): unknown },
+    errorOutput: { write(text: string): unknown },
+): SessionBlockCommandDependencies {
+    const sessionDirectory = defaultSessionDirectory();
+    return {
+        listLive: listLiveAgents,
+        readStored: () => readStoredSessionTree(sessionDirectory),
+        sessionDirectory,
+        blockedDirectory: veraBlockedDirectory(),
+        hostSocketPath: async () => (await readPairedLiveHost())?.socket_path,
+        blockThroughHost: (socketPath, request) => blockSessionThroughHost(socketPath, request),
+        unblockThroughHost: (socketPath, request) => unblockSessionThroughHost(socketPath, request),
+        hasTerminal: process.stdin.isTTY === true && process.stdout.isTTY === true,
+        confirm: confirmSessionBlock,
+        output,
+        errorOutput,
+    };
+}
+
+async function confirmSessionBlock(question: string): Promise<boolean> {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = (await prompt.question(question)).trim().toLowerCase();
+        return answer === "y" || answer === "yes";
+    } finally {
+        prompt.close();
+    }
 }
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {

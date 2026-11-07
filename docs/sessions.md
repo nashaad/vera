@@ -47,6 +47,27 @@ and Escape keep their usual picker behavior.
 
 Other conversations can remain running after the TUI exits.
 
+## Block a session that will not stop
+
+`vera abort <agent-id>` ends a live agent's active turn and leaves the agent
+running. `vera close <agent-id>` ends the agent and discards its queued prompts.
+When a session ignores both, `vera block <agent-id>` is the stronger move.
+
+`vera block <agent-id>` lists the session and every session it started, with
+their ids and whether each is live, then asks you to confirm. Once confirmed,
+Vera stops their running turns and writes a block for each one. A blocked
+session stays open and inert: a new prompt, a queued prompt, an inbox message,
+a scheduled job, or a resume does not start a turn in it. It is not closed.
+Run `vera close <agent-id>` afterwards to end it.
+
+`vera block --reason <text>` records a short reason with the block.
+
+`vera unblock <agent-id>` lists the sessions blocked with that session, asks
+you to confirm, and clears their blocks. Turns can start again after that.
+
+Both commands need a terminal to confirm. Without one they refuse, and nothing
+is blocked or unblocked.
+
 ## Recognize a finished turn
 
 A **Worked for** divider records active turn time after turns that ran at least

@@ -13,7 +13,7 @@ import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, Notif
 import { HOST_OWNED_COMMANDS, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, readSessionSeed, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
 import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
-import { ResidentAgent, type AgentAttachment } from "../resident-agent.ts";
+import { ResidentAgent, SessionBlockedError, type AgentAttachment } from "../resident-agent.ts";
 import { startSeededWorker } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
@@ -672,7 +672,18 @@ export async function messageSubagent(reg: AgentRegistry, parentStore: SessionSt
             };
         }
 
-        child.agent.sendPrompt(effect.message);
+        try {
+            child.agent.sendPrompt(effect.message);
+        } catch (error) {
+            if (error instanceof SessionBlockedError) {
+                return {
+                    kind: "output",
+                    output: error.message,
+                    isError: true,
+                };
+            }
+            throw error;
+        }
         reg.trackAsyncSubagentTurn(effect.subagentId);
         return {
             kind: "output",
