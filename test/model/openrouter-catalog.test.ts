@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
+
 import {
     normalizeOpenRouterModels,
     refreshOpenRouterCatalog,
@@ -303,6 +305,7 @@ describe("refreshOpenRouterCatalog", () => {
             join(directory, "openrouter.json"),
             JSON.stringify({
                 schema_version: 2,
+                build_id: cacheBuildId(),
                 provider: "openrouter",
                 fetched_at: "2026-08-29T00:00:00Z",
                 models: [
@@ -401,6 +404,7 @@ describe("refreshOpenRouterCatalog", () => {
             join(directory, "openrouter.json"),
             JSON.stringify({
                 schema_version: 2,
+                build_id: cacheBuildId(),
                 provider: "openrouter",
                 fetched_at: new Date(Date.now() - 30 * 86_400_000)
                     .toISOString(),
@@ -425,6 +429,7 @@ describe("refreshOpenRouterCatalog", () => {
             join(directory, "openrouter.json"),
             JSON.stringify({
                 schema_version: 2,
+                build_id: cacheBuildId(),
                 provider: "openrouter",
                 models: [{ id: "remembered", label: "Remembered", levels: [] }],
             }),

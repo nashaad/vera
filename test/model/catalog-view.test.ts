@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
+
 import {
     availableModelsWithLevels,
     levelsForModel,
@@ -289,6 +291,7 @@ test("overlay wire strings keep Vera ids and Think on labels in the pooled picke
     mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, "unsloth-local.json"), JSON.stringify({
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "unsloth-local",
         models: [{
             id: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
@@ -336,6 +339,7 @@ function fixture(withPricing = false): Fixture {
     mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, "test.json"), JSON.stringify({
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "test",
         fetched_at: "2026-07-27T00:00:00Z",
         models: [

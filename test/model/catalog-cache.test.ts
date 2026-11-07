@@ -6,6 +6,7 @@ import {
 } from "bun:test";
 import {
     mkdtempSync,
+    readFileSync,
     readdirSync,
     rmSync,
     writeFileSync,
@@ -13,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
 import {
     providerCatalogCachePath,
     listDiscoveredProviders,
@@ -180,6 +182,49 @@ describe("provider catalog cache", () => {
             { cacheDir },
             "http://127.0.0.1:11438/v1/models",
         )?.models.map((model) => model.id)).toEqual(["qwen3-1.7b"]);
+    });
+    test("a snapshot another build wrote reads as absent and is replaced on write", () => {
+        const cacheDir = temporaryDirectory();
+        writeFileSync(join(cacheDir, "example.json"), JSON.stringify({
+            schema_version: 2,
+            provider: "example",
+            fetched_at: new Date().toISOString(),
+            models: [{ id: "foreign", label: "Foreign", levels: [] }],
+            build_id: "vera-another-build",
+        }));
+
+        expect(readProviderCatalogSnapshot("example", { cacheDir }).models)
+            .toEqual([]);
+        expect(readFreshProviderCatalogSnapshot("example", 3_600_000, { cacheDir }))
+            .toBeUndefined();
+
+        const catalog: ProviderCatalog = {
+            schema_version: 2,
+            provider: "example",
+            fetched_at: new Date().toISOString(),
+            models: [{ id: "local", label: "Local", levels: [] }],
+        };
+        writeProviderCatalogSnapshot(catalog, { cacheDir });
+        expect(readProviderCatalogSnapshot("example", { cacheDir })).toEqual(catalog);
+        expect(JSON.parse(readFileSync(join(cacheDir, "example.json"), "utf8")).build_id)
+            .toBe(cacheBuildId());
+    });
+
+    test("a snapshot with no build id, from before build ids were recorded, reads as absent", () => {
+        const cacheDir = temporaryDirectory();
+        writeFileSync(join(cacheDir, "example.json"), JSON.stringify({
+            schema_version: 2,
+            provider: "example",
+            fetched_at: new Date().toISOString(),
+            models: [{ id: "old", label: "Old", levels: [] }],
+        }));
+
+        expect(readProviderCatalogSnapshot("example", { cacheDir }).models)
+            .toEqual([]);
+    });
+
+    test("a dev checkout stamps its cache with the source tree identity", () => {
+        expect(cacheBuildId()).toMatch(/^vera-/);
     });
 });
 
