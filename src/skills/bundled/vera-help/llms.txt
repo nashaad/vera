@@ -35,10 +35,11 @@ Manual: `docs/how-vera-works.md`.
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
+`vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.
-Run `bun run install:local` or `vera rollback` from a terminal outside Vera; from inside a Vera session, both refuse rather than stop the session's own host.
+Run `vera rollback` from a terminal outside Vera; from inside a Vera session it refuses rather than stop the session's own host. `bun run install:local` inside a Vera session returns at once, and the new build takes over when the running turns end.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
@@ -193,6 +194,8 @@ Completed web searches show each query in the collapsed activity group; Ctrl+T e
 If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.
 Quitting with Ctrl+C while disconnected prints the command to resume this session.
 Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
+While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
+
 An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. While the client is still connected, a healthy host is asked to shut down for replacement; while disconnected, Reconnect host attaches to a healthy host instead of asking it to shut down.
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.
 After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, Reconnect host from Ctrl+P is the next move.

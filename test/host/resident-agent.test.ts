@@ -5,6 +5,7 @@ import {
     AgentDetachedError,
     ResidentAgent,
     ResidentAgentClosedError,
+    ResidentAgentTurnsHeldError,
 } from "../../src/host/resident-agent.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
@@ -1438,6 +1439,22 @@ test("a paging attach does not clone the full history", async () => {
     } finally {
         globalThis.structuredClone = original;
         legacy.detach();
+        agent.close();
+    }
+});
+
+test("held turns refuse a new prompt and leave the delivery wake for the next host", async () => {
+    let held = false;
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        turnsHeld: () => held,
+    });
+    try {
+        held = true;
+        expect(() => agent.sendPrompt("hello")).toThrow(ResidentAgentTurnsHeldError);
+        expect(() => agent.triggerDeliveryTurn()).not.toThrow();
+        expect(agent.status).toBe("idle");
+        expect(agent.idleForReplacement()).toBe(true);
+    } finally {
         agent.close();
     }
 });

@@ -23,6 +23,7 @@ import type { FooterEditorView } from "../footer-editor-view.ts";
 import type { TuiActivityAnimation } from "../activity-pulse.ts";
 import type { TuiAdmissionDialogState, TuiAdmissionDialogView } from "../admission-dialog.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
+import type { TuiStopWait, TuiStopWaitCard } from "../stop-wait.ts";
 import type { TuiAppearance } from "../appearance.ts";
 import type { TuiApprovalView } from "../approval.ts";
 import type { TuiBodyFocusController } from "../body-focus.ts";
@@ -220,6 +221,9 @@ export interface TuiRuntime {
     terminalFocused: boolean;
     stopWatchingWorkIndex: (() => void) | undefined;
     stopWatchingSessionTitle: (() => void) | undefined;
+    stopWait: TuiStopWait | undefined;
+    stopWaitCard: TuiStopWaitCard | undefined;
+    stopWatchingStopWait: (() => void) | undefined;
     searchInFlight: boolean;
     pendingSearchTarget: {
         readonly sessionId: string;

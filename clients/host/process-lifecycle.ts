@@ -17,6 +17,8 @@ export interface ResidentHostProcessOptions {
     readonly stopAbsorbingFaults?: () => void;
     readonly closeDeadlineMs?: number;
     readonly log?: HostLog;
+    // Runs after a clean close and before exit. A failure is reported and does not block exit.
+    readonly afterClose?: () => Promise<void>;
 }
 
 type CloseableResidentHost = Pick<ResidentHost, "shutdownRequested" | "close">;
@@ -66,6 +68,13 @@ export async function runResidentHostProcess(
                 deadline_ms: deadlineMs,
                 error: message,
             });
+        }
+        if (outcome.kind === "closed" && options.afterClose !== undefined) {
+            try {
+                await options.afterClose();
+            } catch (error) {
+                process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+            }
         }
     }
 

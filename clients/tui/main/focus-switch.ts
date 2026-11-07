@@ -1,4 +1,5 @@
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
+import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../../src/host/capabilities.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
@@ -17,7 +18,8 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.dialStrip !== undefined) {
         return () => rt.dialCard.focus();
     }
-    const uiRequest = focusedUiRequest(rt);
+    const uiRequest = focusedUiRequest(rt)
+        ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard);
     if (
         uiRequest !== undefined
         && isToolApprovalUiRequestUpdate(uiRequest)

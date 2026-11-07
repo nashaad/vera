@@ -771,6 +771,12 @@ class FakeAttachedAgentClient implements AttachedAgentClient {
         return () => undefined;
     }
 
+    readonly stopWait = undefined;
+
+    onStopWait(): () => void {
+        return () => undefined;
+    }
+
     setWorkIndex(index: WorkIndexSnapshot): void {
         this.currentWorkIndex = index;
     }

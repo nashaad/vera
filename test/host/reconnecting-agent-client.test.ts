@@ -670,6 +670,8 @@ function fakeClientFromQueue(
         onWorkIndex: () => () => undefined,
         sessionTitle: undefined,
         onSessionTitle: () => () => undefined,
+        stopWait: undefined,
+        onStopWait: () => () => undefined,
         send: async () => undefined,
         async receive(signal) {
             const update = await updates.receive(signal);

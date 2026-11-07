@@ -38,6 +38,9 @@ function runtime(client: TuiAgentClient, titles: string[]): TuiRuntime {
         clientSurfaceReady: false,
         sessionTitle: "first prompt text",
         stopWatchingSessionTitle: undefined,
+        stopWait: undefined,
+        stopWaitCard: undefined,
+        stopWatchingStopWait: undefined,
         renderer: { setTerminalTitle: (title: string) => titles.push(title) },
     } as unknown as TuiRuntime;
 }

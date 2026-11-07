@@ -113,6 +113,12 @@ export async function runAttachedStdioBridge(
             index,
         });
     });
+    if (client.stopWait !== undefined) {
+        writeJson(output, client.stopWait);
+    }
+    const removeStopWaitListener = client.onStopWait((event) => {
+        writeJson(output, event);
+    });
 
     const stop = (): void => {
         if (stopping) return;
@@ -158,6 +164,7 @@ export async function runAttachedStdioBridge(
         options.signal?.removeEventListener("abort", onAbort);
         removeBackgroundListener();
         removeWorkIndexListener();
+        removeStopWaitListener();
         lines.close();
         if (!client.closed) {
             client.close();

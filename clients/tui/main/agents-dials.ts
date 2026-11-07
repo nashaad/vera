@@ -12,6 +12,8 @@ import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyE
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
 import { appendTuiNotice, type TuiState } from "../state.ts";
+import { closeStopWaitCard, isStopWaitCardUpdate, stopNow, stopWaitCardChoice, stopWaitCardUpdate } from "../stop-wait.ts";
+import type { UiResponseCommand } from "../../../src/engine/protocol.ts";
 import type { TuiAgentCatalog, TuiAgentCatalogRow, TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { loadModelPickerPreferences } from "../theme-preference.ts";
@@ -519,6 +521,32 @@ export function focusedAbortRequested(rt: TuiRuntime): boolean {
 export function focusedAgentCanAbort(rt: TuiRuntime): boolean {
     const focused = focusedAgentState(rt);
     return focused.working || focused.compactingSince !== undefined;
+}
+
+// Answers the local stop-wait card. Only "Stop it now" ends turns; every other answer closes the card.
+export function answerStopWaitCard(
+    rt: TuiRuntime,
+    response: UiResponseCommand | undefined,
+): void {
+    if (rt.stopWaitCard !== undefined) {
+        rt.stopWaitCard = closeStopWaitCard(rt.stopWaitCard);
+    }
+    if (response !== undefined && stopWaitCardChoice(response) === "stop") {
+        void stopWaitNow(rt).catch(((error: unknown) => reportConnectionError(rt, error)));
+    }
+    focusActiveSurface(rt);
+}
+
+// Ends every turn the open stop or update waits on.
+export async function stopWaitNow(rt: TuiRuntime): Promise<void> {
+    const wait = rt.stopWait;
+    const abortAgent = rt.dependencies.abortAgent;
+    if (wait === undefined || abortAgent === undefined) return;
+    const results = await stopNow(wait, { abort: abortAgent });
+    const failed = results.filter((result) => result.error !== undefined);
+    if (failed.length > 0) {
+        showStatusNotice(rt, `Could not stop ${failed.length} session${failed.length === 1 ? "" : "s"}: ${failed[0]?.error ?? ""}`);
+    }
 }
 
 export function abortFocusedAgent(rt: TuiRuntime): void {

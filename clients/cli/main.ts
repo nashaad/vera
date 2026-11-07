@@ -52,9 +52,12 @@ import {
 import {
     forceStopResidentHost,
     gracefulStopResidentHost,
+    stopResidentHostWhenIdle,
     unverifiedHostMessage,
     type ForceStopOutcome,
+    type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
+import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import {
     type SupervisionReport,
     superviseHost,
@@ -294,8 +297,10 @@ export interface CliDependencies {
         target: TuiStartTarget,
         options?: TuiStartOptions,
     ) => Promise<void>;
-    readonly confirmHostStop?: () => boolean | Promise<boolean>;
-    readonly stopHost?: () => Promise<ForceStopOutcome | undefined>;
+    readonly confirmHostStop?: (force: boolean) => boolean | Promise<boolean>;
+    readonly stopHost?: (options: {
+        readonly onWaiting: (waiting: readonly StopWaitTarget[]) => void;
+    }) => Promise<StopWhenIdleOutcome | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly prune?: () => Promise<readonly LiveProcessRecord[]>;
@@ -898,7 +903,7 @@ export async function runCli(
         const confirmed = hostStopAssumeYes
             || await (
                 dependencies.confirmHostStop ?? confirmResidentHostStop
-            )();
+            )(force);
         if (!confirmed) {
             output.write("Resident Vera host was not stopped.\n");
             return 0;
@@ -916,14 +921,25 @@ export async function runCli(
                 output.write(rendered.text);
                 return rendered.exitCode;
             }
+            let announced = false;
+            const onWaiting = (waiting: readonly StopWaitTarget[]): void => {
+                if (!announced) {
+                    announced = true;
+                    output.write("Stopping after running turns end. New turns are refused until the host stops.\n");
+                }
+                for (const target of waiting) {
+                    const label = target.name ?? target.session_id;
+                    output.write(`Waiting on ${label} (${target.session_id}, ${target.status})\n`);
+                }
+            };
             const outcome = await (
-                dependencies.stopHost ?? gracefulStopResidentHost
-            )();
+                dependencies.stopHost ?? stopResidentHostWhenIdle
+            )({ onWaiting });
             if (outcome === undefined) {
                 output.write("No resident Vera host is running.\n");
                 return 0;
             }
-            const rendered = renderGracefulStopOutcome(outcome);
+            const rendered = renderStopWhenIdleOutcome(outcome);
             output.write(rendered.text);
             return rendered.exitCode;
         } catch (error) {
@@ -1204,6 +1220,60 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
                 text: `${unverifiedHostMessage(outcome)}\n`,
                 exitCode: 1,
             };
+    }
+}
+
+function renderStopWhenIdleOutcome(outcome: StopWhenIdleOutcome): StopRendering {
+    switch (outcome.endedBy) {
+        case "stopped":
+            return {
+                text: `Stopped resident Vera host PID ${outcome.pid} after its running turns ended.\n`,
+                exitCode: 0,
+            };
+        case "still_running":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} accepted the stop but is still running.`
+                    + " Run 'vera host stop --force' to stop it now.\n",
+                exitCode: 1,
+            };
+        case "no_answer":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} did not answer the stop request, so it was left running.`
+                    + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
+                exitCode: 1,
+            };
+        case "unsupported":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} is a build that cannot wait for turns, so it was left running.`
+                    + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
+                exitCode: 1,
+            };
+        case "accepted":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} will stop once its running turns end.\n`,
+                exitCode: 0,
+            };
+        case "abandoned":
+            return {
+                text: `${outcome.message ?? "The stop was abandoned."}\n`,
+                exitCode: 1,
+            };
+        case "refused":
+            return {
+                text: outcome.message !== undefined
+                    ? `${outcome.message}\n`
+                    : outcome.refusal === "identity_mismatch"
+                        ? `Resident Vera host PID ${outcome.pid} refused the stop because it is not the host its lockfile records. Left it running.\n`
+                        : `Resident Vera host PID ${outcome.pid} is not accepting stop requests yet. Left it running; try again.\n`,
+                exitCode: 1,
+            };
+        case "sigterm":
+        case "sigkill":
+        case "already_dead":
+        case "survived":
+        case "not_ours":
+        case "unverified":
+            return renderGracefulStopOutcome(outcome);
     }
 }
 
@@ -1704,13 +1774,14 @@ async function runRollbackCommand(
     }
 }
 
-async function confirmResidentHostStop(): Promise<boolean> {
+async function confirmResidentHostStop(force: boolean): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    const question = force
+        ? "Stop the resident Vera host now, cut its running turns and disconnect attached clients? [y/N] "
+        : "Stop the resident Vera host after its running turns end? New turns are refused until it stops. [y/N] ";
     try {
-        const answer = await prompt.question(
-            "Stop the resident Vera host and disconnect attached clients? [y/N] ",
-        );
+        const answer = await prompt.question(question);
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";
     } finally {

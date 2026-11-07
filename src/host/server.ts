@@ -32,10 +32,13 @@ import {
     type AgentLocationResponse,
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
+    type StopHostResponse,
+    stopWaitWireMessage,
     type CatalogRefreshOutcome,
     type BlockSessionRequest,
     type UnblockSessionRequest,
 } from "./protocol.ts";
+import type { StopWaitEvent, StopWhenIdleControl } from "./stop-when-idle.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -87,6 +90,7 @@ import {
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_SESSION_TITLE,
+    HOST_CAPABILITY_STOP_WAIT,
     HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -164,6 +168,7 @@ export interface StartHostServerOptions {
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly stopWhenIdle?: StopWhenIdleControl;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void, onStep: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
@@ -478,6 +483,7 @@ export async function startHostServer(
             options.readExtensionLoadFailures,
             options.checkpointStores,
             options.handleExtensionRequest,
+            options.stopWhenIdle,
             resolveHostLimits(options.limits),
         );
     });
@@ -674,6 +680,7 @@ function receiveConnection(
         readonly databases: readonly string[];
     }>) | undefined,
     handleExtensionRequest: ExtensionRequestHandler | undefined,
+    stopWhenIdle: StopWhenIdleControl | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -713,6 +720,7 @@ function receiveConnection(
     let attachedCapabilities: readonly string[] = [];
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
+    let stopWatchingStopWait: (() => void) | undefined;
     let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     let sentSessionTitle: { readonly title: string | undefined } | undefined;
@@ -737,6 +745,8 @@ function receiveConnection(
         clearDeadline();
         stopWatchingRoster?.();
         stopWatchingRoster = undefined;
+        stopWatchingStopWait?.();
+        stopWatchingStopWait = undefined;
         attachment?.detach();
         attachment = undefined;
         attachedAgent = undefined;
@@ -871,6 +881,8 @@ function receiveConnection(
             finished = true;
             stopWatchingRoster?.();
             stopWatchingRoster = undefined;
+            stopWatchingStopWait?.();
+            stopWatchingStopWait = undefined;
             const detachedAgentId = attachedAgentId;
             attachment.detach();
             attachment = undefined;
@@ -924,6 +936,8 @@ function receiveConnection(
             finished = true;
             stopWatchingRoster?.();
             stopWatchingRoster = undefined;
+            stopWatchingStopWait?.();
+            stopWatchingStopWait = undefined;
             const releasedAgentId = attachedAgentId;
             const releasedClientId = attachedClientId;
             attachment.detach();
@@ -1191,6 +1205,47 @@ function receiveConnection(
                 build_id: identity.build_id,
                 role: "host",
             }).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "stop_host") {
+            clearDeadline();
+            finished = true;
+            if (request.pid !== identity.pid || request.started_at !== identity.started_at) {
+                void send({
+                    type: "stop_host_refused",
+                    reason: "identity_mismatch",
+                    message: "The request names a different host than this one.",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            if (stopWhenIdle === undefined) {
+                void send({
+                    type: "stop_host_refused",
+                    reason: "unavailable",
+                    message: "This host cannot wait for its turns to end.",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            const result = stopWhenIdle.request((event) => {
+                const response: StopHostResponse = event.type === "stopped"
+                    ? { type: "stop_host_stopped", pid: identity.pid, started_at: identity.started_at }
+                    : event.type === "abandoned"
+                        ? { type: "stop_host_abandoned", message: event.message }
+                        : { type: "stop_host_waiting", waiting_on: event.waiting_on };
+                return send(response).then(
+                    () => { if (event.type !== "waiting") socket.end(); },
+                    () => { socket.destroy(); },
+                );
+            }, request.target_build_id ?? null);
+            if (!result.accepted) {
+                void send({
+                    type: "stop_host_refused",
+                    reason: result.reason,
+                    message: result.message,
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            socket.once("close", result.unsubscribe);
             return;
         }
         if (request?.type === "shutdown_if_idle") {
@@ -1892,6 +1947,7 @@ function receiveConnection(
         const wantsSessionTitle = negotiated.includes(
             HOST_CAPABILITY_SESSION_TITLE,
         );
+        const wantsStopWait = negotiated.includes(HOST_CAPABILITY_STOP_WAIT);
         stopWatchingRoster = onRosterChanged(() => {
             sendBackgroundAgents(attachedId);
             if (wantsWorkIndex) sendWorkIndex();
@@ -1909,6 +1965,9 @@ function receiveConnection(
             () => {
                 if (wantsWorkIndex) sendWorkIndex();
                 if (wantsSessionTitle) sendSessionTitle(attachedId);
+                if (wantsStopWait && stopWhenIdle !== undefined) {
+                    stopWatchingStopWait = stopWhenIdle.observe(sendStopWaitEvent);
+                }
                 return forwardAgentUpdates(agent, attached);
             },
             () => socket.destroy(),
@@ -1987,6 +2046,14 @@ function receiveConnection(
         sentWorkIndex = next;
         void send({ type: "work_index", index: next },
             () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
+    }
+
+    function sendStopWaitEvent(event: StopWaitEvent): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        void send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
             .catch(() => socket.destroy());
     }
 

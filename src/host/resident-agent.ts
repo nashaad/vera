@@ -40,6 +40,13 @@ export class AgentDetachedError extends Error {
     }
 }
 
+export class ResidentAgentTurnsHeldError extends Error {
+    constructor() {
+        super("Resident agent is not accepting turns while Vera stops");
+        this.name = "ResidentAgentTurnsHeldError";
+    }
+}
+
 export class ResidentAgentClosedError extends Error {
     constructor() {
         super("Resident agent is closed");
@@ -76,6 +83,8 @@ export interface ResidentAgentOptions {
     readonly modelCatalogFacts?: () => Pick<HostModelCatalogSettings, "providerCatalogs" | "selectionCleared">;
     readonly maxPendingCommands?: number;
     readonly clientPromptRefusal?: string | (() => string | undefined);
+    /** Holds turns: a prompt throws and a delivery wake is left for the next host. */
+    readonly turnsHeld?: () => boolean;
     readonly onClientPrompt?: () => void;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
@@ -368,6 +377,9 @@ export class ResidentAgent {
         if (blocked !== undefined) {
             throw new SessionBlockedError(blocked);
         }
+        if (this.options.turnsHeld?.() === true) {
+            throw new ResidentAgentTurnsHeldError();
+        }
         if (this.pendingCommandCount >= this.maxPendingCommands) {
             throw new AgentCommandQueueFullError();
         }
@@ -396,8 +408,11 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
-        // The pending deliveries stay in the store; a blocked session does not wake for them.
-        if (this.options.turnStartRefusal?.() !== undefined) {
+        // The deliveries stay in the store: a blocked session does not wake for them, and a held one is woken by the next host.
+        if (
+            this.options.turnStartRefusal?.() !== undefined
+            || this.options.turnsHeld?.() === true
+        ) {
             return;
         }
         if (this.deliveryTurnQueued) {

@@ -221,6 +221,8 @@ import type {
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 import { createSessionBlockService } from "./session-block-service.ts";
+import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
 import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
@@ -597,8 +599,15 @@ export async function startResidentHost(
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
     const blockedDirectory = options.blockedDirectory
         ?? veraBlockedDirectory(home);
-    const registry = new AgentRegistry({
+    const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
+        waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        onStopped: () => closeHost(),
+        targetProblem: updateTargetProblem,
+        prepare: prepareStopForTarget,
+    });
+    const registry: AgentRegistry = new AgentRegistry({
         sessionBlockDirectory: blockedDirectory,
+        turnsHeld: (): boolean => stopWhenIdle.holdsTurns,
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
             credentialFingerprint(authStorage, provider),
@@ -1202,6 +1211,7 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            stopWhenIdle,
             forgetProvider: async (provider, workspace) => {
                 forgetProviderConnection(provider, authStorage);
                 providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
