@@ -30,6 +30,7 @@ import { providerCatalogCacheDir } from "../src/model/catalog-cache.ts";
 import { readWebDevArenaSnapshot } from "../src/model/webdev-arena.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
+import { VERA_PRODUCT_VERSION } from "../src/release/manifest.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
 
 test("--help and version are available without starting a client", async () => {
@@ -232,6 +233,32 @@ test("the package bin runs help from outside the checkout", () => {
             `${formatVeraVersion(readStampedRelease())}\n`,
         );
         expect(version.stderr.toString()).toBe("");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("vera --version in a development instance without a pack prints the launch build id", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-cli-dev-version-"));
+    try {
+        const version = Bun.spawnSync(
+            [process.execPath, join(import.meta.dir, "..", "clients", "cli", "main.ts"), "--version"],
+            {
+                cwd: directory,
+                env: {
+                    ...process.env,
+                    HOME: directory,
+                    VERA_DEV_INSTANCE: "srchost vera-988d9d44+02fed1c78547",
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        expect(version.stderr.toString()).toBe("");
+        expect(version.exitCode).toBe(0);
+        expect(version.stdout.toString()).toBe(
+            `vera ${VERA_PRODUCT_VERSION} (vera-988d9d44+02fed1c78547)\n`,
+        );
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }

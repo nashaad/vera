@@ -26,6 +26,7 @@ import {
 } from "../../src/profile-paths.ts";
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
 import {
+    childReleaseRoot,
     RELEASE_HOST_NAME,
     releaseBinaryPath,
 } from "../../src/release/layout.ts";
@@ -57,13 +58,13 @@ export function residentHostEntrypoint(): string {
 }
 
 export function residentHostSpawnSpec(
-    releaseRoot?: string,
+    releaseRoot: string | undefined = childReleaseRoot(),
 ): { readonly command: string; readonly args: readonly string[] } {
-    const packed = releaseRoot === undefined
-        ? releaseBinaryPath(RELEASE_HOST_NAME)
-        : releaseBinaryPath(RELEASE_HOST_NAME, releaseRoot);
-    if (existsSync(packed)) {
-        return { command: packed, args: [] };
+    if (releaseRoot !== undefined) {
+        const packed = releaseBinaryPath(RELEASE_HOST_NAME, releaseRoot);
+        if (existsSync(packed)) {
+            return { command: packed, args: [] };
+        }
     }
     return { command: process.execPath, args: [residentHostEntrypoint()] };
 }

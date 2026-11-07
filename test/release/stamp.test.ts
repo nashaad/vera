@@ -10,8 +10,11 @@ import {
     serializeReleaseManifest,
 } from "../../src/release/manifest.ts";
 import {
+    devInstanceBuildId,
     formatVeraVersion,
     readStampedRelease,
+    thisProcessBuildId,
+    thisProcessVersion,
 } from "../../src/release/stamp.ts";
 
 function stampDir(): string {
@@ -58,5 +61,87 @@ test("a missing stamp fails loudly and names the path", () => {
         expect(() => readStampedRelease(directory)).toThrow(/pack:release/);
     } finally {
         rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("the development build id is the last token of the instance label", () => {
+    expect(devInstanceBuildId("srchost vera-988d9d44+02fed1c78547")).toBe(
+        "vera-988d9d44+02fed1c78547",
+    );
+    expect(devInstanceBuildId("my tree unstamped")).toBe("unstamped");
+});
+
+test("a development label without a build id names the launch command", () => {
+    expect(() => devInstanceBuildId("ovu30")).toThrow(/bun run dev:tui/);
+    expect(() => devInstanceBuildId(undefined)).toThrow(/bun run dev:tui/);
+});
+
+test("a development instance without a pack reports the build id it was launched with", () => {
+    const root = stampDir();
+    const previous = process.env.VERA_DEV_INSTANCE;
+    try {
+        process.env.VERA_DEV_INSTANCE = "srchost vera-988d9d44+02fed1c78547";
+        expect(thisProcessBuildId({
+            prefix: join(root, "prefix"),
+            execPath: join(root, "bun"),
+            checkoutRoot: join(root, "checkout"),
+        })).toBe("vera-988d9d44+02fed1c78547");
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a development instance with a checkout pack reports the pack's stamp", () => {
+    const root = stampDir();
+    const previous = process.env.VERA_DEV_INSTANCE;
+    try {
+        writeStamp(join(root, "checkout", "dist", "release"), "vera-packed01");
+        process.env.VERA_DEV_INSTANCE = "srchost vera-988d9d44+02fed1c78547";
+        expect(thisProcessBuildId({
+            prefix: join(root, "prefix"),
+            execPath: join(root, "bun"),
+            checkoutRoot: join(root, "checkout"),
+        })).toBe("vera-packed01");
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a development instance without a pack prints the product version and its launch build id", () => {
+    const root = stampDir();
+    const previous = process.env.VERA_DEV_INSTANCE;
+    try {
+        process.env.VERA_DEV_INSTANCE = "srchost vera-988d9d44+02fed1c78547";
+        expect(thisProcessVersion({
+            prefix: join(root, "prefix"),
+            execPath: join(root, "bun"),
+            checkoutRoot: join(root, "checkout"),
+        })).toBe(`vera ${VERA_PRODUCT_VERSION} (vera-988d9d44+02fed1c78547)`);
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a development instance with a checkout pack prints the pack's full version", () => {
+    const root = stampDir();
+    const previous = process.env.VERA_DEV_INSTANCE;
+    try {
+        writeStamp(join(root, "checkout", "dist", "release"), "vera-packed01");
+        process.env.VERA_DEV_INSTANCE = "srchost vera-988d9d44+02fed1c78547";
+        expect(thisProcessVersion({
+            prefix: join(root, "prefix"),
+            execPath: join(root, "bun"),
+            checkoutRoot: join(root, "checkout"),
+        })).toBe(`vera ${VERA_PRODUCT_VERSION} (vera-packed01)`);
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+        rmSync(root, { recursive: true, force: true });
     }
 });
