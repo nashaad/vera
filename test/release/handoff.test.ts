@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import type { StopWhenIdleOutcome } from "../../src/host/force-stop.ts";
@@ -66,16 +69,30 @@ test("handOffUpdate reports restored when a different host is running after the 
     expect(outcome.kind).toBe("restored");
 });
 
-test("handOffUpdate reports restored when no lock appears before the timeout", async () => {
-    const outcome = await handOffUpdate({
-        buildId: "vera-new",
-        insideSession: false,
-        report: () => undefined,
-        stopHost: stopping({ pid: 1, endedBy: "stopped" }),
-        readLiveHost: async () => undefined,
-        timeoutMs: 20,
-    });
-    expect(outcome).toMatchObject({ kind: "restored", buildId: "vera-new" });
+test("handOffUpdate reports no_host_started when no lock appears before the timeout", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "handoff-unit-"));
+    try {
+        const shareRoot = join(prefix, "share", "vera");
+        mkdirSync(shareRoot, { recursive: true });
+        symlinkSync("releases/vera-new", join(shareRoot, "current"));
+        const outcome = await handOffUpdate({
+            buildId: "vera-new",
+            insideSession: false,
+            prefix,
+            report: () => undefined,
+            stopHost: stopping({ pid: 1, endedBy: "stopped" }),
+            readLiveHost: async () => undefined,
+            timeoutMs: 1_500,
+        });
+        expect(outcome).toEqual({
+            kind: "no_host_started",
+            buildId: "vera-new",
+            currentBuildId: "vera-new",
+            message: "No Vera host started within 2 seconds. current names vera-new. Run 'vera' to start it.",
+        });
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
 });
 
 test("handOffUpdate leaves current where it is on refusal, abandon and silence", async () => {
@@ -111,4 +128,18 @@ test("handOffUpdate reports waiting targets from a terminal", async () => {
         },
     });
     expect(lines).toContain("Waiting on build (s1, working)");
+});
+
+test("handOffUpdate omits the repeated id when a waiting target has no name", async () => {
+    const lines: string[] = [];
+    await handOffUpdate({
+        buildId: "vera-new",
+        insideSession: false,
+        report: (line) => lines.push(line),
+        stopHost: async (options) => {
+            options.onWaiting?.([{ session_id: "s2", name: null, status: "working" }]);
+            return { pid: 1, endedBy: "accepted" };
+        },
+    });
+    expect(lines).toContain("Waiting on s2 (working)");
 });

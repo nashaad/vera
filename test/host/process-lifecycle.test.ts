@@ -150,6 +150,30 @@ test("a host whose close never finishes still exits after its deadline", async (
     ]);
 });
 
+test("a failed close still runs the pending hand-off and exits 1", async () => {
+    const signal = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: async () => {
+            order.push("close failed");
+            throw new Error("registry close failed");
+        },
+    }, {
+        waitForSignal: () => ({ promise: signal.promise, dispose: () => {} }),
+        exit: (code) => order.push(`exited ${code}`),
+        afterClose: async () => {
+            order.push("after close");
+        },
+        log: () => {},
+    });
+
+    signal.resolve();
+    await running;
+
+    expect(order).toEqual(["close failed", "after close", "exited 1"]);
+});
+
 test("the host gives up closing before the installer gives up waiting", () => {
     expect(HOST_CLOSE_DEADLINE_MS).toBeLessThan(DEFAULT_SIGTERM_GRACE_MS);
 });

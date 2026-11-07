@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 
 import { activateRelease } from "./activate.ts";
 import {
+    currentReleaseBuildId,
     RELEASE_HOST_NAME,
     releaseDirectory,
     thisProcessReleaseRoot,
@@ -151,11 +152,18 @@ export type HandOffOutcome =
         readonly runningBuildId: string | undefined;
         readonly message: string;
     }
+    | {
+        readonly kind: "no_host_started";
+        readonly buildId: string;
+        readonly currentBuildId: string | undefined;
+        readonly message: string;
+    }
     | { readonly kind: "not_moved"; readonly message: string };
 
 export interface HandOffOptions {
     readonly buildId: string;
     readonly insideSession: boolean;
+    readonly prefix?: string;
     readonly report: (line: string) => void;
     readonly stopHost?: (options: StopWhenIdleOptions) => Promise<StopWhenIdleOutcome | undefined>;
     readonly readLiveHost?: () => Promise<HostLockRecord | undefined>;
@@ -176,8 +184,10 @@ export async function handOffUpdate(options: HandOffOptions): Promise<HandOffOut
                 options.report("Waiting for running turns to end before the update.");
             }
             for (const target of waiting) {
-                const label = target.name ?? target.session_id;
-                options.report(`Waiting on ${label} (${target.session_id}, ${target.status})`);
+                const line = target.name
+                    ? `Waiting on ${target.name} (${target.session_id}, ${target.status})`
+                    : `Waiting on ${target.session_id} (${target.status})`;
+                options.report(line);
             }
         },
     });
@@ -243,11 +253,13 @@ async function awaitTargetHost(
         }
         await new Promise((resolve) => setTimeout(resolve, HANDOFF_POLL_INTERVAL_MS));
     }
+    const seconds = Math.round(timeoutMs / 1000);
+    const currentBuildId = currentReleaseBuildId(options.prefix);
     return {
-        kind: "restored",
+        kind: "no_host_started",
         buildId: options.buildId,
-        runningBuildId: undefined,
-        message: `The new host for ${options.buildId} did not publish its lock in time. Run 'vera' to start Vera.`,
+        currentBuildId,
+        message: `No Vera host started within ${seconds} seconds. current names ${currentBuildId ?? "no build"}. Run 'vera' to start it.`,
     };
 }
 
@@ -259,5 +271,6 @@ export async function defaultReadLiveHost(): Promise<HostLockRecord | undefined>
         return undefined;
     }
     if (record === undefined || !processIsAlive(record.pid)) return undefined;
-    return record;
+    // A pid the OS reused for another process is not the host the lock names.
+    return checkRecordIdentity(record) !== "mismatch" ? record : undefined;
 }
