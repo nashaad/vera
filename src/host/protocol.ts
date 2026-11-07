@@ -13,6 +13,7 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -244,6 +245,12 @@ export interface ShutdownForReplacementRequest {
     readonly pid: number;
     readonly started_at: string;
     readonly requester_protocol_version: number;
+}
+
+export interface StopHostRequest {
+    readonly type: "stop_host";
+    readonly pid: number;
+    readonly started_at: string;
 }
 
 export interface CreateAgentRequest {
@@ -712,6 +719,28 @@ export type ShutdownForReplacementResponse =
     | ShutdownForReplacementAcceptedResponse
     | ShutdownForReplacementRefusedResponse;
 
+// Streamed on one connection: waiting lines whenever the wait set changes, then stopped.
+export interface StopHostWaitingResponse {
+    readonly type: "stop_host_waiting";
+    readonly waiting_on: readonly StopWaitTarget[];
+}
+
+export interface StopHostStoppedResponse {
+    readonly type: "stop_host_stopped";
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+export interface StopHostRefusedResponse {
+    readonly type: "stop_host_refused";
+    readonly reason: "identity_mismatch" | "unavailable";
+}
+
+export type StopHostResponse =
+    | StopHostWaitingResponse
+    | StopHostStoppedResponse
+    | StopHostRefusedResponse;
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
@@ -750,6 +779,7 @@ export type HostRequest =
     | ScheduleOperationRequest
     | ShutdownIfIdleRequest
     | ShutdownForReplacementRequest
+    | StopHostRequest
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
@@ -808,6 +838,7 @@ export type HostResponse =
     | ImportableSessionsResponse
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
+    | StopHostResponse
     | AttachedResponse
     | BackgroundAgentsResponse
     | WorkIndexResponse
@@ -955,6 +986,19 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         if (operation !== undefined) {
             return { type: "schedule_operation", operation };
         }
+    }
+    if (
+        value?.type === "stop_host"
+        && Number.isInteger(value.pid)
+        && (value.pid as number) > 0
+        && typeof value.started_at === "string"
+        && !Number.isNaN(Date.parse(value.started_at))
+    ) {
+        return {
+            type: "stop_host",
+            pid: value.pid as number,
+            started_at: value.started_at,
+        };
     }
     if (
         (value?.type === "shutdown_if_idle"
@@ -1430,6 +1474,90 @@ export function requestHostShutdownForReplacement(
         started_at: identity.started_at,
         requester_protocol_version: requesterProtocolVersion,
     }, parseShutdownForReplacementResponse);
+}
+
+export type HostStopResult =
+    | { readonly type: "stopped" }
+    | { readonly type: "refused"; readonly reason: "identity_mismatch" | "unavailable" }
+    | { readonly type: "unsupported" }
+    | { readonly type: "no_answer" };
+
+// Resolves once the host reports stopped or the connection ends. onWaiting gets every waiting set the host sends.
+export function requestHostStop(
+    socketPath: string,
+    identity: Pick<HostIdentity, "pid" | "started_at">,
+    onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+): Promise<HostStopResult> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        try {
+            socket = createConnection(socketPath);
+        } catch {
+            resolve({ type: "no_answer" });
+            return;
+        }
+        let finished = false;
+        let buffered = "";
+        const finish = (result: HostStopResult): void => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(deadline);
+            socket.destroy();
+            resolve(result);
+        };
+        // Only the first answer has a deadline; a host that is waiting on turns may take minutes.
+        const deadline = setTimeout(() => finish({ type: "no_answer" }), 1_000);
+        socket.setEncoding("utf8");
+        socket.once("connect", () => {
+            socket.write(`${JSON.stringify({
+                type: "stop_host",
+                pid: identity.pid,
+                started_at: identity.started_at,
+            })}\n`);
+        });
+        socket.on("data", (chunk: string) => {
+            clearTimeout(deadline);
+            buffered += chunk;
+            if (buffered.length > 65_536) {
+                finish({ type: "no_answer" });
+                return;
+            }
+            let newline = buffered.indexOf("\n");
+            while (newline !== -1) {
+                const line = buffered.slice(0, newline);
+                buffered = buffered.slice(newline + 1);
+                const outcome = parseStopHostLine(line, onWaiting);
+                if (outcome !== undefined) {
+                    finish(outcome);
+                    return;
+                }
+                newline = buffered.indexOf("\n");
+            }
+        });
+        socket.once("error", () => finish({ type: "no_answer" }));
+        socket.once("end", () => finish({ type: "no_answer" }));
+        socket.once("close", () => finish({ type: "no_answer" }));
+    });
+}
+
+function parseStopHostLine(
+    source: string,
+    onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+): HostStopResult | undefined {
+    const response = parseJsonObject(source);
+    if (response?.type === "stop_host_waiting" && Array.isArray(response.waiting_on)) {
+        onWaiting(response.waiting_on as readonly StopWaitTarget[]);
+        return undefined;
+    }
+    if (response?.type === "stop_host_stopped") return { type: "stopped" };
+    if (
+        response?.type === "stop_host_refused"
+        && (response.reason === "identity_mismatch" || response.reason === "unavailable")
+    ) {
+        return { type: "refused", reason: response.reason };
+    }
+    if (response?.type === "protocol_error") return { type: "unsupported" };
+    return undefined;
 }
 
 function requestHostShutdown<Response>(

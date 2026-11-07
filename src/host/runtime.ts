@@ -220,6 +220,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
 import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
@@ -593,7 +594,12 @@ export async function startResidentHost(
         "subagent_finished_hook_failed",
     );
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
-    const registry = new AgentRegistry({
+    const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
+        waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        onStopped: () => closeHost(),
+    });
+    const registry: AgentRegistry = new AgentRegistry({
+        turnsHeld: (): boolean => stopWhenIdle.holdsTurns,
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
             credentialFingerprint(authStorage, provider),
@@ -1192,6 +1198,7 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            stopWhenIdle,
             forgetProvider: async (provider, workspace) => {
                 forgetProviderConnection(provider, authStorage);
                 providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);

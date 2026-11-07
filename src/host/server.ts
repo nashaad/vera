@@ -32,8 +32,10 @@ import {
     type AgentLocationResponse,
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
+    type StopHostResponse,
     type CatalogRefreshOutcome,
 } from "./protocol.ts";
+import type { StopWhenIdleControl } from "./stop-when-idle.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -150,6 +152,7 @@ export interface StartHostServerOptions {
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly stopWhenIdle?: StopWhenIdleControl;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void, onStep: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
@@ -454,6 +457,7 @@ export async function startHostServer(
             options.readExtensionLoadFailures,
             options.checkpointStores,
             options.handleExtensionRequest,
+            options.stopWhenIdle,
             resolveHostLimits(options.limits),
         );
     });
@@ -648,6 +652,7 @@ function receiveConnection(
         readonly databases: readonly string[];
     }>) | undefined,
     handleExtensionRequest: ExtensionRequestHandler | undefined,
+    stopWhenIdle: StopWhenIdleControl | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1165,6 +1170,29 @@ function receiveConnection(
                 build_id: identity.build_id,
                 role: "host",
             }).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "stop_host") {
+            clearDeadline();
+            finished = true;
+            if (request.pid !== identity.pid || request.started_at !== identity.started_at) {
+                void send({ type: "stop_host_refused", reason: "identity_mismatch" }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            if (stopWhenIdle === undefined) {
+                void send({ type: "stop_host_refused", reason: "unavailable" }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            const unsubscribe = stopWhenIdle.request((event) => {
+                const response: StopHostResponse = event.type === "stopped"
+                    ? { type: "stop_host_stopped", pid: identity.pid, started_at: identity.started_at }
+                    : { type: "stop_host_waiting", waiting_on: event.waiting_on };
+                return send(response).then(
+                    () => { if (event.type === "stopped") socket.end(); },
+                    () => { socket.destroy(); },
+                );
+            });
+            socket.once("close", unsubscribe);
             return;
         }
         if (request?.type === "shutdown_if_idle") {

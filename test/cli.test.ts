@@ -1429,6 +1429,55 @@ test("vera host stop confirms the explicit resident-host shutdown", async () => 
     expect(output).toBe("Stopped resident Vera host PID 51639.\n");
 });
 
+test("vera host stop waits for turns and reports each target it waits on", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        stopHost: async ({ onWaiting }) => {
+            onWaiting([{ session_id: "s1", name: "build", status: "working" }]);
+            onWaiting([
+                { session_id: "s1", name: "build", status: "working" },
+                { session_id: "s2", name: null, status: "queued" },
+            ]);
+            return { pid: 51639, endedBy: "stopped" };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Stopping after running turns end. New turns are refused until the host stops.\n"
+            + "Waiting on build (s1, working)\n"
+            + "Waiting on build (s1, working)\n"
+            + "Waiting on s2 (s2, queued)\n"
+            + "Stopped resident Vera host PID 51639 after its running turns ended.\n",
+    );
+});
+
+test("vera host stop exits 1 and does not signal when the host does not answer or is too old", async () => {
+    for (const endedBy of ["no_answer", "unsupported"] as const) {
+        let output = "";
+        const exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: async () => ({ pid: 51639, endedBy }),
+            stdout: { write: (text) => output += text },
+        });
+        expect(exitCode).toBe(1);
+        expect(output).toContain("vera host stop --force");
+    }
+});
+
+test("vera host stop --force keeps the immediate stop path", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "sigterm" }),
+        stopHost: async () => {
+            throw new Error("the waiting stop must not run for --force");
+        },
+        stdout: { write: (text) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe("Stopped resident Vera host PID 51639 (SIGTERM).\n");
+});
+
 test("vera host stop says it cleared the lockfile of a host that had already exited", async () => {
     let output = "";
     const exitCode = await runCli(["host", "stop", "--yes"], {

@@ -57,6 +57,7 @@ import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/han
 import type { WorkerAdapterSpec } from "./worker/start.ts";
 import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { type StopWaitTarget, TURNS_HELD_REFUSAL } from "./stop-when-idle.ts";
 import { historyPageFromStore } from "./history-page.ts";
 import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
 import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
@@ -752,8 +753,11 @@ export class AgentRegistry {
                     woken.peerHop = 0;
                 }
             },
-            clientPromptRefusal: () => clientPromptRefusal ?? (modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings)
-                ? "No model selected. Open Switch model before sending a request." : undefined),
+            clientPromptRefusal: () => this.options.turnsHeld?.() === true
+                ? TURNS_HELD_REFUSAL
+                : clientPromptRefusal ?? (modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings)
+                    ? "No model selected. Open Switch model before sending a request." : undefined),
+            turnsHeld: () => this.options.turnsHeld?.() === true,
         });
         const events = new EngineEventBus();
         const instructionRoot = resolveInstructionRoot(store.header.cwd);
@@ -1370,6 +1374,20 @@ export class AgentRegistry {
             agent.triggerDeliveryTurn();
         }
         return agent;
+    }
+
+    stopWaitTargets(): StopWaitTarget[] {
+        const targets: StopWaitTarget[] = [];
+        for (const [id, entry] of this.agents) {
+            const agent = entry.agent;
+            if (agent.idleForReplacement()) continue;
+            targets.push({
+                session_id: id,
+                name: entry.store.name() ?? null,
+                status: agent.status === "idle" ? "queued" : agent.status,
+            });
+        }
+        return targets;
     }
 
     workerAdapterSpecFor(

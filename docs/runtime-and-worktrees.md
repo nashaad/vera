@@ -65,7 +65,8 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `vera` | Start daily Vera without killing existing processes. |
 | `vera doctor` | Inspect this home and clean eligible leftovers after confirmation, or with `--yes`. |
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
-| `vera host stop` | Stop this home's host and affect its attached clients. |
+| `vera host stop` | Stop this home's host after its running turns end. New turns are refused meanwhile. |
+| `vera host stop --force` | Cut the running turns and stop this home's host now. |
 | `bun run dev:tui --stop` | Stop the development host belonging to the current worktree. |
 | `bun run dev:sweep` | Stop processes that have run for two days or longer in the homes of registered development instances. It never stops the default home's host. |
 
@@ -91,9 +92,11 @@ restarted while this client is still connected, unless other work is using
 it. Once this client is disconnected, Reconnect host attaches to a healthy
 host instead. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
 
-If you intend to terminate that host despite active work, `vera host stop
---force` sends SIGKILL. Ordinary `vera host stop` sends SIGTERM and waits;
-it prints Stopped only after the process exits, otherwise exits with status 1.
+Ordinary `vera host stop` asks the host to stop once its running turns end.
+It lists the sessions it waits on and refuses new turns until the host stops.
+It prints Stopped only after the process exits. If the host does not answer,
+the command leaves it running and exits with status 1. `vera host stop --force`
+cuts the running turns and sends SIGTERM, then SIGKILL if the host ignores it.
 Neither command signals a process whose start time the system cannot report.
 They print that the PID could not be confirmed as the host, keep its lockfile,
 and exit with status 1; run the command again. `bun run dev:tui --stop`

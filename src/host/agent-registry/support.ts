@@ -306,6 +306,8 @@ export function importedSessionSummary(
 }
 
 export interface AgentRegistryOptions {
+    /** True while a host stop holds new turns. */
+    readonly turnsHeld?: () => boolean;
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;

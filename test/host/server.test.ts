@@ -23,7 +23,9 @@ import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
+    requestHostStop,
 } from "../../src/host/protocol.ts";
+import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
 
 const temporaryDirectories: string[] = [];
@@ -1765,3 +1767,64 @@ function transcriptEntries(count: number): readonly {
         text: `message ${index}`,
     }));
 }
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "stop_host streams waiting targets and stops once they end, with identity and availability refusals",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const unavailable = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            pid: 102,
+            startedAt: "2026-07-17T12:00:00.123Z",
+        });
+        try {
+            expect(await requestHostStop(socketPath, unavailable.identity, () => undefined))
+                .toEqual({ type: "refused", reason: "unavailable" });
+        } finally {
+            await unavailable.close();
+        }
+
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        let stopped = 0;
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            onStopped: () => {
+                stopped += 1;
+            },
+            pollIntervalMs: 5,
+        });
+        const socketPathWithControl = join(directory, "host-stop.sock");
+        const server = await startHostServer({
+            socketPath: socketPathWithControl,
+            lockPath: join(directory, "host-stop.json"),
+            pid: 103,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            stopWhenIdle: control,
+        });
+        try {
+            expect(await requestHostStop(socketPathWithControl, { pid: 999, started_at: server.identity.started_at }, () => undefined))
+                .toEqual({ type: "refused", reason: "identity_mismatch" });
+
+            const seen: StopWaitTarget[][] = [];
+            const pending = requestHostStop(socketPathWithControl, server.identity, (targets) => {
+                seen.push([...targets]);
+                if (seen.length === 1) {
+                    waiting = [{ session_id: "s1", name: "build", status: "working" }, { session_id: "s2", name: null, status: "queued" }];
+                }
+            });
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            waiting = [];
+            expect(await pending).toEqual({ type: "stopped" });
+            expect(seen[0]).toEqual([{ session_id: "s1", name: "build", status: "working" }]);
+            expect(seen.at(-1)).toEqual([
+                { session_id: "s1", name: "build", status: "working" },
+                { session_id: "s2", name: null, status: "queued" },
+            ]);
+            expect(stopped).toBe(1);
+        } finally {
+            await server.close().catch(() => undefined);
+        }
+    },
+);

@@ -2,8 +2,14 @@ import { unlink } from "node:fs/promises";
 
 import {
     checkRecordIdentity,
+    processIsAlive,
     type RecordIdentity,
 } from "./process-identity.ts";
+import {
+    requestHostStop,
+    type HostStopResult,
+} from "./protocol.ts";
+import type { StopWaitTarget } from "./stop-when-idle.ts";
 
 import {
     defaultHostLockPath,
@@ -50,6 +56,32 @@ export function unverifiedHostMessage(
     return `Could not confirm PID ${pid} is the Vera host (process start time`
         + " unreadable); left it running and kept its lockfile. Try again.";
 }
+
+// The host answers a stop request by waiting for its turns; it never gets a signal here.
+export interface WaitStopOutcome {
+    readonly pid: number;
+    readonly endedBy:
+        | "stopped"
+        | "still_running"
+        | "no_answer"
+        | "refused"
+        | "unsupported";
+    readonly refusal?: "identity_mismatch" | "unavailable";
+}
+
+export type StopWhenIdleOutcome = WaitStopOutcome | ForceStopOutcome;
+
+export interface StopWhenIdleOptions extends ForceStopOptions {
+    readonly onWaiting?: (waiting: readonly StopWaitTarget[]) => void;
+    readonly requestStop?: (
+        socketPath: string,
+        identity: Pick<HostLockRecord, "pid" | "started_at">,
+        onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    ) => Promise<HostStopResult>;
+    readonly stoppedGraceMs?: number;
+}
+
+const DEFAULT_STOPPED_GRACE_MS = 5_000;
 
 export class HostKillNotPermittedError extends Error {
     constructor(readonly pid: number, cause: NodeJS.ErrnoException) {
@@ -157,6 +189,46 @@ export async function gracefulStopResidentHost(
     return outcome;
 }
 
+// Asks a live, verified host to stop once its turns end. Anything else
+// falls back to the graceful path, which never signals a verified live host
+// that did not answer.
+export async function stopResidentHostWhenIdle(
+    options: StopWhenIdleOptions = {},
+): Promise<StopWhenIdleOutcome | undefined> {
+    const lockPath = options.lockPath ?? defaultHostLockPath();
+    const inspection = await inspectHostLockFile(lockPath);
+    const isAlive = options.isProcessAlive ?? processIsAlive;
+    if (inspection.state !== "valid") {
+        return gracefulStopResidentHost({ ...options, lockPath });
+    }
+    const record = inspection.record;
+    const identity = options.matchesRecord === undefined
+        ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
+        : options.matchesRecord(record) ? "match" : "mismatch";
+    if (identity !== "match" || !isAlive(record.pid)) {
+        return gracefulStopResidentHost({ ...options, lockPath });
+    }
+    const requestStop = options.requestStop ?? requestHostStop;
+    const result = await requestStop(
+        record.socket_path,
+        record,
+        options.onWaiting ?? (() => undefined),
+    );
+    if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
+    if (result.type === "unsupported") return { pid: record.pid, endedBy: "unsupported" };
+    if (result.type === "refused") {
+        return { pid: record.pid, endedBy: "refused", refusal: result.reason };
+    }
+    const wait = options.wait ?? waitFor;
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    const deadline = Date.now() + (options.stoppedGraceMs ?? DEFAULT_STOPPED_GRACE_MS);
+    while (isAlive(record.pid)) {
+        if (Date.now() >= deadline) return { pid: record.pid, endedBy: "still_running" };
+        await wait(pollIntervalMs);
+    }
+    return { pid: record.pid, endedBy: "stopped" };
+}
+
 export async function forceStopHostProcess(
     record: Pick<HostLockRecord, "pid" | "started_at">,
     options: ForceStopOptions = {},
@@ -232,15 +304,6 @@ export function defaultKill(pid: number, signal: NodeJS.Signals): void {
             );
         }
         throw error;
-    }
-}
-
-function processIsAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return (error as NodeJS.ErrnoException).code === "EPERM";
     }
 }
 
