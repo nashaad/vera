@@ -118,3 +118,89 @@ test("a request refuses an unusable update target and a second pending update", 
         reason: "stop_pending",
     });
 });
+
+test("stop-when-idle tells observers about a wait, its changes, and its clearing", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        onStopped: () => undefined,
+        pollIntervalMs: 5,
+    });
+    const seen: unknown[] = [];
+    const unobserve = coordinator.observe((event) => {
+        seen.push(event);
+    });
+    const request = coordinator.request(() => undefined, "build-2");
+    expect(request.accepted).toBe(true);
+    await settle();
+    expect(seen).toEqual([{ type: "wait", kind: "update", target_build_id: "build-2", waiting_on: [working] }]);
+
+    waiting = [working, queued];
+    await settle();
+    expect(seen.at(-1)).toEqual({
+        type: "wait",
+        kind: "update",
+        target_build_id: "build-2",
+        waiting_on: [working, queued],
+    });
+
+    unobserve();
+    const countAfterUnobserve = seen.length;
+    waiting = [];
+    await settle();
+    expect(seen.length).toBe(countAfterUnobserve);
+});
+
+test("stop-when-idle sends a late observer the open wait and a restart before stopping", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        onStopped: () => undefined,
+        pollIntervalMs: 5,
+    });
+    coordinator.request(() => undefined, "build-3");
+    await settle();
+
+    const late: unknown[] = [];
+    coordinator.observe((event) => {
+        late.push(event);
+    });
+    expect(late).toEqual([{ type: "wait", kind: "update", target_build_id: "build-3", waiting_on: [working] }]);
+
+    const all: unknown[] = [];
+    coordinator.observe((event) => {
+        all.push(event);
+    });
+    waiting = [];
+    await settle();
+    expect(all).toEqual([
+        { type: "wait", kind: "update", target_build_id: "build-3", waiting_on: [working] },
+        { type: "wait_cleared", reason: "stopped" },
+        { type: "restarting", build_id: "build-3" },
+    ]);
+});
+
+test("stop-when-idle clears an observed plain stop when it is abandoned", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        onStopped: () => undefined,
+        pollIntervalMs: 5,
+        prepare: () => "Could not move the update.",
+    });
+    const seen: unknown[] = [];
+    coordinator.observe((event) => {
+        seen.push(event);
+    });
+    coordinator.request(() => undefined);
+    await settle();
+    expect(seen).toEqual([{ type: "wait", kind: "stop", waiting_on: [working] }]);
+
+    waiting = [];
+    await settle();
+    expect(seen.at(-1)).toEqual({
+        type: "wait_cleared",
+        reason: "abandoned",
+        message: "Could not move the update.",
+    });
+});

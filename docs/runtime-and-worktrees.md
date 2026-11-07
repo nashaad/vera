@@ -94,6 +94,8 @@ host instead. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host)
 
 Ordinary `vera host stop` asks the host to stop once its running turns end.
 It lists the sessions it waits on and refuses new turns until the host stops.
+An attached TUI shows the same sessions above its composer while the wait is open,
+and removes the notice once the host stops or the wait is abandoned.
 It prints Stopped only after the process exits. If the host does not answer,
 the command leaves it running and exits with status 1. `vera host stop --force`
 cuts the running turns and sends SIGTERM, then SIGKILL if the host ignores it.

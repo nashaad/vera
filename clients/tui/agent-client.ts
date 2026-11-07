@@ -18,6 +18,8 @@ export interface TuiAgentClient {
     readonly workIndex?: AttachedAgentClient["workIndex"];
     onWorkIndex?: AttachedAgentClient["onWorkIndex"];
     onSessionTitle?: AttachedAgentClient["onSessionTitle"];
+    readonly stopWait?: AttachedAgentClient["stopWait"];
+    onStopWait?: AttachedAgentClient["onStopWait"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];

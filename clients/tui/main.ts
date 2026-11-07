@@ -1,3 +1,4 @@
+import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
@@ -330,8 +331,8 @@ import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
-import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
-export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
+import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
+export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
 export { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
@@ -531,6 +532,8 @@ export interface TuiDependencies {
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    /** Ends one session's turn through the host. Used by the stop-now action. */
+    readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -780,6 +783,7 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
+            abortAgent: async (agentId) => abortAgentThroughHost(await pairedSocket(), agentId),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
@@ -2424,6 +2428,10 @@ export async function startTui(
         rt.stopWatchingWorkIndex = undefined;
         rt.stopWatchingSessionTitle?.();
         rt.stopWatchingSessionTitle = undefined;
+        rt.stopWatchingStopWait?.();
+        rt.stopWatchingStopWait = undefined;
+        rt.stopWait = undefined;
+        rt.stopWaitCard = undefined;
         rt.disposeSkillCommands();
         rt.disposeSkillCommands = () => {};
         rt.pendingSkillInvocations.clear();
@@ -2484,6 +2492,7 @@ export async function startTui(
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     watchSessionTitle(rt, rt.dependencies.client);
+    watchStopWait(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 
     rt.renderer.on(CliRenderEvents.RESIZE, () => {

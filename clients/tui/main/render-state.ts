@@ -6,6 +6,7 @@ import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationConsole, renderCommandSuggestions, renderHeldAddress, renderPendingQuote, renderStatus } from "../main.ts";
 import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
+import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { markSearchLanding } from "../main/chrome.ts";
 import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
@@ -25,7 +26,8 @@ export function renderState(rt: TuiRuntime): void {
     if (rt.shuttingDown) {
         return;
     }
-    const uiRequest = focusedUiRequest(rt);
+    const uiRequest = focusedUiRequest(rt)
+        ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard);
     const configurationRequired = uiRequest !== undefined
         && isConfigurationRequiredUiRequestUpdate(uiRequest);
     rt.experimentalTuiHost.render();

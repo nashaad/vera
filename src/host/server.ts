@@ -33,9 +33,10 @@ import {
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
     type StopHostResponse,
+    stopWaitWireMessage,
     type CatalogRefreshOutcome,
 } from "./protocol.ts";
-import type { StopWhenIdleControl } from "./stop-when-idle.ts";
+import type { StopWaitEvent, StopWhenIdleControl } from "./stop-when-idle.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -87,6 +88,7 @@ import {
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_SESSION_TITLE,
+    HOST_CAPABILITY_STOP_WAIT,
     HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -692,6 +694,7 @@ function receiveConnection(
     let attachedCapabilities: readonly string[] = [];
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
+    let stopWatchingStopWait: (() => void) | undefined;
     let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     let sentSessionTitle: { readonly title: string | undefined } | undefined;
@@ -716,6 +719,8 @@ function receiveConnection(
         clearDeadline();
         stopWatchingRoster?.();
         stopWatchingRoster = undefined;
+        stopWatchingStopWait?.();
+        stopWatchingStopWait = undefined;
         attachment?.detach();
         attachment = undefined;
         attachedAgent = undefined;
@@ -850,6 +855,8 @@ function receiveConnection(
             finished = true;
             stopWatchingRoster?.();
             stopWatchingRoster = undefined;
+            stopWatchingStopWait?.();
+            stopWatchingStopWait = undefined;
             const detachedAgentId = attachedAgentId;
             attachment.detach();
             attachment = undefined;
@@ -903,6 +910,8 @@ function receiveConnection(
             finished = true;
             stopWatchingRoster?.();
             stopWatchingRoster = undefined;
+            stopWatchingStopWait?.();
+            stopWatchingStopWait = undefined;
             const releasedAgentId = attachedAgentId;
             const releasedClientId = attachedClientId;
             attachment.detach();
@@ -1862,6 +1871,7 @@ function receiveConnection(
         const wantsSessionTitle = negotiated.includes(
             HOST_CAPABILITY_SESSION_TITLE,
         );
+        const wantsStopWait = negotiated.includes(HOST_CAPABILITY_STOP_WAIT);
         stopWatchingRoster = onRosterChanged(() => {
             sendBackgroundAgents(attachedId);
             if (wantsWorkIndex) sendWorkIndex();
@@ -1879,6 +1889,9 @@ function receiveConnection(
             () => {
                 if (wantsWorkIndex) sendWorkIndex();
                 if (wantsSessionTitle) sendSessionTitle(attachedId);
+                if (wantsStopWait && stopWhenIdle !== undefined) {
+                    stopWatchingStopWait = stopWhenIdle.observe(sendStopWaitEvent);
+                }
                 return forwardAgentUpdates(agent, attached);
             },
             () => socket.destroy(),
@@ -1957,6 +1970,14 @@ function receiveConnection(
         sentWorkIndex = next;
         void send({ type: "work_index", index: next },
             () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
+    }
+
+    function sendStopWaitEvent(event: StopWaitEvent): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        void send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
             .catch(() => socket.destroy());
     }
 

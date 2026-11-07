@@ -13,7 +13,7 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
-import type { StopRefusalReason, StopWaitTarget } from "./stop-when-idle.ts";
+import type { StopRefusalReason, StopWaitEvent, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -751,6 +751,32 @@ export type StopHostResponse =
     | StopHostRefusedResponse
     | StopHostAbandonedResponse;
 
+// Pushed to every attached client that negotiated host.stop-wait.v1, and sent
+// once on attach while a wait is open. waiting_on lists the sessions the wait holds.
+export interface HostStopWaitResponse {
+    readonly type: "host_stop_wait";
+    readonly kind: "stop" | "update";
+    readonly target_build_id?: string;
+    readonly waiting_on: readonly StopWaitTarget[];
+}
+
+export interface HostStopWaitClearedResponse {
+    readonly type: "host_stop_wait_cleared";
+    readonly reason: "abandoned" | "stopped";
+    readonly message?: string;
+}
+
+// Sent just before the host closes for an update, so clients can reconnect to build_id.
+export interface HostRestartingResponse {
+    readonly type: "host_restarting";
+    readonly build_id: string;
+}
+
+export type HostStopWaitEvent =
+    | HostStopWaitResponse
+    | HostStopWaitClearedResponse
+    | HostRestartingResponse;
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
@@ -813,6 +839,7 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest
     | HistoryPageRequest;
 export type HostResponse =
+    | HostStopWaitEvent
     | ModelOperationProgressResponse
     | ModelOperationStepResponse
     | ModelOperationCompleteResponse
@@ -1271,6 +1298,70 @@ function isBranchInitialMessages(
                     return true;
                 });
         });
+}
+
+export function parseHostStopWaitEvent(value: unknown): HostStopWaitEvent | undefined {
+    if (typeof value !== "object" || value === null) return undefined;
+    const record = value as Record<string, unknown>;
+    if (record.type === "host_stop_wait") {
+        const kind = record.kind;
+        const waiting = record.waiting_on;
+        if (
+            (kind !== "stop" && kind !== "update")
+            || !Array.isArray(waiting)
+            || !waiting.every(isStopWaitTargetRecord)
+        ) {
+            return undefined;
+        }
+        if (kind === "update") {
+            if (!isBuildIdText(record.target_build_id)) return undefined;
+            return {
+                type: "host_stop_wait",
+                kind,
+                target_build_id: record.target_build_id,
+                waiting_on: waiting,
+            };
+        }
+        return { type: "host_stop_wait", kind, waiting_on: waiting };
+    }
+    if (record.type === "host_stop_wait_cleared") {
+        if (record.reason !== "abandoned" && record.reason !== "stopped") return undefined;
+        if (record.message !== undefined && typeof record.message !== "string") return undefined;
+        return record.message === undefined
+            ? { type: "host_stop_wait_cleared", reason: record.reason }
+            : { type: "host_stop_wait_cleared", reason: record.reason, message: record.message };
+    }
+    if (record.type === "host_restarting" && isBuildIdText(record.build_id)) {
+        return { type: "host_restarting", build_id: record.build_id };
+    }
+    return undefined;
+}
+
+export function stopWaitWireMessage(event: StopWaitEvent): HostStopWaitEvent {
+    if (event.type === "wait") {
+        return event.kind === "update"
+            ? {
+                type: "host_stop_wait",
+                kind: "update",
+                target_build_id: event.target_build_id,
+                waiting_on: event.waiting_on,
+            }
+            : { type: "host_stop_wait", kind: "stop", waiting_on: event.waiting_on };
+    }
+    if (event.type === "wait_cleared") {
+        return event.message === undefined
+            ? { type: "host_stop_wait_cleared", reason: event.reason }
+            : { type: "host_stop_wait_cleared", reason: event.reason, message: event.message };
+    }
+    return { type: "host_restarting", build_id: event.build_id };
+}
+
+function isStopWaitTargetRecord(value: unknown): value is StopWaitTarget {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return typeof record.session_id === "string"
+        && (record.name === null || typeof record.name === "string")
+        && (record.status === "working" || record.status === "waiting" || record.status === "queued");
 }
 
 export function parseAttachedClientMessage(

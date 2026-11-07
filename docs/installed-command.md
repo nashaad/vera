@@ -33,7 +33,8 @@ active at once. With a host running, the installer leaves `current` where it
 is and asks the host to move to the new release when its running turns end.
 The host holds new turns while it waits, then moves `current` and starts the
 new release's host as it exits. From a terminal the install waits and prints
-what the host waits on. From inside a Vera session it returns at once with a
+what the host waits on. An attached TUI shows the update build and the sessions
+it waits for. From inside a Vera session it returns at once with a
 line that the update happens when running turns end. If the new host does not
 start, the previous release is made active again and its host is started. A
 second install that arrives while an earlier update still waits is refused

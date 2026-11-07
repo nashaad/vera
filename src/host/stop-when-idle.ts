@@ -8,6 +8,20 @@ export interface StopWaitTarget {
 
 export type StopRefusalReason = "identity_mismatch" | "unavailable" | "stop_pending" | "target_unavailable";
 
+// Host-wide facts about a wait, sent to every attached client.
+export type StopWaitEvent =
+    | { readonly type: "wait"; readonly kind: "stop"; readonly waiting_on: readonly StopWaitTarget[] }
+    | {
+        readonly type: "wait";
+        readonly kind: "update";
+        readonly target_build_id: string;
+        readonly waiting_on: readonly StopWaitTarget[];
+    }
+    | { readonly type: "wait_cleared"; readonly reason: "abandoned" | "stopped"; readonly message?: string }
+    | { readonly type: "restarting"; readonly build_id: string };
+
+export type StopWaitObserver = (event: StopWaitEvent) => void;
+
 export type StopWhenIdleEvent =
     | { readonly type: "waiting"; readonly waiting_on: readonly StopWaitTarget[] }
     | { readonly type: "stopped" }
@@ -25,6 +39,8 @@ export type StopRequestResult =
 
 export interface StopWhenIdleControl {
     request(listener: StopWhenIdleListener, buildId?: string | null): StopRequestResult;
+    // Calls the observer with the current wait, if one is announced, then with each change.
+    observe(observer: StopWaitObserver): () => void;
 }
 
 export interface StopWhenIdleOptions {
@@ -52,6 +68,8 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private lastKey: string | undefined;
     private timer: ReturnType<typeof setInterval> | undefined;
     private readonly listeners = new Set<StopWhenIdleListener>();
+    private readonly observers = new Set<StopWaitObserver>();
+    private announced: Extract<StopWaitEvent, { type: "wait" }> | undefined;
 
     constructor(private readonly options: StopWhenIdleOptions) {}
 
@@ -86,6 +104,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
         } else {
             this.lastKey = keyOf(waiting);
             void deliver(listener, { type: "waiting", waiting_on: waiting });
+            this.announce(waiting);
             this.ensureTimer();
         }
         return {
@@ -93,6 +112,14 @@ export class StopWhenIdle implements StopWhenIdleControl {
             unsubscribe: () => {
                 this.listeners.delete(listener);
             },
+        };
+    }
+
+    observe(observer: StopWaitObserver): () => void {
+        this.observers.add(observer);
+        if (this.announced !== undefined) safelyObserve(observer, this.announced);
+        return () => {
+            this.observers.delete(observer);
         };
     }
 
@@ -123,6 +150,17 @@ export class StopWhenIdle implements StopWhenIdleControl {
         if (key === this.lastKey) return;
         this.lastKey = key;
         void this.broadcast({ type: "waiting", waiting_on: waiting });
+        this.announce(waiting);
+    }
+
+    // Starts or updates the announced wait for every observer.
+    private announce(waiting: readonly StopWaitTarget[]): void {
+        const pending = this.pending ?? null;
+        const event: Extract<StopWaitEvent, { type: "wait" }> = pending === null
+            ? { type: "wait", kind: "stop", waiting_on: waiting }
+            : { type: "wait", kind: "update", target_build_id: pending, waiting_on: waiting };
+        this.announced = event;
+        for (const observer of [...this.observers]) safelyObserve(observer, event);
     }
 
     private async finish(): Promise<void> {
@@ -134,6 +172,13 @@ export class StopWhenIdle implements StopWhenIdleControl {
         }
         this.finished = true;
         this.clearTimer();
+        if (this.announced !== undefined) {
+            this.announced = undefined;
+            this.emit({ type: "wait_cleared", reason: "stopped" });
+        }
+        if (this.pending !== null && this.pending !== undefined) {
+            this.emit({ type: "restarting", build_id: this.pending });
+        }
         await this.broadcast({ type: "stopped" });
         await this.options.onStopped();
     }
@@ -152,7 +197,15 @@ export class StopWhenIdle implements StopWhenIdleControl {
         this.pending = undefined;
         this.lastKey = undefined;
         this.clearTimer();
+        if (this.announced !== undefined) {
+            this.announced = undefined;
+            this.emit({ type: "wait_cleared", reason: "abandoned", message });
+        }
         await this.broadcast({ type: "abandoned", message });
+    }
+
+    private emit(event: StopWaitEvent): void {
+        for (const observer of [...this.observers]) safelyObserve(observer, event);
     }
 
     private clearTimer(): void {
@@ -178,6 +231,14 @@ function deliver(
     return Promise.resolve()
         .then(() => listener(event))
         .catch(() => undefined);
+}
+
+function safelyObserve(observer: StopWaitObserver, event: StopWaitEvent): void {
+    try {
+        observer(event);
+    } catch {
+        // An observer that throws must not hold up the stop.
+    }
 }
 
 function keyOf(waiting: readonly StopWaitTarget[]): string {
