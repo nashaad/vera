@@ -1448,7 +1448,7 @@ test("vera host stop waits for turns and reports each target it waits on", async
         "Stopping after running turns end. New turns are refused until the host stops.\n"
             + "Waiting on build (s1, working)\n"
             + "Waiting on build (s1, working)\n"
-            + "Waiting on s2 (s2, queued)\n"
+            + "Waiting on s2 (queued)\n"
             + "Stopped resident Vera host PID 51639 after its running turns ended.\n",
     );
 });

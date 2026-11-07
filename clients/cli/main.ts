@@ -905,8 +905,10 @@ export async function runCli(
                     output.write("Stopping after running turns end. New turns are refused until the host stops.\n");
                 }
                 for (const target of waiting) {
-                    const label = target.name ?? target.session_id;
-                    output.write(`Waiting on ${label} (${target.session_id}, ${target.status})\n`);
+                    const line = target.name
+                        ? `Waiting on ${target.name} (${target.session_id}, ${target.status})`
+                        : `Waiting on ${target.session_id} (${target.status})`;
+                    output.write(`${line}\n`);
                 }
             };
             const outcome = await (

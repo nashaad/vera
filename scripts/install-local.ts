@@ -86,6 +86,7 @@ function printOutcome(outcome: InstallOutcome): number {
             );
             return 0;
         case "restored":
+        case "no_host_started":
             process.stderr.write(`vera install:local: ${outcome.message}\n`);
             return 1;
         case "not_moved":

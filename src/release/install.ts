@@ -69,5 +69,5 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
     assertPrefixMayManageHost(prefix, "install");
     const insideSession = targetPidIsAncestor(live.pid) === true;
     const handOff = options.handOff ?? handOffUpdate;
-    return handOff({ buildId, insideSession, report, readLiveHost });
+    return handOff({ buildId, insideSession, prefix, report, readLiveHost });
 }

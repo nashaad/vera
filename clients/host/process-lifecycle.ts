@@ -17,7 +17,7 @@ export interface ResidentHostProcessOptions {
     readonly stopAbsorbingFaults?: () => void;
     readonly closeDeadlineMs?: number;
     readonly log?: HostLog;
-    // Runs after a clean close and before exit. A failure is reported and does not block exit.
+    // Runs after a failed or clean close and before exit. A timed-out close skips it, since that host may still serve.
     readonly afterClose?: () => Promise<void>;
 }
 
@@ -36,6 +36,7 @@ export async function runResidentHostProcess(
     const signal = (options.waitForSignal ?? waitForShutdownSignal)();
     const checkout = options.waitForCheckoutRemoval?.();
     const socket = options.waitForSocketLoss?.();
+    let exitCode = 0;
     try {
         await Promise.race([
             signal.promise,
@@ -58,7 +59,7 @@ export async function runResidentHostProcess(
                         : String(outcome.error)
                 }\n`,
             );
-            exit(1);
+            exitCode = 1;
         } else if (outcome.kind === "timed_out") {
             // A stuck turn or extension must not keep a host alive that was told to stop.
             const message = `Resident Vera host did not finish closing within ${deadlineMs} ms; exiting anyway.`;
@@ -69,7 +70,8 @@ export async function runResidentHostProcess(
                 error: message,
             });
         }
-        if (outcome.kind === "closed" && options.afterClose !== undefined) {
+        // A failed close has already stopped the socket, so the hand-off cannot start a second host on it.
+        if (outcome.kind !== "timed_out" && options.afterClose !== undefined) {
             try {
                 await options.afterClose();
             } catch (error) {
@@ -78,7 +80,7 @@ export async function runResidentHostProcess(
         }
     }
 
-    exit(0);
+    exit(exitCode);
 }
 
 async function closeBeforeDeadline(
