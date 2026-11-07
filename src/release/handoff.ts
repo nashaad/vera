@@ -258,5 +258,6 @@ export async function defaultReadLiveHost(): Promise<HostLockRecord | undefined>
         return undefined;
     }
     if (record === undefined || !processIsAlive(record.pid)) return undefined;
-    return record;
+    // A pid the OS reused for another process is not the host the lock names.
+    return checkRecordIdentity(record) !== "mismatch" ? record : undefined;
 }
