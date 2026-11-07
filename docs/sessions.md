@@ -57,7 +57,8 @@ When a session ignores both, `vera block <agent-id>` is the stronger move.
 their ids and whether each is live, then asks you to confirm. Once confirmed,
 Vera stops their running turns and writes a block for each one. A blocked
 session stays open and inert: a new prompt, a queued prompt, an inbox message,
-a scheduled job, or a resume does not start a turn in it. It is not closed.
+a scheduled job, or a resume does not start a turn in it, and an extension's
+side question to it is refused. It is not closed.
 Run `vera close <agent-id>` afterwards to end it.
 
 `vera block --reason <text>` records a short reason with the block.
