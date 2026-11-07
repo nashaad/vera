@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import type { RestartRecord } from "../../src/store/restart-records.ts";
 import {
     StopWhenIdle,
     type StopWaitTarget,
@@ -220,12 +221,16 @@ test("cutWait refuses when no stop is waiting", async () => {
 
 test("cutWait cuts each waited session once and records the cut", async () => {
     const cuts: Array<[string, string]> = [];
+    const records: RestartRecord[] = [];
     const coordinator = new StopWhenIdle({
         waitingOn: () => [working, queued],
         onStopped: () => undefined,
         cutSession: async (id, reason) => {
             cuts.push([id, reason]);
             return true;
+        },
+        recordCut: (record) => {
+            records.push(record);
         },
         now: () => new Date("2026-11-07T10:00:00.000Z"),
     });
@@ -236,19 +241,23 @@ test("cutWait cuts each waited session once and records the cut", async () => {
         ["s1", "Vera is stopping"],
         ["s2", "Vera is stopping"],
     ]);
-    expect(coordinator.cutRecords).toEqual([
-        { session_id: "s1", cause: "stop", target_build_id: null, cut_at: "2026-11-07T10:00:00.000Z" },
-        { session_id: "s2", cause: "stop", target_build_id: null, cut_at: "2026-11-07T10:00:00.000Z" },
+    expect(records).toEqual([
+        { session_id: "s1", cause: "stop", at: "2026-11-07T10:00:00.000Z" },
+        { session_id: "s2", cause: "stop", at: "2026-11-07T10:00:00.000Z" },
     ]);
 });
 
 test("cutWait reports a session that did not confirm, and names the update build", async () => {
+    const records: RestartRecord[] = [];
     const coordinator = new StopWhenIdle({
         waitingOn: () => [working, queued],
         onStopped: () => undefined,
         cutSession: async (id) => {
             if (id === "s2") throw new Error("worker gone");
             return false;
+        },
+        recordCut: (record) => {
+            records.push(record);
         },
     });
     coordinator.request(() => undefined, "build-42");
@@ -261,26 +270,50 @@ test("cutWait reports a session that did not confirm, and names the update build
             { session_id: "s2", message: "worker gone" },
         ],
     });
-    expect(coordinator.cutRecords).toEqual([]);
+    expect(records).toEqual([]);
 });
 
 test("cutWait records an update cut with its target build", async () => {
+    const records: RestartRecord[] = [];
     const coordinator = new StopWhenIdle({
         waitingOn: () => [working],
         onStopped: () => undefined,
         cutSession: async () => true,
+        recordCut: (record) => {
+            records.push(record);
+        },
     });
     coordinator.request(() => undefined, "build-42", { cutFirst: true });
     await settle();
-    expect(coordinator.cutRecords).toEqual([
+    expect(records).toEqual([
         expect.objectContaining({ session_id: "s1", cause: "update", target_build_id: "build-42" }),
     ]);
+});
+
+test("a throwing record writer does not stop the cut", async () => {
+    const halts: string[] = [];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working],
+        onStopped: () => undefined,
+        cutSession: async (id) => {
+            halts.push(id);
+            return true;
+        },
+        recordCut: () => {
+            throw new Error("disk full");
+        },
+    });
+    coordinator.request(() => undefined);
+    expect(await coordinator.cutWait()).toEqual({ status: "done", cut: ["s1"], failed: [] });
+    expect(await coordinator.cutWait()).toEqual({ status: "done", cut: ["s1"], failed: [] });
+    expect(halts).toEqual(["s1", "s1"]);
 });
 
 test("cutWait records one cut per session per wait, and a new wait after an abandon records again", async () => {
     let waiting: StopWaitTarget[] = [working];
     let problem: string | undefined;
     const halts: string[] = [];
+    const records: RestartRecord[] = [];
     const coordinator = new StopWhenIdle({
         waitingOn: () => waiting,
         onStopped: () => undefined,
@@ -289,13 +322,16 @@ test("cutWait records one cut per session per wait, and a new wait after an aban
             halts.push(id);
             return true;
         },
+        recordCut: (record) => {
+            records.push(record);
+        },
         pollIntervalMs: 5,
     });
     coordinator.request(() => undefined);
     await coordinator.cutWait();
     await coordinator.cutWait();
     expect(halts).toEqual(["s1", "s1"]);
-    expect(coordinator.cutRecords.map((record) => record.session_id)).toEqual(["s1"]);
+    expect(records.map((record) => record.session_id)).toEqual(["s1"]);
 
     problem = "Vera cannot stop yet.";
     waiting = [];
@@ -305,5 +341,5 @@ test("cutWait records one cut per session per wait, and a new wait after an aban
     waiting = [working];
     coordinator.request(() => undefined);
     await coordinator.cutWait();
-    expect(coordinator.cutRecords.map((record) => record.session_id)).toEqual(["s1", "s1"]);
+    expect(records.map((record) => record.session_id)).toEqual(["s1", "s1"]);
 });

@@ -1,3 +1,5 @@
+import type { RestartRecord } from "../store/restart-records.ts";
+
 export type StopWaitStatus = "working" | "waiting" | "queued";
 
 export interface StopWaitTarget {
@@ -44,13 +46,6 @@ export interface StopRequestOptions {
 
 export type StopCause = "stop" | "update";
 
-export interface StopCutRecord {
-    readonly session_id: string;
-    readonly cause: StopCause;
-    readonly target_build_id: string | null;
-    readonly cut_at: string;
-}
-
 export interface StopCutFailure {
     readonly session_id: string;
     readonly message: string;
@@ -73,8 +68,6 @@ export interface StopWhenIdleControl {
     // Calls the observer with the current wait, if one is announced, then with each change.
     observe(observer: StopWaitObserver): () => void;
     cutWait(): Promise<CutStopWaitResult>;
-    // Sessions cut by any wait since the host started, oldest first.
-    readonly cutRecords: readonly StopCutRecord[];
 }
 
 export interface StopWhenIdleOptions {
@@ -87,6 +80,8 @@ export interface StopWhenIdleOptions {
     readonly prepare?: (buildId: string | null) => string | undefined;
     // Halts one session and clears the halt again. False when the session did not confirm.
     readonly cutSession?: (sessionId: string, reason: string) => Promise<boolean>;
+    // Receives one record per session per wait, after the session confirms the cut.
+    readonly recordCut?: (record: RestartRecord) => void;
     readonly now?: () => Date;
 }
 
@@ -107,7 +102,6 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private readonly listeners = new Set<StopWhenIdleListener>();
     private readonly observers = new Set<StopWaitObserver>();
     private announced: Extract<StopWaitEvent, { type: "wait" }> | undefined;
-    private readonly cutLog: StopCutRecord[] = [];
     // One record per session per wait; a repeat cut in the same wait still halts the session.
     private readonly recordedThisWait = new Set<string>();
 
@@ -115,10 +109,6 @@ export class StopWhenIdle implements StopWhenIdleControl {
 
     get holdsTurns(): boolean {
         return this.held;
-    }
-
-    get cutRecords(): readonly StopCutRecord[] {
-        return [...this.cutLog];
     }
 
     request(
@@ -201,14 +191,24 @@ export class StopWhenIdle implements StopWhenIdleControl {
             cut.push(target.session_id);
             if (this.recordedThisWait.has(target.session_id)) continue;
             this.recordedThisWait.add(target.session_id);
-            this.cutLog.push({
-                session_id: target.session_id,
-                cause,
-                target_build_id: this.pending ?? null,
-                cut_at: (this.options.now?.() ?? new Date()).toISOString(),
-            });
+            this.recordCut(target.session_id, cause);
         }
         return { status: "done", cut, failed };
+    }
+
+    // A failed write does not undo the cut or the stop.
+    private recordCut(sessionId: string, cause: StopCause): void {
+        const record: RestartRecord = {
+            session_id: sessionId,
+            cause,
+            ...(typeof this.pending === "string" ? { target_build_id: this.pending } : {}),
+            at: (this.options.now?.() ?? new Date()).toISOString(),
+        };
+        try {
+            this.options.recordCut?.(record);
+        } catch {
+            // The writer reports its own failures; the cut continues.
+        }
     }
 
     observe(observer: StopWaitObserver): () => void {

@@ -79,9 +79,11 @@ import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.t
 import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
 import { recoverCrashedTurns } from "./restart-scan.ts";
 import {
+    appendRestartRecord,
     clearRestartRecordsForSession,
     defaultRestartRecordPath,
     listRestartRecords,
+    type RestartRecord,
 } from "../store/restart-records.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
@@ -393,6 +395,16 @@ export async function startResidentHost(
             });
         }
     };
+    const recordStopCut = (record: RestartRecord): void => {
+        try {
+            appendRestartRecord(record, restartRecordPath);
+        } catch (error) {
+            hostLog({
+                type: "restart_record_write_failed",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    };
     const modelFailureLedgerPath = options.modelFailureLedgerPath
         ?? defaultModelFailureLedgerPath(home);
     const sessionDirectory = options.sessionDirectory
@@ -622,6 +634,7 @@ export async function startResidentHost(
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
         cutSession: (sessionId, reason) => registry.cutSessionForStop(sessionId, reason),
+        recordCut: recordStopCut,
     });
     const registry: AgentRegistry = new AgentRegistry({
         sessionBlockDirectory: blockedDirectory,
