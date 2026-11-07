@@ -71,7 +71,7 @@ import {
     rollbackHomeMigration,
     type HomeMigrationResult,
 } from "../../src/home-migration.ts";
-import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
+import { thisProcessVersion } from "../../src/release/stamp.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -371,7 +371,7 @@ export async function runCli(
     ) {
         try {
             output.write(
-                `${dependencies.version ?? formatVeraVersion(readStampedRelease())}\n`,
+                `${dependencies.version ?? thisProcessVersion()}\n`,
             );
             return 0;
         } catch (error) {

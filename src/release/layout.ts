@@ -1,4 +1,4 @@
-import { existsSync, readlinkSync } from "node:fs";
+import { existsSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -99,14 +99,21 @@ export function releaseBinaryPath(
     return join(releaseRoot, name);
 }
 
+// The checkout pack is the one `bun run pack:release` writes under the working directory.
+export function checkoutPackRoot(checkoutRoot = process.cwd()): string {
+    return join(checkoutRoot, "dist", "release");
+}
+
 export function thisProcessReleaseRoot(
     prefix = defaultInstallPrefix(),
+    execPath = process.execPath,
+    checkoutRoot = process.cwd(),
 ): string {
-    const candidate = dirname(process.execPath);
+    const candidate = dirname(execPath);
     if (existsSync(releaseManifestPath(candidate))) {
         return candidate;
     }
-    const checkoutPack = join(process.cwd(), "dist", "release");
+    const checkoutPack = checkoutPackRoot(checkoutRoot);
     if (
         process.env.VERA_DEV_INSTANCE
         && existsSync(releaseManifestPath(checkoutPack))
@@ -114,4 +121,27 @@ export function thisProcessReleaseRoot(
         return checkoutPack;
     }
     return packedReleaseRoot(prefix);
+}
+
+// Undefined in a development instance whose root would be the installed release; callers run their source entry.
+export function childReleaseRoot(
+    prefix = defaultInstallPrefix(),
+    execPath = process.execPath,
+    checkoutRoot = process.cwd(),
+): string | undefined {
+    const root = thisProcessReleaseRoot(prefix, execPath, checkoutRoot);
+    if (!process.env.VERA_DEV_INSTANCE) return root;
+    const installed = packedReleaseRoot(prefix);
+    if ((safeRealpath(root) ?? root) === (safeRealpath(installed) ?? installed)) {
+        return undefined;
+    }
+    return root;
+}
+
+export function safeRealpath(path: string): string | undefined {
+    try {
+        return realpathSync(path);
+    } catch {
+        return undefined;
+    }
 }

@@ -88,7 +88,7 @@ import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
-import { readStampedRelease } from "../release/stamp.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
 
 import {
     addPoolModel,
@@ -1534,7 +1534,7 @@ export async function startResidentHost(
         throw error;
     }
 
-    const buildId = readStampedRelease().build_id;
+    const buildId = thisProcessBuildId();
     parkIdleTimer = setInterval(() => {
         void registry.parkExpiredIdle()
             .then((closed) =>

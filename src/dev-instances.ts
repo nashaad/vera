@@ -4,7 +4,6 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
-    realpathSync,
     statSync,
     unlinkSync,
     writeFileSync,
@@ -13,7 +12,11 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { packedReleaseRoot, thisProcessReleaseRoot } from "./release/layout.ts";
+import {
+    packedReleaseRoot,
+    safeRealpath,
+    thisProcessReleaseRoot,
+} from "./release/layout.ts";
 import { thisProcessBuildId } from "./release/stamp.ts";
 import { veraHomeDirectory } from "./profile-paths.ts";
 
@@ -189,10 +192,3 @@ function isDirectory(path: string): boolean {
     }
 }
 
-function safeRealpath(path: string): string | undefined {
-    try {
-        return realpathSync(path);
-    } catch {
-        return undefined;
-    }
-}

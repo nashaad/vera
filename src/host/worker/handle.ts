@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+    childReleaseRoot,
     RELEASE_WORKER_NAME,
     releaseBinaryPath,
 } from "../../release/layout.ts";
@@ -78,12 +79,12 @@ export function residentWorkerEntrypoint(): string {
 }
 
 export function residentWorkerSpawnCommand(
-    releaseRoot?: string,
+    releaseRoot: string | undefined = childReleaseRoot(),
 ): readonly string[] {
-    const packed = releaseRoot === undefined
-        ? releaseBinaryPath(RELEASE_WORKER_NAME)
-        : releaseBinaryPath(RELEASE_WORKER_NAME, releaseRoot);
-    if (existsSync(packed)) return [packed];
+    if (releaseRoot !== undefined) {
+        const packed = releaseBinaryPath(RELEASE_WORKER_NAME, releaseRoot);
+        if (existsSync(packed)) return [packed];
+    }
     return [process.execPath, residentWorkerEntrypoint()];
 }
 

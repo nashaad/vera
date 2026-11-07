@@ -29,6 +29,15 @@ The first launch should omit `-c`, since there is no prior conversation to
 continue. Starting a TUI from a checkout without this launcher can attach to
 the daily host instead of testing that checkout's code.
 
+When a development instance has to start its own host, that host and the
+worker and supervisor processes it starts run this checkout's code: the
+checkout's packed release if it has one, otherwise the source. They never run
+the installed release. The annex follows the same rule. Without a packed
+release, the annex serves the web page from the checkout's `dist/release/annex`,
+which `bun run pack:web` writes. If that page is missing, the annex does not
+start, and the host reports `annex: failed` with the command to run. It never
+uses the installed annex or its page.
+
 ### Provider keys
 
 A new instance has no stored provider credentials and copies none from

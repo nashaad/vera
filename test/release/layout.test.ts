@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 
 import {
+    childReleaseRoot,
     currentReleaseBuildId,
     currentSymlinkPath,
     defaultInstallPrefix,
@@ -17,6 +18,7 @@ import {
     RELEASE_ANNEX_NAME,
     releaseManifestPath,
     releasesDirectory,
+    checkoutPackRoot,
     thisProcessReleaseRoot,
     upgradeJournalPath,
     veraShareRoot,
@@ -59,29 +61,71 @@ test("currentReleaseBuildId reads the symlink text and nothing else", () => {
     expect(currentReleaseBuildId("/tmp/vera-no-such-prefix")).toBeUndefined();
 });
 
-test("a development instance uses this checkout pack when current is missing", () => {
+test("a development instance uses the checkout pack when current is missing", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-pack-"));
-    const cwd = process.cwd();
     const previous = process.env.VERA_DEV_INSTANCE;
     const prefix = join(root, "prefix");
-    const checkoutPack = join(root, "dist", "release");
+    const checkout = join(root, "checkout");
+    const checkoutPack = join(checkout, "dist", "release");
     mkdirSync(checkoutPack, { recursive: true });
     writeFileSync(join(checkoutPack, "manifest.json"), "{}\n");
     try {
-        process.chdir(root);
         process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
-        expect(thisProcessReleaseRoot(prefix)).toBe(realpathSync(checkoutPack));
+        expect(thisProcessReleaseRoot(prefix, join(root, "bun"), checkout)).toBe(
+            checkoutPack,
+        );
         delete process.env.VERA_DEV_INSTANCE;
-        expect(thisProcessReleaseRoot(prefix)).toBe(
+        expect(thisProcessReleaseRoot(prefix, join(root, "bun"), checkout)).toBe(
             join(prefix, "share", "vera", "current"),
         );
     } finally {
-        process.chdir(cwd);
         if (previous === undefined) {
             delete process.env.VERA_DEV_INSTANCE;
         } else {
             process.env.VERA_DEV_INSTANCE = previous;
         }
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("the checkout pack defaults to the working directory", () => {
+    expect(checkoutPackRoot()).toBe(join(process.cwd(), "dist", "release"));
+    expect(checkoutPackRoot("/work/tree")).toBe(join("/work/tree", "dist", "release"));
+});
+
+test("childReleaseRoot never names the installed release for a development instance", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-child-root-"));
+    const previous = process.env.VERA_DEV_INSTANCE;
+    const prefix = join(root, "prefix");
+    const installed = join(prefix, "share", "vera", "current");
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(join(installed, "manifest.json"), "{}\n");
+    const checkout = join(root, "checkout");
+    try {
+        process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
+        expect(childReleaseRoot(prefix, join(root, "bun"), checkout)).toBeUndefined();
+
+        const checkoutPack = join(checkout, "dist", "release");
+        mkdirSync(checkoutPack, { recursive: true });
+        writeFileSync(join(checkoutPack, "manifest.json"), "{}\n");
+        expect(childReleaseRoot(prefix, join(root, "bun"), checkout)).toBe(
+            checkoutPack,
+        );
+
+        const packedClient = join(root, "packed");
+        mkdirSync(packedClient, { recursive: true });
+        writeFileSync(join(packedClient, "manifest.json"), "{}\n");
+        expect(childReleaseRoot(prefix, join(packedClient, "vera"))).toBe(
+            packedClient,
+        );
+
+        expect(childReleaseRoot(prefix, join(installed, "vera"))).toBeUndefined();
+
+        delete process.env.VERA_DEV_INSTANCE;
+        expect(childReleaseRoot(prefix, join(root, "bun"), checkout)).toBe(installed);
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
         rmSync(root, { recursive: true, force: true });
     }
 });

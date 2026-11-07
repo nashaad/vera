@@ -224,3 +224,35 @@ test("a checkout pack without a host wrapper uses bun and the source entry", asy
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("a development instance falls back to the source host when only the installed release exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-dev-host-fallback-"));
+    const cwd = process.cwd();
+    const previousHome = process.env.HOME;
+    const previousDev = process.env.VERA_DEV_INSTANCE;
+    try {
+        const installed = join(root, ".local", "share", "vera", "current");
+        await mkdir(installed, { recursive: true });
+        await writeFile(join(installed, "manifest.json"), "{}\n");
+        await writeFile(join(installed, "host"), "#!/bin/sh\n");
+        process.env.HOME = root;
+        process.chdir(root);
+        process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
+        expect(residentHostSpawnSpec()).toEqual({
+            command: process.execPath,
+            args: [residentHostEntrypoint()],
+        });
+        delete process.env.VERA_DEV_INSTANCE;
+        expect(residentHostSpawnSpec()).toEqual({
+            command: join(installed, "host"),
+            args: [],
+        });
+    } finally {
+        process.chdir(cwd);
+        if (previousHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousHome;
+        if (previousDev === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previousDev;
+        await rm(root, { recursive: true, force: true });
+    }
+});
