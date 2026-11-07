@@ -1,0 +1,221 @@
+import { expect, test } from "bun:test";
+import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { recoverCrashedTurns } from "../../src/host/restart-scan.ts";
+import { listRestartRecords } from "../../src/store/restart-records.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
+import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+
+const source = { provider: "faux", api: "scripted", model: "test" };
+const user: ModelMessage = {
+    role: "user",
+    content: [{ type: "text", text: "build the thing" }],
+};
+
+interface Scenario {
+    readonly root: string;
+    readonly sessions: string;
+    readonly lockPath: string;
+    readonly recordPath: string;
+    readonly startedAt: Date;
+}
+
+async function scenario(): Promise<Scenario> {
+    const root = await mkdtemp(join(tmpdir(), "vera-restart-scan-"));
+    const sessions = join(root, "runtime", "sessions");
+    await mkdir(sessions, { recursive: true });
+    return {
+        root,
+        sessions,
+        lockPath: join(root, "host.lock"),
+        recordPath: join(root, "runtime", "restarts", "restarts.jsonl"),
+        startedAt: new Date(Date.now() - 60_000),
+    };
+}
+
+async function writeStaleLock(
+    lockPath: string,
+    startedAt: Date,
+    pid = 424242,
+): Promise<void> {
+    await writeFile(lockPath, `${JSON.stringify({
+        schema_version: 3,
+        pid,
+        started_at: startedAt.toISOString(),
+        socket_path: join(lockPath, "..", "host.sock"),
+        build_id: "build-a",
+    }, null, 2)}\n`);
+}
+
+async function sessionWith(
+    dir: string,
+    id: string,
+    messages: readonly ModelMessage[],
+): Promise<string> {
+    const path = join(dir, `${id}.jsonl`);
+    const store = await SessionStore.create(path, { sessionId: id, cwd: dir });
+    for (const message of messages) {
+        await store.appendMessage(message);
+    }
+    return path;
+}
+
+function assistant(stopReason: "stop" | "tool_use" | "aborted"): ModelMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text: "working" }],
+        source,
+        usage: emptyUsage(),
+        stopReason,
+    };
+}
+
+function toolUse(): ModelMessage {
+    return {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call-1",
+            name: "read",
+            input: { path: "notes.md" },
+        }],
+        source,
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+}
+
+test("a turn left open by a crash is recorded as a crash", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-open", [user]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+
+    expect(result.recorded).toEqual(["crow-open"]);
+    expect(listRestartRecords(s.recordPath)).toMatchObject([
+        { session_id: "crow-open", cause: "crash" },
+    ]);
+});
+
+test("a turn waiting on a tool result is open too", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-tool", [user, toolUse()]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+
+    expect(result.recorded).toEqual(["crow-tool"]);
+});
+
+test("a finished turn and a cut turn are not recorded", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-done", [user, assistant("stop")]);
+    await sessionWith(s.sessions, "crow-esc", [user, assistant("aborted")]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+
+    expect(result.scanned).toBe(2);
+    expect(result.recorded).toEqual([]);
+    expect(listRestartRecords(s.recordPath)).toEqual([]);
+});
+
+test("a session last written before the stale lock is not read", async () => {
+    const s = await scenario();
+    const path = await sessionWith(s.sessions, "crow-old", [user]);
+    const earlier = new Date(s.startedAt.getTime() - 3_600_000);
+    await utimes(path, earlier, earlier);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+
+    expect(result.scanned).toBe(0);
+    expect(result.recorded).toEqual([]);
+});
+
+test("without a lock file there is no scan", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-open", [user]);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+
+    expect(result).toEqual({ scanned: 0, recorded: [] });
+    expect(listRestartRecords(s.recordPath)).toEqual([]);
+});
+
+test("a lock whose process is still alive is not stale, so nothing is scanned", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-open", [user]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => true,
+    });
+
+    expect(result).toEqual({ scanned: 0, recorded: [] });
+});
+
+test("a second scan of the same stale lock adds no duplicate record", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-open", [user]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+    const options = {
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    };
+
+    await recoverCrashedTurns(options);
+    const again = await recoverCrashedTurns(options);
+
+    expect(again.recorded).toEqual([]);
+    expect(listRestartRecords(s.recordPath)).toHaveLength(1);
+});
+
+test("a live pid whose identity mismatches the lock is a reused pid, so the scan runs", async () => {
+    const s = await scenario();
+    await sessionWith(s.sessions, "crow-open", [user]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath,
+        sessionDirectory: s.sessions,
+        recordPath: s.recordPath,
+        isProcessAlive: () => true,
+        recordIdentity: () => "mismatch",
+    });
+
+    expect(result.recorded).toEqual(["crow-open"]);
+});

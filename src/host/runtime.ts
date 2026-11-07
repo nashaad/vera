@@ -77,6 +77,12 @@ import {
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
 import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { recoverCrashedTurns } from "./restart-scan.ts";
+import {
+    clearRestartRecordsForSession,
+    defaultRestartRecordPath,
+    listRestartRecords,
+} from "../store/restart-records.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -374,6 +380,17 @@ export async function startResidentHost(
     const socketPath = options.socketPath
         ?? defaultHostSocketPath(home);
     const lockPath = options.lockPath ?? defaultHostLockPath(home);
+    const restartRecordPath = defaultRestartRecordPath(home);
+    const forgetRestartRecords = (sessionId: string): void => {
+        try {
+            clearRestartRecordsForSession(sessionId, restartRecordPath);
+        } catch (error) {
+            hostLog({
+                type: "restart_records_clear_failed",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    };
     const modelFailureLedgerPath = options.modelFailureLedgerPath
         ?? defaultModelFailureLedgerPath(home);
     const sessionDirectory = options.sessionDirectory
@@ -1193,6 +1210,31 @@ export async function startResidentHost(
                 ...(options.projectRoot === undefined
                     ? {}
                     : { projectRoot: options.projectRoot }),
+                recoverPrevious: async () => {
+                    try {
+                        const scan = await recoverCrashedTurns({
+                            lockPath,
+                            sessionDirectory,
+                            recordPath: restartRecordPath,
+                        });
+                        if (scan.recorded.length > 0) {
+                            hostLog({
+                                type: "restart_turns_recorded",
+                                message: `${scan.recorded.length} session(s) had a turn open at the last exit`,
+                            });
+                        }
+                    } catch (error) {
+                        hostLog({
+                            type: "restart_scan_failed",
+                            message: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                },
+                restartRecords: {
+                    list: () => listRestartRecords(restartRecordPath),
+                    dismiss: (sessionId) =>
+                        clearRestartRecordsForSession(sessionId, restartRecordPath),
+                },
             findAgent: (agentId) => findOrRestoreAgent(
                 registry,
                 agentId,
@@ -1330,6 +1372,7 @@ export async function startResidentHost(
                 const resident = await registry.trashSession(targetId);
                 if (resident === "trashed") {
                     storedSessionIndex.delete(targetId);
+                    forgetRestartRecords(targetId);
                 }
                 if (resident !== "not_found") return resident;
                 const stored = await registry.trashStoredSession(
@@ -1360,6 +1403,7 @@ export async function startResidentHost(
                 );
                 if (stored === "trashed") {
                     storedSessionIndex.delete(targetId);
+                    forgetRestartRecords(targetId);
                 }
                 return stored;
             },
