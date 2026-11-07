@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentRegistry } from "./agent-registry.ts";
+import type { SessionBlockControl } from "./agent-registry/support.ts";
 import type { BlockSessionOutcome, UnblockSessionOutcome } from "./server.ts";
 import type { BlockSessionRequest, UnblockSessionRequest } from "./protocol.ts";
 import {
@@ -33,12 +34,16 @@ export function createSessionBlockService(
 ): SessionBlockService {
     const now = options.now ?? (() => new Date());
 
-    // Each live worker latches from the flag before the caller goes on; the latch halts its queue at once.
+    // A live session latches from the flag before the caller goes on; the latch halts its queue at once.
+    function blockControlOf(id: string): SessionBlockControl | undefined {
+        const entry = options.registry.agents.get(id);
+        return entry?.worker ?? entry?.blockControl;
+    }
+
     async function confirmLive(ids: readonly string[]): Promise<void> {
         await Promise.all(ids.map((id) =>
-            options.registry.agents.get(id)?.worker?.confirmBlock(
-                BLOCK_ACK_TIMEOUT_MS,
-            ) ?? Promise.resolve(false)
+            blockControlOf(id)?.confirmBlock(BLOCK_ACK_TIMEOUT_MS)
+                ?? Promise.resolve(false)
         ));
     }
 
@@ -109,9 +114,9 @@ export function createSessionBlockService(
             }
             const unconfirmed: string[] = [];
             for (const id of removed) {
-                const worker = options.registry.agents.get(id)?.worker;
-                if (worker === undefined) continue;
-                if (!(await worker.releaseBlock(BLOCK_ACK_TIMEOUT_MS))) {
+                const control = blockControlOf(id);
+                if (control === undefined) continue;
+                if (!(await control.releaseBlock(BLOCK_ACK_TIMEOUT_MS))) {
                     unconfirmed.push(id);
                 }
             }

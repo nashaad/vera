@@ -72,6 +72,7 @@ import * as registryRoster from "./agent-registry/roster.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
 import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
+import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block-latch.ts";
 
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
@@ -154,6 +155,26 @@ export class AgentRegistry {
         reason?: SessionEndReason,
     ): Promise<CloseAgentTreeResult> {
         return registryLifecycle.closeAgentTree(this, id, reason);
+    }
+
+    // The in-process session latches the flag as a worker does; the router takes the halt once it is ready.
+    createInProcessBlockLatch(entry: RegisteredAgentEntry): SessionBlockLatch | undefined {
+        const directory = this.options.sessionBlockDirectory;
+        if (directory === undefined) return undefined;
+        const latch = createSessionBlockLatch({
+            directory,
+            sessionId: entry.store.header.id,
+            onLatched: (reason) => entry.inbound?.halt(reason),
+            onReleased: () => entry.inbound?.clearHalt(),
+        });
+        entry.blockControl = {
+            confirmBlock: async () => latch.check() !== undefined,
+            releaseBlock: async () => {
+                latch.release();
+                return true;
+            },
+        };
+        return latch;
     }
 
     // The refusal text while a block file holds the session, else undefined.
@@ -1062,6 +1083,10 @@ export class AgentRegistry {
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
         };
+        const adapterSpec = this.workerAdapterSpecFor(store, entry);
+        const blockLatch = adapterSpec === undefined
+            ? this.createInProcessBlockLatch(entry)
+            : undefined;
         const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
@@ -1097,6 +1122,9 @@ export class AgentRegistry {
                         ),
                 applyCommittedToolEffect,
                 extensionTools,
+                ...(blockLatch === undefined
+                    ? {}
+                    : { haltCheck: blockLatch.check }),
                 ...(startupProfile !== "default"
                     || this.options.loadContextualContributions === undefined
                     ? {}
@@ -1162,6 +1190,8 @@ export class AgentRegistry {
                     onInboundReady: (inbound) => {
                         entry.inbound = inbound;
                         entry.markLoopReady();
+                        const reason = blockLatch?.check();
+                        if (reason !== undefined) inbound.halt(reason);
                     },
                     hasPendingDeliveryTurn: () =>
                         entry.inbox?.hasAdmittedPending() === true,
@@ -1262,7 +1292,6 @@ export class AgentRegistry {
                         agent.sendSessionNameReply(ownerId, reply),
                 },
         };
-        const adapterSpec = this.workerAdapterSpecFor(store, entry);
         // Set only as the loop starts: a failed start reads it to decide whether a session_end may follow.
         entry.loopServices = loopServices;
         entry.run = (adapterSpec === undefined
@@ -1297,7 +1326,7 @@ export class AgentRegistry {
                 }
                 agent.fail(failureId, detail);
             }
-        });
+        }).finally(() => blockLatch?.close());
         if (kind === "interactive" && this.options.inboxDelivery !== undefined) {
             const inboxDelivery = this.options.inboxDelivery;
             const admissionPath = inboxDelivery.hasAdmissionPath();

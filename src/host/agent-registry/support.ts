@@ -783,6 +783,11 @@ export interface BoundSessionIdentity extends SessionIdentity {
     readonly env: Readonly<Record<string, string>>;
 }
 
+export interface SessionBlockControl {
+    confirmBlock(timeoutMs: number): Promise<boolean>;
+    releaseBlock(timeoutMs: number): Promise<boolean>;
+}
+
 export interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
@@ -811,6 +816,8 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
+    /** Block confirmation for a session that runs in the host process; a worker uses its handle. */
+    blockControl?: SessionBlockControl;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;

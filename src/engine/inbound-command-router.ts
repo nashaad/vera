@@ -846,6 +846,9 @@ export class InboundCommandRouter {
         for (let index = 0; index < dropped; index += 1) {
             this.noteNotStarted(reason);
         }
+        if (this.activeTurn !== undefined) {
+            this.noteStopped(reason);
+        }
         this.activeTurn?.abort(new Error(reason));
         this.emitPromptQueue();
     }
@@ -859,6 +862,13 @@ export class InboundCommandRouter {
     private noteNotStarted(reason: string): void {
         void this.options.appendHarnessMessage?.(
             `Not started: ${reason}`,
+            "error",
+        ).catch(() => {});
+    }
+
+    private noteStopped(reason: string): void {
+        void this.options.appendHarnessMessage?.(
+            `Stopped: ${reason}`,
             "error",
         ).catch(() => {});
     }

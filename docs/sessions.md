@@ -65,7 +65,8 @@ Run `vera close <agent-id>` afterwards to end it.
 A block reaches a running session at its next step, and an in-flight model
 stream or tool is stopped at once. Prompts that were queued in the session
 are dropped, not held, and each one leaves a "Not started" line in the
-transcript.
+transcript. A turn that was running when the block landed ends with a
+"Stopped" line that gives the block's reason.
 
 `vera unblock <agent-id>` lists the sessions blocked with that session, asks
 you to confirm, and clears their blocks. Turns can start again after that.
