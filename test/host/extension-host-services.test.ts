@@ -7,6 +7,7 @@ import { foldUsageSessionDetail } from "../../src/annex/usage-report.ts";
 import type { VeraConfig } from "../../src/config.ts";
 import { modelRequestSnapshotPath } from "../../src/engine/events.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
+import { removeSessionBlock, writeSessionBlock } from "../../src/host/session-block.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { createExtensionHostServices } from "../../src/host/extension-host-services.ts";
 import { readModelRequestSnapshot } from "../../src/model-request-inspector.ts";
@@ -184,6 +185,42 @@ test("an ask replays the last request with one question and only bills the sessi
     }
 });
 
+test("a blocked session refuses an ask before any model request and answers again once unblocked", async () => {
+    const voyage = await openVoyage([
+        { message: reply("Hull sound.", usage(900, 4)) },
+        { message: reply("Two lanterns lit.", usage(910, 5)) },
+    ]);
+    try {
+        await runPrompt(voyage.attachment, "Check the hull.");
+        const sessionBefore = await readFile(voyage.sessionPath, "utf8");
+        const signal = new AbortController().signal;
+        await writeSessionBlock(voyage.blockedDirectory, {
+            version: 1,
+            session_id: "crow",
+            root_session_id: "crow",
+            blocked_at: new Date().toISOString(),
+            reason: "mutiny",
+        });
+
+        await expect(voyage.services.askSession(
+            { sessionId: "crow", question: "Any lanterns?" },
+            signal,
+        )).rejects.toThrow("Session crow is blocked. Nothing new runs in it until 'vera unblock crow'.");
+        expect(voyage.requests).toHaveLength(1);
+        expect(await readFile(voyage.sessionPath, "utf8")).toBe(sessionBefore);
+
+        await removeSessionBlock(voyage.blockedDirectory, "crow");
+        const answer = await voyage.services.askSession(
+            { sessionId: "crow", question: "Any lanterns?" },
+            signal,
+        );
+        expect(answer.text).toBe("Two lanterns lit.");
+        expect(voyage.requests).toHaveLength(2);
+    } finally {
+        await voyage.close();
+    }
+});
+
 test("an ask that gets a tool call back rejects and runs nothing", async () => {
     const voyage = await openVoyage([
         { message: reply("Anchored.", usage(900, 5)) },
@@ -303,7 +340,9 @@ async function openVoyage(script: ScriptedReply[], onBuild: () => void = () => {
     const eventLogPath = join(logDirectory, "crow.jsonl");
     const requests: ModelRequest[] = [];
     const contexts: ModelAdapterContext[] = [];
+    const blockedDirectory = join(root, "blocked");
     const registry = new AgentRegistry({
+        sessionBlockDirectory: blockedDirectory,
         createAdapter: () => {
             onBuild();
             return {
@@ -334,7 +373,7 @@ async function openVoyage(script: ScriptedReply[], onBuild: () => void = () => {
     });
     return {
         root, workspace, sessionDirectory, catalogDirectory, sessionPath, eventLogPath,
-        requests, contexts, attachment, services,
+        blockedDirectory, requests, contexts, attachment, services,
         async close() {
             await registry.close();
             await rm(root, { recursive: true, force: true });

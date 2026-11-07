@@ -18,6 +18,7 @@ import { ProviderRoutingAdapter } from "../../providers/routing.ts";
 import type { ModelAdapterContext } from "../../sdk/model-middleware.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
+import { SessionBlockedError } from "../resident-agent.ts";
 
 export interface SessionAskCall {
     readonly question: string;
@@ -96,6 +97,10 @@ export async function askSession(
         || entry.agent.failed
     ) {
         throw new Error(`Session ${id} is not open`);
+    }
+    const blocked = reg.blockRefusalFor(id);
+    if (blocked !== undefined) {
+        throw new SessionBlockedError(blocked);
     }
     const saved = entry.eventLogPath === undefined
         ? undefined
