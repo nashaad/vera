@@ -71,6 +71,7 @@ import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
+import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
 
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
@@ -153,6 +154,14 @@ export class AgentRegistry {
         reason?: SessionEndReason,
     ): Promise<CloseAgentTreeResult> {
         return registryLifecycle.closeAgentTree(this, id, reason);
+    }
+
+    // The refusal text while a block file holds the session, else undefined.
+    blockRefusalFor(sessionId: string): string | undefined {
+        const directory = this.options.sessionBlockDirectory;
+        return directory !== undefined && isSessionBlockedSync(directory, sessionId)
+            ? blockedSessionMessage(sessionId)
+            : undefined;
     }
 
     async parkExpiredIdle(now = Date.now()): Promise<readonly ClosedMember[]> {
@@ -724,6 +733,7 @@ export class AgentRegistry {
             attachImage: (path, signal, sourcePath) =>
                 imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
+            turnStartRefusal: () => this.blockRefusalFor(store.header.id),
             onSessionFactsChanged: () => {
                 const current = this.agents.get(store.header.id);
                 if (current?.agent === agent) {

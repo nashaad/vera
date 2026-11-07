@@ -306,6 +306,8 @@ export function importedSessionSummary(
 }
 
 export interface AgentRegistryOptions {
+    // Flag directory read on every turn start; see src/host/session-block.ts.
+    readonly sessionBlockDirectory?: string;
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;

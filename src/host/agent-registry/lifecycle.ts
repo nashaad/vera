@@ -300,6 +300,10 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
 export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentOptions): Promise<ResidentAgent> {
         const sessionPath = await realpath(options.sessionPath);
         const store = await SessionStore.open(sessionPath);
+        const blocked = reg.blockRefusalFor(store.header.id);
+        if (blocked !== undefined) {
+            throw new UserFacingError(blocked);
+        }
         const storedProvider = store.modelSettings()?.provider;
         if (
             store.header.delegation !== undefined

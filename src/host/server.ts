@@ -33,6 +33,8 @@ import {
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
     type CatalogRefreshOutcome,
+    type BlockSessionRequest,
+    type UnblockSessionRequest,
 } from "./protocol.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
@@ -109,6 +111,14 @@ export interface CloseAgentOutcome {
     readonly status: "closed" | "not_found" | "not_owned" | "failed" | "busy";
     readonly sessionRetained?: boolean;
 }
+
+export type BlockSessionOutcome =
+    | { readonly status: "blocked"; readonly sessionIds: readonly string[] }
+    | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
+
+export type UnblockSessionOutcome =
+    | { readonly status: "unblocked"; readonly sessionIds: readonly string[] }
+    | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
 
 export type ExtensionRequestHandler = (
     extensionId: string,
@@ -204,6 +214,12 @@ export interface StartHostServerOptions {
         targetAgentId: string,
         reason?: SessionEndReason,
     ) => Promise<CloseAgentOutcome>;
+    readonly blockSession?: (
+        request: BlockSessionRequest,
+    ) => Promise<BlockSessionOutcome>;
+    readonly unblockSession?: (
+        request: UnblockSessionRequest,
+    ) => Promise<UnblockSessionOutcome>;
     readonly renameSession?: (
         targetAgentId: string,
         name: string | null,
@@ -419,6 +435,10 @@ export async function startHostServer(
             options.trashSession ?? (() => Promise.resolve("not_found")),
             options.closeAgent
                 ?? (() => Promise.resolve({ status: "not_found" as const })),
+            options.blockSession
+                ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
+            options.unblockSession
+                ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
             options.importSession
@@ -590,6 +610,8 @@ function receiveConnection(
         targetAgentId: string,
         reason?: SessionEndReason,
     ) => Promise<CloseAgentOutcome>,
+    blockSession: (request: BlockSessionRequest) => Promise<BlockSessionOutcome>,
+    unblockSession: (request: UnblockSessionRequest) => Promise<UnblockSessionOutcome>,
     renameSession: (
         targetAgentId: string,
         name: string | null,
@@ -1652,6 +1674,52 @@ function receiveConnection(
                     }),
                 () => send({
                     type: "agent_close_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "block_session") {
+            clearDeadline();
+            finished = true;
+            void blockSession(request).then(
+                (result) => result.status === "blocked"
+                    ? send({
+                        type: "session_blocked",
+                        agent_id: request.target_agent_id,
+                        session_ids: result.sessionIds,
+                    })
+                    : send({
+                        type: "session_block_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result.reason,
+                    }),
+                () => send({
+                    type: "session_block_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "unblock_session") {
+            clearDeadline();
+            finished = true;
+            void unblockSession(request).then(
+                (result) => result.status === "unblocked"
+                    ? send({
+                        type: "session_unblocked",
+                        agent_id: request.target_agent_id,
+                        session_ids: result.sessionIds,
+                    })
+                    : send({
+                        type: "session_unblock_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result.reason,
+                    }),
+                () => send({
+                    type: "session_unblock_rejected",
                     agent_id: request.target_agent_id,
                     reason: "failed",
                 }),

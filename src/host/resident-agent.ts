@@ -47,6 +47,13 @@ export class ResidentAgentClosedError extends Error {
     }
 }
 
+export class SessionBlockedError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "SessionBlockedError";
+    }
+}
+
 export class AgentCommandQueueFullError extends Error {
     constructor() {
         super("Resident agent command queue is full");
@@ -83,6 +90,8 @@ export interface ResidentAgentOptions {
     readonly onCompactionStarted?: (update: CompactionUpdate) => void;
     /** Called after an update that may change status, the open request, or context. */
     readonly onSessionFactsChanged?: () => void;
+    /** Returns the refusal text while the session is blocked; read at each turn start. */
+    readonly turnStartRefusal?: () => string | undefined;
 }
 
 const SESSION_FACT_UPDATES: ReadonlySet<AgentUpdate["type"]> = new Set([
@@ -237,8 +246,8 @@ export class ResidentAgent {
                 if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
                 }
-                const refusal = typeof this.options.clientPromptRefusal === "function"
-                    ? this.options.clientPromptRefusal() : this.options.clientPromptRefusal;
+                const refusal = this.options.turnStartRefusal?.() ?? (typeof this.options.clientPromptRefusal === "function"
+                    ? this.options.clientPromptRefusal() : this.options.clientPromptRefusal);
                 if (command.type === "prompt" && refusal !== undefined) {
                     outgoing.push({
                         type: "prompt_rejected",
@@ -355,6 +364,10 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
+        const blocked = this.options.turnStartRefusal?.();
+        if (blocked !== undefined) {
+            throw new SessionBlockedError(blocked);
+        }
         if (this.pendingCommandCount >= this.maxPendingCommands) {
             throw new AgentCommandQueueFullError();
         }
@@ -382,6 +395,10 @@ export class ResidentAgent {
     triggerDeliveryTurn(): void {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
+        }
+        // The pending deliveries stay in the store; a blocked session does not wake for them.
+        if (this.options.turnStartRefusal?.() !== undefined) {
+            return;
         }
         if (this.deliveryTurnQueued) {
             return;
@@ -458,6 +475,15 @@ export class ResidentAgent {
 
     close(): void {
         this.closeWithError(new ResidentAgentClosedError(), true);
+    }
+
+    // Cancels the running turn only; queued prompts stay queued.
+    abort(): void {
+        if (this.isClosed || this.terminalFailure !== undefined) return;
+        this.inbound.push({
+            command: { type: "abort" },
+            countsTowardLimit: false,
+        });
     }
 
     fail(failureId: string, detail: string): void {

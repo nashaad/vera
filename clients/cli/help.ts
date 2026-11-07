@@ -22,6 +22,8 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera extension list|install|enable|disable|remove", docs: "extensions.md", description: "Manage home or project extensions" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn; the agent stays live and keeps its queued prompts" },
     { usage: "vera close <agent-id>", description: "End a live agent for good: discard its queued prompts and stop its work; the session is kept and can be resumed" },
+    { usage: "vera block <agent-id> [--reason <text>]", docs: "sessions.md", description: "Stop a session and every session it started, and keep them from starting turns until unblocked; asks you to confirm" },
+    { usage: "vera unblock <agent-id>", docs: "sessions.md", description: "Clear the block on a session and the sessions blocked with it; asks you to confirm" },
     { usage: "vera doctor", docs: "runtime-and-worktrees.md", description: "Check the resident host, Vera process health, leftover tmux sockets, and providers; stops leftovers after asking; does not stop SDK instances or live tmux servers" },
     { usage: "vera doctor --yes", description: "Stop leftovers without asking first; does not stop SDK instances or live tmux servers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },

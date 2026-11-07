@@ -345,6 +345,49 @@ export interface AgentCloseRejectedResponse {
     readonly reason: "not_found" | "not_owned" | "failed" | "busy";
 }
 
+/**
+ * Block a session and every session it started. The host aborts the turns,
+ * writes one block file per session, then aborts again. `session_ids` are the
+ * ones the user confirmed; the host adds any started since then.
+ */
+export interface BlockSessionRequest {
+    readonly type: "block_session";
+    readonly target_agent_id: string;
+    readonly session_ids: readonly string[];
+    readonly reason: string | null;
+}
+
+export interface SessionBlockedResponse {
+    readonly type: "session_blocked";
+    readonly agent_id: string;
+    readonly session_ids: readonly string[];
+}
+
+export interface SessionBlockRejectedResponse {
+    readonly type: "session_block_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
+}
+
+export interface UnblockSessionRequest {
+    readonly type: "unblock_session";
+    readonly target_agent_id: string;
+    readonly session_ids: readonly string[];
+}
+
+/** `session_ids` are the blocks removed by this request. */
+export interface SessionUnblockedResponse {
+    readonly type: "session_unblocked";
+    readonly agent_id: string;
+    readonly session_ids: readonly string[];
+}
+
+export interface SessionUnblockRejectedResponse {
+    readonly type: "session_unblock_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
+}
+
 export interface RenameSessionRequest {
     readonly type: "rename_session";
     readonly target_agent_id: string;
@@ -757,6 +800,8 @@ export type HostRequest =
     | SyncAgentContextRequest
     | TrashSessionRequest
     | CloseAgentRequest
+    | BlockSessionRequest
+    | UnblockSessionRequest
     | RenameSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
@@ -801,6 +846,10 @@ export type HostResponse =
     | SessionTrashRejectedResponse
     | AgentClosedResponse
     | AgentCloseRejectedResponse
+    | SessionBlockedResponse
+    | SessionBlockRejectedResponse
+    | SessionUnblockedResponse
+    | SessionUnblockRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
     | SessionImportedResponse
@@ -1106,6 +1155,37 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "close_agent",
             target_agent_id: value.target_agent_id,
         };
+    }
+    if (
+        (value?.type === "block_session" || value?.type === "unblock_session")
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+        && Array.isArray(value.session_ids)
+        && value.session_ids.length > 0
+        && value.session_ids.length <= 10_000
+        && value.session_ids.every((id: unknown) =>
+            typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)
+        )
+    ) {
+        if (value.type === "unblock_session") {
+            return {
+                type: "unblock_session",
+                target_agent_id: value.target_agent_id,
+                session_ids: value.session_ids,
+            };
+        }
+        if (
+            (value.reason === undefined || value.reason === null || (typeof value.reason === "string"
+                && value.reason.length <= 500
+                && !/[\u0000-\u001f]/u.test(value.reason)))
+        ) {
+            return {
+                type: "block_session",
+                target_agent_id: value.target_agent_id,
+                session_ids: value.session_ids,
+                reason: value.reason ?? null,
+            };
+        }
     }
     if (
         value?.type === "import_session"

@@ -39,7 +39,7 @@ import {
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { hostExtensionConfigs, workerExtensionConfigs } from "../extensions/host-set.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
-import { selectedVeraHome, VERA_HOME_ENV, veraMachineDirectoryIn } from "../profile-paths.ts";
+import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirectoryIn } from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -220,6 +220,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import { createSessionBlockService } from "./session-block-service.ts";
 import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
@@ -259,6 +260,7 @@ export interface StartResidentHostOptions {
     readonly buildId?: string;
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
+    readonly blockedDirectory?: string;
     readonly permissionPreferencesPath?: string;
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
@@ -593,7 +595,10 @@ export async function startResidentHost(
         "subagent_finished_hook_failed",
     );
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
+    const blockedDirectory = options.blockedDirectory
+        ?? veraBlockedDirectory(home);
     const registry = new AgentRegistry({
+        sessionBlockDirectory: blockedDirectory,
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
             credentialFingerprint(authStorage, provider),
@@ -1055,6 +1060,11 @@ export async function startResidentHost(
         onSessionsClosed: (members): Promise<void> =>
             indexClosedMembers(registry, members, storedSessionIndex),
     });
+    const sessionBlocks = createSessionBlockService({
+        registry,
+        sessionDirectory,
+        blockedDirectory,
+    });
     // Scores fill in after startup; discovery never waits for the arena download.
     if (discoversModelsAtStartup) {
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
@@ -1379,6 +1389,8 @@ export async function startResidentHost(
                     ? { status: "closed", sessionRetained: true }
                     : { status: "not_found" };
             },
+            blockSession: (request) => sessionBlocks.block(request),
+            unblockSession: (request) => sessionBlocks.unblock(request),
             renameSession: async (targetId, name) => {
                 const resident = await registry.renameSession(targetId, name);
                 if (resident.status !== "not_found") return resident;
