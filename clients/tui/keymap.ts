@@ -23,7 +23,8 @@ export type TuiKeyScope =
     | "diff"
     | "inspect_document"
     | "diagnostics"
-    | "search";
+    | "search"
+    | "home";
 
 export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "global",
@@ -49,6 +50,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "inspect_document",
     "diagnostics",
     "search",
+    "home",
 ];
 
 export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
@@ -589,6 +591,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "preferences_list",
         description: "Revoke the selected grant or preference",
         hint: "[del] remove",
+    },
+    {
+        id: "home_dismiss_restart",
+        keys: ["delete", "backspace"],
+        scope: "home",
+        description: "Dismiss the selected session cut short by a restart",
+        hint: "del dismisses",
+        remappable: true,
     },
     {
         id: "collapse_all",

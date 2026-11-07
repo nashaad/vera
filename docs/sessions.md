@@ -95,6 +95,19 @@ For work finished more than 24 hours ago, the divider also shows the saved
 finish date and time in your local timezone. Older turns without timing data
 have no divider.
 
+## Sessions cut short by a restart
+
+When the host stops, updates, or crashes during a turn, that turn is cut
+short. The home screen lists those sessions above its rows under
+`Cut short (N)`, newest first, with the cause of each. Up and Down move through
+the entries and the rows as one list. Enter opens the session, the same way the
+resume picker does, and removes its entry. Delete removes an entry without
+opening it. Removing an entry clears its records from the host's restart log.
+
+The list is read when Vera starts on the home screen and each time the home
+screen opens. It does not refresh on a timer. Vera does not resend an
+interrupted turn; send the prompt again if you still need the result.
+
 ## Where history is stored
 
 Session files live in `~/.vera/runtime/sessions/`. One host owns the home's

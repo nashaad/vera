@@ -143,7 +143,9 @@ import {
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
+    hostRestartRecords,
     requireIdentifiedTuiAgentClient,
+    type HostRestartRecords,
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
@@ -207,6 +209,7 @@ import { wheelCursor } from "./list-window.ts";
 import { workTabAction } from "./work-tab.ts";
 import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
+import { refreshHomeRestarts } from "./main/home-restarts.ts";
 import {
     readModelSettingsThroughHost,
     refreshCatalogThroughHost,
@@ -537,6 +540,7 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly restartRecords?: HostRestartRecords;
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
@@ -818,6 +822,7 @@ export async function startConfiguredTui(
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
+            restartRecords: hostRestartRecords(pairedSocket),
             listSessionPage,
             createSession: async (workspace) => {
                 const createStartedAt = performance.now();
@@ -2425,6 +2430,7 @@ export async function startTui(
         surface: "main_composer",
     });
     renderStatus(rt);
+    if (isHomeClient(rt.client)) void refreshHomeRestarts(rt);
     if (
         rt.appearance.sidebarOpenAtLaunch
         && rt.dependencies.listAgents !== undefined

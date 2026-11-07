@@ -55,9 +55,12 @@ export interface HostRestartRecords {
 }
 
 // One short connection per request, so a session view can read records without an attached client.
-export function hostRestartRecords(socketPath: string): HostRestartRecords {
+export function hostRestartRecords(
+    socketPath: () => Promise<string>,
+): HostRestartRecords {
     return {
-        list: () => listRestartRecordsThroughHost(socketPath),
-        dismiss: (sessionId) => dismissRestartRecordThroughHost(socketPath, sessionId),
+        list: async () => listRestartRecordsThroughHost(await socketPath()),
+        dismiss: async (sessionId) =>
+            dismissRestartRecordThroughHost(await socketPath(), sessionId),
     };
 }
