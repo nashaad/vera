@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -128,6 +128,29 @@ describe("OpenAI Codex OAuth", () => {
         expect(readOpenAICodexCredentials(authStorage)?.refresh_token).toBe(
             "refresh-1",
         );
+    });
+
+    test("a refresh against a newer auth file is refused before the network is used", async () => {
+        const path = temporaryAuthPath();
+        const contents = JSON.stringify({
+            schema_version: 3,
+            credentials: {
+                "openai-codex": { type: "oauth", token: "{}" },
+            },
+        });
+        writeFileSync(path, contents);
+        const authStorage = createAuthStorage({ path });
+
+        await expect(resolveOpenAICodexAuthorization({
+            authStorage,
+            now: () => 2_000_000,
+            fetch: (() => {
+                throw new Error("refresh must not reach the network");
+            }) as unknown as typeof fetch,
+        })).rejects.toThrow(
+            "auth.json was written by a newer Vera. Update Vera to use it.",
+        );
+        expect(readFileSync(path, "utf8")).toBe(contents);
     });
 
     test("refreshes a rejected token the stored expiry still calls valid", async () => {

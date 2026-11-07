@@ -1,4 +1,6 @@
 import {
+    constants,
+    copyFileSync,
     mkdirSync,
     renameSync,
     unlinkSync,
@@ -14,6 +16,9 @@ import {
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
+
+const NEWER_AUTH_MESSAGE =
+    "auth.json was written by a newer Vera. Update Vera to use it.";
 
 export type StoredCredential =
     | { readonly type: "oauth"; readonly token: string }
@@ -92,20 +97,22 @@ export function createAuthStorage(
         },
 
         setCredential(provider: string, credential: StoredCredential): void {
-            const auth = readForWrite(path, options.onQuarantine);
+            const stored = readForWrite(path, options.onQuarantine);
+            keepFormatCopy(path, stored.converted);
             writeStoredAuth(path, {
                 schema_version: AUTH_STORAGE_SCHEMA_VERSION,
                 credentials: {
-                    ...auth.credentials,
+                    ...stored.auth.credentials,
                     [provider]: credential,
                 },
             });
         },
 
         deleteCredential(provider: string): void {
-            const auth = readForWrite(path, options.onQuarantine);
+            const stored = readForWrite(path, options.onQuarantine);
+            keepFormatCopy(path, stored.converted);
             const credentials: Record<string, StoredCredential> = {};
-            for (const [id, credential] of Object.entries(auth.credentials)) {
+            for (const [id, credential] of Object.entries(stored.auth.credentials)) {
                 if (id !== provider) {
                     credentials[id] = credential;
                 }
@@ -130,65 +137,135 @@ export function unreadableAuthStoragePath(
     }
 }
 
+interface WritableAuth {
+    readonly auth: StoredAuth;
+    readonly converted: boolean;
+}
+
+// Text that does not parse, and JSON this build does not recognise, is moved
+// aside. A file a newer build wrote is refused and left in place.
 function readForWrite(
     path: string,
     onQuarantine?: (quarantinePath: string) => void,
-): StoredAuth {
-    try {
-        return readStoredAuth(path);
-    } catch {
-        const quarantinePath = `${path}.corrupt-${
-            new Date().toISOString().replaceAll(":", "-")
-        }`;
-        renameSync(path, quarantinePath);
-        onQuarantine?.(quarantinePath);
-        return emptyStoredAuth();
+): WritableAuth {
+    const contents = readAuthFile(path);
+    if (contents === undefined) {
+        return { auth: emptyStoredAuth(), converted: false };
     }
+
+    let value: unknown;
+    try {
+        value = JSON.parse(contents);
+    } catch {
+        return quarantineAuth(path, onQuarantine);
+    }
+    if (!isNewerAuth(value) && decodeRecognised(value) === undefined) {
+        return quarantineAuth(path, onQuarantine);
+    }
+    return decodeAuth(path, value);
+}
+
+function quarantineAuth(
+    path: string,
+    onQuarantine?: (quarantinePath: string) => void,
+): WritableAuth {
+    const quarantinePath = `${path}.corrupt-${
+        new Date().toISOString().replaceAll(":", "-")
+    }`;
+    renameSync(path, quarantinePath);
+    onQuarantine?.(quarantinePath);
+    return { auth: emptyStoredAuth(), converted: false };
+}
+
+// Converting an older format rewrites the file, so the old bytes are kept first.
+// The copy is never overwritten.
+function keepFormatCopy(path: string, converted: boolean): void {
+    if (!converted) {
+        return;
+    }
+    const copyPath = `${path}.pre-v${AUTH_STORAGE_SCHEMA_VERSION}-${
+        new Date().toISOString().replaceAll(":", "-")
+    }`;
+    copyFileSync(path, copyPath, constants.COPYFILE_EXCL);
 }
 
 function readStoredAuth(path: string): StoredAuth {
-    let contents: string;
+    const contents = readAuthFile(path);
+    if (contents === undefined) {
+        return emptyStoredAuth();
+    }
+    return decodeAuth(path, JSON.parse(contents)).auth;
+}
+
+function readAuthFile(path: string): string | undefined {
     try {
-        contents = readRegularFileTextSync(path);
+        return readRegularFileTextSync(path);
     } catch (error) {
         if (isMissingFileError(error)) {
-            return emptyStoredAuth();
+            return undefined;
         }
         throw error;
     }
+}
 
-    const value: unknown = JSON.parse(contents);
+function decodeAuth(path: string, value: unknown): WritableAuth {
+    if (isNewerAuth(value)) {
+        throw new Error(NEWER_AUTH_MESSAGE);
+    }
+    const decoded = decodeRecognised(value);
+    if (decoded === undefined) {
+        throw new Error(`Invalid Vera auth storage at ${path}`);
+    }
+    return decoded;
+}
+
+function decodeRecognised(value: unknown): WritableAuth | undefined {
     if (isStoredAuth(value)) {
-        return value;
+        return { auth: value, converted: false };
     }
     if (isUntaggedAuth(value)) {
         return {
-            schema_version: AUTH_STORAGE_SCHEMA_VERSION,
-            credentials: Object.fromEntries(
-                Object.entries(value.tokens).map(([provider, token]) => [
-                    provider,
-                    retagToken(token),
-                ]),
-            ),
+            auth: {
+                schema_version: AUTH_STORAGE_SCHEMA_VERSION,
+                credentials: Object.fromEntries(
+                    Object.entries(value.tokens).map(([provider, token]) => [
+                        provider,
+                        retagToken(token),
+                    ]),
+                ),
+            },
+            converted: true,
         };
     }
     if (isLegacyAuth(value)) {
         return {
-            schema_version: AUTH_STORAGE_SCHEMA_VERSION,
-            credentials: Object.fromEntries(
-                Object.entries(value).map(([provider, credentials]) => [
-                    provider,
-                    credentials.type === "api_key"
-                        ? { type: "api_key" as const, key: credentials.key }
-                        : {
-                            type: "oauth" as const,
-                            token: JSON.stringify(credentials),
-                        },
-                ]),
-            ),
+            auth: {
+                schema_version: AUTH_STORAGE_SCHEMA_VERSION,
+                credentials: Object.fromEntries(
+                    Object.entries(value).map(([provider, credentials]) => [
+                        provider,
+                        credentials.type === "api_key"
+                            ? { type: "api_key" as const, key: credentials.key }
+                            : {
+                                type: "oauth" as const,
+                                token: JSON.stringify(credentials),
+                            },
+                    ]),
+                ),
+            },
+            converted: true,
         };
     }
-    throw new Error(`Invalid Vera auth storage at ${path}`);
+    return undefined;
+}
+
+function isNewerAuth(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const version = (value as Record<string, unknown>).schema_version;
+    return typeof version === "number"
+        && version > AUTH_STORAGE_SCHEMA_VERSION;
 }
 
 function retagToken(token: string): StoredCredential {
