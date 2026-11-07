@@ -820,6 +820,10 @@ export interface RegisteredAgentEntry {
     worker?: WorkerHandle;
     /** Block confirmation for a session that runs in the host process; a worker uses its handle. */
     blockControl?: SessionBlockControl;
+    /** True while a block file holds an in-process session. */
+    blockHeld?: () => boolean;
+    // Set while a stop cut holds the in-process turn; cleared once its turn has ended.
+    cutReason?: string;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;

@@ -11,10 +11,10 @@ import { SessionStore } from "../../store/session-store.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../../tools/types.ts";
 import { HOST_OWNED_COMMANDS, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, readSessionSeed, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
-import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry } from "./support.ts";
+import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry, type SessionBlockControl } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { ResidentAgent, SessionBlockedError, type AgentAttachment } from "../resident-agent.ts";
-import { startSeededWorker } from "../worker/handle.ts";
+import { startSeededWorker, type WorkerHandle } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
@@ -159,6 +159,11 @@ export async function runInWorker(reg: AgentRegistry, options: {
             },
         }, readSessionSeed);
         options.entry.worker = handle;
+        options.entry.blockControl = workerBlockControl(agent, handle);
+        // A worker started on a blocked session halts itself; the host counts that halt from the start.
+        if (reg.blockRefusalFor(store.header.id) !== undefined) {
+            agent.noteRouterHalted(false);
+        }
         // The ledger stays in the host; the worker's events reach it on this bus.
         const stopRecordingFailures = services.modelFailureLedger === undefined
                 || services.eventBus === undefined
@@ -232,9 +237,26 @@ export async function runInWorker(reg: AgentRegistry, options: {
             options.entry.workerOwnerRouter = undefined;
             if (options.entry.worker === handle) {
                 options.entry.worker = undefined;
+                options.entry.blockControl = undefined;
             }
         }
     }
+
+// Block answers from the worker move the host counters with the worker's router.
+export function workerBlockControl(agent: ResidentAgent, handle: WorkerHandle): SessionBlockControl {
+    return {
+        confirmBlock: async (timeoutMs) => {
+            const latched = await handle.confirmBlock(timeoutMs);
+            if (latched) agent.noteRouterHalted(false);
+            return latched;
+        },
+        releaseBlock: async (timeoutMs) => {
+            const released = await handle.releaseBlock(timeoutMs);
+            if (released) agent.noteRouterCleared();
+            return released;
+        },
+    };
+}
 
 export function requestMissingSubagentConfiguration(reg: AgentRegistry, entry: RegisteredAgentEntry, request: MissingSubagentConfigurationRequest, context: ToolEffectContext, signal: AbortSignal): Promise<SpawnModelResolution> {
         if (entry.store.header.delegation !== undefined) {

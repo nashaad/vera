@@ -862,3 +862,14 @@ test("host stop-wait decoder rejects malformed events", () => {
     expect(parseHostStopWaitEvent({ type: "host_restarting", build_id: "" })).toBeUndefined();
     expect(parseHostStopWaitEvent(null)).toBeUndefined();
 });
+
+test("host protocol parses cut_stop_wait and the forced stop_host flag", () => {
+    expect(parseHostRequest('{"type":"cut_stop_wait"}')).toEqual({ type: "cut_stop_wait" });
+    const identity = { pid: 101, started_at: "2026-07-17T12:00:00.123Z" };
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: true })))
+        .toEqual({ type: "stop_host", ...identity, force: true });
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: false })))
+        .toEqual({ type: "stop_host", ...identity });
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: "yes" })))
+        .toBeUndefined();
+});

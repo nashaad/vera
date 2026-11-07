@@ -98,7 +98,10 @@ An attached TUI shows the same sessions above its composer while the wait is ope
 and removes the notice once the host stops or the wait is abandoned.
 It prints Stopped only after the process exits. If the host does not answer,
 the command leaves it running and exits with status 1. `vera host stop --force`
-cuts the running turns and sends SIGTERM, then SIGKILL if the host ignores it.
+asks the host to cut the running turns and drop their queued prompts, then stop.
+The dropped prompts are recorded as not started. If the host does not answer the cut,
+or has not stopped within 10 seconds, the command sends SIGTERM, then SIGKILL
+if the host ignores it, and says which of these happened.
 Neither command signals a process whose start time the system cannot report.
 They print that the PID could not be confirmed as the host, keep its lockfile,
 and exit with status 1; run the command again. `bun run dev:tui --stop`

@@ -537,15 +537,18 @@ export function answerStopWaitCard(
     focusActiveSurface(rt);
 }
 
-// Ends every turn the open stop or update waits on.
+// Cuts the running turns and queued prompts of every session the open stop or update waits on.
 export async function stopWaitNow(rt: TuiRuntime): Promise<void> {
     const wait = rt.stopWait;
-    const abortAgent = rt.dependencies.abortAgent;
-    if (wait === undefined || abortAgent === undefined) return;
-    const results = await stopNow(wait, { abort: abortAgent });
-    const failed = results.filter((result) => result.error !== undefined);
-    if (failed.length > 0) {
-        showStatusNotice(rt, `Could not stop ${failed.length} session${failed.length === 1 ? "" : "s"}: ${failed[0]?.error ?? ""}`);
+    const cutStopWait = rt.dependencies.cutStopWait;
+    if (wait === undefined || cutStopWait === undefined) return;
+    const outcome = await stopNow({ cut: cutStopWait });
+    if (outcome.kind === "unsupported") {
+        showStatusNotice(rt, "Could not stop the running turns: the resident host cannot cut them");
+        return;
+    }
+    if (outcome.kind === "cut" && outcome.failures.length > 0) {
+        showStatusNotice(rt, `Could not stop ${outcome.failures.length} session${outcome.failures.length === 1 ? "" : "s"}: ${outcome.failures[0]?.error ?? ""}`);
     }
 }
 

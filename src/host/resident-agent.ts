@@ -157,6 +157,10 @@ export class ResidentAgent {
     private outstandingDeliveryWakes = 0;
     private startedTurnActive = false;
     private deliveryTurnQueued = false;
+    // While the engine's router is halted it drops prompts, so the host does not count them.
+    private routerHalted = false;
+    // A worker clears its own halt after the cut turn ends, which the host sees as turn_finished.
+    private haltClearsOnTurnFinish = false;
     private readonly maxPendingCommands: number;
     private readonly createAttachmentId: () => string;
 
@@ -180,7 +184,7 @@ export class ResidentAgent {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
-                    if (queued.command.type === "prompt") {
+                    if (queued.command.type === "prompt" && !this.routerHalted) {
                         this.unstartedPrompts += 1;
                     }
                     if (queued.command.type === "trigger_delivery_turn") {
@@ -430,6 +434,26 @@ export class ResidentAgent {
         }
     }
 
+    // The router dropped its queued prompts and wakes on halt, so none of them is still outstanding.
+    noteRouterHalted(clearsOnTurnFinish: boolean): void {
+        if (this.routerHalted) {
+            // A block over a cut must hold until released, so only a cut-and-cut keeps the turn-finish release.
+            this.haltClearsOnTurnFinish = this.haltClearsOnTurnFinish && clearsOnTurnFinish;
+            return;
+        }
+        this.routerHalted = true;
+        this.haltClearsOnTurnFinish = clearsOnTurnFinish;
+        this.unstartedPrompts = 0;
+        this.outstandingDeliveryWakes = 0;
+        this.deliveryTurnQueued = false;
+        this.notifyRunStateChanged();
+    }
+
+    noteRouterCleared(): void {
+        this.routerHalted = false;
+        this.haltClearsOnTurnFinish = false;
+    }
+
     deliveryTurnDiscarded(): void {
         if (this.outstandingDeliveryWakes > 0) {
             this.outstandingDeliveryWakes -= 1;
@@ -654,6 +678,9 @@ export class ResidentAgent {
                 this.unstartedPrompts -= 1;
             } else if (this.outstandingDeliveryWakes > 0) {
                 this.outstandingDeliveryWakes -= 1;
+            }
+            if (this.haltClearsOnTurnFinish) {
+                this.noteRouterCleared();
             }
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";

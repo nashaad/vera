@@ -2,6 +2,7 @@
 import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
 import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
+import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
@@ -58,6 +59,7 @@ export async function runWorker(
             if (
                 message.method === "session.confirmBlock"
                 || message.method === "session.release"
+                || message.method === "session.cut"
             ) {
                 blockControl(body);
                 return;
@@ -125,9 +127,12 @@ export async function runWorker(
             });
         }
         const latch = blockLatch;
+        // The engine asks before each step; a cut holds until its turn has ended.
+        let cutHold: string | undefined;
+        const haltCheck = (): string | undefined => latch?.check() ?? cutHold;
         const remote = createRemoteHostBoundary({
             pipe,
-            ...(latch === undefined ? {} : { haltCheck: latch.check }),
+            haltCheck,
             onReplicaDiverged: (error) => replicaDiverged(error),
             session: options.session,
             offers: options.offers,
@@ -158,6 +163,7 @@ export async function runWorker(
             const message = body as {
                 readonly method: string;
                 readonly requestId: string;
+                readonly reason?: unknown;
             };
             if (message.method === "session.confirmBlock") {
                 pipe.notify({
@@ -165,6 +171,24 @@ export async function runWorker(
                     requestId: message.requestId,
                     latched: latch !== undefined && latch.check() !== undefined,
                 });
+                return;
+            }
+            if (message.method === "session.cut") {
+                // A held block keeps its own halt; clearing it here would release the session.
+                const held = latch !== undefined && latch.check() !== undefined;
+                const router = inbound;
+                const ok = router !== undefined
+                    && !held
+                    && typeof message.reason === "string";
+                if (ok) {
+                    cutHold = message.reason;
+                    router.halt(message.reason);
+                    void clearCutHaltWhenIdle(router, () => latch?.check() !== undefined)
+                        .then(() => {
+                            cutHold = undefined;
+                        });
+                }
+                pipe.notify({ method: "session.cutAck", requestId: message.requestId, ok });
                 return;
             }
             latch?.release();

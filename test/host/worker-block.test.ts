@@ -12,6 +12,8 @@ import {
     removeSessionBlock,
     writeSessionBlock,
 } from "../../src/host/session-block.ts";
+import { workerBlockControl, forwardWorkerUpdate } from "../../src/host/agent-registry/subagent.ts";
+import { ResidentAgent } from "../../src/host/resident-agent.ts";
 
 /**
  * A block written while a session is mid-turn stops that turn and keeps its
@@ -159,6 +161,81 @@ test(
         // Unblocking is acknowledged only after the worker releases its latch.
         await removeSessionBlock(blockedDirectory, "stepper");
         expect(await handle.releaseBlock(5_000)).toBe(true);
+    },
+    30_000,
+);
+
+test(
+    "a block over a queued prompt settles the host counters, and release counts prompts again",
+    async () => {
+        const directory = workspace("vera-worker-block-counts-");
+        const blockedDirectory = join(directory, "blocked");
+        const requestLogPath = join(directory, "requests.log");
+        const toolPidPath = join(directory, "tool.pid");
+        const path = join(directory, "session.jsonl");
+        const store = await SessionStore.create(path, {
+            sessionId: "counted",
+            cwd: directory,
+        });
+        const agent = new ResidentAgent("counted", directory);
+        const handle = await startWorker({
+            store,
+            session: {
+                path,
+                header: JSON.parse(
+                    readFileSync(path, "utf8").split("\n")[0] as string,
+                ) as Record<string, unknown>,
+                records: [],
+            },
+            model: "test",
+            adapter: {
+                module: ADAPTER,
+                options: {
+                    script: [
+                        toolCall("call-hold", `echo $$ > '${toolPidPath}'; exec sleep 60`),
+                        text("the queued prompt must not run while blocked"),
+                        text("the prompt after release runs"),
+                    ],
+                    requestLogPath,
+                },
+            },
+            data: { approvalMode: "full_access" },
+            blockedDirectory,
+            onUpdate: (update, ownerId) => forwardWorkerUpdate(agent, update, ownerId),
+        });
+        handles.push(handle);
+        const control = workerBlockControl(agent, handle);
+        void (async () => {
+            for (;;) {
+                handle.send(await agent.engine.receive());
+            }
+        })();
+
+        agent.sendPrompt("hold a step open");
+        await waitFor(() => existsSync(toolPidPath));
+        agent.sendPrompt("queued behind the first");
+        await Bun.sleep(300);
+        expect(agent.idleForReplacement()).toBe(false);
+
+        await writeSessionBlock(blockedDirectory, {
+            version: 1,
+            session_id: "counted",
+            root_session_id: "counted",
+            blocked_at: new Date().toISOString(),
+            reason: "test",
+        });
+        expect(await control.confirmBlock(5_000)).toBe(true);
+        const toolPid = Number(readFileSync(toolPidPath, "utf8").trim());
+        await waitFor(() => !alive(toolPid));
+        await waitFor(() => agent.status === "idle");
+        expect(agent.idleForReplacement()).toBe(true);
+        expect(requestCount(requestLogPath)).toBe(1);
+
+        await removeSessionBlock(blockedDirectory, "counted");
+        expect(await control.releaseBlock(5_000)).toBe(true);
+        agent.sendPrompt("after release");
+        await waitFor(() => requestCount(requestLogPath) === 2);
+        await waitFor(() => agent.idleForReplacement());
     },
     30_000,
 );

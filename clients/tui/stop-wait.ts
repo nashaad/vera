@@ -1,5 +1,6 @@
 import type { UiResponseCommand, UserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import type { HostStopWaitEvent } from "../../src/host/protocol.ts";
+import type { CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 
 export type TuiStopWait =
@@ -119,26 +120,25 @@ export function stopWaitNoticeText(wait: TuiStopWait | undefined): string | unde
 }
 
 export interface StopNowDependencies {
-    readonly abort: (sessionId: string) => Promise<void>;
+    readonly cut: () => Promise<CutStopWaitOutcome>;
 }
 
-// Aborts every session the wait names. Refused or failed aborts are returned, not thrown,
-// so the notice can show what was not stopped.
-export async function stopNow(
-    wait: TuiStopWait,
-    dependencies: StopNowDependencies,
-): Promise<readonly { readonly sessionId: string; readonly error?: string }[]> {
-    const results: { readonly sessionId: string; readonly error?: string }[] = [];
-    for (const target of wait.waitingOn) {
-        try {
-            await dependencies.abort(target.session_id);
-            results.push({ sessionId: target.session_id });
-        } catch (error) {
-            results.push({
-                sessionId: target.session_id,
-                error: error instanceof Error ? error.message : String(error),
-            });
-        }
-    }
-    return results;
+export type StopNowOutcome =
+    | { readonly kind: "cut"; readonly failures: readonly { readonly sessionId: string; readonly error: string }[] }
+    | { readonly kind: "no_wait" }
+    | { readonly kind: "unsupported" };
+
+// The host halts the waited sessions and drops their queued prompts. Failed cuts come back
+// as data, so the notice can show what was not stopped.
+export async function stopNow(dependencies: StopNowDependencies): Promise<StopNowOutcome> {
+    const outcome = await dependencies.cut();
+    if (outcome.type === "cut_stop_wait_refused") return { kind: "no_wait" };
+    if (outcome.type === "unsupported") return { kind: "unsupported" };
+    return {
+        kind: "cut",
+        failures: outcome.failed.map((failure) => ({
+            sessionId: failure.session_id,
+            error: failure.message,
+        })),
+    };
 }

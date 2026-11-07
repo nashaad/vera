@@ -253,6 +253,13 @@ export interface StopHostRequest {
     readonly started_at: string;
     // Set for an update: the host moves to this build once it is idle.
     readonly target_build_id?: string;
+    // Cuts the waited sessions as soon as the wait opens.
+    readonly force?: boolean;
+}
+
+// Halts every session the open stop wait names. Replies with the cut list, or refuses when no wait is open.
+export interface CutStopWaitRequest {
+    readonly type: "cut_stop_wait";
 }
 
 export interface CreateAgentRequest {
@@ -783,6 +790,20 @@ export interface StopHostRefusedResponse {
     readonly message: string;
 }
 
+export interface CutStopWaitDoneResponse {
+    readonly type: "cut_stop_wait_done";
+    readonly cut: readonly string[];
+    readonly failed: readonly { readonly session_id: string; readonly message: string }[];
+}
+
+export interface CutStopWaitRefusedResponse {
+    readonly type: "cut_stop_wait_refused";
+    readonly reason: "no_wait";
+    readonly message: string;
+}
+
+export type CutStopWaitResponse = CutStopWaitDoneResponse | CutStopWaitRefusedResponse;
+
 // The host kept running: the move to the target build could not start.
 export interface StopHostAbandonedResponse {
     readonly type: "stop_host_abandoned";
@@ -869,6 +890,7 @@ export type HostRequest =
     | CloseAgentRequest
     | BlockSessionRequest
     | UnblockSessionRequest
+    | CutStopWaitRequest
     | RenameSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
@@ -926,6 +948,7 @@ export type HostResponse =
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
     | StopHostResponse
+    | CutStopWaitResponse
     | AttachedResponse
     | BackgroundAgentsResponse
     | WorkIndexResponse
@@ -1081,6 +1104,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && typeof value.started_at === "string"
         && !Number.isNaN(Date.parse(value.started_at))
         && (value.target_build_id === undefined || isBuildIdText(value.target_build_id))
+        && (value.force === undefined || typeof value.force === "boolean")
     ) {
         return {
             type: "stop_host",
@@ -1089,7 +1113,11 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(typeof value.target_build_id === "string"
                 ? { target_build_id: value.target_build_id }
                 : {}),
+            ...(value.force === true ? { force: true } : {}),
         };
+    }
+    if (value?.type === "cut_stop_wait") {
+        return { type: "cut_stop_wait" };
     }
     if (
         (value?.type === "shutdown_if_idle"
@@ -1663,6 +1691,7 @@ export function requestHostShutdownForReplacement(
 }
 
 export type HostStopResult =
+    | { readonly type: "timed_out" }
     | { readonly type: "stopped" }
     | { readonly type: "accepted" }
     | { readonly type: "abandoned"; readonly message: string }
@@ -1674,6 +1703,9 @@ export interface HostStopOptions {
     readonly targetBuildId?: string;
     // Resolve at the first answer instead of waiting for the stop to finish.
     readonly detach?: boolean;
+    readonly force?: boolean;
+    // Resolves timed_out when the host has not reported stopped by then.
+    readonly deadlineMs?: number;
 }
 
 // Resolves once the host reports stopped, or at the first answer when detached.
@@ -1698,11 +1730,15 @@ export function requestHostStop(
             if (finished) return;
             finished = true;
             clearTimeout(deadline);
+            if (overall !== undefined) clearTimeout(overall);
             socket.destroy();
             resolve(result);
         };
         // Only the first answer has a deadline; a host that is waiting on turns may take minutes.
         const deadline = setTimeout(() => finish({ type: "no_answer" }), 1_000);
+        const overall = options.deadlineMs === undefined
+            ? undefined
+            : setTimeout(() => finish({ type: "timed_out" }), options.deadlineMs);
         socket.setEncoding("utf8");
         socket.once("connect", () => {
             socket.write(`${JSON.stringify({
@@ -1712,6 +1748,7 @@ export function requestHostStop(
                 ...(options.targetBuildId === undefined
                     ? {}
                     : { target_build_id: options.targetBuildId }),
+                ...(options.force === true ? { force: true } : {}),
             })}\n`);
         });
         socket.on("data", (chunk: string) => {

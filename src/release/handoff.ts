@@ -206,6 +206,7 @@ export async function handOffUpdate(options: HandOffOptions): Promise<HandOffOut
                 message: `Resident Vera host PID ${outcome.pid} is a build that cannot wait for turns, so it was left running and current was not moved. Run 'vera host stop' and install again.`,
             };
         case "still_running":
+        case "timed_out":
         case "sigterm":
         case "sigkill":
         case "already_dead":

@@ -604,6 +604,7 @@ export async function startResidentHost(
         onStopped: () => closeHost(),
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
+        cutSession: (sessionId, reason) => registry.cutSessionForStop(sessionId, reason),
     });
     const registry: AgentRegistry = new AgentRegistry({
         sessionBlockDirectory: blockedDirectory,

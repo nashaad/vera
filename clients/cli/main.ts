@@ -300,6 +300,7 @@ export interface CliDependencies {
     readonly confirmHostStop?: (force: boolean) => boolean | Promise<boolean>;
     readonly stopHost?: (options: {
         readonly onWaiting: (waiting: readonly StopWaitTarget[]) => void;
+        readonly force?: boolean;
     }) => Promise<StopWhenIdleOutcome | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
@@ -909,7 +910,39 @@ export async function runCli(
             return 0;
         }
         try {
+            let announced = false;
+            const onWaiting = (waiting: readonly StopWaitTarget[]): void => {
+                if (!announced) {
+                    announced = true;
+                    output.write(force
+                        ? "Cutting running turns and queued prompts. New turns are refused until the host stops.\n"
+                        : "Stopping after running turns end. New turns are refused until the host stops.\n");
+                }
+                for (const target of waiting) {
+                    output.write(target.name === null
+                        ? `Waiting on ${target.session_id} (${target.status})\n`
+                        : `Waiting on ${target.name} (${target.session_id}, ${target.status})\n`);
+                }
+            };
             if (force) {
+                const cut = await (
+                    dependencies.stopHost ?? stopResidentHostWhenIdle
+                )({ onWaiting, force: true });
+                if (cut !== undefined && !cutNeedsSignal(cut)) {
+                    const rendered = cut.endedBy === "stopped"
+                        ? {
+                            text: `Stopped resident Vera host PID ${cut.pid} after cutting its running turns.\n`,
+                            exitCode: 0,
+                        }
+                        : renderStopWhenIdleOutcome(cut);
+                    output.write(rendered.text);
+                    return rendered.exitCode;
+                }
+                if (cut === undefined) {
+                    output.write("No resident Vera host is recorded.\n");
+                    return 0;
+                }
+                output.write(cutFallbackNotice(cut));
                 const outcome = await (
                     dependencies.forceStopHost ?? forceStopResidentHost
                 )();
@@ -921,17 +954,6 @@ export async function runCli(
                 output.write(rendered.text);
                 return rendered.exitCode;
             }
-            let announced = false;
-            const onWaiting = (waiting: readonly StopWaitTarget[]): void => {
-                if (!announced) {
-                    announced = true;
-                    output.write("Stopping after running turns end. New turns are refused until the host stops.\n");
-                }
-                for (const target of waiting) {
-                    const label = target.name ?? target.session_id;
-                    output.write(`Waiting on ${label} (${target.session_id}, ${target.status})\n`);
-                }
-            };
             const outcome = await (
                 dependencies.stopHost ?? stopResidentHostWhenIdle
             )({ onWaiting });
@@ -1223,6 +1245,25 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
     }
 }
 
+// Only an answer the host did not give falls back to a signal. A refusal is reported and never signalled.
+function cutNeedsSignal(outcome: StopWhenIdleOutcome): boolean {
+    return outcome.endedBy === "no_answer"
+        || outcome.endedBy === "unsupported"
+        || outcome.endedBy === "timed_out";
+}
+
+function cutFallbackNotice(outcome: StopWhenIdleOutcome): string {
+    const pid = outcome.pid === undefined ? "" : ` PID ${outcome.pid}`;
+    switch (outcome.endedBy) {
+        case "unsupported":
+            return `Resident Vera host${pid} is a build that cannot cut its turns. Sending it the stop signal.\n`;
+        case "timed_out":
+            return `Resident Vera host${pid} did not stop within 10 seconds. Sending it the stop signal.\n`;
+        default:
+            return `Resident Vera host${pid} did not answer the cut request. Sending it the stop signal.\n`;
+    }
+}
+
 function renderStopWhenIdleOutcome(outcome: StopWhenIdleOutcome): StopRendering {
     switch (outcome.endedBy) {
         case "stopped":
@@ -1246,6 +1287,11 @@ function renderStopWhenIdleOutcome(outcome: StopWhenIdleOutcome): StopRendering 
             return {
                 text: `Resident Vera host PID ${outcome.pid} is a build that cannot wait for turns, so it was left running.`
                     + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
+                exitCode: 1,
+            };
+        case "timed_out":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} did not stop after its turns were cut, so it was left running.\n`,
                 exitCode: 1,
             };
         case "accepted":

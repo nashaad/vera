@@ -1,4 +1,4 @@
-import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
+import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
@@ -533,7 +533,7 @@ export interface TuiDependencies {
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
-    readonly abortAgent?: (agentId: string) => Promise<void>;
+    readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -783,7 +783,7 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
-            abortAgent: async (agentId) => abortAgentThroughHost(await pairedSocket(), agentId),
+            cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),

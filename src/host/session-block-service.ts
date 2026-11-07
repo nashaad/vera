@@ -36,8 +36,7 @@ export function createSessionBlockService(
 
     // A live session latches from the flag before the caller goes on; the latch halts its queue at once.
     function blockControlOf(id: string): SessionBlockControl | undefined {
-        const entry = options.registry.agents.get(id);
-        return entry?.worker ?? entry?.blockControl;
+        return options.registry.agents.get(id)?.blockControl;
     }
 
     async function confirmLive(ids: readonly string[]): Promise<void> {

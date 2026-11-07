@@ -76,7 +76,55 @@ export interface WorkerHandle {
     // Resolves true only when the worker reports the flag seen (or the latch released) before the timeout.
     confirmBlock(timeoutMs: number): Promise<boolean>;
     releaseBlock(timeoutMs: number): Promise<boolean>;
+    // Resolves true only when the worker halted and cleared the halt before the timeout.
+    cutWait(reason: string, timeoutMs: number): Promise<boolean>;
     kill(): void;
+}
+
+type AckMethod = "session.latched" | "session.released" | "session.cutAck";
+
+function ackValue(ack: SessionBlockAck): boolean {
+    if (ack.method === "session.released") return true;
+    if (ack.method === "session.cutAck") return ack.ok;
+    return ack.latched;
+}
+
+interface AckWaiter {
+    readonly expected: AckMethod;
+    readonly resolve: (ok: boolean) => void;
+}
+
+// An ack settles only the request that asked for its method; any other ack leaves the request pending.
+export function createAckWaiters(): {
+    ask(expected: AckMethod, timeoutMs: number, send: (requestId: string) => void): Promise<boolean>;
+    settle(ack: SessionBlockAck): void;
+} {
+    const waiters = new Map<string, AckWaiter>();
+    return {
+        ask(expected, timeoutMs, send) {
+            return new Promise((resolve) => {
+                const requestId = randomUUID();
+                const timer = setTimeout(() => {
+                    waiters.delete(requestId);
+                    resolve(false);
+                }, timeoutMs);
+                waiters.set(requestId, {
+                    expected,
+                    resolve: (ok) => {
+                        clearTimeout(timer);
+                        resolve(ok);
+                    },
+                });
+                send(requestId);
+            });
+        },
+        settle(ack) {
+            const waiter = waiters.get(ack.requestId);
+            if (waiter === undefined || waiter.expected !== ack.method) return;
+            waiters.delete(ack.requestId);
+            waiter.resolve(ackValue(ack));
+        },
+    };
 }
 
 export function residentWorkerEntrypoint(): string {
@@ -132,28 +180,21 @@ export async function startWorker(
         resolveOutcome = resolve;
     });
 
-    const blockWaiters = new Map<string, (ok: boolean) => void>();
+    const ackWaiters = createAckWaiters();
     const askBlock = (
         method: "session.confirmBlock" | "session.release",
         timeoutMs: number,
-    ): Promise<boolean> => new Promise((resolve) => {
-        const requestId = randomUUID();
-        const timer = setTimeout(() => {
-            blockWaiters.delete(requestId);
-            resolve(false);
-        }, timeoutMs);
-        blockWaiters.set(requestId, (ok) => {
-            clearTimeout(timer);
-            resolve(ok);
-        });
-        pipe.notify({ method, requestId });
-    });
-    const settleBlockAck = (ack: SessionBlockAck): void => {
-        const waiter = blockWaiters.get(ack.requestId);
-        if (waiter === undefined) return;
-        blockWaiters.delete(ack.requestId);
-        waiter(ack.method === "session.released" ? true : ack.latched);
-    };
+    ): Promise<boolean> => ackWaiters.ask(
+        method === "session.confirmBlock" ? "session.latched" : "session.released",
+        timeoutMs,
+        (requestId) => pipe.notify({ method, requestId }),
+    );
+    const askCut = (reason: string, timeoutMs: number): Promise<boolean> => ackWaiters.ask(
+        "session.cutAck",
+        timeoutMs,
+        (requestId) => pipe.notify({ method: "session.cut", requestId, reason }),
+    );
+    const settleBlockAck = (ack: SessionBlockAck): void => ackWaiters.settle(ack);
     const services = options.services ?? {};
     let supervisor: SupervisorHandle | undefined;
     const pipe = createJsonPipe(
@@ -262,6 +303,7 @@ export async function startWorker(
         outcome,
         confirmBlock: (timeoutMs: number) => askBlock("session.confirmBlock", timeoutMs),
         releaseBlock: (timeoutMs: number) => askBlock("session.release", timeoutMs),
+        cutWait: (reason: string, timeoutMs: number) => askCut(reason, timeoutMs),
         kill(): void {
             supervisor?.killNow();
             try {

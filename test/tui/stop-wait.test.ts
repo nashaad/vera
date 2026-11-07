@@ -75,92 +75,44 @@ describe("stop-wait notice", () => {
 });
 
 describe("stop-now action", () => {
-    test("aborts every waited-on session in order", async () => {
-        const aborted: string[] = [];
-        const results = await stopNow(
-            { kind: "stop", waitingOn: waiting },
-            {
-                abort: async (sessionId) => {
-                    aborted.push(sessionId);
-                },
+    test("asks the host to cut the waited sessions once and reports no failures", async () => {
+        let calls = 0;
+        const outcome = await stopNow({
+            cut: async () => {
+                calls += 1;
+                return { type: "cut_stop_wait_done", cut: ["a1", "b2", "c3"], failed: [] };
             },
-        );
-        expect(aborted).toEqual(["a1", "b2", "c3"]);
-        expect(results.every((result) => result.error === undefined)).toBe(true);
-    });
-
-    test("a failed abort is reported and the rest still run", async () => {
-        const aborted: string[] = [];
-        const results = await stopNow(
-            { kind: "stop", waitingOn: waiting },
-            {
-                abort: async (sessionId) => {
-                    if (sessionId === "b2") throw new Error("socket closed");
-                    aborted.push(sessionId);
-                },
-            },
-        );
-        expect(aborted).toEqual(["a1", "c3"]);
-        expect(results).toEqual([
-            { sessionId: "a1" },
-            { sessionId: "b2", error: "socket closed" },
-            { sessionId: "c3" },
-        ]);
-    });
-});
-
-describe("stop-wait card", () => {
-    const plain: TuiStopWait = { kind: "stop", waitingOn: waiting };
-    const update: TuiStopWait = {
-        kind: "update",
-        targetBuildId: "build-42",
-        waitingOn: waiting,
-    };
-
-    test("opens once per wait and stays closed after it is answered", () => {
-        const opened = nextStopWaitCard(undefined, plain);
-        expect(opened).toEqual({ key: "stop", open: true });
-        const answered = closeStopWaitCard(opened!);
-        expect(nextStopWaitCard(answered, plain)).toBe(answered);
-    });
-
-    test("a changed session list keeps a closed card closed", () => {
-        const closed = closeStopWaitCard(nextStopWaitCard(undefined, update)!);
-        const changed: TuiStopWait = { ...update, waitingOn: [waiting[0]!] };
-        expect(nextStopWaitCard(closed, changed)).toEqual(closed);
-    });
-
-    test("a new wait opens the card again, and a cleared wait removes it", () => {
-        const closed = closeStopWaitCard(nextStopWaitCard(undefined, plain)!);
-        expect(nextStopWaitCard(closed, update)).toEqual({ key: "update:build-42", open: true });
-        expect(nextStopWaitCard(closed, undefined)).toBeUndefined();
-    });
-
-    test("the card offers keep waiting first and by default, then stop it now", () => {
-        const card = stopWaitCardUpdate(update, { key: "update:build-42", open: true });
-        expect(card?.request.question).toBe("Updating to build-42. Waiting for Fix parser.");
-        expect(card?.request.choices.map((choice) => choice.label)).toEqual([
-            "Keep waiting",
-            "Stop it now",
-        ]);
-        expect(card?.request.choices[0]?.recommended).toBe(true);
-        expect(stopWaitCardUpdate(plain, { key: "stop", open: false })).toBeUndefined();
-        expect(stopWaitCardUpdate(plain, { key: "stop", open: true })?.request.question)
-            .toBe("Vera is stopping. Waiting for Fix parser.");
-    });
-
-    test("only Stop it now answers stop; keep, escape and cancel answer keep", () => {
-        const selected = (choiceId: string) => ({
-            type: "ui_response" as const,
-            requestId: "tui-local:stop-wait",
-            response: { type: "user_question" as const, outcome: "selected" as const, choiceId },
         });
-        expect(stopWaitCardChoice(selected("stop"))).toBe("stop");
-        expect(stopWaitCardChoice(selected("keep"))).toBe("keep");
-        expect(stopWaitCardChoice({
-            type: "ui_response",
-            requestId: "tui-local:stop-wait",
-            response: { type: "user_question", outcome: "cancelled" },
-        })).toBe("keep");
+        expect(calls).toBe(1);
+        expect(outcome).toEqual({ kind: "cut", failures: [] });
+    });
+
+    test("returns each failed cut with its message and keeps the rest", async () => {
+        const outcome = await stopNow({
+            cut: async () => ({
+                type: "cut_stop_wait_done",
+                cut: ["a1", "c3"],
+                failed: [{ session_id: "b2", message: "The session did not confirm the cut." }],
+            }),
+        });
+        expect(outcome).toEqual({
+            kind: "cut",
+            failures: [{ sessionId: "b2", error: "The session did not confirm the cut." }],
+        });
+    });
+
+    test("a refusal means the wait already ended", async () => {
+        expect(await stopNow({
+            cut: async () => ({
+                type: "cut_stop_wait_refused",
+                reason: "no_wait",
+                message: "No stop is waiting, so there is nothing to cut.",
+            }),
+        })).toEqual({ kind: "no_wait" });
+    });
+
+    test("a host that cannot cut is reported as unsupported", async () => {
+        expect(await stopNow({ cut: async () => ({ type: "unsupported" }) }))
+            .toEqual({ kind: "unsupported" });
     });
 });

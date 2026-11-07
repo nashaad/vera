@@ -136,3 +136,46 @@ test("an update reports stopped at once and forwards the target to the host", as
         await server.close();
     }
 });
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a forced stop cuts the waited session and stops without signalling a verified host",
+    async () => {
+        const directory = mkdtempSync(join("/private/tmp", "vera-stop-cut-"));
+        directories.push(directory);
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        const cuts: string[] = [];
+        let alive = true;
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            cutSession: async (id) => {
+                cuts.push(id);
+                waiting = [];
+                return true;
+            },
+            onStopped: () => {
+                alive = false;
+                void server.close();
+            },
+            pollIntervalMs: 5,
+        });
+        const server = await startHostServer({
+            socketPath: join(directory, "host.sock"),
+            lockPath: join(directory, "host.json"),
+            pid: 107,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            stopWhenIdle: control,
+        });
+        const outcome = await stopResidentHostWhenIdle({
+            lockPath: join(directory, "host.json"),
+            isProcessAlive: () => alive,
+            matchesRecord: () => true,
+            pollIntervalMs: 5,
+            force: true,
+            kill: () => {
+                throw new Error("a host that answers the cut must not be signalled");
+            },
+        });
+        expect(outcome).toEqual({ pid: 107, endedBy: "stopped" });
+        expect(cuts).toEqual(["s1"]);
+    },
+);

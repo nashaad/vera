@@ -26,6 +26,7 @@ import {
     requestHostStop,
 } from "../../src/host/protocol.ts";
 import { HOST_CAPABILITIES, HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
+import { cutStopWaitThroughHost } from "../../src/host/stop-wait-cut-client.ts";
 import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
 
@@ -1903,6 +1904,51 @@ type HostConnection = Awaited<ReturnType<typeof connectHost>>;
             expect(await pending).toEqual({ type: "stopped" });
         } finally {
             first.close();
+            await server.close().catch(() => undefined);
+        }
+    },
+);
+
+test(
+    "cut_stop_wait refuses with no wait, and cuts each waited session on request",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host-cut.sock");
+        const cuts: string[] = [];
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            cutSession: async (id) => {
+                cuts.push(id);
+                return true;
+            },
+            onStopped: () => undefined,
+            pollIntervalMs: 5,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host-cut.json"),
+            pid: 104,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            stopWhenIdle: control,
+        });
+        try {
+            expect(await cutStopWaitThroughHost(socketPath)).toMatchObject({
+                type: "cut_stop_wait_refused",
+                reason: "no_wait",
+            });
+
+            const pending = requestHostStop(socketPath, server.identity, () => undefined);
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(await cutStopWaitThroughHost(socketPath)).toEqual({
+                type: "cut_stop_wait_done",
+                cut: ["s1"],
+                failed: [],
+            });
+            expect(cuts).toEqual(["s1"]);
+            waiting = [];
+            expect(await pending).toEqual({ type: "stopped" });
+        } finally {
             await server.close().catch(() => undefined);
         }
     },

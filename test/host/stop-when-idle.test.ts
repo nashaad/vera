@@ -204,3 +204,106 @@ test("stop-when-idle clears an observed plain stop when it is abandoned", async 
         message: "Could not move the update.",
     });
 });
+
+test("cutWait refuses when no stop is waiting", async () => {
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working],
+        onStopped: () => undefined,
+        cutSession: async () => true,
+    });
+    expect(await coordinator.cutWait()).toEqual({
+        status: "refused",
+        reason: "no_wait",
+        message: "No stop is waiting, so there is nothing to cut.",
+    });
+});
+
+test("cutWait cuts each waited session once and records the cut", async () => {
+    const cuts: Array<[string, string]> = [];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working, queued],
+        onStopped: () => undefined,
+        cutSession: async (id, reason) => {
+            cuts.push([id, reason]);
+            return true;
+        },
+        now: () => new Date("2026-11-07T10:00:00.000Z"),
+    });
+    coordinator.request(() => undefined);
+    const result = await coordinator.cutWait();
+    expect(result).toEqual({ status: "done", cut: ["s1", "s2"], failed: [] });
+    expect(cuts).toEqual([
+        ["s1", "Vera is stopping"],
+        ["s2", "Vera is stopping"],
+    ]);
+    expect(coordinator.cutRecords).toEqual([
+        { session_id: "s1", cause: "stop", target_build_id: null, cut_at: "2026-11-07T10:00:00.000Z" },
+        { session_id: "s2", cause: "stop", target_build_id: null, cut_at: "2026-11-07T10:00:00.000Z" },
+    ]);
+});
+
+test("cutWait reports a session that did not confirm, and names the update build", async () => {
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working, queued],
+        onStopped: () => undefined,
+        cutSession: async (id) => {
+            if (id === "s2") throw new Error("worker gone");
+            return false;
+        },
+    });
+    coordinator.request(() => undefined, "build-42");
+    const result = await coordinator.cutWait();
+    expect(result).toEqual({
+        status: "done",
+        cut: [],
+        failed: [
+            { session_id: "s1", message: "The session did not confirm the cut." },
+            { session_id: "s2", message: "worker gone" },
+        ],
+    });
+    expect(coordinator.cutRecords).toEqual([]);
+});
+
+test("cutWait records an update cut with its target build", async () => {
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working],
+        onStopped: () => undefined,
+        cutSession: async () => true,
+    });
+    coordinator.request(() => undefined, "build-42", { cutFirst: true });
+    await settle();
+    expect(coordinator.cutRecords).toEqual([
+        expect.objectContaining({ session_id: "s1", cause: "update", target_build_id: "build-42" }),
+    ]);
+});
+
+test("cutWait records one cut per session per wait, and a new wait after an abandon records again", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    let problem: string | undefined;
+    const halts: string[] = [];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        onStopped: () => undefined,
+        prepare: () => problem,
+        cutSession: async (id) => {
+            halts.push(id);
+            return true;
+        },
+        pollIntervalMs: 5,
+    });
+    coordinator.request(() => undefined);
+    await coordinator.cutWait();
+    await coordinator.cutWait();
+    expect(halts).toEqual(["s1", "s1"]);
+    expect(coordinator.cutRecords.map((record) => record.session_id)).toEqual(["s1"]);
+
+    problem = "Vera cannot stop yet.";
+    waiting = [];
+    await settle();
+
+    problem = undefined;
+    waiting = [working];
+    coordinator.request(() => undefined);
+    await coordinator.cutWait();
+    expect(coordinator.cutRecords.map((record) => record.session_id)).toEqual(["s1", "s1"]);
+});

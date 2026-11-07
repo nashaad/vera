@@ -1,4 +1,5 @@
 import { ToolHooks } from "../engine/hooks.ts";
+import { clearCutHaltWhenIdle } from "./cut-release.ts";
 import { modelSelectionCleared } from "./model-catalog-settings.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, mkdtemp, readdir, realpath, rm, rmdir, unlink } from "node:fs/promises";
@@ -74,6 +75,9 @@ import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
 import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
 import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block-latch.ts";
+
+// A worker that does not confirm the cut in time keeps running; the cut reports it as failed.
+const STOP_CUT_ACK_TIMEOUT_MS = 2000;
 
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
@@ -165,9 +169,10 @@ export class AgentRegistry {
         const latch = createSessionBlockLatch({
             directory,
             sessionId: entry.store.header.id,
-            onLatched: (reason) => entry.inbound?.halt(reason),
-            onReleased: () => entry.inbound?.clearHalt(),
+            onLatched: (reason) => this.haltInProcess(entry, reason),
+            onReleased: () => this.clearInProcessHalt(entry),
         });
+        entry.blockHeld = () => latch.check() !== undefined;
         entry.blockControl = {
             confirmBlock: async () => latch.check() !== undefined,
             releaseBlock: async () => {
@@ -176,6 +181,49 @@ export class AgentRegistry {
             },
         };
         return latch;
+    }
+
+    // Halts the in-process router and the host counts in one step, so dropped prompts are not left outstanding.
+    private haltInProcess(entry: RegisteredAgentEntry, reason: string): boolean {
+        const router = entry.inbound;
+        if (router === undefined) return false;
+        router.halt(reason);
+        entry.agent.noteRouterHalted(false);
+        return true;
+    }
+
+    private clearInProcessHalt(entry: RegisteredAgentEntry): void {
+        entry.inbound?.clearHalt();
+        entry.agent.noteRouterCleared();
+    }
+
+    // Halts one session and clears the halt, so its queued prompts are dropped and its turn ends.
+    // A session held by a block keeps its own halt and does not confirm the cut.
+    async cutSessionForStop(sessionId: string, reason: string): Promise<boolean> {
+        const entry = this.agents.get(sessionId);
+        if (entry === undefined) return false;
+        if (entry.worker !== undefined) {
+            // The worker clears its own halt once the cut turn ends; a session idle at the cut has no turn to end.
+            const turnRunning = entry.agent.status !== "idle";
+            entry.agent.noteRouterHalted(turnRunning);
+            const ok = await entry.worker.cutWait(reason, STOP_CUT_ACK_TIMEOUT_MS);
+            if (!ok || !turnRunning) entry.agent.noteRouterCleared();
+            return ok;
+        }
+        const router = entry.inbound;
+        if (router === undefined || entry.blockHeld?.() === true) return false;
+        entry.cutReason = reason;
+        this.haltInProcess(entry, reason);
+        void clearCutHaltWhenIdle(
+            {
+                timelineBlocked: () => router.timelineBlocked(),
+                clearHalt: () => this.clearInProcessHalt(entry),
+            },
+            () => entry.blockHeld?.() === true,
+        ).then(() => {
+            entry.cutReason = undefined;
+        });
+        return true;
     }
 
     // The refusal text while a block file holds the session, else undefined.
@@ -1126,9 +1174,7 @@ export class AgentRegistry {
                         ),
                 applyCommittedToolEffect,
                 extensionTools,
-                ...(blockLatch === undefined
-                    ? {}
-                    : { haltCheck: blockLatch.check }),
+                haltCheck: () => blockLatch?.check() ?? entry.cutReason,
                 ...(startupProfile !== "default"
                     || this.options.loadContextualContributions === undefined
                     ? {}
@@ -1195,7 +1241,7 @@ export class AgentRegistry {
                         entry.inbound = inbound;
                         entry.markLoopReady();
                         const reason = blockLatch?.check();
-                        if (reason !== undefined) inbound.halt(reason);
+                        if (reason !== undefined) this.haltInProcess(entry, reason);
                     },
                     hasPendingDeliveryTurn: () =>
                         entry.inbox?.hasAdmittedPending() === true,
@@ -1420,6 +1466,8 @@ export class AgentRegistry {
         for (const [id, entry] of this.agents) {
             const agent = entry.agent;
             if (agent.idleForReplacement()) continue;
+            // A blocked session runs nothing and its block survives the restart, so the wait does not hold for it.
+            if (this.blockRefusalFor(id) !== undefined) continue;
             targets.push({
                 session_id: id,
                 name: entry.store.name() ?? null,

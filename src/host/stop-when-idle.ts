@@ -37,10 +37,44 @@ export type StopRequestResult =
         readonly message: string;
     };
 
+export interface StopRequestOptions {
+    // Cuts the waited sessions as soon as the wait opens.
+    readonly cutFirst?: boolean;
+}
+
+export type StopCause = "stop" | "update";
+
+export interface StopCutRecord {
+    readonly session_id: string;
+    readonly cause: StopCause;
+    readonly target_build_id: string | null;
+    readonly cut_at: string;
+}
+
+export interface StopCutFailure {
+    readonly session_id: string;
+    readonly message: string;
+}
+
+export type CutStopWaitResult =
+    | {
+        readonly status: "done";
+        readonly cut: readonly string[];
+        readonly failed: readonly StopCutFailure[];
+    }
+    | { readonly status: "refused"; readonly reason: "no_wait"; readonly message: string };
+
 export interface StopWhenIdleControl {
-    request(listener: StopWhenIdleListener, buildId?: string | null): StopRequestResult;
+    request(
+        listener: StopWhenIdleListener,
+        buildId?: string | null,
+        options?: StopRequestOptions,
+    ): StopRequestResult;
     // Calls the observer with the current wait, if one is announced, then with each change.
     observe(observer: StopWaitObserver): () => void;
+    cutWait(): Promise<CutStopWaitResult>;
+    // Sessions cut by any wait since the host started, oldest first.
+    readonly cutRecords: readonly StopCutRecord[];
 }
 
 export interface StopWhenIdleOptions {
@@ -51,6 +85,9 @@ export interface StopWhenIdleOptions {
     readonly targetProblem?: (buildId: string) => string | undefined;
     // Runs once nothing waits, before "stopped" is sent. A message abandons the stop and turns resume.
     readonly prepare?: (buildId: string | null) => string | undefined;
+    // Halts one session and clears the halt again. False when the session did not confirm.
+    readonly cutSession?: (sessionId: string, reason: string) => Promise<boolean>;
+    readonly now?: () => Date;
 }
 
 export const TURNS_HELD_REFUSAL =
@@ -70,6 +107,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private readonly listeners = new Set<StopWhenIdleListener>();
     private readonly observers = new Set<StopWaitObserver>();
     private announced: Extract<StopWaitEvent, { type: "wait" }> | undefined;
+    private readonly cutLog: StopCutRecord[] = [];
+    // One record per session per wait; a repeat cut in the same wait still halts the session.
+    private readonly recordedThisWait = new Set<string>();
 
     constructor(private readonly options: StopWhenIdleOptions) {}
 
@@ -77,7 +117,15 @@ export class StopWhenIdle implements StopWhenIdleControl {
         return this.held;
     }
 
-    request(listener: StopWhenIdleListener, buildId: string | null = null): StopRequestResult {
+    get cutRecords(): readonly StopCutRecord[] {
+        return [...this.cutLog];
+    }
+
+    request(
+        listener: StopWhenIdleListener,
+        buildId: string | null = null,
+        requestOptions: StopRequestOptions = {},
+    ): StopRequestResult {
         if (this.finished) {
             void deliver(listener, { type: "stopped" });
             return { accepted: true, unsubscribe: () => undefined };
@@ -106,6 +154,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
             void deliver(listener, { type: "waiting", waiting_on: waiting });
             this.announce(waiting);
             this.ensureTimer();
+            if (requestOptions.cutFirst === true) void this.cutWait();
         }
         return {
             accepted: true,
@@ -113,6 +162,53 @@ export class StopWhenIdle implements StopWhenIdleControl {
                 this.listeners.delete(listener);
             },
         };
+    }
+
+    // Halts each waited session once, then clears the halt. Queued prompts are dropped
+    // with a "Not started" line; the active turn ends. The wait itself stays open.
+    async cutWait(): Promise<CutStopWaitResult> {
+        if (this.finished || this.pending === undefined) {
+            return {
+                status: "refused",
+                reason: "no_wait",
+                message: "No stop is waiting, so there is nothing to cut.",
+            };
+        }
+        const cause: StopCause = this.pending === null ? "stop" : "update";
+        const reason = this.pending === null
+            ? "Vera is stopping"
+            : `Vera is updating to ${this.pending}`;
+        const cut: string[] = [];
+        const failed: StopCutFailure[] = [];
+        for (const target of this.options.waitingOn()) {
+            try {
+                const applied = this.options.cutSession !== undefined
+                    && await this.options.cutSession(target.session_id, reason);
+                if (!applied) {
+                    failed.push({
+                        session_id: target.session_id,
+                        message: "The session did not confirm the cut.",
+                    });
+                    continue;
+                }
+            } catch (error) {
+                failed.push({
+                    session_id: target.session_id,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+                continue;
+            }
+            cut.push(target.session_id);
+            if (this.recordedThisWait.has(target.session_id)) continue;
+            this.recordedThisWait.add(target.session_id);
+            this.cutLog.push({
+                session_id: target.session_id,
+                cause,
+                target_build_id: this.pending ?? null,
+                cut_at: (this.options.now?.() ?? new Date()).toISOString(),
+            });
+        }
+        return { status: "done", cut, failed };
     }
 
     observe(observer: StopWaitObserver): () => void {
@@ -171,6 +267,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
             return;
         }
         this.finished = true;
+        this.recordedThisWait.clear();
         this.clearTimer();
         if (this.announced !== undefined) {
             this.announced = undefined;
@@ -193,6 +290,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
 
     // Turns resume and the next request starts a new stop.
     private async abandon(message: string): Promise<void> {
+        this.recordedThisWait.clear();
         this.held = false;
         this.pending = undefined;
         this.lastKey = undefined;

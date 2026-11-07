@@ -1236,7 +1236,7 @@ function receiveConnection(
                     () => { if (event.type !== "waiting") socket.end(); },
                     () => { socket.destroy(); },
                 );
-            }, request.target_build_id ?? null);
+            }, request.target_build_id ?? null, { cutFirst: request.force === true });
             if (!result.accepted) {
                 void send({
                     type: "stop_host_refused",
@@ -1246,6 +1246,22 @@ function receiveConnection(
                 return;
             }
             socket.once("close", result.unsubscribe);
+            return;
+        }
+        if (request?.type === "cut_stop_wait") {
+            clearDeadline();
+            finished = true;
+            void (stopWhenIdle === undefined
+                ? Promise.resolve({
+                    status: "refused" as const,
+                    reason: "no_wait" as const,
+                    message: "No stop is waiting, so there is nothing to cut.",
+                })
+                : stopWhenIdle.cutWait()
+            ).then((result) => result.status === "done"
+                ? send({ type: "cut_stop_wait_done", cut: result.cut, failed: result.failed })
+                : send({ type: "cut_stop_wait_refused", reason: result.reason, message: result.message })
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "shutdown_if_idle") {
