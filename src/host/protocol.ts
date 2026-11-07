@@ -375,11 +375,12 @@ export interface UnblockSessionRequest {
     readonly session_ids: readonly string[];
 }
 
-/** `session_ids` are the blocks removed by this request. */
+/** `session_ids` are the blocks removed by this request. `unconfirmed_session_ids` are removed blocks whose live worker did not acknowledge the release; that worker may still be halted. */
 export interface SessionUnblockedResponse {
     readonly type: "session_unblocked";
     readonly agent_id: string;
     readonly session_ids: readonly string[];
+    readonly unconfirmed_session_ids?: readonly string[];
 }
 
 export interface SessionUnblockRejectedResponse {

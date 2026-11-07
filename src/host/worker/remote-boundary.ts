@@ -1,5 +1,6 @@
 
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
+import type { TurnHaltCheck } from "../../engine/run-turn.ts";
 import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import { ToolHooks, type SessionStartContribution } from "../../engine/hooks.ts";
 import type {
@@ -57,6 +58,7 @@ export interface RemoteHostBoundaryOptions {
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
     readonly toolResults?: ToolResultLimits;
+    readonly haltCheck?: TurnHaltCheck;
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly onReplicaDiverged: (error: Error) => void;
 }
@@ -322,6 +324,9 @@ export function createRemoteHostBoundary(
             ...(options.toolResults === undefined
                 ? {}
                 : { toolResults: options.toolResults }),
+            ...(options.haltCheck === undefined
+                ? {}
+                : { haltCheck: options.haltCheck }),
             router: {
                 ...(options.onInboundReady === undefined
                     ? {}

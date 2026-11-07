@@ -13,6 +13,9 @@ import {
     type SessionBlockRecord,
 } from "./session-block.ts";
 
+// A worker that does not confirm in time keeps running; the outcome says so.
+const BLOCK_ACK_TIMEOUT_MS = 2000;
+
 export interface SessionBlockServiceOptions {
     readonly registry: AgentRegistry;
     readonly sessionDirectory: string;
@@ -29,6 +32,15 @@ export function createSessionBlockService(
     options: SessionBlockServiceOptions,
 ): SessionBlockService {
     const now = options.now ?? (() => new Date());
+
+    // Each live worker latches from the flag before the caller goes on; the latch halts its queue at once.
+    async function confirmLive(ids: readonly string[]): Promise<void> {
+        await Promise.all(ids.map((id) =>
+            options.registry.agents.get(id)?.worker?.confirmBlock(
+                BLOCK_ACK_TIMEOUT_MS,
+            ) ?? Promise.resolve(false)
+        ));
+    }
 
     async function abortLive(ids: readonly string[]): Promise<void> {
         for (const id of ids) {
@@ -72,22 +84,44 @@ export function createSessionBlockService(
                 await abortLive(tree);
                 return { status: "rejected", reason: "failed" };
             }
+            await confirmLive(tree);
             await abortLive(tree);
             return { status: "blocked", sessionIds: tree };
         },
 
         async unblock(request) {
-            const removed: string[] = [];
+            const blocked: string[] = [];
             for (const id of request.session_ids) {
                 const state = await readSessionBlock(options.blockedDirectory, id);
                 if (state.status === "absent") continue;
+                blocked.push(id);
+            }
+            if (blocked.length === 0) {
+                return { status: "rejected", reason: "not_found" };
+            }
+            // The latch must hold before the flag goes, or a worker that never saw the flag could start its queue.
+            await confirmLive(blocked);
+            const removed: string[] = [];
+            for (const id of blocked) {
                 if (await removeSessionBlock(options.blockedDirectory, id)) {
                     removed.push(id);
                 }
             }
+            const unconfirmed: string[] = [];
+            for (const id of removed) {
+                const worker = options.registry.agents.get(id)?.worker;
+                if (worker === undefined) continue;
+                if (!(await worker.releaseBlock(BLOCK_ACK_TIMEOUT_MS))) {
+                    unconfirmed.push(id);
+                }
+            }
             return removed.length === 0
                 ? { status: "rejected", reason: "not_found" }
-                : { status: "unblocked", sessionIds: removed };
+                : {
+                    status: "unblocked",
+                    sessionIds: removed,
+                    unconfirmedSessionIds: unconfirmed,
+                };
         },
     };
 }

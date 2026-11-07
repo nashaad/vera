@@ -1,6 +1,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -24,6 +25,7 @@ import { superviseWorker, type SupervisorHandle } from
     "../worker-supervisor-handle.ts";
 import { NO_DEADLINE } from "../worker-supervisor.ts";
 import { createJsonPipe } from "./pipe.ts";
+import type { SessionBlockAck } from "./boundary-server.ts";
 import {
     createWorkerBoundaryServer,
     type WorkerBoundaryServer,
@@ -60,6 +62,7 @@ export interface StartWorkerOptions {
     readonly command?: readonly string[];
     readonly cwd?: string;
     readonly env?: Readonly<Record<string, string>>;
+    readonly blockedDirectory?: string;
 }
 
 export interface WorkerHandle {
@@ -70,6 +73,9 @@ export interface WorkerHandle {
     injectEvent(event: EngineEvent): void;
     pushState(state: LoopState): void;
     readonly outcome: Promise<WorkerOutcome>;
+    // Resolves true only when the worker reports the flag seen (or the latch released) before the timeout.
+    confirmBlock(timeoutMs: number): Promise<boolean>;
+    releaseBlock(timeoutMs: number): Promise<boolean>;
     kill(): void;
 }
 
@@ -126,6 +132,28 @@ export async function startWorker(
         resolveOutcome = resolve;
     });
 
+    const blockWaiters = new Map<string, (ok: boolean) => void>();
+    const askBlock = (
+        method: "session.confirmBlock" | "session.release",
+        timeoutMs: number,
+    ): Promise<boolean> => new Promise((resolve) => {
+        const requestId = randomUUID();
+        const timer = setTimeout(() => {
+            blockWaiters.delete(requestId);
+            resolve(false);
+        }, timeoutMs);
+        blockWaiters.set(requestId, (ok) => {
+            clearTimeout(timer);
+            resolve(ok);
+        });
+        pipe.notify({ method, requestId });
+    });
+    const settleBlockAck = (ack: SessionBlockAck): void => {
+        const waiter = blockWaiters.get(ack.requestId);
+        if (waiter === undefined) return;
+        blockWaiters.delete(ack.requestId);
+        waiter(ack.method === "session.released" ? true : ack.latched);
+    };
     const services = options.services ?? {};
     let supervisor: SupervisorHandle | undefined;
     const pipe = createJsonPipe(
@@ -154,6 +182,7 @@ export async function startWorker(
         },
         onProcessStarted: (pid) => supervisor?.watchProcessGroup(pid),
         onProcessSettled: (pid) => supervisor?.forgetProcessGroup(pid),
+        onBlockAck: (ack) => settleBlockAck(ack),
     });
 
     child.once("close", (code: number | null, signal: string | null) => {
@@ -197,6 +226,9 @@ export async function startWorker(
             ? {}
             : { extensions: options.extensions }),
         ...(options.home === undefined ? {} : { home: options.home }),
+        ...(options.blockedDirectory === undefined
+            ? {}
+            : { blockedDirectory: options.blockedDirectory }),
         state: options.state ?? { policy: {} },
         ...(services.compaction === undefined
             ? {}
@@ -228,6 +260,8 @@ export async function startWorker(
         injectEvent: (event: EngineEvent) => server.injectEvent(event),
         pushState: (state: LoopState) => server.pushState(state),
         outcome,
+        confirmBlock: (timeoutMs: number) => askBlock("session.confirmBlock", timeoutMs),
+        releaseBlock: (timeoutMs: number) => askBlock("session.release", timeoutMs),
         kill(): void {
             supervisor?.killNow();
             try {

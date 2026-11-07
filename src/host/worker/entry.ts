@@ -21,6 +21,10 @@ import {
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 import { installLiveProcess } from "../../live-process.ts";
+import {
+    createSessionBlockLatch,
+    type SessionBlockLatch,
+} from "../session-block-latch.ts";
 
 export async function runWorker(
     input: NodeJS.ReadableStream,
@@ -38,12 +42,24 @@ export async function runWorker(
     let deliverCommand = (command: EngineCommand): void => {
         pending.push(command);
     };
+    const pendingBlockControl: unknown[] = [];
+    let blockControl = (body: unknown): void => {
+        pendingBlockControl.push(body);
+    };
+    let blockLatch: SessionBlockLatch | undefined;
 
     const pipe: JsonPipe = createJsonPipe({ input, output }, {
         onNotification(body: unknown): void {
             const message = body as { readonly method?: string };
             if (message.method === "worker.start") {
                 start?.(body as WorkerStartNotification);
+                return;
+            }
+            if (
+                message.method === "session.confirmBlock"
+                || message.method === "session.release"
+            ) {
+                blockControl(body);
                 return;
             }
             if (message.method === "client.command") {
@@ -96,8 +112,22 @@ export async function runWorker(
         const adapter = activationFailure === undefined
             ? await loadAdapter(options.adapter)
             : failingWorkerAdapter(activationFailure, options.model);
+        const sessionId = options.session.header.id;
+        if (
+            options.blockedDirectory !== undefined
+            && typeof sessionId === "string"
+        ) {
+            blockLatch = createSessionBlockLatch({
+                directory: options.blockedDirectory,
+                sessionId,
+                onLatched: (reason) => inbound?.halt(reason),
+                onReleased: () => inbound?.clearHalt(),
+            });
+        }
+        const latch = blockLatch;
         const remote = createRemoteHostBoundary({
             pipe,
+            ...(latch === undefined ? {} : { haltCheck: latch.check }),
             onReplicaDiverged: (error) => replicaDiverged(error),
             session: options.session,
             offers: options.offers,
@@ -120,8 +150,32 @@ export async function runWorker(
                 : { toolResults: options.toolResults }),
             onInboundReady: (ready) => {
                 inbound = ready;
+                const reason = latch?.check();
+                if (reason !== undefined) ready.halt(reason);
             },
         });
+        blockControl = (body: unknown): void => {
+            const message = body as {
+                readonly method: string;
+                readonly requestId: string;
+            };
+            if (message.method === "session.confirmBlock") {
+                pipe.notify({
+                    method: "session.latched",
+                    requestId: message.requestId,
+                    latched: latch !== undefined && latch.check() !== undefined,
+                });
+                return;
+            }
+            latch?.release();
+            pipe.notify({
+                method: "session.released",
+                requestId: message.requestId,
+            });
+        };
+        for (const body of pendingBlockControl.splice(0)) {
+            blockControl(body);
+        }
         acceptHostNotification = remote.acceptNotification;
         for (const body of pendingHost.splice(0)) {
             acceptHostNotification(body);
@@ -168,6 +222,7 @@ export async function runWorker(
             failure = error instanceof Error ? error.message : String(error);
         }
     }
+    blockLatch?.close();
     await extensions?.close();
     pipe.notify({
         method: "worker.finished",

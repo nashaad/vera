@@ -62,8 +62,18 @@ Run `vera close <agent-id>` afterwards to end it.
 
 `vera block --reason <text>` records a short reason with the block.
 
+A block reaches a running session at its next step, and an in-flight model
+stream or tool is stopped at once. Prompts that were queued in the session
+are dropped, not held, and each one leaves a "Not started" line in the
+transcript.
+
 `vera unblock <agent-id>` lists the sessions blocked with that session, asks
 you to confirm, and clears their blocks. Turns can start again after that.
+If a running session does not confirm the unblock, the command says so, and
+that session stays stopped until its process exits.
+
+If the host is running but does not answer, `vera block` writes the flags
+itself and says that work already running may not have stopped.
 
 Both commands need a terminal to confirm. Without one they refuse, and nothing
 is blocked or unblocked.

@@ -59,6 +59,7 @@ export interface WorkerStartNotification {
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
     readonly toolResults?: ToolResultLimits;
+    readonly blockedDirectory?: string;
 }
 
 export interface ClientUpdateNotification {

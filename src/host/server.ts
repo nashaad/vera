@@ -117,7 +117,11 @@ export type BlockSessionOutcome =
     | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
 
 export type UnblockSessionOutcome =
-    | { readonly status: "unblocked"; readonly sessionIds: readonly string[] }
+    | {
+        readonly status: "unblocked";
+        readonly sessionIds: readonly string[];
+        readonly unconfirmedSessionIds?: readonly string[];
+    }
     | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
 
 export type ExtensionRequestHandler = (
@@ -1712,6 +1716,10 @@ function receiveConnection(
                         type: "session_unblocked",
                         agent_id: request.target_agent_id,
                         session_ids: result.sessionIds,
+                        ...(result.unconfirmedSessionIds === undefined
+                            || result.unconfirmedSessionIds.length === 0
+                            ? {}
+                            : { unconfirmed_session_ids: result.unconfirmedSessionIds }),
                     })
                     : send({
                         type: "session_unblock_rejected",

@@ -879,6 +879,9 @@ export async function runHeadlessLoop(
         ...(owned.toolResults === undefined
             ? {}
             : { toolResults: owned.toolResults }),
+        ...(owned.haltCheck === undefined
+            ? {}
+            : { haltCheck: owned.haltCheck }),
         get disabledPromptContributions() {
             return policy().disabledPromptContributions;
         },

@@ -68,11 +68,19 @@ export async function unblockSessionThroughHost(
                 && response.agent_id === request.targetAgentId
                 && Array.isArray(response.session_ids)
             ) {
+                const unconfirmed = Array.isArray(response.unconfirmed_session_ids)
+                    ? response.unconfirmed_session_ids.filter(
+                        (id): id is string => typeof id === "string",
+                    )
+                    : [];
                 return {
                     status: "unblocked",
                     sessionIds: response.session_ids.filter(
                         (id): id is string => typeof id === "string",
                     ),
+                    ...(unconfirmed.length === 0
+                        ? {}
+                        : { unconfirmedSessionIds: unconfirmed }),
                 };
             }
             if (

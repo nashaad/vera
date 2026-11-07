@@ -91,34 +91,58 @@ export async function runBlockCommand(
     const ids = tree.map((row) => row.id);
     const socketPath = await deps.hostSocketPath();
     if (socketPath !== undefined) {
-        const outcome = await deps.blockThroughHost(socketPath, {
-            targetAgentId: target.id,
-            sessionIds: ids,
-            reason: parsed.reason,
-        });
-        if (outcome.status === "rejected") {
+        let outcome: BlockSessionOutcome | undefined;
+        try {
+            outcome = await deps.blockThroughHost(socketPath, {
+                targetAgentId: target.id,
+                sessionIds: ids,
+                reason: parsed.reason,
+            });
+        } catch {
+            outcome = undefined;
+        }
+        if (outcome?.status === "blocked") {
+            deps.output.write(blockedText(target.label, outcome.sessionIds.length));
+            return 0;
+        }
+        if (outcome !== undefined && outcome.reason !== "failed") {
             deps.errorOutput.write(
                 `Could not block ${target.label}: the host could not complete the block.\n`,
             );
             return 1;
         }
-        deps.output.write(blockedText(target.label, outcome.sessionIds.length));
+        // The host is running but did not answer. The flags still stop new work; running turns may keep going until the host handles them.
+        await writeBlockFlags(deps, ids, target.id, parsed.reason);
+        deps.output.write(blockedText(target.label, ids.length));
+        deps.output.write(
+            `The host did not answer, so the block flags were written directly. `
+            + `Work that is already running may not have stopped yet.\n`,
+        );
         return 0;
     }
     // No host is running, so nothing is running either; the flags alone are the block.
+    await writeBlockFlags(deps, ids, target.id, parsed.reason);
+    deps.output.write(blockedText(target.label, ids.length));
+    return 0;
+}
+
+async function writeBlockFlags(
+    deps: SessionBlockCommandDependencies,
+    ids: readonly string[],
+    rootId: string,
+    reason: string | null,
+): Promise<void> {
     const blockedAt = (deps.now ?? (() => new Date()))().toISOString();
     for (const id of ids) {
         const record: SessionBlockRecord = {
             version: 1,
             session_id: id,
-            root_session_id: target.id,
+            root_session_id: rootId,
             blocked_at: blockedAt,
-            reason: parsed.reason,
+            reason,
         };
         await writeSessionBlock(deps.blockedDirectory, record);
     }
-    deps.output.write(blockedText(target.label, ids.length));
-    return 0;
 }
 
 export async function runUnblockCommand(
@@ -174,6 +198,13 @@ export async function runUnblockCommand(
             return 1;
         }
         deps.output.write(`Unblocked ${outcome.sessionIds.length} session(s).\n`);
+        const unconfirmed = outcome.unconfirmedSessionIds ?? [];
+        if (unconfirmed.length > 0) {
+            deps.output.write(
+                `Could not confirm that ${unconfirmed.join(", ")} resumed in a running worker. `
+                + `They stay stopped until that worker exits.\n`,
+            );
+        }
         return 0;
     }
     for (const id of groupIds) {

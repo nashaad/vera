@@ -128,6 +128,9 @@ export async function runInWorker(reg: AgentRegistry, options: {
             adapter: options.adapter,
             data: options.data,
             services,
+            ...(reg.options.sessionBlockDirectory === undefined
+                ? {}
+                : { blockedDirectory: reg.options.sessionBlockDirectory }),
             offers: {
                 approvalModeRead: services.readApprovalMode !== undefined,
                 modelSettings: services.readModelSettings !== undefined,
