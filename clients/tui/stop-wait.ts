@@ -29,6 +29,19 @@ export function applyStopWaitEvent(
     return undefined;
 }
 
+// A wait that clears as "stopped" means the host is going away on purpose. A new wait means it is not.
+export function nextPlannedHostStop(
+    previous: boolean | undefined,
+    wait: TuiStopWait | undefined,
+    event: HostStopWaitEvent,
+): boolean {
+    if (event.type === "host_stop_wait") return false;
+    if (event.type === "host_stop_wait_cleared" && event.reason === "stopped") {
+        return wait !== undefined || previous === true;
+    }
+    return previous === true;
+}
+
 export const STOP_WAIT_CARD_REQUEST_ID = "tui-local:stop-wait";
 export const STOP_WAIT_KEEP_CHOICE = "keep";
 export const STOP_WAIT_STOP_CHOICE = "stop";

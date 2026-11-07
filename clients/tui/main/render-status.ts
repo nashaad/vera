@@ -110,7 +110,9 @@ export function renderStatus(rt: TuiRuntime): void {
         // reportConnectionError already put the reason and the recovery
         // steps in the conversation, so the footer does not repeat them.
         lifecycleHint = rt.hostBuildRefusal === undefined
-            ? "disconnected · Ctrl+C to quit and get your resume command"
+            ? (rt.plannedHostStop === true
+                ? `host stopped · ${tuiKeyHint("restart_host")} · Ctrl+C quit for resume command`
+                : `disconnected · ${tuiKeyHint("restart_host")} · Ctrl+C quit for resume command`)
             : `disconnected${
                 rt.connectionFailure === undefined
                     ? ""

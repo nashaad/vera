@@ -5,6 +5,7 @@ export type TuiDiagnosticCode =
     | "model_request_failed"
     | "attachment_failed"
     | "turn_interrupted"
+    | "host_stopped"
     | "permission_denied"
     | "classifier_failed"
     | "file_skipped"
@@ -37,6 +38,7 @@ export const TUI_DIAGNOSTICS = {
     model_request_failed: { severity: "error", title: "MODEL REQUEST FAILED" },
     attachment_failed: { severity: "error", title: "ATTACHMENT FAILED" },
     turn_interrupted: { severity: "notice" },
+    host_stopped: { severity: "notice" },
     permission_denied: { severity: "error", title: "CLASSIFIER DENIED" },
     classifier_failed: { severity: "error", title: "CLASSIFIER FAILED" },
     file_skipped: { severity: "notice" },

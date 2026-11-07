@@ -51,7 +51,7 @@ export function activateClient(vera: any): void {
     vera.keybindings.register({
         id: "compose-write-late",
         description: "Try a delayed composer insertion",
-        keys: ["ctrl+l"],
+        keys: ["ctrl+b"],
         async run() {
             await Bun.sleep(300);
             const result = vera.compose.insert("stale text must not land");

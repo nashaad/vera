@@ -224,6 +224,8 @@ export interface TuiRuntime {
     stopWait: TuiStopWait | undefined;
     stopWaitCard: TuiStopWaitCard | undefined;
     stopWatchingStopWait: (() => void) | undefined;
+    // Set when a stop wait clears as "stopped", so a later connection loss reads as a planned stop.
+    plannedHostStop: boolean | undefined;
     // Set once the host reports a restart; the notice shows until the TUI exits or reconnects.
     relaunching: boolean | undefined;
     searchInFlight: boolean;

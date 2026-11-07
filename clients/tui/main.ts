@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
+import { currentReleaseBuildId } from "../../src/release/layout.ts";
 import {
     launcherKeyFromEnv,
     RELAUNCH_LAUNCHER_ENV,
@@ -396,7 +397,8 @@ export function reconnectBusyMessage(): string {
 // Shared by the conversation notice reportConnectionError appends and the
 // disconnected-submit refusal in submit-prompt.ts.
 export function disconnectedRecoveryHint(): string {
-    return "Press Ctrl+C to quit; Vera prints the command to resume this session."
+    return `Press ${tuiKeyChordLabel("restart_host")} to restart the host into this conversation,`
+        + " or Ctrl+C to quit; Vera prints the command to resume this session."
         + " Or choose Reconnect host from Ctrl+P.";
 }
 
@@ -547,6 +549,10 @@ export interface TuiDependencies {
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
+    /** This TUI's build id. Compared with the installed build only when a relaunch is possible. */
+    readonly clientBuildId?: string;
+    /** Reads the `current` link. Called only when relaunchTui is set. */
+    readonly installedBuildId?: () => string | undefined;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -809,6 +815,8 @@ export async function startConfiguredTui(
                 markTerminalRestored,
                 exit: (code) => process.exit(code),
             }),
+            clientBuildId,
+            installedBuildId: () => currentReleaseBuildId(),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
@@ -1031,6 +1039,7 @@ export async function startTui(
     rt.hostBuildRefusal = undefined;
     // The restart notice ends once this TUI is attached to a host again.
     rt.relaunching = undefined;
+    rt.plannedHostStop = undefined;
     // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.

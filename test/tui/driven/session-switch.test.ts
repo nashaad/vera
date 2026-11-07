@@ -418,7 +418,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
             "Could not start a new session: host refused creation",
         );
 
-        session.sendKey("C-l");
+        session.sendKey("C-b");
         session.sendText("/clear");
         session.sendKey("Enter");
         await chooseCreateLeave(session);

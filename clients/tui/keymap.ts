@@ -246,6 +246,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "Ctrl+N new",
     },
     {
+        // Acts only while the host is lost. Global chords are reachable everywhere, so this avoids ctrl+r, which other scopes claim.
+        id: "restart_host",
+        keys: ["ctrl+l"],
+        scope: "global",
+        description: "Restart the lost host and reopen this conversation",
+        hint: "Ctrl+L restart",
+        remappable: true,
+    },
+    {
         id: "workspace_resume_picker",
         keys: ["ctrl+r"],
         scope: "workspace",

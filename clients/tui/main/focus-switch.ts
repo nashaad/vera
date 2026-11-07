@@ -10,7 +10,7 @@ import { SESSION_SWITCH_TIMEOUT_MS, closeSessionFailure, currentDraft, disconnec
 import { focusedUiRequest } from "../main/agents-dials.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
-import { appendTuiError, failTuiConnection } from "../state.ts";
+import { appendTuiDiagnostic, appendTuiError, failTuiConnection, type TuiState } from "../state.ts";
 import type { TuiTimelinePickerTransition } from "../timeline-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
 
@@ -432,6 +432,8 @@ export function beginHostReconnect(rt: TuiRuntime,
     options: {
         readonly clearComposer: boolean;
         readonly manual?: boolean;
+        /** Wraps the failure text in the conversation. Default: "Could not reconnect: <message>". */
+        readonly failureText?: (message: string) => string;
     },
 ): void {
     const currentAgentId = rt.client.agentId;
@@ -479,14 +481,16 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         if (error instanceof HostBuildChangedError) {
-            refuseChangedHostBuild(rt, error);
+            refuseChangedHostBuild(rt, error, options.failureText);
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
         if (rt.connectionFailed) {
             rt.state = appendTuiError(
                 rt.state,
-                `Could not reconnect: ${message}`,
+                options.failureText === undefined
+                    ? `Could not reconnect: ${message}`
+                    : options.failureText(message),
             );
             renderState(rt);
             return;
@@ -587,13 +591,14 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         rt.hostBuildRefusal = undefined;
         rt.activity = "disconnected";
         settleLostHost(rt, message);
-        rt.state = appendTuiError(rt.state, disconnectedConversationMessage(message));
+        rt.state = appendLostHostEntry(rt.state, message, rt.plannedHostStop);
         renderState(rt);
         rt.composer.focus();
         return;
     }
     if (
         !rt.hostReconnectAttempted
+        && automaticReconnectAllowed(rt.plannedHostStop, rt.relaunching)
         && rt.dependencies.reconnectSession !== undefined
         && rt.client.agentId !== undefined
     ) {
@@ -606,9 +611,17 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     rt.connectionFailure = message;
     rt.hostBuildRefusal = undefined;
     settleLostHost(rt, message);
-    rt.state = appendTuiError(rt.state, disconnectedConversationMessage(message));
+    rt.state = appendLostHostEntry(rt.state, message, rt.plannedHostStop);
     renderState(rt);
     rt.composer.focus();
+}
+
+// A planned stop without a relaunch in progress waits for the user's restart key.
+export function automaticReconnectAllowed(
+    plannedHostStop: boolean | undefined,
+    relaunching: boolean | undefined,
+): boolean {
+    return !(plannedHostStop === true && relaunching !== true);
 }
 
 // The footer drops the reason once this runs, so it is not shown twice.
@@ -617,8 +630,24 @@ function disconnectedConversationMessage(reason: string): string {
     return `${sentence} ${disconnectedRecoveryHint()}`;
 }
 
+// A planned stop is a notice, not an error: the host closed on purpose after its wait cleared.
+export function appendLostHostEntry(
+    state: TuiState,
+    reason: string,
+    plannedHostStop: boolean | undefined,
+): TuiState {
+    if (plannedHostStop === true) {
+        return appendTuiDiagnostic(state, "host_stopped", `The host stopped. ${disconnectedRecoveryHint()}`);
+    }
+    return appendTuiError(state, disconnectedConversationMessage(reason));
+}
+
 // No automatic restart: discovery would hop to another client in this terminal or replace the host.
-function refuseChangedHostBuild(rt: TuiRuntime, error: HostBuildChangedError): void {
+function refuseChangedHostBuild(
+    rt: TuiRuntime,
+    error: HostBuildChangedError,
+    failureText?: (message: string) => string,
+): void {
     rt.flightRecorder?.record({
         type: "host_build_changed",
         clientBuildId: error.clientBuildId,
@@ -629,7 +658,8 @@ function refuseChangedHostBuild(rt: TuiRuntime, error: HostBuildChangedError): v
     rt.hostBuildRefusal = { hostBuildId: error.hostBuildId };
     rt.activity = "disconnected";
     settleLostHost(rt, error.message);
-    rt.state = appendTuiError(rt.state, hostBuildChangedMessage(error));
+    const message = hostBuildChangedMessage(error);
+    rt.state = appendTuiError(rt.state, failureText === undefined ? message : failureText(message));
     renderState(rt);
     rt.composer.focus();
 }

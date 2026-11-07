@@ -8,7 +8,7 @@ import { applyTerminalTitle } from "../main/chrome.ts";
 import { renderState } from "../main/render-state.ts";
 import { renderStatus } from "../main/render-status.ts";
 import { refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
-import { applyStopWaitEvent, nextStopWaitCard } from "../stop-wait.ts";
+import { applyStopWaitEvent, nextPlannedHostStop, nextStopWaitCard } from "../stop-wait.ts";
 import { handleHostRestarting } from "../restart-notice.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { appendTuiThought, dropTuiThinking } from "../state.ts";
@@ -61,6 +61,7 @@ export function watchStopWait(rt: TuiRuntime, next: TuiAgentClient): void {
             handleHostRestarting(rt, rt.dependencies.relaunchTui);
             return;
         }
+        rt.plannedHostStop = nextPlannedHostStop(rt.plannedHostStop, rt.stopWait, event);
         rt.stopWait = applyStopWaitEvent(rt.stopWait, event);
         rt.stopWaitCard = nextStopWaitCard(rt.stopWaitCard, rt.stopWait);
         if (rt.stopWaitCard?.open === true) focusActiveSurface(rt);

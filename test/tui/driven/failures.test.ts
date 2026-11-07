@@ -96,7 +96,7 @@ test("failed auto-reconnect stays disconnected and Reconnect host from the palet
     try {
         pane = await session.waitForVisiblePane("could not start host.");
         expect(pane).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         expect(pane.replace(/\s+/g, "")).toContain(
             disconnectedRecoveryHint().replace(/\s+/g, ""),
@@ -157,13 +157,13 @@ test("a reconnected session that dies again does not restart the host in a loop"
     try {
         const pane = await session.waitForVisiblePane("Resident agent stopped unexpectedly.");
         expect(pane).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         expect(pane).not.toContain("restarting host");
         await session.settle(200);
         const still = session.captureVisiblePane();
         expect(still).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         expect(still).not.toContain("restarting host");
         session.sendKey("C-c");
@@ -188,7 +188,7 @@ test("stream failure without reconnectSession stays disconnected", async () => {
             "Host sent a non-contiguous agent update sequence.",
         );
         expect(pane).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         expect(pane).not.toContain("Host reconnected.");
         expect(pane).not.toContain("working…");
@@ -211,10 +211,10 @@ test("disconnected footer fits without truncation at 120 and stays readable at 8
         });
         try {
             const pane = await session.waitForVisiblePane(
-                "disconnected · Ctrl+C to quit and get your resume command",
+                "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
             );
             expect(pane).toContain(
-                "disconnected · Ctrl+C to quit and get your resume command",
+                "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
             );
         } finally {
             await session.close();
@@ -233,7 +233,7 @@ test("quitting while disconnected prints the resume command for this session", a
 
     try {
         await session.waitForVisiblePane(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         session.sendKey("C-c");
         session.sendKey("C-c");
@@ -284,7 +284,7 @@ test("host shutdown after agent death becomes recoverable disconnection", async 
         const pane = await session.waitForVisiblePane("host connection closed.");
         expect(pane).toContain("Resident agent stopped unexpectedly");
         expect(pane).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
     } finally {
         await session.close();
@@ -309,7 +309,7 @@ test("agent death does not restart the host in a loop", async () => {
         const pane = await session.waitForVisiblePane("host connection closed.");
         expect(pane).toContain("Resident agent stopped unexpectedly");
         expect(pane).toContain(
-            "disconnected · Ctrl+C to quit and get your resume command",
+            "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
         expect(pane).not.toContain("restarting host");
         expect(reconnects).toBe(0);

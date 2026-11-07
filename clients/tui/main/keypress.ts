@@ -39,6 +39,7 @@ import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
 import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow } from "./notices.ts";
+import { restartLostHost } from "./restart-lost-host.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -1463,6 +1464,17 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             openResumePicker(rt);
             return;
         }
+    }
+
+    if (
+        tuiBindingId("global", key) === "restart_host"
+        && rt.connectionFailed
+        && !anyOverlayOpen(rt)
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        restartLostHost(rt);
+        return;
     }
 
     if (
