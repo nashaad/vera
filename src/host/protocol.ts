@@ -247,6 +247,15 @@ export interface ShutdownForReplacementRequest {
     readonly requester_protocol_version: number;
 }
 
+export interface RestartRecordsRequest {
+    readonly type: "restart_records";
+}
+
+export interface RestartRecordDismissRequest {
+    readonly type: "restart_record_dismiss";
+    readonly session_id: string;
+}
+
 export interface StopHostRequest {
     readonly type: "stop_host";
     readonly pid: number;
@@ -842,6 +851,30 @@ export type HostStopWaitEvent =
     | HostStopWaitClearedResponse
     | HostRestartingResponse;
 
+export interface RestartRecordWire {
+    readonly session_id: string;
+    readonly cause: "stop" | "update" | "crash";
+    readonly target_build_id?: string;
+    readonly at: string;
+}
+
+export interface RestartRecordsListResponse {
+    readonly type: "restart_records_list";
+    readonly records: readonly RestartRecordWire[];
+}
+
+export interface RestartRecordDismissedResponse {
+    readonly type: "restart_record_dismissed";
+    readonly session_id: string;
+    readonly removed: number;
+}
+
+// The records file could not be rewritten, so nothing was removed.
+export interface RestartRecordDismissFailedResponse {
+    readonly type: "restart_record_dismiss_failed";
+    readonly session_id: string;
+}
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
@@ -881,6 +914,8 @@ export type HostRequest =
     | ShutdownIfIdleRequest
     | ShutdownForReplacementRequest
     | StopHostRequest
+    | RestartRecordsRequest
+    | RestartRecordDismissRequest
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
@@ -948,6 +983,9 @@ export type HostResponse =
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
     | StopHostResponse
+    | RestartRecordsListResponse
+    | RestartRecordDismissedResponse
+    | RestartRecordDismissFailedResponse
     | CutStopWaitResponse
     | AttachedResponse
     | BackgroundAgentsResponse
@@ -988,6 +1026,18 @@ function parseSessionFactNames(
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "restart_records") {
+        return { type: "restart_records" };
+    }
+    if (
+        value?.type === "restart_record_dismiss"
+        && typeof value.session_id === "string"
+        && value.session_id.length > 0
+        && value.session_id.length <= 256
+        && !value.session_id.includes("\0")
+    ) {
+        return { type: "restart_record_dismiss", session_id: value.session_id };
+    }
     if (value?.type === "provider_forget" && typeof value.provider === "string" && /^[a-z0-9][a-z0-9._-]*$/.test(value.provider)) {
         return { type: "provider_forget", provider: value.provider,
             ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };

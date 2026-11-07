@@ -33,6 +33,7 @@ import {
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
     type StopHostResponse,
+    type RestartRecordWire,
     stopWaitWireMessage,
     type CatalogRefreshOutcome,
     type BlockSessionRequest,
@@ -135,6 +136,11 @@ export type ExtensionRequestHandler = (
     signal: AbortSignal,
 ) => Promise<JsonValue>;
 
+export interface RestartRecordsPort {
+    list(): readonly RestartRecordWire[];
+    dismiss(sessionId: string): number;
+}
+
 export interface StartHostServerOptions {
     readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
@@ -144,6 +150,8 @@ export interface StartHostServerOptions {
     readonly buildId?: string;
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
+    // Runs after the startup claim, before this host publishes its lock.
+    readonly recoverPrevious?: () => Promise<void>;
     readonly capabilities?: readonly string[];
     readonly limits?: {
         readonly maxRequestBytes?: number;
@@ -169,6 +177,7 @@ export interface StartHostServerOptions {
     readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly stopWhenIdle?: StopWhenIdleControl;
+    readonly restartRecords?: RestartRecordsPort;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void, onStep: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
@@ -484,6 +493,7 @@ export async function startHostServer(
             options.checkpointStores,
             options.handleExtensionRequest,
             options.stopWhenIdle,
+            options.restartRecords ?? { list: () => [], dismiss: () => 0 },
             resolveHostLimits(options.limits),
         );
     });
@@ -495,6 +505,7 @@ export async function startHostServer(
             options.lockPath ?? defaultHostLockPath(),
         );
         await chmod(socketPath, 0o600);
+        await options.recoverPrevious?.();
         const lock = await createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
             socketPath,
@@ -681,6 +692,7 @@ function receiveConnection(
     }>) | undefined,
     handleExtensionRequest: ExtensionRequestHandler | undefined,
     stopWhenIdle: StopWhenIdleControl | undefined,
+    restartRecords: RestartRecordsPort,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1298,6 +1310,35 @@ function receiveConnection(
                 }
                 socket.end();
             }, () => socket.destroy());
+            return;
+        }
+        if (request?.type === "restart_records") {
+            clearDeadline();
+            finished = true;
+            void send({
+                type: "restart_records_list",
+                records: restartRecords.list(),
+            }).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "restart_record_dismiss") {
+            clearDeadline();
+            finished = true;
+            const sessionId = request.session_id;
+            void Promise.resolve()
+                .then(() => restartRecords.dismiss(sessionId))
+                .then(
+                    (removed) => send({
+                        type: "restart_record_dismissed",
+                        session_id: sessionId,
+                        removed,
+                    }),
+                    () => send({
+                        type: "restart_record_dismiss_failed",
+                        session_id: sessionId,
+                    }),
+                )
+                .then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "provider_forget") {
