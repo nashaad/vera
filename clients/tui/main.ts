@@ -1359,8 +1359,10 @@ export async function startTui(
             },
             postNotice(text, noticeOptions) {
                 rt.state = appendTuiNotice(rt.state, text, noticeOptions?.tone);
-                showModeToast(rt, text, noticeOptions?.tone);
-                renderState(rt);
+                if (rt.clientSurfaceReady) {
+                    showModeToast(rt, text, noticeOptions?.tone);
+                    renderState(rt);
+                }
                 if (
                     noticeOptions?.replay === true
                     && rt.client.supportsHostCapability?.(
