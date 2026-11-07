@@ -91,9 +91,30 @@ test("a disconnected requester does not cancel the stop", async () => {
         },
         pollIntervalMs: 5,
     });
-    const unsubscribe = coordinator.request(() => undefined);
-    unsubscribe();
+    const requested = coordinator.request(() => undefined);
+    if (!requested.accepted) throw new Error(requested.message);
+    requested.unsubscribe();
     waiting = [];
     await settle();
     expect(stopped).toBe(1);
+});
+
+test("a request refuses an unusable update target and a second pending update", () => {
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working],
+        onStopped: () => undefined,
+        targetProblem: (buildId) => (buildId === "bad" ? "no such build" : undefined),
+        prepare: () => undefined,
+    });
+    expect(coordinator.request(() => undefined, "bad")).toMatchObject({
+        accepted: false,
+        reason: "target_unavailable",
+        message: "no such build",
+    });
+    const first = coordinator.request(() => undefined, "vera-new");
+    expect(first.accepted).toBe(true);
+    expect(coordinator.request(() => undefined, "vera-other")).toMatchObject({
+        accepted: false,
+        reason: "stop_pending",
+    });
 });

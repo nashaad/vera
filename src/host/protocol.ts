@@ -13,7 +13,7 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
-import type { StopWaitTarget } from "./stop-when-idle.ts";
+import type { StopRefusalReason, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -251,6 +251,8 @@ export interface StopHostRequest {
     readonly type: "stop_host";
     readonly pid: number;
     readonly started_at: string;
+    // Set for an update: the host moves to this build once it is idle.
+    readonly target_build_id?: string;
 }
 
 export interface CreateAgentRequest {
@@ -733,13 +735,21 @@ export interface StopHostStoppedResponse {
 
 export interface StopHostRefusedResponse {
     readonly type: "stop_host_refused";
-    readonly reason: "identity_mismatch" | "unavailable";
+    readonly reason: StopRefusalReason;
+    readonly message: string;
+}
+
+// The host kept running: the move to the target build could not start.
+export interface StopHostAbandonedResponse {
+    readonly type: "stop_host_abandoned";
+    readonly message: string;
 }
 
 export type StopHostResponse =
     | StopHostWaitingResponse
     | StopHostStoppedResponse
-    | StopHostRefusedResponse;
+    | StopHostRefusedResponse
+    | StopHostAbandonedResponse;
 
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
@@ -993,11 +1003,15 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.pid as number) > 0
         && typeof value.started_at === "string"
         && !Number.isNaN(Date.parse(value.started_at))
+        && (value.target_build_id === undefined || isBuildIdText(value.target_build_id))
     ) {
         return {
             type: "stop_host",
             pid: value.pid as number,
             started_at: value.started_at,
+            ...(typeof value.target_build_id === "string"
+                ? { target_build_id: value.target_build_id }
+                : {}),
         };
     }
     if (
@@ -1478,15 +1492,25 @@ export function requestHostShutdownForReplacement(
 
 export type HostStopResult =
     | { readonly type: "stopped" }
-    | { readonly type: "refused"; readonly reason: "identity_mismatch" | "unavailable" }
+    | { readonly type: "accepted" }
+    | { readonly type: "abandoned"; readonly message: string }
+    | { readonly type: "refused"; readonly reason: StopRefusalReason; readonly message: string }
     | { readonly type: "unsupported" }
     | { readonly type: "no_answer" };
 
-// Resolves once the host reports stopped or the connection ends. onWaiting gets every waiting set the host sends.
+export interface HostStopOptions {
+    readonly targetBuildId?: string;
+    // Resolve at the first answer instead of waiting for the stop to finish.
+    readonly detach?: boolean;
+}
+
+// Resolves once the host reports stopped, or at the first answer when detached.
+// A disconnect does not cancel the stop.
 export function requestHostStop(
     socketPath: string,
     identity: Pick<HostIdentity, "pid" | "started_at">,
     onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    options: HostStopOptions = {},
 ): Promise<HostStopResult> {
     return new Promise((resolve) => {
         let socket: Socket;
@@ -1513,6 +1537,9 @@ export function requestHostStop(
                 type: "stop_host",
                 pid: identity.pid,
                 started_at: identity.started_at,
+                ...(options.targetBuildId === undefined
+                    ? {}
+                    : { target_build_id: options.targetBuildId }),
             })}\n`);
         });
         socket.on("data", (chunk: string) => {
@@ -1526,7 +1553,7 @@ export function requestHostStop(
             while (newline !== -1) {
                 const line = buffered.slice(0, newline);
                 buffered = buffered.slice(newline + 1);
-                const outcome = parseStopHostLine(line, onWaiting);
+                const outcome = parseStopHostLine(line, onWaiting, options.detach === true);
                 if (outcome !== undefined) {
                     finish(outcome);
                     return;
@@ -1540,24 +1567,48 @@ export function requestHostStop(
     });
 }
 
+const STOP_REFUSAL_REASONS = new Set<string>([
+    "identity_mismatch",
+    "unavailable",
+    "stop_pending",
+    "target_unavailable",
+]);
+
 function parseStopHostLine(
     source: string,
     onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    detached: boolean,
 ): HostStopResult | undefined {
     const response = parseJsonObject(source);
     if (response?.type === "stop_host_waiting" && Array.isArray(response.waiting_on)) {
         onWaiting(response.waiting_on as readonly StopWaitTarget[]);
-        return undefined;
+        return detached ? { type: "accepted" } : undefined;
     }
     if (response?.type === "stop_host_stopped") return { type: "stopped" };
+    if (response?.type === "stop_host_abandoned" && typeof response.message === "string") {
+        return { type: "abandoned", message: response.message };
+    }
     if (
         response?.type === "stop_host_refused"
-        && (response.reason === "identity_mismatch" || response.reason === "unavailable")
+        && typeof response.reason === "string"
+        && STOP_REFUSAL_REASONS.has(response.reason)
+        && typeof response.message === "string"
     ) {
-        return { type: "refused", reason: response.reason };
+        return {
+            type: "refused",
+            reason: response.reason as StopRefusalReason,
+            message: response.message,
+        };
     }
     if (response?.type === "protocol_error") return { type: "unsupported" };
     return undefined;
+}
+
+// Same shape as a release build id, so a target cannot name a path outside releases.
+export function isBuildIdText(value: unknown): value is string {
+    return typeof value === "string"
+        && value.length <= 128
+        && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 
 function requestHostShutdown<Response>(

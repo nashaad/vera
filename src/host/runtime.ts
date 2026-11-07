@@ -221,6 +221,7 @@ import type {
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
 import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
@@ -597,6 +598,8 @@ export async function startResidentHost(
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
         waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
         onStopped: () => closeHost(),
+        targetProblem: updateTargetProblem,
+        prepare: prepareStopForTarget,
     });
     const registry: AgentRegistry = new AgentRegistry({
         turnsHeld: (): boolean => stopWhenIdle.holdsTurns,

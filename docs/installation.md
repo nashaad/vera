@@ -47,25 +47,22 @@ Change to your project directory, run `vera`, and follow
 ## Upgrade
 
 From the checkout containing the version you want, run the same installation
-commands. Vera verifies the release before activating it. If a host is running,
-the installer stops it and starts the new release's host. A failed upgrade
-leaves the previous release active. A test `--prefix` is refused unless
-`VERA_HOME` selects a private home, and the daily prefix is refused when
-`VERA_HOME` selects another home; see
-[Activate a new release](installed-command.md#activate-a-new-release). The
-installer does not signal a host whose start time the system cannot report; it
-says so, leaves that host running, and asks you to run the install again. A
-lockfile with no valid start time is treated as stale, and the installer goes
-ahead, only when the PID's command line can be read and is not Vera. Otherwise
-it is refused the same way: check that the PID is a Vera host before you stop
-it, and if it is not, delete `runtime/host.json` in the home.
-A lockfile that cannot be read as a whole is handled the same way: a PID that
-runs Vera is refused, and a lockfile with no readable PID is refused with its
-path. Delete the file once you have checked that no host is running. An install,
-and finishing an interrupted one, apply the same rule before they start a host.
-Run the upgrade from a terminal outside Vera: from inside a Vera session, the
-host it would stop is the session's own host, and the installer refuses rather
-than end the session that is running it.
+commands. Vera verifies the release before activating it. With no host running,
+the release becomes active at once. With a host running, the installer unpacks
+the release and leaves `current` where it is. The host then moves to the new
+release when its running turns end. From a terminal the install waits and
+prints what the host waits on. From inside a Vera session it returns at once,
+and the update happens when the session's running turns end. A failed start of
+the new host restores the previous release and starts it again. A test
+`--prefix` is refused unless `VERA_HOME` selects a private home, and the daily
+prefix is refused when `VERA_HOME` selects another home; see
+[Activate a new release](installed-command.md#activate-a-new-release).
+
+The installer never signals the running host. When it cannot confirm the host
+from the lockfile, or the host does not answer, the host keeps running, current
+stays where it was, and the install says why. Run `vera host stop` once to stop
+that host, then install again. An install never starts a second host next to a
+live one.
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

@@ -122,10 +122,6 @@ test("installLocal leaves the previous release active when pack fails", async ()
             pack: async () => {
                 throw new Error("disk full while packing");
             },
-            drainHost: async () => "absent",
-            startHost: async () => {
-                throw new Error("startHost must not run");
-            },
         })).rejects.toThrow(/disk full while packing/);
         expect(currentReleaseBuildId(prefix)).toBe("vera-old");
         expect(existsSync(upgradeJournalPath(prefix))).toBe(false);

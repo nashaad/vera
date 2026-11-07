@@ -335,7 +335,7 @@ function canonicalPath(path: string, hops = 0): string {
 }
 
 // The daily prefix goes with the default home, and a test prefix with a private one.
-function assertPrefixMayManageHost(
+export function assertPrefixMayManageHost(
     prefix: string,
     operation: UpgradeOperation,
 ): void {

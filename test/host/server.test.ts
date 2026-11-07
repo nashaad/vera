@@ -1781,7 +1781,7 @@ function transcriptEntries(count: number): readonly {
         });
         try {
             expect(await requestHostStop(socketPath, unavailable.identity, () => undefined))
-                .toEqual({ type: "refused", reason: "unavailable" });
+                .toMatchObject({ type: "refused", reason: "unavailable" });
         } finally {
             await unavailable.close();
         }
@@ -1805,7 +1805,7 @@ function transcriptEntries(count: number): readonly {
         });
         try {
             expect(await requestHostStop(socketPathWithControl, { pid: 999, started_at: server.identity.started_at }, () => undefined))
-                .toEqual({ type: "refused", reason: "identity_mismatch" });
+                .toMatchObject({ type: "refused", reason: "identity_mismatch" });
 
             const seen: StopWaitTarget[][] = [];
             const pending = requestHostStop(socketPathWithControl, server.identity, (targets) => {

@@ -6,20 +6,35 @@ export interface StopWaitTarget {
     readonly status: StopWaitStatus;
 }
 
+export type StopRefusalReason = "identity_mismatch" | "unavailable" | "stop_pending" | "target_unavailable";
+
 export type StopWhenIdleEvent =
     | { readonly type: "waiting"; readonly waiting_on: readonly StopWaitTarget[] }
-    | { readonly type: "stopped" };
+    | { readonly type: "stopped" }
+    | { readonly type: "abandoned"; readonly message: string };
 
 export type StopWhenIdleListener = (event: StopWhenIdleEvent) => void | Promise<void>;
 
+export type StopRequestResult =
+    | { readonly accepted: true; readonly unsubscribe: () => void }
+    | {
+        readonly accepted: false;
+        readonly reason: "stop_pending" | "target_unavailable";
+        readonly message: string;
+    };
+
 export interface StopWhenIdleControl {
-    request(listener: StopWhenIdleListener): () => void;
+    request(listener: StopWhenIdleListener, buildId?: string | null): StopRequestResult;
 }
 
 export interface StopWhenIdleOptions {
     readonly waitingOn: () => readonly StopWaitTarget[];
     readonly onStopped: () => void | Promise<void>;
     readonly pollIntervalMs?: number;
+    // Checked when a request names a build. A message refuses the request.
+    readonly targetProblem?: (buildId: string) => string | undefined;
+    // Runs once nothing waits, before "stopped" is sent. A message abandons the stop and turns resume.
+    readonly prepare?: (buildId: string | null) => string | undefined;
 }
 
 export const TURNS_HELD_REFUSAL =
@@ -32,6 +47,8 @@ const DEFAULT_POLL_INTERVAL_MS = 200;
 export class StopWhenIdle implements StopWhenIdleControl {
     private held = false;
     private finished = false;
+    // undefined: no stop pending. null: plain stop. A string: stop, then move to that build.
+    private pending: string | null | undefined;
     private lastKey: string | undefined;
     private timer: ReturnType<typeof setInterval> | undefined;
     private readonly listeners = new Set<StopWhenIdleListener>();
@@ -42,11 +59,25 @@ export class StopWhenIdle implements StopWhenIdleControl {
         return this.held;
     }
 
-    request(listener: StopWhenIdleListener): () => void {
+    request(listener: StopWhenIdleListener, buildId: string | null = null): StopRequestResult {
         if (this.finished) {
             void deliver(listener, { type: "stopped" });
-            return () => undefined;
+            return { accepted: true, unsubscribe: () => undefined };
         }
+        if (this.pending !== undefined && this.pending !== buildId) {
+            return {
+                accepted: false,
+                reason: "stop_pending",
+                message: this.pendingMessage(),
+            };
+        }
+        if (this.pending === undefined && buildId !== null) {
+            const problem = this.options.targetProblem?.(buildId);
+            if (problem !== undefined) {
+                return { accepted: false, reason: "target_unavailable", message: problem };
+            }
+        }
+        this.pending = buildId;
         this.held = true;
         this.listeners.add(listener);
         const waiting = this.options.waitingOn();
@@ -57,9 +88,20 @@ export class StopWhenIdle implements StopWhenIdleControl {
             void deliver(listener, { type: "waiting", waiting_on: waiting });
             this.ensureTimer();
         }
-        return () => {
-            this.listeners.delete(listener);
+        return {
+            accepted: true,
+            unsubscribe: () => {
+                this.listeners.delete(listener);
+            },
         };
+    }
+
+    private pendingMessage(): string {
+        if (this.pending === null || this.pending === undefined) {
+            return "Vera is already stopping. This request was not queued; wait for that stop to finish.";
+        }
+        return `Vera is already stopping to move to ${this.pending}. `
+            + "This request was not queued; wait for that update to finish.";
     }
 
     private ensureTimer(): void {
@@ -85,20 +127,46 @@ export class StopWhenIdle implements StopWhenIdleControl {
 
     private async finish(): Promise<void> {
         if (this.finished) return;
+        const problem = this.prepareStop();
+        if (problem !== undefined) {
+            await this.abandon(problem);
+            return;
+        }
         this.finished = true;
+        this.clearTimer();
+        await this.broadcast({ type: "stopped" });
+        await this.options.onStopped();
+    }
+
+    private prepareStop(): string | undefined {
+        try {
+            return this.options.prepare?.(this.pending ?? null);
+        } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+        }
+    }
+
+    // Turns resume and the next request starts a new stop.
+    private async abandon(message: string): Promise<void> {
+        this.held = false;
+        this.pending = undefined;
+        this.lastKey = undefined;
+        this.clearTimer();
+        await this.broadcast({ type: "abandoned", message });
+    }
+
+    private clearTimer(): void {
         if (this.timer !== undefined) {
             clearInterval(this.timer);
             this.timer = undefined;
         }
-        await this.broadcast({ type: "stopped" });
-        await this.options.onStopped();
     }
 
     private async broadcast(event: StopWhenIdleEvent): Promise<void> {
         const deliveries = [...this.listeners].map((listener) =>
             deliver(listener, event)
         );
-        if (event.type === "stopped") this.listeners.clear();
+        if (event.type !== "waiting") this.listeners.clear();
         await Promise.all(deliveries);
     }
 }

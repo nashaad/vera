@@ -1176,23 +1176,41 @@ function receiveConnection(
             clearDeadline();
             finished = true;
             if (request.pid !== identity.pid || request.started_at !== identity.started_at) {
-                void send({ type: "stop_host_refused", reason: "identity_mismatch" }).then(() => socket.end(), () => socket.destroy());
+                void send({
+                    type: "stop_host_refused",
+                    reason: "identity_mismatch",
+                    message: "The request names a different host than this one.",
+                }).then(() => socket.end(), () => socket.destroy());
                 return;
             }
             if (stopWhenIdle === undefined) {
-                void send({ type: "stop_host_refused", reason: "unavailable" }).then(() => socket.end(), () => socket.destroy());
+                void send({
+                    type: "stop_host_refused",
+                    reason: "unavailable",
+                    message: "This host cannot wait for its turns to end.",
+                }).then(() => socket.end(), () => socket.destroy());
                 return;
             }
-            const unsubscribe = stopWhenIdle.request((event) => {
+            const result = stopWhenIdle.request((event) => {
                 const response: StopHostResponse = event.type === "stopped"
                     ? { type: "stop_host_stopped", pid: identity.pid, started_at: identity.started_at }
-                    : { type: "stop_host_waiting", waiting_on: event.waiting_on };
+                    : event.type === "abandoned"
+                        ? { type: "stop_host_abandoned", message: event.message }
+                        : { type: "stop_host_waiting", waiting_on: event.waiting_on };
                 return send(response).then(
-                    () => { if (event.type === "stopped") socket.end(); },
+                    () => { if (event.type !== "waiting") socket.end(); },
                     () => { socket.destroy(); },
                 );
-            });
-            socket.once("close", unsubscribe);
+            }, request.target_build_id ?? null);
+            if (!result.accepted) {
+                void send({
+                    type: "stop_host_refused",
+                    reason: result.reason,
+                    message: result.message,
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            socket.once("close", result.unsubscribe);
             return;
         }
         if (request?.type === "shutdown_if_idle") {

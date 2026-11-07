@@ -1225,11 +1225,23 @@ function renderStopWhenIdleOutcome(outcome: StopWhenIdleOutcome): StopRendering 
                     + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
                 exitCode: 1,
             };
+        case "accepted":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} will stop once its running turns end.\n`,
+                exitCode: 0,
+            };
+        case "abandoned":
+            return {
+                text: `${outcome.message ?? "The stop was abandoned."}\n`,
+                exitCode: 1,
+            };
         case "refused":
             return {
-                text: outcome.refusal === "identity_mismatch"
-                    ? `Resident Vera host PID ${outcome.pid} refused the stop because it is not the host its lockfile records. Left it running.\n`
-                    : `Resident Vera host PID ${outcome.pid} is not accepting stop requests yet. Left it running; try again.\n`,
+                text: outcome.message !== undefined
+                    ? `${outcome.message}\n`
+                    : outcome.refusal === "identity_mismatch"
+                        ? `Resident Vera host PID ${outcome.pid} refused the stop because it is not the host its lockfile records. Left it running.\n`
+                        : `Resident Vera host PID ${outcome.pid} is not accepting stop requests yet. Left it running; try again.\n`,
                 exitCode: 1,
             };
         case "sigterm":
