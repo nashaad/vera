@@ -31,7 +31,7 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=12]
+## Start, development, and upgrades [lines=13]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
@@ -183,7 +183,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=20]
+## Diagnostics and recovery [lines=22]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 When a model request fails for good, the turn ends with an error that names the model, says what went wrong and how to fix it, and stays in the conversation when it is reopened; the Vera report in `/diagnostics` has the full error. Manual: `docs/troubleshooting.md`.
 If a key, paste or submitted command fails in the TUI, the conversation shows an error line that says what failed, the client's diagnostic log records it, and the TUI keeps running.
@@ -192,12 +192,12 @@ Completed web searches show each query in the collapsed activity group; Ctrl+T e
 If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.
 Quitting with Ctrl+C while disconnected prints the command to resume this session.
 Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
-While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
-
 An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. While the client is still connected, a healthy host is asked to shut down for replacement; while disconnected, Reconnect host attaches to a healthy host instead of asking it to shut down.
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.
 After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, Reconnect host from Ctrl+P is the next move.
 A TUI talks only to a host of its own build. If the host comes back as a different build, the TUI stays disconnected, sends it no requests, makes no automatic restart, and says to quit and reopen Vera.
+While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
+When an update moves the host to a new build, the TUI restarts into that build in the same terminal and keeps its unsent draft.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
 Use `/usage` for local session usage and cost, plus current ChatGPT subscription limits when connected. It reads session files and Python workflow runs from the current Vera home and uses the saved ChatGPT sign-in to check subscription limits. Workflow calls count toward the totals only. The page keeps the same address for this Vera home across host restarts, and Chrome and Firefox also reach it at `vera.localhost` on that port. Manual: `docs/usage.md`.
 
