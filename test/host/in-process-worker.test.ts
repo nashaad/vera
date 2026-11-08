@@ -1,0 +1,306 @@
+import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdtemp, realpath, rm, unlink } from "node:fs/promises";
+import { join } from "node:path";
+
+import { branchAgentThroughHost, createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import { listAgentPageThroughHost, listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
+import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { connectHost } from "../../src/host/connection.ts";
+import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { HOST_PROTOCOL_VERSION, requestHostIdentity, requestHostShutdownIfIdle } from "../../src/host/protocol.ts";
+import { startResidentHost } from "../../src/host/runtime.ts";
+import { renameSessionThroughHost } from "../../src/host/session-rename-client.ts";
+import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
+import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
+import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
+
+const config = {
+    schema_version: 1,
+    provider: "openrouter",
+    model: "faux/test",
+    approval_mode: "auto",
+} as const;
+
+const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test;
+
+async function locate(socketPath: string, id: string): Promise<unknown> {
+    const connection = await connectHost({ socketPath });
+    try {
+        await connection.send({ type: "locate_agent", agent_id: id });
+        return await connection.receive();
+    } finally {
+        connection.close();
+    }
+}
+
+async function finishTurn(client: AttachedAgentClient): Promise<void> {
+    while ((await client.receive()).type !== "turn_finished") {}
+}
+
+socketTest("create routes to the worker, two clients attach, and the master merges both rosters", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true,
+        createAdapter: () => new FauxAdapter([textResponse("A pirate crow found the map.")]),
+    });
+    const masterSocket = host.server.socketPath;
+    const workerSocket = inProcessWorkerSocket(home);
+    const annexPid = host.annexPid;
+    let first: AttachedAgentClient | undefined;
+    let second: AttachedAgentClient | undefined;
+    let throughMaster: AttachedAgentClient | undefined;
+    try {
+        const master = await host.registry.create({ workspace: home });
+        const worker = await createAgentThroughHost(masterSocket, home);
+        expect(existsSync(masterSocket)).toBe(true);
+        expect(existsSync(workerSocket)).toBe(true);
+        expect(await requestHostIdentity(workerSocket)).toMatchObject({
+            role: "worker", worker_id: "w0",
+            pid: host.server.identity.pid, started_at: host.server.identity.started_at,
+        });
+        expect(await locate(masterSocket, worker.id)).toMatchObject({
+            type: "agent_location", socket_path: workerSocket, worker_id: "w0",
+        });
+        const rows = await listAgentsThroughHost(masterSocket);
+        expect(rows.filter((row) => row.id === master.id)).toHaveLength(1);
+        expect(rows.filter((row) => row.id === worker.id)).toHaveLength(1);
+        expect(host.registry.find(worker.id)).toBeUndefined();
+        const secondMaster = await host.registry.create({ workspace: home });
+        const secondPath = host.registry.list().find((row) => row.id === secondMaster.id)!.session_path;
+        await Promise.all([
+            resumeAgentThroughHost(masterSocket, rows.find((row) => row.id === master.id)!.session_path),
+            resumeAgentThroughHost(masterSocket, secondPath),
+        ]);
+        for (const id of [master.id, secondMaster.id]) {
+            expect(host.registry.agents.has(id)).toBe(false);
+            expect(await locate(masterSocket, id)).toMatchObject({ socket_path: workerSocket });
+        }
+
+        first = await attachAgent({ socketPath: workerSocket, agentId: worker.id });
+        second = await attachAgent({ socketPath: workerSocket, agentId: worker.id });
+        throughMaster = await attachAgent({ socketPath: masterSocket, agentId: worker.id });
+        expect((await first.receive()).type).toBe("history");
+        expect((await second.receive()).type).toBe("history");
+        expect((await throughMaster.receive()).type).toBe("history");
+        expect(await requestHostShutdownIfIdle(masterSocket, host.server.identity, HOST_PROTOCOL_VERSION + 1))
+            .toEqual({ type: "shutdown_if_idle_refused", reason: "busy" });
+        const workerIdentity = await requestHostIdentity(workerSocket);
+        expect(await requestHostShutdownIfIdle(workerSocket, workerIdentity!, HOST_PROTOCOL_VERSION + 1))
+            .toEqual({ type: "shutdown_if_idle_refused", reason: "busy" });
+        expect(existsSync(join(home, "runtime", "w0.json"))).toBe(false);
+        const finished = Promise.all([finishTurn(first), finishTurn(second), finishTurn(throughMaster)]);
+        await first.send({ type: "prompt", content: "Where is the map?" });
+        await finished;
+        const page = await listAgentPageThroughHost(masterSocket, { include: ["usage"], limit: 10 });
+        expect(page.agents.find((row) => row.id === worker.id)?.facts?.usage?.rows).toHaveLength(1);
+        const found = await searchSessionsThroughHost(masterSocket, { query: "pirate crow", session_id: worker.id });
+        expect(found.results.map((row) => row.session_id)).toEqual([worker.id]);
+        const branched = await branchAgentThroughHost(masterSocket, worker.id, "at", undefined, { lifetime: "ephemeral" });
+        expect(await locate(masterSocket, branched.id)).toMatchObject({ socket_path: workerSocket });
+        const branchClient = await attachAgent({ socketPath: workerSocket, agentId: branched.id });
+        expect((await branchClient.receive()).type).toBe("history");
+        branchClient.close();
+    } finally {
+        first?.close();
+        second?.close();
+        throughMaster?.close();
+        await host.close();
+        try {
+            expect(existsSync(workerSocket)).toBe(false);
+            if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    }
+}, 20_000);
+
+socketTest("resume releases the master before the worker opens a session", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true,
+        createAdapter: () => new FauxAdapter([]),
+    });
+    const masterSocket = host.server.socketPath;
+    const workerSocket = inProcessWorkerSocket(home);
+    const originalOpen = SessionStore.open;
+    let activeClient: AttachedAgentClient | undefined;
+    let releaseStore: () => void = () => {};
+    try {
+        const agent = await host.registry.create({ workspace: home });
+        const path = host.registry.list().find((row) => row.id === agent.id)!.session_path;
+        const canonicalPath = await realpath(path);
+        expect(await locate(masterSocket, agent.id)).toMatchObject({
+            type: "agent_location", socket_path: masterSocket,
+        });
+
+        activeClient = await attachAgent({ socketPath: masterSocket, agentId: agent.id });
+        await activeClient.receive();
+        await expect(resumeAgentThroughHost(masterSocket, path)).rejects.toThrow();
+        expect(host.registry.find(agent.id)).toBe(agent);
+        activeClient.close();
+        activeClient = undefined;
+        await waitUntil(() => !agent.attached);
+        const entry = host.registry.agents.get(agent.id)!;
+        entry.pendingCompletionDeliveries = 1;
+        await expect(resumeAgentThroughHost(masterSocket, path)).rejects.toThrow();
+        expect(host.registry.agents.has(agent.id)).toBe(true);
+        entry.pendingCompletionDeliveries = 0;
+
+        const opens: boolean[] = [];
+        SessionStore.open = async (openedPath, options) => {
+            if (await realpath(openedPath) === canonicalPath) {
+                opens.push(!host.registry.agents.has(agent.id));
+            }
+            return await originalOpen(openedPath, options);
+        };
+        let storeStarted: () => void = () => {};
+        const storeStartedPromise = new Promise<void>((resolve) => { storeStarted = resolve; });
+        const storeHeld = new Promise<void>((resolve) => { releaseStore = resolve; });
+        const pendingStore = entry.store.exclusively(async () => {
+            storeStarted();
+            await storeHeld;
+        });
+        await storeStartedPromise;
+        const resuming = Promise.all([
+            resumeAgentThroughHost(masterSocket, path),
+            resumeAgentThroughHost(masterSocket, path),
+        ]);
+        await waitUntil(() => !host.registry.agents.has(agent.id));
+        expect(opens).toEqual([]);
+        releaseStore();
+        await pendingStore;
+        const resumed = await resuming;
+        expect(resumed.map((item) => item.id)).toEqual([agent.id, agent.id]);
+        expect(opens).toEqual([true]);
+        expect(host.registry.find(agent.id)).toBeUndefined();
+        expect(await locate(masterSocket, agent.id)).toMatchObject({
+            type: "agent_location", socket_path: workerSocket, worker_id: "w0",
+        });
+        const workerClient = await attachAgent({ socketPath: workerSocket, agentId: agent.id });
+        expect((await workerClient.receive()).type).toBe("history");
+        workerClient.close();
+    } finally {
+        releaseStore();
+        SessionStore.open = originalOpen;
+        activeClient?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("session mutations follow the worker and remove stale roster entries", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const path = join(home, "runtime", "sessions", "saved.jsonl");
+    await SessionStore.create(path, { sessionId: "saved", cwd: home });
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true,
+        createAdapter: () => new FauxAdapter([]),
+        trashSessionArtifacts: async (artifacts) => { await rm(artifacts.sessionPath); },
+    });
+    try {
+        expect((await listAgentsThroughHost(host.server.socketPath)).map((row) => row.id)).toContain("saved");
+        await resumeAgentThroughHost(host.server.socketPath, path);
+        expect(await renameSessionThroughHost(host.server.socketPath, "saved", "crow map"))
+            .toEqual({ status: "renamed", name: "crow map" });
+        expect(host.registry.agents.has("saved")).toBe(false);
+        expect(await closeAgentThroughHost(host.server.socketPath, "saved"))
+            .toEqual({ status: "closed", sessionRetained: true });
+        expect(await trashSessionThroughHost(host.server.socketPath, "saved")).toEqual({ status: "trashed" });
+        expect((await listAgentsThroughHost(host.server.socketPath)).some((row) => row.id === "saved")).toBe(false);
+        expect(await locate(host.server.socketPath, "saved")).toMatchObject({ type: "agent_location_failed", reason: "not_found" });
+    } finally {
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("a missing worker socket returns an unavailable attachment", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
+    });
+    try {
+        const agent = await createAgentThroughHost(host.server.socketPath, home);
+        await unlink(inProcessWorkerSocket(home));
+        await expect(attachAgent({ socketPath: host.server.socketPath, agentId: agent.id }))
+            .rejects.toMatchObject({ reason: "unavailable" });
+        expect(await requestHostIdentity(host.server.socketPath)).toBeDefined();
+    } finally {
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+test("worker socket paths enforce the macOS byte limit", () => {
+    const prefix = "/private/tmp/";
+    const suffix = "/runtime/w0.sock";
+    const home = prefix + "a".repeat(103 - Buffer.byteLength(prefix + suffix));
+    expect(Buffer.byteLength(inProcessWorkerSocket(home))).toBe(103);
+    expect(() => inProcessWorkerSocket(`${home}a`)).toThrow("103-byte limit");
+    expect(() => inProcessWorkerSocket(`${home}é`)).toThrow("103-byte limit");
+});
+
+socketTest("a 103-byte worker socket path listens successfully", async () => {
+    const root = await mkdtemp("/private/tmp/vhs-");
+    const prefix = `${root}/`;
+    const home = prefix + "x".repeat(103 - Buffer.byteLength(`${prefix}/runtime/w0.sock`));
+    const workerSocket = inProcessWorkerSocket(home);
+    expect(Buffer.byteLength(workerSocket)).toBe(103);
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true,
+        socketPath: join(root, "h.sock"), lockPath: join(root, "h.json"),
+        createAdapter: () => new FauxAdapter([]),
+    });
+    try {
+        expect(await requestHostIdentity(workerSocket)).toMatchObject({ role: "worker", worker_id: "w0" });
+    } finally {
+        await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 20_000);
+
+test("an overlong worker socket path fails before listening", async () => {
+    const root = await mkdtemp("/private/tmp/vhs-");
+    const home = join(root, "x".repeat(90));
+    try {
+        await expect(startResidentHost({
+            home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
+        })).rejects.toThrow("103-byte limit");
+        expect(existsSync(join(home, "runtime", "host.sock"))).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+socketTest("the default host does not start a worker socket", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const host = await startResidentHost({ home, config, createAdapter: () => new FauxAdapter([]) });
+    try {
+        expect(existsSync(inProcessWorkerSocket(home))).toBe(false);
+    } finally {
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for the attachment to close");
+        await Bun.sleep(5);
+    }
+}
+
+function textResponse(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        stopReason: "stop",
+        source: { provider: "faux", model: "test", api: "scripted" },
+        usage: emptyUsage(),
+    };
+}

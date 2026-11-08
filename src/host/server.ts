@@ -4,7 +4,8 @@ import type { ModelOperationResult, ModelOperationStep } from "../model/model-op
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { sessionScratchDir } from "../engine/run-turn.ts";
 import { createServer, type Server, type Socket } from "node:net";
-import { chmod, mkdir, stat, unlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, stat, unlink } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { dirname } from "node:path";
 
 import {
@@ -28,6 +29,7 @@ import {
     parseHostRequest,
     requestHostIdentity,
     type HostIdentity,
+    type HostRequest,
     type AgentLocationFailedResponse,
     type AgentLocationResponse,
     type ShutdownIfIdleResponse,
@@ -98,6 +100,7 @@ import {
 } from "./capabilities.ts";
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
+import { forwardSessionConnection } from "./master/forward.ts";
 import {
     InteractiveAttachmentRegistry,
     type InteractiveAttachmentLease,
@@ -141,6 +144,8 @@ export interface RestartRecordsPort {
     dismiss(sessionId: string): number;
 }
 
+type ForwardableHostRequest = Extract<HostRequest, { readonly type: "attach" | "branch_agent" }>;
+
 export interface StartHostServerOptions {
     readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
@@ -153,6 +158,8 @@ export interface StartHostServerOptions {
     // Runs after the startup claim, before this host publishes its lock.
     readonly recoverPrevious?: () => Promise<void>;
     readonly capabilities?: readonly string[];
+    readonly locateAgent?: (agentId: string) => Promise<AgentLocationResponse | AgentLocationFailedResponse>;
+    readonly routeRequest?: (request: ForwardableHostRequest) => Promise<string | undefined>;
     readonly limits?: {
         readonly maxRequestBytes?: number;
         readonly requestIdleMs?: number;
@@ -209,8 +216,8 @@ export interface StartHostServerOptions {
             CreateRegisteredAgentOptions,
             "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
         >,
-    ) => Promise<ResidentAgent>;
-    readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
+    ) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
+    readonly resumeAgent?: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
     readonly branchAgent?: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>;
@@ -264,11 +271,14 @@ export interface StartHostServerOptions {
     ) => void;
 }
 
-export interface HostServer {
+export interface HostListener {
     readonly identity: HostIdentity;
-    readonly lock: HostLockRecord;
     readonly socketPath: string;
     close(): Promise<void>;
+}
+
+export interface HostServer extends HostListener {
+    readonly lock: HostLockRecord;
 }
 
 interface HostLimits {
@@ -293,6 +303,20 @@ function resolveHostLimits(
 export async function startHostServer(
     options: StartHostServerOptions = {},
 ): Promise<HostServer> {
+    return await startListener(options) as HostServer;
+}
+
+export async function startWorkerServer(
+    options: StartHostServerOptions,
+    worker: { readonly id: string; readonly index: number; readonly count: number },
+): Promise<HostListener> {
+    return await startListener(options, worker);
+}
+
+async function startListener(
+    options: StartHostServerOptions,
+    worker?: { readonly id: string; readonly index: number; readonly count: number },
+): Promise<HostListener | HostServer> {
     const socketPath = options.socketPath ?? defaultHostSocketPath();
     const capabilities = parseHostCapabilities(options.capabilities ?? []);
     if (capabilities === undefined) {
@@ -304,6 +328,12 @@ export async function startHostServer(
         started_at: options.startedAt ?? currentProcessStartedAt(),
         protocol_version: HOST_PROTOCOL_VERSION,
         build_id: buildId,
+        ...(worker === undefined ? {} : {
+            role: "worker" as const,
+            worker_id: worker.id,
+            worker_index: worker.index,
+            worker_count: worker.count,
+        }),
     };
     const startupClaim = await acquireHostStartupClaim({
         path: options.startupClaimPath ?? `${socketPath}.starting`,
@@ -428,6 +458,8 @@ export async function startHostServer(
             socketPath,
             capabilities,
             options.findAgent ?? (() => undefined),
+            options.locateAgent,
+            options.routeRequest,
             options.listAgents ?? (() => []),
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
             options.listBackgroundAgents ?? (() => {
@@ -497,6 +529,7 @@ export async function startHostServer(
             resolveHostLimits(options.limits),
         );
     });
+    let workerSocketStat: Stats | undefined;
     try {
         await prepareSocketDirectory(socketPath);
         await listenAfterRemovingStaleSocket(
@@ -504,9 +537,10 @@ export async function startHostServer(
             socketPath,
             options.lockPath ?? defaultHostLockPath(),
         );
+        if (worker !== undefined) workerSocketStat = await lstat(socketPath);
         await chmod(socketPath, 0o600);
         await options.recoverPrevious?.();
-        const lock = await createHostLockfile({
+        const lock = worker === undefined ? await createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
             socketPath,
             pid: identity.pid,
@@ -515,18 +549,19 @@ export async function startHostServer(
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
-        }).publish();
+        }).publish() : undefined;
         await startupClaim.release();
 
         return {
             identity,
-            lock,
+            ...(lock === undefined ? {} : { lock }),
             socketPath,
             async close(): Promise<void> {
                 for (const socket of sockets) {
                     socket.destroy();
                 }
                 await closeServer(server);
+                await removeOwnedWorkerSocket(socketPath, workerSocketStat);
             },
         };
     } catch (error) {
@@ -534,11 +569,24 @@ export async function startHostServer(
             socket.destroy();
         }
         await closeServer(server);
+        await removeOwnedWorkerSocket(socketPath, workerSocketStat);
         try {
             await startupClaim.release();
         } catch {
         }
         throw error;
+    }
+}
+
+async function removeOwnedWorkerSocket(path: string, owned: Stats | undefined): Promise<void> {
+    if (owned === undefined) return;
+    try {
+        const current = await lstat(path);
+        if (current.isSocket() && current.dev === owned.dev && current.ino === owned.ino) {
+            await unlink(path);
+        }
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 }
 
@@ -592,6 +640,8 @@ function receiveConnection(
     findAgent: (
         agentId: string,
     ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>,
+    locateAgent: StartHostServerOptions["locateAgent"],
+    routeRequest: StartHostServerOptions["routeRequest"],
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>,
@@ -608,8 +658,8 @@ function receiveConnection(
             CreateRegisteredAgentOptions,
             "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
         >,
-    ) => Promise<ResidentAgent>,
-    resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
+    ) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
+    resumeAgent: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
     branchAgent: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>,
@@ -719,6 +769,8 @@ function receiveConnection(
     }
     armDeadline();
     let attachment: AgentAttachment | undefined;
+    let forwarded: Socket | undefined;
+    let forwardBlocked = false;
     let attachedAgent: ResidentAgent | undefined;
     let pendingHistoryPages = 0;
     const lines = new LineBuffer({ maxLineBytes: limits.maxRequestBytes });
@@ -755,6 +807,7 @@ function receiveConnection(
 
     socket.once("close", () => {
         clearDeadline();
+        forwarded?.destroy();
         stopWatchingRoster?.();
         stopWatchingRoster = undefined;
         stopWatchingStopWait?.();
@@ -805,7 +858,7 @@ function receiveConnection(
     });
 
     function receiveLines(): void {
-        while (!finished && !initialRequestPending) {
+        while (!finished && !initialRequestPending && !forwardBlocked) {
             const result = lines.next();
             if (result.kind === "need-more") {
                 return;
@@ -868,6 +921,18 @@ function receiveConnection(
     }
 
     function receiveLine(line: string): void {
+        if (forwarded !== undefined) {
+            if (!forwarded.write(`${line}\n`)) {
+                forwardBlocked = true;
+                socket.pause();
+                forwarded.once("drain", () => {
+                    forwardBlocked = false;
+                    socket.resume();
+                    receiveLines();
+                });
+            }
+            return;
+        }
         if (attachment === undefined) {
             initialRequestPending = true;
             void receiveInitialRequest(line).catch(() => socket.destroy())
@@ -1204,6 +1269,30 @@ function receiveConnection(
 
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
+        if ((request?.type === "attach" || request?.type === "branch_agent")
+            && routeRequest !== undefined && !isShutdownFenced()) {
+            const destination = await routeRequest(request);
+            if (isShutdownFenced()) {
+                socket.destroy();
+                return;
+            }
+            if (destination !== undefined) {
+                clearDeadline();
+                attachmentClosed = operationOpened();
+                try {
+                    forwarded = await forwardSessionConnection(socket, destination, line);
+                } catch {
+                    attachmentClosed();
+                    attachmentClosed = undefined;
+                    finished = true;
+                    const failure = request.type === "attach"
+                        ? { type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" }
+                        : { type: "agent_branch_failed", reason: "failed" };
+                    void send(failure).then(() => socket.end(), () => socket.destroy());
+                }
+                return;
+            }
+        }
         if (request?.type === "host_identity") {
             clearDeadline();
             finished = true;
@@ -1215,7 +1304,10 @@ function receiveConnection(
                 minimum_compatible_protocol_version:
                     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
                 build_id: identity.build_id,
-                role: "host",
+                role: identity.role ?? "host",
+                ...(identity.worker_id === undefined ? {} : { worker_id: identity.worker_id }),
+                ...(identity.worker_index === undefined ? {} : { worker_index: identity.worker_index }),
+                ...(identity.worker_count === undefined ? {} : { worker_count: identity.worker_count }),
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1546,12 +1638,9 @@ function receiveConnection(
             clearDeadline();
             finished = true;
             const operationClosed = operationOpened();
-            void answerLocateAgent(
-                request.agent_id,
-                findAgent,
-                socketPath,
-                identity.build_id,
-            )
+            void (locateAgent?.(request.agent_id) ?? answerLocateAgent(
+                request.agent_id, findAgent, socketPath, identity.build_id,
+            ))
                 .then((reply) => send(reply))
                 .then(() => socket.end(), () => socket.destroy())
                 .finally(operationClosed);
@@ -2139,7 +2228,7 @@ function receiveConnection(
 
     function startAgent(
         operation: "create" | "resume",
-        start: () => Promise<ResidentAgent>,
+        start: () => Promise<Pick<ResidentAgent, "id" | "workspace">>,
     ): void {
         void Promise.resolve().then(start).then(
             (agent) => send({

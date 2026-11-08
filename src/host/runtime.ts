@@ -153,13 +153,16 @@ import { StartupFindings } from "./startup-findings.ts";
 import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 
-import { startSessionHost, type SessionHost } from "./session-host.ts";
+import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
+import type { SessionHostServices } from "./session-host/types.ts";
+import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./master/in-process.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    readonly inProcessWorker?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
     // Where Claude Code and Codex keep their sessions. Read, never written.
@@ -284,6 +287,11 @@ export async function startResidentHost(
     const socketPath = options.socketPath
         ?? defaultHostSocketPath(home);
     const lockPath = options.lockPath ?? defaultHostLockPath(home);
+    const workerSocket = options.inProcessWorker === true ? inProcessWorkerSocket(home) : undefined;
+    if (workerSocket !== undefined && resolve(workerSocket) === resolve(socketPath)) {
+        throw new Error("The host and worker socket paths must differ");
+    }
+    let inProcessWorker: InProcessWorker | undefined;
     const restartRecordPath = defaultRestartRecordPath(home);
     const forgetRestartRecords = (sessionId: string): void => {
         try {
@@ -344,6 +352,7 @@ export async function startResidentHost(
                     return;
                 }
                 registry.notifyModelCatalogChanged();
+                inProcessWorker?.notifyModelCatalogChanged();
             })
             .catch(() => undefined)
             .finally(() => {
@@ -383,11 +392,15 @@ export async function startResidentHost(
         inbox.close();
     };
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
-        waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        waitingOn: (): readonly StopWaitTarget[] => [
+            ...registry.stopWaitTargets(), ...(inProcessWorker?.waitingOn() ?? []),
+        ],
         onStopped: () => closeHost(),
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
-        cutSession: (sessionId, reason) => registry.cutSessionForStop(sessionId, reason),
+        cutSession: async (sessionId, reason) =>
+            await registry.cutSessionForStop(sessionId, reason)
+            || await inProcessWorker?.cutSession(sessionId, reason) === true,
         recordCut: recordStopCut,
     });
     const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
@@ -397,7 +410,8 @@ export async function startResidentHost(
             return [];
         }
     };
-    const sessionHost = await startSessionHost({
+    let sharedServices: SessionHostServices | undefined;
+    const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
@@ -419,6 +433,7 @@ export async function startResidentHost(
             return () => { workChangeListeners.delete(listener); };
         },
         createServices: (createAdapter) => {
+            if (sharedServices !== undefined) return sharedServices;
             inbox = Inbox.open(
                 options.inboxPath ?? defaultInboxPath(home),
             );
@@ -446,7 +461,7 @@ export async function startResidentHost(
                     ? {}
                     : { url: options.config.model_feed_url },
             );
-            return {
+            return sharedServices = {
                 inboxDelivery,
                 models: {
                     availableModels: models,
@@ -688,14 +703,15 @@ export async function startResidentHost(
                 },
             };
         },
-    });
+    };
+    const sessionHost = await startSessionHost(sessionOptions);
     const { registry, extensions, createAdapter } = sessionHost;
     // Scores fill in after startup; discovery never waits for the arena download.
     if (discoversModelsAtStartup) {
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
     }
 
-    let server: HostServer;
+    let server!: HostServer;
     let annex: AnnexProcess | undefined;
     let annexUrl: string | undefined;
     let annexUnavailable: string | undefined;
@@ -723,6 +739,7 @@ export async function startResidentHost(
     });
     const closeHost = (): Promise<void> => {
         sessionHost.stopMaintenance();
+        inProcessWorker?.stopMaintenance();
         if (logPruneTimer !== undefined) {
             clearInterval(logPruneTimer);
             logPruneTimer = undefined;
@@ -733,18 +750,31 @@ export async function startResidentHost(
                 try {
                     await annex?.close();
                 } finally {
-                    await closeResidentHost(
-                        server,
-                        sessionHost,
-                        closeInbox,
-                        closeSidecars,
-                    );
+                    try {
+                        if (inProcessWorker !== undefined) {
+                            try {
+                                await server.close();
+                            } finally {
+                                await inProcessWorker.close();
+                            }
+                        }
+                    } finally {
+                        await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
+                    }
                 }
             })();
         }
         return closing;
     };
     try {
+        if (workerSocket !== undefined) {
+            inProcessWorker = await prepareInProcessWorker({
+                master: sessionHost, sessionOptions, masterSocket: socketPath,
+                workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
+                capabilities: HOST_CAPABILITIES,
+            });
+            sessionHost.startStorage();
+        }
         watches = startWatchRuntimeIfConfigured(inbox, {
             watches: extensions.contributions().watches(),
             ...(options.watchConnectors === undefined
@@ -775,6 +805,7 @@ export async function startResidentHost(
             "server_listen_and_lockfile",
             () => startHostServer({
                 ...sessionHost.handlers,
+                ...inProcessWorker?.masterHandlers,
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
@@ -819,6 +850,7 @@ export async function startResidentHost(
                     forgetProviderConnection(provider, authStorage);
                     providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
                     await sessionHost.clearProviderSelection(provider);
+                    await inProcessWorker?.clearProviderSelection(provider);
                     return registry.readHostModelSettings(workspace);
                 },
                 operateModels: async (request, onResult, onStep) => {
@@ -853,6 +885,7 @@ export async function startResidentHost(
                             cacheDirectory,
                         );
                         registry.availableModels = models;
+                        inProcessWorker?.setAvailableModels(models);
                         return outcomes;
                     });
                     catalogRefreshes = refreshed.then(() => undefined, () => undefined);
@@ -880,6 +913,7 @@ export async function startResidentHost(
 
             }),
         );
+        await inProcessWorker?.start(server.identity);
         try {
             annex = await startAnnexProcess({
                 home,
@@ -944,8 +978,15 @@ export async function startResidentHost(
             await closeSidecars();
         } catch {
         }
-        await sessionHost.closeAfterStartupFailure();
-        await closeInbox();
+        if (workerSocket === undefined) {
+            await sessionHost.closeAfterStartupFailure();
+            await closeInbox();
+            throw error;
+        }
+        try { await server?.close(); } catch {}
+        try { await inProcessWorker?.close(); } catch {}
+        try { await sessionHost.closeAfterStartupFailure(); } catch {}
+        try { await closeInbox(); } catch {}
         throw error;
     }
 
