@@ -472,7 +472,7 @@ export function beginHostReconnect(rt: TuiRuntime,
             discardSwitchTarget(rt, next);
             return;
         }
-        switchToClient(rt, next, draft);
+        switchToClient(rt, next, draft, { preserveReconnectTranscript: true });
     }).catch((error) => {
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;
