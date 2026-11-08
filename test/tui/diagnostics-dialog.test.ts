@@ -16,6 +16,7 @@ import {
     styledInspectOccupancy,
 } from "../../clients/tui/diagnostics-dialog.ts";
 import { parseColor } from "@opentui/core";
+import { waitForRender } from "./render-wait.ts";
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
@@ -70,7 +71,11 @@ test("the diagnostics menu lists Session and Vera and the report names its scope
     view.box.visible = true;
     try {
         view.update({ text: "# Vera diagnostics\n## Build\nbody", scope: "vera", menu: true });
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return ["Session", "This conversation", "The host", "↑↓ choose · ⏎ open · esc close"]
+                .every((text) => frame.includes(text));
+        });
         let frame = setup.captureCharFrame();
         expect(frame).toContain("Session");
         expect(frame).toContain("This conversation");
@@ -80,9 +85,11 @@ test("the diagnostics menu lists Session and Vera and the report names its scope
         expect(frame).not.toContain("tab switch");
 
         view.update({ text: "# Vera diagnostics\n## Build\nbody", scope: "vera", menu: false });
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return ["Diagnostics › Vera", "Build", "enter copies all · esc back"]
+                .every((text) => frame.includes(text));
+        });
         frame = setup.captureCharFrame();
         expect(frame).toContain("Diagnostics › Vera");
         expect(frame).toContain("Build");
@@ -203,9 +210,11 @@ test("a bare ! warning paints danger while a quoted one stays muted", async () =
     });
 
     try {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+            return spans.some((span) => span.text.includes("over the 5.0k budget"))
+                && spans.some((span) => span.text.includes("rides every turn"));
+        });
         const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
         const danger = spans.find((span) => span.text.includes("over the 5.0k budget"));
         const quoted = spans.find((span) => span.text.includes("rides every turn"));
@@ -257,9 +266,11 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
     });
 
     try {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return ["Session", "Metric  Value", "/Users/nash/.vera/runtime/", "sessions/session.jsonl"]
+                .every((text) => frame.includes(text));
+        });
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Session");
         expect(frame).not.toContain("## Session");
@@ -329,21 +340,24 @@ test("a Markdown source opens rendered and its source view numbers lines without
     setup.renderer.root.add(view.box);
     view.box.visible = true;
     const source = { text: "# Crow rules\n\nSteal **only** shiny things.\n", markdown: true };
-    const settle = async (): Promise<string> => {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
-        return setup.captureCharFrame();
-    };
     try {
         view.update({ text: "Source: /rules/crow.md", footerText: "Esc back", source });
-        let frame = await settle();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("Steal only shiny things.") && frame.includes("Esc back · s source");
+        });
+        let frame = setup.captureCharFrame();
         expect(frame).toContain("Steal only shiny things.");
         expect(frame).not.toContain("**only**");
         expect(frame).toContain("Esc back · s source");
 
         view.update({ text: "Source: /rules/crow.md", footerText: "Esc back", source, showSource: true });
-        frame = await settle();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("# Crow rules") && frame.includes("Steal **only** shiny things.")
+                && frame.includes("Esc back · s rendered");
+        });
+        frame = setup.captureCharFrame();
         const lines = frame.split("\n");
         const row = lines.findIndex((line) => line.includes("Steal **only** shiny things."));
         expect(lines[row]).toMatch(/\b3 +Steal/);
@@ -352,7 +366,8 @@ test("a Markdown source opens rendered and its source view numbers lines without
 
         const first = lines.findIndex((line) => line.includes("# Crow rules"));
         await setup.mockMouse.drag(lines[first]!.indexOf("# Crow"), first, lines[row]!.indexOf("things.") + 7, row);
-        await settle();
+        await waitForRender(setup, () =>
+            setup.renderer.getSelection()?.getSelectedText() === "# Crow rules\n\nSteal **only** shiny things.");
         expect(setup.renderer.getSelection()?.getSelectedText()).toBe("# Crow rules\n\nSteal **only** shiny things.");
     } finally {
         view.box.destroyRecursively();
@@ -377,9 +392,12 @@ test("rendered Markdown sources dim frontmatter and keep headings bright", async
             text: "Scope: user\n\nSource: /rules/crow.md", footerText: "Esc back",
             source: { text: "---\npaths:\n  - \"src/crow/**\"\n---\n\n# Crow\n\nHoard buttons.\n", markdown: true },
         });
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return ["Scope: user", "Source: /rules/crow.md", "paths:", "- \"src/crow/**\""]
+                .every((text) => frame.includes(text))
+                && frame.split("\n").some((line) => line.trim() === "Crow");
+        });
         // Strip the scrollbar thumb so blank rows compare as blank.
         const lines = setup.captureCharFrame().split("\n").map((line) => line.replace(/[█▀▄]/g, " "));
         const source = lines.findIndex((line) => line.includes("Source: /rules/crow.md"));
