@@ -136,6 +136,13 @@ describe("the home card", () => {
 });
 
 describe("home keys", () => {
+    test("slash opens command input without starting a conversation", () => {
+        expect(handleHomeKey(home(), { name: "/", sequence: "/" })).toEqual({
+            action: { kind: "command" },
+            handled: true,
+        });
+    });
+
     test("enter starts a new conversation", () => {
         expect(handleHomeKey(home(), { name: "return" })).toEqual({
             action: { kind: "new_session" },

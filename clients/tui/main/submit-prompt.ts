@@ -10,6 +10,7 @@ import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { disarmQuit } from "./notices.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
+import { isHomeClient } from "../home-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, disconnectedRecoveryHint, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestFocusedPaneClose, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
@@ -74,6 +75,11 @@ export function submitPrompt(rt: TuiRuntime,
         ) {
             releaseFocusedQueuedPrompts(rt, "all");
         }
+        return;
+    }
+    if (isHomeClient(rt.client) && !prompt.startsWith("/")) {
+        rt.homeSubmitPending = true;
+        beginCreateSession(rt, "stop", () => ({ text: prompt, attachmentIds: [] }));
         return;
     }
     rt.composerTip = undefined;
@@ -867,6 +873,7 @@ export function submitPrompt(rt: TuiRuntime,
     }
     if (commandAction?.type === "open_resume_picker") {
         rt.composer.clearComposer();
+        if (isHomeClient(rt.client)) rt.homeCommandMode = false;
         renderCommandSuggestions(rt);
         openResumePicker(rt);
         return;
@@ -999,6 +1006,13 @@ export function submitPrompt(rt: TuiRuntime,
         return;
     }
     if (commandAction?.type === "create_session") {
+        if (isHomeClient(rt.client)) {
+            rt.homeCommandMode = false;
+            rt.composer.clearComposer();
+            focusActiveSurface(rt);
+            renderState(rt);
+            return;
+        }
         requestCreateSession(rt, {
             ignoreEnter: true,
             sourceDisposition: commandAction.sourceDisposition,

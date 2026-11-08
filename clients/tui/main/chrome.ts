@@ -281,7 +281,7 @@ export function closeSidebarPane(rt: TuiRuntime, extensionId?: string): void {
 }
 
 export function composerSlotHeight(rt: TuiRuntime): number {
-    if (isHomeClient(rt.client)) return 0;
+    if (isHomeClient(rt.client) && !rt.homeCommandMode) return 0;
     return isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
         ? rt.resumeOverlay.surface.height
         : rt.composerBox.height;

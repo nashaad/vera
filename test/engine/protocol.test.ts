@@ -651,6 +651,77 @@ test("a resume checkpoint overlays the stored recipe on provider occupancy", () 
     ).toBe("AGENTS.local.md");
 });
 
+test("a resume checkpoint retains a larger stored request estimate", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send: (update): void => void updates.push(update),
+    });
+    protocol.checkpoint(messages, undefined, undefined, {
+        tokens: 85_000,
+        capacity: 100_000,
+        estimated: true,
+        projection: {
+            estimatedTokens: 85_000,
+            components: [{
+                kind: "prompt_contribution",
+                id: "core.project-instructions",
+                owner: "core",
+                source: "contextual",
+                displayName: "Project instructions",
+                count: 1,
+                estimatedTokens: 85_000,
+            }],
+        },
+    });
+
+    expect(updates.at(-1)).toMatchObject({
+        type: "history",
+        context: { tokens: 85_000, capacity: 100_000, estimated: true },
+    });
+    protocol.checkpoint(messages);
+    expect(updates.at(-1)).toMatchObject({
+        type: "history",
+        context: { tokens: 85_000, estimated: true },
+    });
+    protocol.restoreContext();
+    protocol.checkpoint(messages);
+    expect(updates.at(-1)).toMatchObject({
+        type: "history",
+        context: { tokens: 64_624, estimated: true },
+    });
+});
+
+test("a new measurement replaces the resumed request floor", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send: (update): void => void updates.push(update),
+    });
+    protocol.checkpoint(messages, undefined, undefined, { tokens: 85_000, estimated: true });
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: { tokens: 50_000, estimated: true },
+    });
+    protocol.checkpoint(messages);
+    expect(updates.at(-1)).toMatchObject({
+        type: "history", context: { tokens: 64_624, estimated: true },
+    });
+});
+
+test("a newer compaction measurement takes precedence over a stored request", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send: (update): void => void updates.push(update),
+    });
+    protocol.checkpoint(messages, undefined,
+        { tokens: 1_800, estimated: true },
+        { tokens: 85_000, estimated: true },
+    );
+    expect(updates.at(-1)).toMatchObject({
+        type: "history", context: { tokens: 1_800, estimated: true },
+    });
+});
+
 test("turn completion adds the reply to the provider's request count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
