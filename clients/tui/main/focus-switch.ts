@@ -125,7 +125,7 @@ export function focusActiveSurface(rt: TuiRuntime): void {
         ? "overlay"
         : rt.sidebar.isFocused()
         ? "sidebar_composer"
-        : isHomeClient(rt.client)
+        : isHomeClient(rt.client) && !rt.homeCommandMode
         ? "home"
         : isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
         ? "resume_overlay"
@@ -134,7 +134,7 @@ export function focusActiveSurface(rt: TuiRuntime): void {
         : "main_composer";
     if (
         overlay === undefined
-        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode)
+        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode || rt.homeCommandMode)
         && rt.composer.focused
         && rt.recordedFocusSurface === surface
     ) {
@@ -147,7 +147,7 @@ export function focusActiveSurface(rt: TuiRuntime): void {
         rt.flightRecorder?.record({ type: "focus_changed", surface });
         return;
     }
-    if (isHomeClient(rt.client)) {
+    if (isHomeClient(rt.client) && !rt.homeCommandMode) {
         rt.homeView.box.focus();
         rt.flightRecorder?.record({ type: "focus_changed", surface });
         return;

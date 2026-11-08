@@ -83,6 +83,7 @@ export type HomeAction =
     | { readonly kind: "palette" }
     | { readonly kind: "open_restart"; readonly sessionId: string }
     | { readonly kind: "dismiss_restart"; readonly sessionId: string }
+    | { readonly kind: "command" }
     | { readonly kind: "type"; readonly text: string };
 
 export function createHomeState(
@@ -260,6 +261,7 @@ export function handleHomeKey(
     }
     const typed = homeTypedCharacter(key);
     if (typed !== undefined) {
+        if (typed === "/") return { action: { kind: "command" }, handled: true };
         return { action: { kind: "type", text: typed }, handled: true };
     }
     return { handled: false };

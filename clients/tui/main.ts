@@ -2005,6 +2005,7 @@ export async function startTui(
         rt.dependencies.homeHasSessions ?? true,
         homeNeedsProvider(rt),
     );
+    rt.homeCommandMode = false;
     rt.homeSubmitPending = false;
     rt.onboardingPromptWaiting = false;
     rt.onboardingPromptRequest = undefined;

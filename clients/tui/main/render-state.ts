@@ -358,11 +358,11 @@ export function renderState(rt: TuiRuntime): void {
     rt.overlayScrim.left = requestRailColumns;
     rt.overlayScrim.width = Math.max(1, rt.renderer.width - requestRailColumns);
     rt.composerBox.visible = uiRequest === undefined
-        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode);
+        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode || rt.homeCommandMode);
     rt.resumeOverlay.surface.visible = uiRequest === undefined
         && isJsonlViewClient(rt.client)
         && !rt.jsonlCommandMode;
-    rt.homeView.surface.visible = isHomeClient(rt.client)
+    rt.homeView.surface.visible = isHomeClient(rt.client) && !rt.homeCommandMode
         && rt.onboardingWizard === undefined && !overlayVisible;
     rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined;
     renderCommandSuggestions(rt);

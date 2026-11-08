@@ -502,6 +502,7 @@ export interface TuiRuntime {
     composerRule: BoxRenderable;
     slashArgumentHint: TextRenderable;
     homeState: HomeState;
+    homeCommandMode: boolean;
     homeTypedText: string | undefined;
     /** A prompt that reached submit with no provider behind it. It sits in the composer until the gates close. */
     onboardingPromptWaiting: boolean;

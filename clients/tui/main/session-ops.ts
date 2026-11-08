@@ -102,6 +102,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.connectionFailure = undefined;
     rt.hostBuildRefusal = undefined;
     rt.jsonlCommandMode = false;
+    rt.homeCommandMode = false;
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
@@ -324,6 +325,13 @@ export function beginParkToJsonl(rt: TuiRuntime): void {
 }
 
 export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
+    if (action.kind === "command") {
+        rt.homeCommandMode = true;
+        rt.composer.setComposerText("/");
+        renderState(rt);
+        focusActiveSurface(rt);
+        return;
+    }
     if (action.kind === "connect_provider") {
         openProviderPicker(rt);
         return;
