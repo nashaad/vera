@@ -57,6 +57,8 @@ function classifierProblem(failure: ClassifierFailure, now: number): string {
             return "No classifier model is set.";
         case "undescribed":
             return "Vera could not describe the action to the classifier.";
+        case "request_build":
+            return `Vera could not build the request for ${failure.classifier ?? "the classifier"}.`;
         case "unreadable":
             return `${classifier} gave an answer Vera could not read.`;
         case "timeout":
@@ -104,6 +106,9 @@ export function modelFailureText(failure: ModelFailure, now = Date.now()): Model
 }
 
 function modelProblem(failure: ModelFailure, now: number): string {
+    if (failure.kind === "request_build") {
+        return `Vera could not build the request for ${failure.model}.`;
+    }
     const model = `The model, ${failure.model},`;
     if (failure.kind === "rate_limit" && failure.resetsAt !== undefined) {
         return failure.resetsAt > now
@@ -117,7 +122,7 @@ function modelProblem(failure: ModelFailure, now: number): string {
         : `${model} ${problem}: ${said}`;
 }
 
-const MODEL_PROBLEMS: Readonly<Record<ModelFailure["kind"], string>> = {
+const MODEL_PROBLEMS: Readonly<Record<Exclude<ModelFailure["kind"], "request_build">, string>> = {
     connection: "could not be reached",
     timeout: "did not answer in time",
     rate_limit: "hit its provider's rate or usage limit",
@@ -133,6 +138,8 @@ const MODEL_PROBLEMS: Readonly<Record<ModelFailure["kind"], string>> = {
 
 function modelFix(failure: ModelFailure, now: number): string {
     switch (failure.kind) {
+        case "request_build":
+            return "open /diagnostics and check the Vera report.";
         case "rate_limit":
             return failure.resetsAt !== undefined && failure.resetsAt > now
                 ? "wait until then, or pick a model on another provider with /model."
