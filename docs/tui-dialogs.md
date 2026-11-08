@@ -24,8 +24,9 @@ collapsed group. Ctrl+T shows or hides the full tool calls and results.
 Reads of one background process fold into one Waited row, named by the command
 that started the process. Each read replaces the result under the row, and
 Ctrl+T shows the newest result in full.
-Reasoning summary rows show the time spent on that phase. Ctrl+O shows or hides
-the readable reasoning text returned by the provider.
+Reasoning summary rows show the time spent on that phase while it is live.
+When a conversation is reopened, its saved summaries return without a duration.
+Ctrl+O shows or hides the readable reasoning text returned by the provider.
 
 ## Open common dialogs
 

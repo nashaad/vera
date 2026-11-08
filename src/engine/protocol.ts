@@ -76,6 +76,12 @@ export interface AssistantTranscriptEntry {
     readonly text: string;
 }
 
+export interface ReasoningTranscriptEntry {
+    readonly id?: string;
+    readonly kind: "reasoning";
+    readonly text: string;
+}
+
 export interface ToolTranscriptEntry {
     readonly id?: string;
     readonly kind: "tool";
@@ -174,16 +180,12 @@ export interface TranscriptTurnTiming {
     readonly recordedAt?: number;
 }
 
-/**
- * Every entry carries the ID of the stored message it was projected from,
- * suffixed with its position among the entries that message produced, because
- * one message can yield several rows. The field is absent when the projection
- * source has no stored identity, such as a live checkpoint taken from an
- * in-memory array in a test.
- */
+// Stored entries use a message ID and a suffix unique within that message.
+// Sources without stored identity omit the ID.
 export type TranscriptEntry = (
     | UserTranscriptEntry
     | AssistantTranscriptEntry
+    | ReasoningTranscriptEntry
     | ToolTranscriptEntry
     | ToolResultTranscriptEntry
     | PresentationTranscriptEntry
@@ -728,8 +730,7 @@ export interface AssistantDeltaUpdate {
 }
 
 /**
- * Reasoning text as it streams. Live-only: it is never persisted, so a client
- * that misses it has nothing to catch up on.
+ * Reasoning text as it streams. Stored summary text is available in history.
  */
 export interface AssistantThinkingUpdate {
     readonly type: "assistant_thinking";
@@ -2685,13 +2686,16 @@ export function projectTranscript(
         const stamp = messageStamps?.get(message);
         const entryStart = entries.length;
         let subIndex = 0;
+        let reasoningIndex = 0;
         const push = (entry: TranscriptEntry): void => {
             entries.push(
                 stamp === undefined
                     ? entry
                     : {
                         ...entry,
-                        id: `${stamp.id}#${subIndex++}`,
+                        id: entry.kind === "reasoning"
+                            ? `${stamp.id}#r${reasoningIndex++}`
+                            : `${stamp.id}#${subIndex++}`,
                         ...(Number.isFinite(stamp.recordedAt)
                             ? { recordedAt: stamp.recordedAt }
                             : {}),
@@ -2775,6 +2779,9 @@ export function projectTranscript(
             continue;
         }
         for (const content of message.content) {
+            if (content.type === "thinking" && content.text.trim().length > 0) {
+                push({ kind: "reasoning", text: content.text });
+            }
             if (content.type === "text" && content.text.length > 0) {
                 push({ kind: "assistant", text: content.text });
             }
@@ -2805,8 +2812,12 @@ export function projectTranscript(
             });
         }
         if (message.turnTiming !== undefined) {
-            if (entries.length === entryStart) push({ kind: "assistant", text: "" });
-            const last = entries.length - 1;
+            let last = entries.length - 1;
+            while (last >= entryStart && entries[last]!.kind === "reasoning") last -= 1;
+            if (last < entryStart) {
+                push({ kind: "assistant", text: "" });
+                last = entries.length - 1;
+            }
             entries[last] = { ...entries[last]!, turnTiming: message.turnTiming };
         }
         appendHarnessMessages(index + 1);

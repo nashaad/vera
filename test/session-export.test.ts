@@ -32,9 +32,10 @@ test("session export is read-only and follows the active conversation branch", a
         expect(markdown).toContain("## You\n\n> keep this prompt");
         expect(markdown).toContain("## Vera\n\n> Keep this reply.");
         expect(markdown).not.toContain("abandon this prompt");
+        expect(markdown).not.toContain("private reasoning");
         expect(await readFile(path)).toEqual(before);
-
         const json = JSON.parse(await exportSession(path, "json"));
+        expect(json.transcript[1].id).toEndWith("#0");
         expect(json).toEqual({
             format_version: 4,
             session: {
@@ -58,6 +59,55 @@ test("session export is read-only and follows the active conversation branch", a
             ],
         });
         expect(await readFile(path)).toEqual(before);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("Markdown export skips reasoning entries", () => {
+    const exported = {
+        format_version: 4 as const,
+        session: { id: "crow", started_at: "2026-11-07T00:00:00Z", workspace: "/work" },
+        transcript: [{ kind: "assistant" as const, text: "sail north" }],
+    };
+    expect(renderSessionMarkdown({
+        ...exported,
+        transcript: [
+            { kind: "reasoning", text: "follow the stars" },
+            ...exported.transcript,
+        ],
+    })).toBe(renderSessionMarkdown(exported));
+});
+
+test("JSON export keeps existing IDs and timing when reasoning follows the answer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-reasoning-export-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, {
+            sessionId: "crow",
+            cwd: root,
+            createId: () => "reply",
+        });
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "thinking", text: "first summary" },
+                { type: "text", text: "sail north" },
+                { type: "thinking", text: "last summary" },
+            ],
+            source: { provider: "test", api: "test", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+            turnTiming: { durationMs: 500, finishedAt: 1_000 },
+        });
+        const json = JSON.parse(await exportSession(path, "json"));
+        expect(json.transcript).toEqual([{
+            kind: "assistant",
+            id: "reply#0",
+            recordedAt: expect.any(Number),
+            text: "sail north",
+            turnTiming: { durationMs: 500, finishedAt: 1_000 },
+        }]);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

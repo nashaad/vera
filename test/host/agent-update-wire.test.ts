@@ -30,6 +30,32 @@ test("a value without an object shape or a string type is invalid", () => {
     }
 });
 
+test("history and pages skip unknown entries but reject malformed known entries", () => {
+    const reasoning = { kind: "reasoning", id: "one#r0", text: "plot the course" } as const;
+    const user = { kind: "user", text: "find the island" } as const;
+    const unknown = { kind: "future_entry", payload: 42 };
+    const history = { type: "history" as const, seq: 1, entries: [user, unknown, reasoning] };
+    expect(parseAgentUpdate(history)).toEqual({ ...history, entries: [user, reasoning] });
+    expect(parseAgentUpdate({ ...history, entries: [user, { kind: "reasoning" }] })).toBeUndefined();
+    expect(parseAgentUpdate({ ...history, entries: [user, { kind: "assistant", text: 42 }] })).toBeUndefined();
+    expect(parseAgentUpdate({ ...history, entries: [user, { text: "missing kind" }] })).toBeUndefined();
+
+    const page = {
+        type: "history_page",
+        request_id: "page-1",
+        before: "two#0",
+        entries: [unknown, reasoning, user],
+        page: { pageVersion: 1, hasMore: false },
+    };
+    expect(parseHistoryPagePayload(page)).toEqual({
+        before: page.before,
+        entries: [reasoning, user],
+        page: page.page,
+    });
+    expect(parseHistoryPagePayload({ ...page, entries: [{ kind: "reasoning", text: 1 }] }))
+        .toBeUndefined();
+});
+
 test("host wire carries streamed reasoning and rejects a missing text field", () => {
     const thinking = {
         type: "assistant_thinking" as const,

@@ -133,7 +133,7 @@ test("stdio frames updates after its attached marker", async () => {
         },
         client,
     );
-    client.updates.push({ type: "history", entries: [], seq: 0 });
+    client.updates.push({ type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 });
 
     await historyWritten;
     input.push(null);
@@ -153,7 +153,7 @@ test("stdio frames updates after its attached marker", async () => {
             children: [],
             has_parent: false,
         },
-        { type: "history", entries: [], seq: 0 },
+        { type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 },
     ]);
 });
 

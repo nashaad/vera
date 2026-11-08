@@ -15,6 +15,72 @@ function ids(entries: readonly TranscriptEntry[]): Array<string | undefined> {
     return entries.map((entry) => entry.id);
 }
 
+test("a page keeps reasoning with the whole turn across messages", () => {
+    const body = "x".repeat(600 * 1024);
+    const entries: TranscriptEntry[] = [
+        { kind: "user", id: "one#0", text: "one" },
+        { kind: "reasoning", id: "two#r0", text: "first summary" },
+        { kind: "tool", id: "two#0", tool: "read", args: {} },
+        { kind: "tool_result", id: "three#0", tool: "read", output: body, isError: false },
+        assistant("four#0", "first answer"),
+        { kind: "user", id: "five#0", text: "two" },
+        { kind: "reasoning", id: "six#r0", text: "second summary" },
+        assistant("six#0", body),
+    ];
+    const tail = historyPageFromEntries(entries);
+    if (tail.kind !== "page") throw new Error("expected a tail page");
+    expect(ids(tail.entries)).toEqual(["five#0", "six#r0", "six#0"]);
+    const older = historyPageFromEntries(entries, tail.page.olderBefore);
+    if (older.kind !== "page") throw new Error("expected an older page");
+    expect(ids(older.entries)).toEqual(["one#0", "two#r0", "two#0", "three#0", "four#0"]);
+});
+
+test("a long turn pages at message boundaries without gaps or overlap", () => {
+    for (const outputLength of [16, 8_586]) {
+        const entries: TranscriptEntry[] = [{ kind: "user", id: "user#0", text: "find the island" }];
+        for (let index = 0; index < 600; index += 1) {
+            if (index === 100) {
+                entries.push({ kind: "reasoning", id: `call-${index}#r0`, text: "check the stars" });
+            }
+            entries.push(
+                { kind: "tool", id: `call-${index}#0`, tool: "read", args: { index } },
+                {
+                    kind: "tool_result",
+                    id: `result-${index}#0`,
+                    tool: "read",
+                    output: "x".repeat(outputLength),
+                    isError: false,
+                },
+            );
+        }
+        const pages: TranscriptEntry[][] = [];
+        const seen = new Set<string>();
+        let source: readonly TranscriptEntry[] = entries;
+        let before: string | undefined;
+        while (true) {
+            const page = historyPageFromEntries(source, before);
+            if (page.kind !== "page") throw new Error(`expected a page, got ${page.kind}`);
+            expect(page.entries.length).toBeLessThanOrEqual(HISTORY_PAGE_MAX_ENTRIES);
+            expect(Buffer.byteLength(JSON.stringify(page.entries), "utf8"))
+                .toBeLessThanOrEqual(HISTORY_PAGE_MAX_BYTES);
+            if (pages.length === 0) {
+                if (outputLength === 16) expect(page.entries).toHaveLength(HISTORY_PAGE_MAX_ENTRIES);
+                else expect(page.entries.length).toBeLessThan(HISTORY_PAGE_MAX_ENTRIES);
+            }
+            pages.unshift([...page.entries]);
+            if (!page.page.hasMore) break;
+            before = page.page.olderBefore;
+            if (before === undefined || seen.has(before)) throw new Error("invalid page cursor");
+            seen.add(before);
+            const messageId = before.slice(0, before.lastIndexOf("#"));
+            const cursorEnd = entries.findLastIndex((entry) => entry.id?.startsWith(`${messageId}#`)) + 1;
+            source = entries.slice(0, cursorEnd);
+        }
+        expect(pages.length).toBeGreaterThan(1);
+        expect(ids(pages.flat())).toEqual(ids(entries));
+    }
+});
+
 test("pages backward from the newest entries without overlap", () => {
     const entries = Array.from(
         { length: 500 },

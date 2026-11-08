@@ -184,6 +184,68 @@ test("a completion reports the time the reasoning behind it took", () => {
         .toBe("Reasoning summary: 3.0s  Ctrl+O reasoning");
 });
 
+test("history restores a reasoning row without a duration and Ctrl+O opens it", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "find the island" },
+            { kind: "reasoning", text: "follow the stars", id: "reply#r0" },
+            { kind: "assistant", text: "sail north" },
+        ],
+        seq: 1,
+    });
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["user", "thought", "assistant"]);
+    expect(state.entries[1]).toEqual({
+        kind: "thought",
+        text: "Reasoning summary",
+        reasoning: "follow the stars",
+        entryId: "reply#r0",
+    });
+    expect(plainText(renderTuiEntry(state.entries[1]!)))
+        .toBe("Reasoning summary  Ctrl+O reasoning");
+    state = toggleTuiThinking(state);
+    expect(openedReasoningText(state.entries[1]!)).toBe("follow the stars");
+    expect(plainText(renderTuiEntry(state.entries[1]!)))
+        .toBe("Reasoning summary  Ctrl+O hide reasoning");
+});
+
+test("a checkpoint matches its live reasoning row without duplicating it", () => {
+    let state = thinkFor(createTuiState(), "follow the stars", 2.1);
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [{ kind: "reasoning", text: "follow the stars", id: "reply#r0" }],
+        seq: 2,
+    });
+    expect(state.entries).toEqual([{
+        kind: "thought",
+        text: "Reasoning summary: 2.1s",
+        seconds: 2.1,
+        reasoning: "follow the stars",
+        entryId: "reply#r0",
+    }]);
+});
+
+test("restored reasoning across tool calls remains one untimed row", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "reasoning", text: "check the map" },
+            { kind: "tool", tool: "read", args: {} },
+            { kind: "reasoning", text: "choose a heading" },
+            { kind: "tool", tool: "read", args: {} },
+            { kind: "assistant", text: "sail north" },
+        ],
+        seq: 1,
+    });
+    const thoughts = state.entries.filter((entry) => entry.kind === "thought");
+    expect(thoughts).toHaveLength(1);
+    expect(thoughts[0]).toMatchObject({
+        text: "Reasoning summary",
+        reasoning: "check the map\n\nchoose a heading",
+    });
+    expect(thoughts[0]).not.toHaveProperty("seconds");
+});
+
 test("tool calls between two stretches of thinking do not split the row", () => {
     let state = thinkFor(createTuiState(), "reading the boundary", 2.4);
     state = applyAgentUpdate(state, {

@@ -32,23 +32,63 @@ export function historyPageFromEntries(
     before?: string,
     options: HistoryPageOptions = {},
 ): HistoryPageResult {
+    const turnUsers: number[] = [];
+    const turnEnds = new Map<number, number>();
+    const oversizedTurns = new Map<number, boolean>();
+    const entrySizes: number[] = [];
+    let currentUser = -1;
+    for (let index = 0; index < entries.length; index += 1) {
+        if (entries[index]!.kind === "user") {
+            if (currentUser >= 0) turnEnds.set(currentUser, index);
+            currentUser = index;
+        }
+        turnUsers.push(currentUser);
+    }
+    if (currentUser >= 0) turnEnds.set(currentUser, entries.length);
+
+    const entrySize = (index: number): number => {
+        const cached = entrySizes[index];
+        if (cached !== undefined) return cached;
+        const size = entryByteLength(entries[index]!);
+        entrySizes[index] = size;
+        return size;
+    };
+    const groupStart = (index: number): number => {
+        const messageStart = messageGroupStart(entries, index);
+        const userIndex = turnUsers[index]!;
+        if (userIndex < 0) return messageStart;
+        const turnStart = messageGroupStart(entries, userIndex);
+        const turnEnd = turnEnds.get(userIndex)!;
+        let oversized = oversizedTurns.get(userIndex);
+        if (oversized === undefined) {
+            oversized = turnEnd - turnStart > HISTORY_PAGE_MAX_ENTRIES;
+            let turnBytes = 1;
+            for (let cursor = turnStart; !oversized && cursor < turnEnd; cursor += 1) {
+                turnBytes += entrySize(cursor) + 1;
+                oversized = turnBytes > HISTORY_PAGE_MAX_BYTES;
+            }
+            oversizedTurns.set(userIndex, oversized);
+        }
+        return oversized ? messageStart : turnStart;
+    };
+
     let end = entries.length;
     if (before !== undefined) {
         const index = entries.findIndex((entry) => entry.id === before);
         if (index < 0) {
             return { kind: "cursor_not_found" };
         }
-        end = groupStart(entries, index);
+        end = messageGroupStart(entries, index);
     }
     let start = end;
     let count = 0;
     let bytes = 0;
     while (start > 0) {
-        const groupFrom = groupStart(entries, start - 1);
+        const groupFrom = groupStart(start - 1);
         const sizes: number[] = [];
         let groupBytes = 0;
         for (let index = groupFrom; index < start; index += 1) {
-            const size = entryByteLength(entries[index]!);
+            const size = entrySize(index);
             sizes.push(size);
             groupBytes += size;
         }
@@ -64,7 +104,7 @@ export function historyPageFromEntries(
         if (
             count > 0
             && (count + sizes.length > HISTORY_PAGE_MAX_ENTRIES
-                || bytes + groupBytes > HISTORY_PAGE_MAX_BYTES)
+                || bytes + groupBytes + count + sizes.length + 1 > HISTORY_PAGE_MAX_BYTES)
         ) {
             break;
         }
@@ -133,11 +173,7 @@ export function historyPageFromStore(
     });
 }
 
-/**
- * The first entry of the message group containing `index`. A harness row
- * belongs to the message before it, so its group starts at that message.
- */
-function groupStart(
+function messageGroupStart(
     entries: readonly TranscriptEntry[],
     index: number,
 ): number {

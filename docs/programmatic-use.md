@@ -54,6 +54,11 @@ vera stdio --resume <session-id|path>
 
 On attach and resume, `vera stdio` sends the whole conversation history as one
 `history` message.
+Its entries include `{ "kind": "reasoning", "text": "..." }` for saved
+readable reasoning summaries, in their original transcript order. Provider
+signatures and encrypted reasoning are not included.
+Clients should skip unrecognized history entry kinds and reject malformed
+entries whose kind they know.
 
 The exchange includes prompts and responses to UI requests. This is the
 message shape, with omitted fields shown as ellipses:

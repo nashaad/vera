@@ -98,9 +98,19 @@ function storedFact(entry: TranscriptEntry): UntimedFact | undefined {
             return presentationEntry(entry.presentation);
         case "error":
             return { kind: "failure", outcome: entry.outcome ?? "error" };
-        default:
+        case "reasoning":
+        case "empty":
+        case "model_substitution":
+        case "harness":
+        case "hook_context":
+        case "delivery":
             return undefined;
     }
+    return skipUnknown(entry);
+}
+
+function skipUnknown(_entry: never): undefined {
+    return undefined;
 }
 
 function presentationEntry(presentation: ToolPresentation): UntimedFact | undefined {
