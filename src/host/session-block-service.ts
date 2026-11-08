@@ -8,10 +8,12 @@ import type { BlockSessionRequest, UnblockSessionRequest } from "./protocol.ts";
 import {
     readSessionBlock,
     readStoredSessionTree,
+    readStoredSessionTreeShard,
     removeSessionBlock,
     startedTreeOf,
     writeSessionBlock,
     type SessionBlockRecord,
+    type StoredSessionTreeRow,
 } from "./session-block.ts";
 
 // A worker that does not confirm in time keeps running; the outcome says so.
@@ -27,6 +29,14 @@ export interface SessionBlockServiceOptions {
 export interface SessionBlockService {
     block(request: BlockSessionRequest): Promise<BlockSessionOutcome>;
     unblock(request: UnblockSessionRequest): Promise<UnblockSessionOutcome>;
+    hasSession(id: string): boolean;
+    treeShard(includePaths?: readonly string[], excludePaths?: readonly string[]): Promise<readonly StoredSessionTreeRow[]>;
+    abort(ids: readonly string[]): Promise<void>;
+    confirm(ids: readonly string[]): Promise<void>;
+    write(request: BlockSessionRequest, ids: readonly string[]): Promise<boolean>;
+    blocked(ids: readonly string[]): Promise<readonly string[]>;
+    remove(ids: readonly string[]): Promise<readonly string[]>;
+    release(ids: readonly string[]): Promise<readonly string[]>;
 }
 
 export function createSessionBlockService(
@@ -52,7 +62,54 @@ export function createSessionBlockService(
         }
     }
 
+    async function writeBlocks(request: BlockSessionRequest, ids: readonly string[]): Promise<boolean> {
+        try {
+            const blockedAt = now().toISOString();
+            for (const id of ids) {
+                const record: SessionBlockRecord = {
+                    version: 1, session_id: id, root_session_id: request.target_agent_id,
+                    blocked_at: blockedAt, reason: request.reason,
+                };
+                await writeSessionBlock(options.blockedDirectory, record);
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    async function blocked(ids: readonly string[]): Promise<readonly string[]> {
+        const result: string[] = [];
+        for (const id of ids) {
+            if ((await readSessionBlock(options.blockedDirectory, id)).status !== "absent") result.push(id);
+        }
+        return result;
+    }
+
+    async function remove(ids: readonly string[]): Promise<readonly string[]> {
+        const result: string[] = [];
+        for (const id of ids) if (await removeSessionBlock(options.blockedDirectory, id)) result.push(id);
+        return result;
+    }
+
+    async function release(ids: readonly string[]): Promise<readonly string[]> {
+        const unconfirmed: string[] = [];
+        for (const id of ids) {
+            const control = blockControlOf(id);
+            if (control !== undefined && !(await control.releaseBlock(BLOCK_ACK_TIMEOUT_MS))) unconfirmed.push(id);
+        }
+        return unconfirmed;
+    }
+
     return {
+        hasSession: (id) => options.registry.agents.has(id) || existsSync(join(options.sessionDirectory, `${id}.jsonl`)),
+        treeShard: (include, exclude) => readStoredSessionTreeShard(options.sessionDirectory, include, exclude),
+        abort: abortLive,
+        confirm: confirmLive,
+        write: writeBlocks,
+        blocked,
+        remove,
+        release,
         async block(request) {
             const root = request.target_agent_id;
             const storedRoot = existsSync(
@@ -72,19 +129,7 @@ export function createSessionBlockService(
             ])];
             // The turns end first; the flags then keep anything queued from starting; the second abort catches a turn that began in between.
             await abortLive(tree);
-            try {
-                const blockedAt = now().toISOString();
-                for (const id of tree) {
-                    const record: SessionBlockRecord = {
-                        version: 1,
-                        session_id: id,
-                        root_session_id: root,
-                        blocked_at: blockedAt,
-                        reason: request.reason,
-                    };
-                    await writeSessionBlock(options.blockedDirectory, record);
-                }
-            } catch {
+            if (!await writeBlocks(request, tree)) {
                 await abortLive(tree);
                 return { status: "rejected", reason: "failed" };
             }
@@ -94,31 +139,14 @@ export function createSessionBlockService(
         },
 
         async unblock(request) {
-            const blocked: string[] = [];
-            for (const id of request.session_ids) {
-                const state = await readSessionBlock(options.blockedDirectory, id);
-                if (state.status === "absent") continue;
-                blocked.push(id);
-            }
-            if (blocked.length === 0) {
+            const held = await blocked(request.session_ids);
+            if (held.length === 0) {
                 return { status: "rejected", reason: "not_found" };
             }
             // The latch must hold before the flag goes, or a worker that never saw the flag could start its queue.
-            await confirmLive(blocked);
-            const removed: string[] = [];
-            for (const id of blocked) {
-                if (await removeSessionBlock(options.blockedDirectory, id)) {
-                    removed.push(id);
-                }
-            }
-            const unconfirmed: string[] = [];
-            for (const id of removed) {
-                const control = blockControlOf(id);
-                if (control === undefined) continue;
-                if (!(await control.releaseBlock(BLOCK_ACK_TIMEOUT_MS))) {
-                    unconfirmed.push(id);
-                }
-            }
+            await confirmLive(held);
+            const removed = await remove(held);
+            const unconfirmed = await release(removed);
             return removed.length === 0
                 ? { status: "rejected", reason: "not_found" }
                 : {

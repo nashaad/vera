@@ -14,8 +14,8 @@ import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../
 import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
-import type { TuiRuntime } from "./runtime.ts";
-import { BoxRenderable, MarkdownRenderable, TextRenderable, type Renderable } from "@opentui/core";
+import type { TuiRuntime, TuiTranscriptSourceAnchor } from "./runtime.ts";
+import { BoxRenderable, MarkdownRenderable, TextBufferRenderable, TextRenderable, TextTableRenderable, type Renderable } from "@opentui/core";
 
 export function tipContext(rt: TuiRuntime, inModelPicker: boolean): TuiTipContext {
     const pooled = rt.state.modelSettings?.pooled ?? [];
@@ -334,7 +334,7 @@ export function topmostVisibleTranscriptEntry(rt: TuiRuntime): number | undefine
 }
 
 // screenY is refreshed only by a render pass, so after calculateLayout the computed layout is the fresh source.
-function transcriptNodeOffset(rt: TuiRuntime, node: BoxRenderable | TextRenderable | MarkdownRenderable): number {
+function transcriptNodeOffset(rt: TuiRuntime, node: Renderable): number {
     let top = 0;
     for (let at: Renderable | null = node; at !== null; at = at.parent) {
         if (at === rt.transcript.content) return top - rt.transcript.scrollTop;
@@ -343,7 +343,6 @@ function transcriptNodeOffset(rt: TuiRuntime, node: BoxRenderable | TextRenderab
     return node.screenY - rt.transcript.viewport.screenY;
 }
 
-// A reflow keeps the middle of the top row at the same share of the entry, so the same text stays at the top.
 function anchoredOffset(
     anchor: NonNullable<TuiRuntime["pendingTranscriptScrollAnchor"]>,
     width: number,
@@ -359,6 +358,75 @@ function anchoredOffset(
     );
 }
 
+interface TuiTableLayout {
+    readonly rowOffsets: readonly number[];
+    readonly rowHeights: readonly number[];
+}
+
+function tableLayout(node: TextTableRenderable): TuiTableLayout | undefined {
+    // OpenTUI stores table row geometry in its internal layout.
+    const layout: unknown = Reflect.get(node, "_layout");
+    if (typeof layout !== "object" || layout === null) return undefined;
+    const offsets: unknown = Reflect.get(layout, "rowOffsets");
+    const heights: unknown = Reflect.get(layout, "rowHeights");
+    if (!Array.isArray(offsets) || !Array.isArray(heights)
+        || offsets.length !== heights.length + 1
+        || !offsets.every(Number.isFinite) || !heights.every(Number.isFinite)) return undefined;
+    return { rowOffsets: offsets, rowHeights: heights };
+}
+
+function topTranscriptSource(node: Renderable, top: number): TuiTranscriptSourceAnchor | undefined {
+    if (!node.visible || node.screenY > top || node.screenY + node.height <= top) {
+        return undefined;
+    }
+    if (node instanceof TextBufferRenderable) {
+        const row = top - node.screenY + node.scrollY;
+        const info = node.lineInfo;
+        const line = info.lineSources[row];
+        const column = info.lineStartCols[row];
+        if (line !== undefined && column !== undefined) return { kind: "text", node, line, column };
+    }
+    if (node instanceof TextTableRenderable) {
+        const layout = tableLayout(node);
+        if (layout !== undefined) {
+            const localY = top - node.screenY;
+            const row = layout.rowHeights.findIndex((height, index) => {
+                const start = layout.rowOffsets[index]! + 1;
+                return localY >= start && localY < start + height;
+            });
+            if (row !== -1) return { kind: "table", node, row };
+        }
+    }
+    for (const child of node.getChildren()) {
+        const source = topTranscriptSource(child, top);
+        if (source !== undefined) return source;
+    }
+    return undefined;
+}
+
+function transcriptSourceRow(source: TuiTranscriptSourceAnchor): number | undefined {
+    if (source.kind === "text") {
+        const info = source.node.lineInfo;
+        let bestRow = -1;
+        let bestColumn = -1;
+        let bestWrap = -1;
+        for (let row = 0; row < info.lineSources.length; row += 1) {
+            const column = info.lineStartCols[row];
+            const wrap = info.lineWraps[row];
+            if (info.lineSources[row] !== source.line || column === undefined
+                || wrap === undefined || column > source.column) continue;
+            if (column > bestColumn || (column === bestColumn && wrap > bestWrap)) {
+                bestRow = row;
+                bestColumn = column;
+                bestWrap = wrap;
+            }
+        }
+        return bestRow === -1 ? undefined : bestRow - source.node.scrollY;
+    }
+    const offset = tableLayout(source.node)?.rowOffsets[source.row];
+    return offset === undefined ? undefined : offset + 1 + source.node.cellPaddingY;
+}
+
 export function applyTranscriptScrollAnchor(rt: TuiRuntime): void {
     const anchor = rt.pendingTranscriptScrollAnchor;
     if (anchor === undefined) return;
@@ -366,10 +434,43 @@ export function applyTranscriptScrollAnchor(rt: TuiRuntime): void {
     const node = rt.entryNodes[anchor.index];
     if (node === undefined) return;
     const { width, height } = node.getLayoutNode().getComputedLayout();
+    if (width !== anchor.width && anchor.source !== undefined && !anchor.source.node.isDestroyed) {
+        const row = transcriptSourceRow(anchor.source);
+        if (row !== undefined) {
+            const offset = transcriptNodeOffset(rt, anchor.source.node) + row;
+            const target = rt.transcript.scrollTop + offset;
+            if (anchor.minimumScrollHeight !== undefined
+                && rt.transcript.scrollHeight < anchor.minimumScrollHeight) {
+                rt.pendingTranscriptScrollAnchor = anchor;
+                return;
+            }
+            const missing = target + rt.transcript.viewport.height + 2 - rt.transcript.scrollHeight;
+            if (missing > 0) {
+                rt.transcriptAnchorPadding += missing;
+                rt.transcriptAnchorSpacer.height = rt.transcriptAnchorPadding;
+                rt.transcriptAnchorSpacer.visible = true;
+                rt.pendingTranscriptScrollAnchor = {
+                    ...anchor,
+                    minimumScrollHeight: rt.transcript.scrollHeight + missing,
+                };
+                return;
+            }
+            rt.transcript.scrollTo(target);
+            return;
+        }
+    }
     const target = anchoredOffset(anchor, width, height);
     const offset = transcriptNodeOffset(rt, node);
     if (offset === target) return;
     rt.transcript.scrollTo(rt.transcript.scrollTop + offset - target);
+}
+
+export function clearTranscriptAnchorPadding(rt: TuiRuntime): void {
+    if (rt.transcriptAnchorPadding === 0) return;
+    rt.transcriptAnchorPadding = 0;
+    rt.transcriptAnchorSpacer.height = 0;
+    rt.transcriptAnchorSpacer.visible = false;
+    rt.pendingTranscriptAnchorPaddingClear = true;
 }
 
 export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
@@ -379,11 +480,28 @@ export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
     const node = rt.entryNodes[index];
     if (node === undefined) return;
     const { width, height } = node.getLayoutNode().getComputedLayout();
+    let source = topTranscriptSource(tuiGutterContent(node), rt.transcript.viewport.screenY);
+    const retained = rt.transcriptResizeAnchor;
+    if (source?.kind === "text") {
+        const sameSource = retained !== undefined && retained.index === index
+            && retained.entries === rt.state.entries && retained.source.node === source.node
+            && retained.source.line === source.line && !retained.source.node.isDestroyed;
+        const retainedRow = sameSource ? transcriptSourceRow(retained.source) : undefined;
+        if (sameSource && retainedRow !== undefined
+            && source.node.screenY + retainedRow === rt.transcript.viewport.screenY) {
+            source = retained.source;
+        } else {
+            rt.transcriptResizeAnchor = { index, entries: rt.state.entries, source };
+        }
+    } else {
+        rt.transcriptResizeAnchor = undefined;
+    }
     rt.pendingTranscriptScrollAnchor = {
         index,
         offset: transcriptNodeOffset(rt, node),
         width,
         height,
+        source,
     };
 }
 
@@ -412,6 +530,9 @@ export function trimTranscriptWindow(rt: TuiRuntime, length: number): void {
 export function renderTranscriptEntries(rt: TuiRuntime, 
     entries: readonly TuiTranscriptEntry[],
 ): void {
+    if (rt.transcriptResizeAnchor !== undefined && rt.transcriptResizeAnchor.entries !== entries) {
+        rt.transcriptResizeAnchor = undefined;
+    }
     if (rt.pendingTranscriptReseed) {
         rt.pendingTranscriptReseed = false;
         reseedTranscriptNodes(rt, entries);
@@ -645,6 +766,8 @@ export function setTranscriptWindow(rt: TuiRuntime,
 export function snapTranscriptWindowToTail(rt: TuiRuntime, 
     entries: readonly TuiTranscriptEntry[],
 ): void {
+    clearTranscriptAnchorPadding(rt);
+    rt.transcriptResizeAnchor = undefined;
     const tail = tuiTranscriptTailRange(entries.length);
     setTranscriptWindow(rt, entries, tail.start, tail.end);
     rt.transcript.scrollTo(rt.transcript.scrollHeight);
@@ -674,6 +797,10 @@ export function settleTranscriptScrollState(rt: TuiRuntime): void {
     if (restore !== undefined) {
         rt.pendingTranscriptScrollRestore = undefined;
         rt.pendingTranscriptScrollAnchor = undefined;
+        if (restore.atBottom) {
+            clearTranscriptAnchorPadding(rt);
+            rt.transcriptResizeAnchor = undefined;
+        }
         rt.transcript.scrollTo(
             restore.atBottom ? rt.transcript.scrollHeight : restore.scrollTop,
         );

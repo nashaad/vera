@@ -45,6 +45,7 @@ import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import type { KeyEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 
 export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefined): boolean {
     const scrollLines = binding === "scroll_line_up"
@@ -58,6 +59,10 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         : undefined;
     if (binding !== "jump_to_bottom" && scrollLines === undefined) {
         return false;
+    }
+    rt.transcriptResizeAnchor = undefined;
+    if (scrollLines === undefined || scrollLines > 0) {
+        clearTranscriptAnchorPadding(rt);
     }
     if (scrollLines === undefined) {
         rt.transcript.scrollTo(rt.transcript.scrollHeight);
@@ -1546,6 +1551,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderState(rt);
         if (wasFollowing) {
             if (side === undefined) {
+                clearTranscriptAnchorPadding(rt);
                 rt.transcript.scrollTo(rt.transcript.scrollHeight);
             } else {
                 rt.sidebar.scrollToBottom();
@@ -1638,6 +1644,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderState(rt);
         if (wasFollowing) {
             if (side === undefined) {
+                clearTranscriptAnchorPadding(rt);
                 rt.transcript.scrollTo(rt.transcript.scrollHeight);
             } else {
                 rt.sidebar.scrollToBottom();

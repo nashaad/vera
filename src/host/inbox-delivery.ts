@@ -402,6 +402,7 @@ export class InboxDeliveryCoordinator {
     private readonly admissionFor?: InboxDeliveryOptions["admissionFor"];
     // In memory only: after a host restart an unread entry falls back to the admission prompt.
     private readonly preAdmitted = new Set<number>();
+    private externalPump: ((admittedSeq?: number) => Promise<void>) | undefined;
 
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
@@ -429,8 +430,17 @@ export class InboxDeliveryCoordinator {
         return session;
     }
 
-    async pumpAll(): Promise<void> {
+    setExternalPump(pump: ((admittedSeq?: number) => Promise<void>) | undefined): void {
+        this.externalPump = pump;
+    }
+
+    async pumpLocal(admittedSeq?: number): Promise<void> {
+        if (admittedSeq !== undefined) this.preAdmitted.add(admittedSeq);
         await Promise.all([...this.sessions].map((session) => session.pump()));
+    }
+
+    async pumpAll(admittedSeq?: number): Promise<void> {
+        await Promise.all([this.pumpLocal(admittedSeq), this.externalPump?.(admittedSeq)]);
     }
 
     async append(entry: InboxEntryInput): Promise<InboxEntry> {
@@ -443,7 +453,7 @@ export class InboxDeliveryCoordinator {
     async appendAdmitted(entry: InboxEntryInput): Promise<InboxEntry> {
         const stored = this.consumers.append(entry);
         this.preAdmitted.add(stored.seq);
-        await this.pumpAll();
+        await this.pumpAll(stored.seq);
         return stored;
     }
 

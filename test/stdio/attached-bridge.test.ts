@@ -22,7 +22,7 @@ import {
 import { HISTORY_PAGE_MAX_ENTRIES } from "../../src/host/history-page.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import type {
@@ -715,6 +715,9 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             workspace: process.cwd(),
         });
         expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount + 1);
+        expect(historyFrame(resumedFrames).entries).toContainEqual({
+            kind: "harness", text: CRASH_CUT_MESSAGE, tone: "soft",
+        });
         expect(historyFrame(resumedFrames).page).toBeUndefined();
         expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
         expect(resumedFrames.some((frame) => frame.type === "turn_finished"))

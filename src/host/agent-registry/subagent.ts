@@ -18,6 +18,11 @@ import { startSeededWorker, type WorkerHandle } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
+export interface SubagentParent {
+    readonly id: string;
+    readonly store?: SessionStore;
+}
+
 export function workerAdapterSpecFor(reg: AgentRegistry, store: SessionStore, entry: RegisteredAgentEntry): WorkerAdapterSpec | undefined {
         if (reg.options.workerAdapterSpec === undefined) {
             return undefined;
@@ -538,7 +543,8 @@ export function settlePendingSubagentLaunch(_reg: AgentRegistry, action: Pending
     }
 
 export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: SessionStore, effect: SpawnAsyncSubagentEffect, context: Parameters<ApplyToolEffect>[2], signal: AbortSignal): Promise<ToolOutput> {
-        const running = [...reg.agents.values()].filter(
+        const admission = reg.subagentAdmission;
+        const running = admission === undefined ? [...reg.agents.values()].filter(
             (entry) =>
                 entry.kind === "background"
                 && entry.parentId === parentStore.header.id
@@ -547,8 +553,11 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
                 && !entry.agent.closed
                 && entry.pendingAsyncTurns > 0,
         ).length
-            + (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 0);
-        if (running >= reg.maxConcurrentBackgroundAgents) {
+            + (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 0) : 0;
+        const admitted = admission === undefined
+            ? running < reg.maxConcurrentBackgroundAgents
+            : await admission.reserveSubagentStart(parentStore.header.id, reg.maxConcurrentBackgroundAgents);
+        if (!admitted) {
             return {
                 kind: "output",
                 output: `Async subagent limit reached `
@@ -556,10 +565,12 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
                 isError: true,
             };
         }
-        reg.startingBackgroundAgents.set(
-            parentStore.header.id,
-            (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
-        );
+        if (admission === undefined) {
+            reg.startingBackgroundAgents.set(
+                parentStore.header.id,
+                (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
+            );
+        }
         let policy: SubagentPoolPolicy;
         let resolved: SpawnModelResolution;
         let child: ResidentAgent;
@@ -639,55 +650,63 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
                     },
                 },
             );
+            const childEntry = reg.agents.get(child.id);
+            if (childEntry === undefined) {
+                child.close();
+                throw new Error(`Async subagent ${child.id} was not registered`);
+            }
+            try {
+                child.sendPrompt(effect.description);
+            } catch (error) {
+                child.close();
+                throw error;
+            }
+            reg.trackAsyncSubagentTurn(child.id);
+            if (resolved.notice !== undefined) {
+                reg.spawnNotices.set(child.id, resolved.notice);
+            }
+            const started =
+                `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`;
+            return {
+                kind: "output",
+                output: resolved.notice === undefined
+                    ? started
+                    : `${resolved.notice}\n\n${started}`,
+                isError: false,
+                ...(resolved.substitutions === undefined
+                        || resolved.substitutions.length === 0
+                    ? {}
+                    : { substitutions: resolved.substitutions }),
+            };
         } finally {
-            const remaining =
-                (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 1)
-                - 1;
-            if (remaining === 0) {
-                reg.startingBackgroundAgents.delete(parentStore.header.id);
+            if (admission !== undefined) {
+                await admission.releaseSubagentStart(parentStore.header.id);
             } else {
-                reg.startingBackgroundAgents.set(
-                    parentStore.header.id,
-                    remaining,
-                );
+                const remaining =
+                    (reg.startingBackgroundAgents.get(parentStore.header.id) ?? 1)
+                    - 1;
+                if (remaining === 0) {
+                    reg.startingBackgroundAgents.delete(parentStore.header.id);
+                } else {
+                    reg.startingBackgroundAgents.set(parentStore.header.id, remaining);
+                }
             }
         }
-        const childEntry = reg.agents.get(child.id);
-        if (childEntry === undefined) {
-            child.close();
-            throw new Error(`Async subagent ${child.id} was not registered`);
-        }
-        try {
-            child.sendPrompt(effect.description);
-        } catch (error) {
-            child.close();
-            throw error;
-        }
-        reg.trackAsyncSubagentTurn(child.id);
-        if (resolved.notice !== undefined) {
-            reg.spawnNotices.set(child.id, resolved.notice);
-        }
-        const started =
-            `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`;
-        return {
-            kind: "output",
-            output: resolved.notice === undefined
-                ? started
-                : `${resolved.notice}\n\n${started}`,
-            isError: false,
-            ...(resolved.substitutions === undefined
-                    || resolved.substitutions.length === 0
-                ? {}
-                : { substitutions: resolved.substitutions }),
-        };
     }
 
 export async function messageSubagent(reg: AgentRegistry, parentStore: SessionStore, effect: MessageSubagentEffect): Promise<ToolOutput> {
+        if (reg.subagentSessions !== undefined) {
+            return reg.subagentSessions.messageSubagent(parentStore.header.id, effect);
+        }
+        return localMessageSubagent(reg, parentStore.header.id, effect);
+    }
+
+export async function localMessageSubagent(reg: AgentRegistry, parentId: string, effect: MessageSubagentEffect): Promise<ToolOutput> {
         const child = reg.agents.get(effect.subagentId);
         if (
             child === undefined
             || child.kind !== "background"
-            || child.parentId !== parentStore.header.id
+            || child.parentId !== parentId
         ) {
             return {
                 kind: "output",
@@ -725,10 +744,9 @@ export async function messageSubagent(reg: AgentRegistry, parentStore: SessionSt
 
 export async function closeSubagent(reg: AgentRegistry, callerId: string, effect: CloseSubagentEffect): Promise<ToolOutput> {
         try {
-            const result = await reg.closeDescendantTree(
-                callerId,
-                effect.subagentId,
-            );
+            const result = reg.subagentSessions === undefined
+                ? await reg.closeDescendantTree(callerId, effect.subagentId)
+                : await reg.subagentSessions.closeSubagent(callerId, effect.subagentId);
             return closeSubagentOutput({
                 requested_subagent_id: effect.subagentId,
                 closed: result.status === "closed",
@@ -749,10 +767,12 @@ export async function closeSubagent(reg: AgentRegistry, callerId: string, effect
 
 export function trackAsyncSubagentTurn(reg: AgentRegistry, childId: string): void {
         const child = reg.agents.get(childId);
-        const parent = child?.parentId === undefined
+        const parentId = child?.parentId;
+        const parent = parentId === undefined
             ? undefined
-            : reg.agents.get(child.parentId);
-        if (child?.kind !== "background" || parent === undefined) {
+            : reg.agents.get(parentId);
+        if (child?.kind !== "background" || parentId === undefined
+            || (parent === undefined && reg.subagentSessions === undefined)) {
             return;
         }
         if (child.pendingAsyncTurns > 0) {
@@ -765,21 +785,21 @@ export function trackAsyncSubagentTurn(reg: AgentRegistry, childId: string): voi
         child.pendingAsyncTurns = 1;
         child.completionSequence += 1;
         reg.monitorAsyncSubagent(
-            parent.store,
+            { id: parentId, ...(parent === undefined ? {} : { store: parent.store }) },
             child,
             attachment,
             child.completionSequence,
         );
     }
 
-export function monitorAsyncSubagent(reg: AgentRegistry, parentStore: SessionStore, childEntry: RegisteredAgentEntry, attachment: AgentAttachment, completionSequence: number): void {
+export function monitorAsyncSubagent(reg: AgentRegistry, parent: SubagentParent, childEntry: RegisteredAgentEntry, attachment: AgentAttachment, completionSequence: number): void {
         const childId = childEntry.agent.id;
         const deliveryTask = reg.deliverBackgroundResult(
-            parentStore,
+            parent,
             childEntry,
             attachment,
             completionSequence,
-        ).catch((error: unknown) => {
+        ).catch(async (error: unknown) => {
             const entry = reg.agents.get(childId);
             if (entry !== undefined) {
                 entry.pendingCompletionDeliveries = Math.max(
@@ -789,17 +809,19 @@ export function monitorAsyncSubagent(reg: AgentRegistry, parentStore: SessionSto
                 entry.failure = error;
                 entry.agent.close();
             }
-            const parent = reg.agents.get(parentStore.header.id);
-            if (parent !== undefined && !parent.agent.closed) {
-                parent.events.emit({
-                    type: "task_notification",
-                    deliveryId: `completion-failed:${childId}:${completionSequence}`,
-                    sourceAgentId: childId,
-                    content: `Async subagent result could not be saved: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
-                    kind: "completion",
-                });
+            const delivery = {
+                id: `completion-failed:${childId}:${completionSequence}`,
+                sourceAgentId: childId,
+                content: `Async subagent result could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+                kind: "completion" as const,
+            };
+            if (reg.subagentSessions !== undefined) {
+                await reg.subagentSessions.completionFailure(parent.id, delivery);
+            } else {
+                const entry = reg.agents.get(parent.id);
+                if (entry !== undefined && !entry.agent.closed) {
+                    entry.events.emit({ type: "task_notification", deliveryId: delivery.id, sourceAgentId: childId, content: delivery.content, kind: "completion" });
+                }
             }
         });
         reg.deliveryTasks.add(deliveryTask);
@@ -817,22 +839,24 @@ export async function notifyParent(reg: AgentRegistry, childStore: SessionStore,
             };
         }
 
-        const parent = reg.agents.get(parentId);
-        if (parent === undefined || parent.agent.closed || parent.agent.failed) {
-            return {
-                kind: "output",
-                output: "The parent agent is unavailable.",
-                isError: true,
-            };
-        }
         const delivery = {
             id: `attention:${childStore.header.id}:${randomUUID()}`,
             sourceAgentId: childStore.header.id,
             content: effect.message,
             kind: "attention" as const,
         };
-        await recordDeliveryAndNotify(parent.store, parent.events, delivery);
-        parent.agent.triggerDeliveryTurn();
+        if (reg.subagentSessions !== undefined) {
+            if (!await reg.subagentSessions.notifyParent(parentId, delivery)) {
+                return { kind: "output", output: "The parent agent is unavailable.", isError: true };
+            }
+        } else {
+            const parent = reg.agents.get(parentId);
+            if (parent === undefined || parent.agent.closed || parent.agent.failed) {
+                return { kind: "output", output: "The parent agent is unavailable.", isError: true };
+            }
+            await recordDeliveryAndNotify(parent.store, parent.events, delivery);
+            parent.agent.triggerDeliveryTurn();
+        }
         return {
             kind: "output",
             output: "Parent agent notified.",
@@ -840,7 +864,7 @@ export async function notifyParent(reg: AgentRegistry, childStore: SessionStore,
         };
     }
 
-export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: SessionStore, childEntry: RegisteredAgentEntry, attachment: AgentAttachment, completionSequence: number): Promise<void> {
+export async function deliverBackgroundResult(reg: AgentRegistry, parent: SubagentParent, childEntry: RegisteredAgentEntry, attachment: AgentAttachment, completionSequence: number): Promise<void> {
         const childId = childEntry.agent.id;
         let content = "Async subagent failed before producing a summary.";
         let failed = true;
@@ -851,21 +875,15 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
                     update.type === "ui_request"
                     && isToolApprovalUiRequestUpdate(update)
                 ) {
-                    const parent = reg.agents.get(parentStore.header.id);
+                    const parentEntry = reg.agents.get(parent.id);
                     const child = reg.agents.get(childId);
-                    const decision = parent === undefined
-                        ? "deny"
-                        : await reg.relayChildToolApproval(
-                            parent,
-                            update,
-                            childId,
-                            child?.store.messages()
-                                .find((message) => message.role === "user")
-                                ?.content
-                                .filter((block) => block.type === "text")
-                                .map((block) => block.text)
-                                .join("\n") ?? "Background task",
-                        );
+                    const task = child?.store.messages()
+                        .find((message) => message.role === "user")
+                        ?.content.filter((block) => block.type === "text")
+                        .map((block) => block.text).join("\n") ?? "Background task";
+                    const decision = reg.subagentSessions !== undefined
+                        ? await reg.subagentSessions.childApproval(parent.id, update, childId, task)
+                        : parentEntry === undefined ? "deny" : await reg.relayChildToolApproval(parentEntry, update, childId, task);
                     attachment.send({
                         type: "ui_response",
                         requestId: update.requestId,
@@ -912,7 +930,8 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
         }
         if (
             reg.suppressedCompletionDeliveries.has(childEntry)
-            || reg.closingCompletionRecipients.has(parentStore)
+            || (parent.store !== undefined && reg.closingCompletionRecipients.has(parent.store))
+            || (reg.subagentSessions !== undefined && await reg.subagentSessions.parentClosing(parent.id))
         ) {
             childEntry.pendingAsyncTurns = 0;
             childEntry.pendingCompletionDeliveries = 0;
@@ -920,7 +939,7 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
         }
         reg.options.onSubagentFinished?.({
             type: "subagent_finished",
-            parentSessionId: parentStore.header.id,
+            parentSessionId: parent.id,
             subagentId: childId,
             workspace: childEntry.store.header.cwd,
             background: true,
@@ -939,10 +958,16 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
             content,
             kind: "completion" as const,
         };
-        const parentEvents = reg.agents.get(parentStore.header.id)?.events;
-        const recorded = parentEvents === undefined
-            ? await parentStore.recordDelivery(delivery)
-            : await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
+        let recorded: boolean;
+        if (reg.subagentSessions !== undefined) {
+            recorded = await reg.subagentSessions.deliverCompletion(parent.id, delivery) === "recorded";
+        } else {
+            const parentEvents = reg.agents.get(parent.id)?.events;
+            if (parent.store === undefined) throw new Error("Parent session store is unavailable");
+            recorded = parentEvents === undefined
+                ? await parent.store.recordDelivery(delivery)
+                : await recordDeliveryAndNotify(parent.store, parentEvents, delivery);
+        }
         const entry = reg.agents.get(childId);
         if (entry !== undefined) {
             entry.pendingCompletionDeliveries = Math.max(
@@ -961,9 +986,9 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
         if (!recorded) {
             return;
         }
-        const parent = reg.agents.get(parentStore.header.id)?.agent;
-        if (parent !== undefined && !parent.closed && !parent.failed) {
-            parent.triggerDeliveryTurn();
+        const parentAgent = reg.agents.get(parent.id)?.agent;
+        if (reg.subagentSessions === undefined && parentAgent !== undefined && !parentAgent.closed && !parentAgent.failed) {
+            parentAgent.triggerDeliveryTurn();
         }
     }
 

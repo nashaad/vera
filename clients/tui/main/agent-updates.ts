@@ -19,6 +19,8 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
+import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -215,6 +217,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         && rt.pendingUiRequest === undefined
                         && rt.followTranscriptAfterUiRequest
                     ) {
+                        clearTranscriptAnchorPadding(rt);
                         rt.transcript.scrollTo(rt.transcript.scrollHeight);
                         rt.followTranscriptAfterUiRequest = false;
                         renderJumpToBottom(rt);
@@ -333,6 +336,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 receiveSkillInvocation(rt, update);
                 continue;
+            }
+            if (update.type === "history" && rt.reconnectHistoryPending) {
+                rt.reconnectHistoryPending = false;
+                rt.state = { ...rt.state, entries: [] };
             }
             rt.state = applyAgentUpdate(rt.state, update);
             if (isSettingsRetryTrigger(rt, update)) {
@@ -690,7 +697,8 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             rejectPendingExtensionSettingsFor(rt, rt.client, error);
             reportConnectionError(
                 rt,
-                error instanceof DOMException && error.name === "TimeoutError"
+                (error instanceof DOMException && error.name === "TimeoutError")
+                    || error instanceof HostConnectionClosedError
                     ? new Error("Lost the connection to the host.")
                     : error,
             );

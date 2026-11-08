@@ -317,4 +317,3 @@ test("the included command-hooks extension rejects an invalid configured policy"
     registries.push(registry);
     expect(failures).toEqual([expect.stringContaining("Invalid command-hook config entry")]);
 });
-

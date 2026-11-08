@@ -3,6 +3,7 @@ import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../../src/host/capabilities.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
+import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
@@ -432,6 +433,7 @@ export function beginHostReconnect(rt: TuiRuntime,
     options: {
         readonly clearComposer: boolean;
         readonly manual?: boolean;
+        readonly lossMessage?: string;
         /** Wraps the failure text in the conversation. Default: "Could not reconnect: <message>". */
         readonly failureText?: (message: string) => string;
     },
@@ -473,10 +475,28 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         switchToClient(rt, next, draft, { preserveReconnectTranscript: true });
+        if (options.manual !== true) {
+            rt.flightRecorder?.record({ type: "host_restart_outcome", outcome: "completed" });
+        }
     }).catch((error) => {
+        if (options.manual !== true) {
+            rt.flightRecorder?.record({
+                type: "host_restart_outcome",
+                outcome: "failed",
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;
         if (error instanceof HostReplacementBusyError) {
+            if (options.lossMessage !== undefined) {
+                rt.connectionFailed = true;
+                rt.connectionFailure = options.lossMessage;
+                rt.hostBuildRefusal = undefined;
+                rt.activity = "disconnected";
+                settleLostHost(rt, options.lossMessage);
+                rt.state = appendLostHostEntry(rt.state, options.lossMessage, rt.plannedHostStop);
+            }
             rt.state = appendTuiError(rt.state, reconnectBusyMessage());
             rt.composer.focus();
             renderState(rt);
@@ -487,6 +507,18 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        if (options.lossMessage !== undefined && !rt.connectionFailed) {
+            rt.connectionFailed = true;
+            rt.connectionFailure = options.lossMessage;
+            rt.hostBuildRefusal = undefined;
+            rt.activity = "disconnected";
+            settleLostHost(rt, options.lossMessage);
+            rt.state = appendLostHostEntry(rt.state, options.lossMessage, rt.plannedHostStop);
+            rt.state = appendTuiError(rt.state, `Could not reconnect: ${message}`);
+            rt.composer.focus();
+            renderState(rt);
+            return;
+        }
         if (rt.connectionFailed) {
             rt.state = appendTuiError(
                 rt.state,
@@ -577,12 +609,19 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         refuseChangedHostBuild(rt, error);
         return;
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof HostConnectionClosedError
+        || (error instanceof Error && ["ECONNRESET", "EPIPE", "ENOTCONN"].includes(
+            (error as NodeJS.ErrnoException).code ?? "",
+        ))
+        || (error instanceof Error && error.message === "Agent attachment is closed")
+        ? "Lost the connection to the host."
+        : error instanceof Error ? error.message : String(error);
     if (isHomeClient(rt.client)) {
         rt.state = appendTuiError(rt.state, message);
         renderState(rt);
         return;
     }
+    rt.flightRecorder?.record({ type: "host_connection_lost", reason: message });
     if (
         rt.client.viewOnly === true
         || rt.client.failed === true
@@ -605,7 +644,7 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         && rt.client.agentId !== undefined
     ) {
         rt.hostReconnectAttempted = true;
-        beginHostReconnect(rt, { clearComposer: false });
+        beginHostReconnect(rt, { clearComposer: false, lossMessage: message });
         return;
     }
     rt.connectionFailed = true;
