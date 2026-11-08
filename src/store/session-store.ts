@@ -1,4 +1,5 @@
 import {
+    emptyUsage,
     isClassifierOutcome,
     isHookDisplay,
     isToolPresentation,
@@ -109,6 +110,10 @@ export interface SessionMessageEntry {
     readonly timestamp: string;
     readonly deliveryId?: string;
     readonly message: ModelMessage;
+}
+
+export interface SessionTurnStartEntry extends Omit<SessionMessageEntry, "type"> {
+    readonly type: "turn_start";
 }
 
 export interface PendingDelivery {
@@ -338,7 +343,7 @@ export interface StoredMessage {
 }
 
 export interface SessionMessageStore {
-    appendMessage(message: ModelMessage): Promise<StoredMessage>;
+    appendMessage(message: ModelMessage, options?: { readonly turnStart?: true }): Promise<StoredMessage>;
 }
 
 /** The stored record a message came from: its ID and when it was written, in epoch ms. */
@@ -378,6 +383,7 @@ export interface SessionDeliveryInbox {
     appendDeliveryMessage(
         deliveryId: string,
         message: ModelMessage,
+        options?: { readonly turnStart?: true },
     ): Promise<SessionMessageEntry>;
 }
 
@@ -726,10 +732,10 @@ export class SessionStore {
             : { ...this.projection.agentFailure };
     }
 
-    appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
+    appendMessage(message: ModelMessage, options?: { readonly turnStart?: true }): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitMessage(message);
+            return this.commitMessage(message, undefined, options?.turnStart);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -742,15 +748,18 @@ export class SessionStore {
         const result = this.pendingAppend.then(async () => {
             const active = this.activeEntries();
             if (this.projection.agentFailure !== undefined
+                || this.projection.openTurnStartId === undefined
                 || !turnOpenAtTail(active, this.projection.harnessMessageEntries)) return false;
             this.requireActive();
             const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
             if (active.at(-1)?.message.role !== "user") {
-                const callIndex = active.findLastIndex((entry) =>
+                const startIndex = active.findIndex((entry) => entry.id === this.projection.openTurnStartId);
+                const turnEntries = active.slice(Math.max(startIndex, 0));
+                const callIndex = turnEntries.findLastIndex((entry) =>
                     entry.message.role === "assistant"
                     && entry.message.content.some((part) => part.type === "tool_call")
                 );
-                for (const entry of active.slice(Math.max(callIndex, 0))) {
+                for (const entry of turnEntries.slice(Math.max(callIndex, 0))) {
                     const message = entry.message;
                     if (message.role === "assistant") {
                         for (const part of message.content) {
@@ -777,13 +786,55 @@ export class SessionStore {
         return result;
     }
 
+    finishAbortedTurn(): Promise<boolean> {
+        const result = this.pendingAppend.then(async () => {
+            const startId = this.projection.openTurnStartId;
+            if (startId === undefined || this.projection.agentFailure !== undefined) return false;
+            this.requireActive();
+            const active = this.activeEntries();
+            const start = active.findIndex((entry) => entry.id === startId);
+            if (start < 0) return false;
+            const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
+            for (const entry of active.slice(start)) {
+                const message = entry.message;
+                if (message.role === "assistant") {
+                    for (const part of message.content) {
+                        if (part.type === "tool_call") unanswered.set(part.id, part);
+                    }
+                } else if (message.role === "tool_result") {
+                    unanswered.delete(message.toolCallId);
+                }
+            }
+            for (const call of unanswered.values()) {
+                await this.commitMessage({
+                    role: "tool_result", toolCallId: call.id, toolName: call.name,
+                    content: [{ type: "text", text: "Turn aborted" }], isError: true,
+                });
+            }
+            const lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+            const settings = this.modelSettings();
+            await this.commitMessage({
+                role: "assistant", content: [],
+                source: lastAssistant?.role === "assistant" ? lastAssistant.source : {
+                    provider: settings?.provider ?? "unknown", api: "unknown",
+                    model: settings?.model ?? "unknown",
+                },
+                usage: emptyUsage(), stopReason: "aborted", errorMessage: "Turn aborted",
+            });
+            return true;
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
     appendDeliveryMessage(
         deliveryId: string,
         message: ModelMessage,
+        options?: { readonly turnStart?: true },
     ): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitDeliveryMessage(deliveryId, message);
+            return this.commitDeliveryMessage(deliveryId, message, options?.turnStart);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -1087,6 +1138,7 @@ export class SessionStore {
     private async commitMessage(
         message: ModelMessage,
         deliveryId?: string,
+        turnStart?: true,
     ): Promise<SessionMessageEntry> {
         const snapshot = structuredClone(message);
         if (!isModelMessage(snapshot)) {
@@ -1113,17 +1165,22 @@ export class SessionStore {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
-        await this.appendRecord(entry);
+        const record: SessionMessageEntry | SessionTurnStartEntry = turnStart === true
+            ? { ...entry, type: "turn_start" }
+            : entry;
+        await this.appendRecord(record);
 
         this.projection.messageEntries.push(entry);
         this.projection.knownMessageIds.add(entry.id);
         this.projection.leafId = entry.id;
+        applyTurnMessage(this.projection, entry, turnStart === true);
         return entry;
     }
 
     private async commitDeliveryMessage(
         requestedDeliveryId: string,
         message: ModelMessage,
+        turnStart?: true,
     ): Promise<SessionMessageEntry> {
         const deliveryId = nonEmpty(requestedDeliveryId, "delivery ID");
         if (
@@ -1139,7 +1196,7 @@ export class SessionStore {
         ) {
             throw new Error(`Delivery ${deliveryId} is not pending`);
         }
-        return this.commitMessage(message, deliveryId);
+        return this.commitMessage(message, deliveryId, turnStart);
     }
 
     private async commitModelSettings(
@@ -1227,6 +1284,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.harnessMessageEntries.push(entry);
+        if (crashCut === true) this.projection.openTurnStartId = undefined;
         return entry;
     }
 
@@ -1444,6 +1502,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.leafId = entry.headId;
+        this.projection.openTurnStartId = undefined;
         retainContextMeasurements(this.projection);
         return entry;
     }
@@ -1677,7 +1736,7 @@ export async function readSessionIndexMetadata(
                 }
                 const message = record.message as Record<string, unknown> | undefined;
                 if (
-                    record.type === "message"
+                    (record.type === "message" || record.type === "turn_start")
                     && message?.role === "user"
                     && message.internal !== true
                     && Array.isArray(message.content)
@@ -1780,7 +1839,9 @@ export async function readSessionTurnState(
     );
     return {
         sessionId: loaded.header.id,
-        turnOpen: turnOpenAtTail(active, loaded.state.harnessMessageEntries),
+        turnOpen: loaded.state.agentFailure === undefined
+            && loaded.state.openTurnStartId !== undefined
+            && turnOpenAtTail(active, loaded.state.harnessMessageEntries),
     };
 }
 
@@ -1795,7 +1856,24 @@ function turnOpenAtTail(
     )) return false;
     const tail = last.message;
     if (tail.role === "user" || tail.role === "tool_result") return true;
-    return tail.role === "assistant" && tail.stopReason === "tool_use";
+    return tail.role === "assistant" && (
+        tail.stopReason === "tool_use"
+        || (tail.turnTiming === undefined && (tail.stopReason === "stop" || tail.stopReason === "length"))
+    );
+}
+
+function applyTurnMessage(
+    state: SessionProjectionState,
+    entry: SessionMessageEntry,
+    turnStart: boolean,
+): void {
+    if (turnStart) state.openTurnStartId = entry.id;
+    const message = entry.message;
+    if (message.role === "assistant" && (
+        message.turnTiming !== undefined
+        || message.stopReason === "aborted"
+        || message.stopReason === "error"
+    )) state.openTurnStartId = undefined;
 }
 
 function hasOpenDeliveryTurn(
@@ -1933,6 +2011,7 @@ export interface SessionProjectionState {
     readonly knownAttachmentIds: Set<string>;
     agentFailure: SessionAgentFailureEntry | undefined;
     leafId: string | null;
+    openTurnStartId: string | undefined;
 }
 
 export function createSessionProjectionState(): SessionProjectionState {
@@ -1962,6 +2041,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         knownAttachmentIds: new Set(),
         agentFailure: undefined,
         leafId: null,
+        openTurnStartId: undefined,
     };
 }
 
@@ -1997,6 +2077,7 @@ function copyProjectionState(
         knownAttachmentIds: new Set(state.knownAttachmentIds),
         agentFailure: state.agentFailure,
         leafId: state.leafId,
+        openTurnStartId: state.openTurnStartId,
     };
 }
 
@@ -2045,7 +2126,7 @@ export function ingestSessionRecord(
             `line ${lineNumber} follows the terminal agent failure`,
         );
     }
-    if (value.type === "message") {
+    if (value.type === "message" || value.type === "turn_start") {
         const entry = parseMessageEntry(path, lineNumber, value);
         for (const attachmentId of messageAttachmentIds(entry.message)) {
             if (!knownAttachmentIds.has(attachmentId)) {
@@ -2107,6 +2188,7 @@ export function ingestSessionRecord(
         knownMessageIds.add(entry.id);
         messageEntries.push(entry);
         state.leafId = entry.id;
+        applyTurnMessage(state, entry, value.type === "turn_start");
         return;
     }
     if (value.type === "delivery") {
@@ -2177,6 +2259,7 @@ export function ingestSessionRecord(
             throw invalidSession(path, `line ${lineNumber} has an invalid crash cut position`);
         }
         harnessMessageEntries.push(entry);
+        if (entry.crashCut === true) state.openTurnStartId = undefined;
         return;
     }
     if (value.type === "session_name") {
@@ -2236,6 +2319,7 @@ export function ingestSessionRecord(
     }
     if (value.type === "agent_failure") {
         state.agentFailure = parseAgentFailureEntry(path, lineNumber, value);
+        state.openTurnStartId = undefined;
         return;
     }
     if (value.type === "rewind") {
@@ -2267,6 +2351,7 @@ export function ingestSessionRecord(
             );
         }
         state.leafId = rewind.headId;
+        state.openTurnStartId = undefined;
         retainContextMeasurements(state);
         return;
     }
@@ -2919,7 +3004,7 @@ function parseMessageEntry(
     value: Record<string, unknown>,
 ): SessionMessageEntry {
     if (
-        value.type !== "message"
+        (value.type !== "message" && value.type !== "turn_start")
         || typeof value.id !== "string"
         || value.id.length === 0
         || (value.parentId !== null && typeof value.parentId !== "string")
@@ -2938,7 +3023,9 @@ function parseMessageEntry(
             `line ${lineNumber} is not a valid message entry`,
         );
     }
-    return value as unknown as SessionMessageEntry;
+    return value.type === "turn_start"
+        ? { ...value, type: "message" } as unknown as SessionMessageEntry
+        : value as unknown as SessionMessageEntry;
 }
 
 function parseDeliveryEntry(

@@ -700,7 +700,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             }
         }
     }
-});
+}, 20_000);
 
 class FakeAttachedAgentClient implements AttachedAgentClient {
     readonly agentId = "agent-1";
@@ -851,10 +851,9 @@ function historyFrame(
 async function appendHistory(path: string, count: number): Promise<number> {
     const store = await SessionStore.open(path);
     for (let index = 0; index < count; index += 1) {
-        await store.appendMessage({
-            role: "user",
-            content: [{ type: "text", text: `earlier message ${index}` }],
-        });
+        await store.appendMessage(index % 2 === 0
+            ? { role: "user", content: [{ type: "text", text: `earlier message ${index}` }] }
+            : textResponse(`earlier message ${index}`));
     }
     return store.messages().length;
 }

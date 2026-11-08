@@ -1234,7 +1234,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
         await firstStore.appendMessage({
             role: "user",
             content: [{ type: "text", text: "stored prompt" }],
-        });
+        }, { turnStart: true });
         await SessionStore.create(secondPath, {
             sessionId: "second",
             cwd: workspace,

@@ -265,6 +265,7 @@ export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    turnStartPending?: boolean;
     // Asked before each model request and each tool call; a reason ends the turn.
     readonly haltCheck?: TurnHaltCheck;
     readonly modelContext?: (
@@ -998,6 +999,7 @@ export async function runTurn(
     // The permission classifier is synchronous but the bash parser it uses loads a wasm grammar asynchronously.
     await initBashParser();
     const turn = await state.inbound.startTurn();
+    state.turnStartPending = true;
     const turnClock = state.inbound.beginTurnTiming();
     const withTurnTiming = (message: AssistantMessage): AssistantMessage => ({
         ...message,
@@ -1950,6 +1952,7 @@ export async function runTurn(
         turnThrew = true;
         throw error;
     } finally {
+        state.turnStartPending = false;
         const outcome: InboundTurnOutcome =
             turnThrew
                 ? "failed"
@@ -2279,7 +2282,12 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
     }
     for (const delivery of inbox.pendingDeliveries()) {
         const message = deliveryMessage(delivery);
-        const entry = await inbox.appendDeliveryMessage(delivery.id, message);
+        const entry = await inbox.appendDeliveryMessage(
+            delivery.id,
+            message,
+            state.turnStartPending === true ? { turnStart: true } : undefined,
+        );
+        state.turnStartPending = false;
         state.messages.push(entry.message);
     }
 }
@@ -3174,7 +3182,11 @@ async function commitMessage(
     state: RunTurnState,
     message: ModelMessage,
 ): Promise<void> {
-    const entry = await state.store.appendMessage(message);
+    const entry = await state.store.appendMessage(
+        message,
+        state.turnStartPending === true ? { turnStart: true } : undefined,
+    );
+    state.turnStartPending = false;
     state.messages.push(entry.message);
 }
 

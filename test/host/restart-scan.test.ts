@@ -60,8 +60,8 @@ async function sessionWith(
 ): Promise<string> {
     const path = join(dir, `${id}.jsonl`);
     const store = await SessionStore.create(path, { sessionId: id, cwd: dir });
-    for (const message of messages) {
-        await store.appendMessage(message);
+    for (const [index, message] of messages.entries()) {
+        await store.appendMessage(message, index === 0 ? { turnStart: true } : undefined);
     }
     return path;
 }
@@ -73,6 +73,7 @@ function assistant(stopReason: "stop" | "tool_use" | "aborted"): ModelMessage {
         source,
         usage: emptyUsage(),
         stopReason,
+        ...(stopReason === "tool_use" ? {} : { turnTiming: { durationMs: 1, finishedAt: 1 } }),
     };
 }
 
@@ -216,6 +217,47 @@ test("a finished turn and a cut turn are not recorded", async () => {
     expect(result.scanned).toBe(2);
     expect(result.recorded).toEqual([]);
     expect(listRestartRecords(s.recordPath)).toEqual([]);
+});
+
+test("a stored agent failure is not recorded as a crash", async () => {
+    const s = await scenario();
+    try {
+        const path = await sessionWith(s.sessions, "crow-failed", [user]);
+        const store = await SessionStore.open(path);
+        await store.appendAgentFailure("failure-1", "Stopped unexpectedly");
+        await writeStaleLock(s.lockPath, s.startedAt);
+        const result = await recoverCrashedTurns({
+            lockPath: s.lockPath, sessionDirectory: s.sessions, recordPath: s.recordPath,
+            isProcessAlive: () => false,
+        });
+        expect(result.recorded).toEqual([]);
+        expect(listRestartRecords(s.recordPath)).toEqual([]);
+        expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+        expect(await readFile(path, "utf8")).not.toContain(CRASH_CUT_MESSAGE);
+    } finally {
+        await rm(s.root, { recursive: true, force: true });
+    }
+});
+
+test("a passive user tail is not recorded as a crash", async () => {
+    const s = await scenario();
+    try {
+        const path = join(s.sessions, "crow-passive.jsonl");
+        const store = await SessionStore.create(path, { sessionId: "crow-passive", cwd: s.sessions });
+        await store.appendMessage(user);
+        const before = await readFile(path, "utf8");
+        await writeStaleLock(s.lockPath, s.startedAt);
+        const result = await recoverCrashedTurns({
+            lockPath: s.lockPath, sessionDirectory: s.sessions, recordPath: s.recordPath,
+            isProcessAlive: () => false,
+        });
+        expect(result.scanned).toBe(1);
+        expect(result.recorded).toEqual([]);
+        expect(listRestartRecords(s.recordPath)).toEqual([]);
+        expect(await readFile(path, "utf8")).toBe(before);
+    } finally {
+        await rm(s.root, { recursive: true, force: true });
+    }
 });
 
 test("a session last written before the stale lock is not read", async () => {

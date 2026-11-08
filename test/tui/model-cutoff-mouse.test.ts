@@ -17,11 +17,14 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
         setup.renderer.root.add(view.surface);
         view.surface.visible = true;
         const paint = async () => { view.update(state); await setup.renderOnce(); return setup.captureCharFrame().split("\n"); };
+        const click = (x: number, y: number) => setup.mockMouse.click(x, y, undefined, { delayMs: 0 });
+        const drag = (x1: number, y1: number, x2: number, y2: number) =>
+            setup.mockMouse.drag(x1, y1, x2, y2, undefined, { delayMs: 0 });
         try {
             let lines = await paint();
             const tickRow = lines.findIndex((line) => line.includes("1400") && line.includes("1600"));
             expect(tickRow).toBeGreaterThan(0);
-            await setup.mockMouse.click(lines[tickRow]!.indexOf("any"), tickRow - 2);
+            await click(lines[tickRow]!.indexOf("any"), tickRow - 2);
             expect(setup.renderer.getSelection() === null).toBe(true);
             expect(state.modelFocus).toBe("intelligence");
             expect(state.intelligenceCutoff).toBe("any");
@@ -30,7 +33,7 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
                 for (let offset = 0; offset < tick.length; offset++) {
                     lines = await paint();
                     const row = lines.findIndex((line) => line.includes("1400") && line.includes("1600"));
-                    await setup.mockMouse.click(lines[row]!.indexOf(tick) + offset, row);
+                    await click(lines[row]!.indexOf(tick) + offset, row);
                     expect(setup.renderer.getSelection() === null).toBe(true);
                     expect(state.intelligenceCutoff).toBe(tick);
                     expect(state.modelFocus).toBe("intelligence");
@@ -40,14 +43,14 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
             expect(state.options.filter((row) => row.model !== undefined)).toHaveLength(0);
             lines = await paint();
             const trackRow = lines.findIndex((line) => line.includes("▲") && line.includes("─"));
-            await setup.mockMouse.click(lines[trackRow]!.indexOf("─"), trackRow);
+            await click(lines[trackRow]!.indexOf("─"), trackRow);
             expect(state.intelligenceCutoff).toBe("any");
             expect(state.options.filter((row) => row.model !== undefined)).toHaveLength(3);
 
             // Pointer movement after a click must not turn the cutoff into text selection.
             for (const row of [tickRow - 2, tickRow - 1, tickRow]) {
                 lines = await paint();
-                await setup.mockMouse.drag(lines[tickRow]!.indexOf("1550"), row,
+                await drag(lines[tickRow]!.indexOf("1550"), row,
                     lines[tickRow]!.indexOf("any"), tickRow - 4);
                 expect(setup.renderer.getSelection() === null).toBe(true);
             }
@@ -56,9 +59,9 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
             lines = await paint();
             const titleRow = lines.findIndex((line) => line.includes("Select model"));
             const titleColumn = lines[titleRow]!.indexOf("Select model");
-            await setup.mockMouse.drag(titleColumn, titleRow, titleColumn + 6, titleRow);
+            await drag(titleColumn, titleRow, titleColumn + 6, titleRow);
             expect(setup.renderer.getSelection()?.getSelectedText()).toContain("Select");
-            await setup.mockMouse.click(lines[tickRow]!.indexOf("any"), tickRow);
+            await click(lines[tickRow]!.indexOf("any"), tickRow);
             expect(setup.renderer.getSelection() === null).toBe(true);
         } finally { setup.renderer.destroy(); }
     }

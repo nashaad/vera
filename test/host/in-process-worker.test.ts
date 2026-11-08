@@ -351,6 +351,9 @@ socketTest("an ownership transfer moves a resident session tree without a crash 
     let childClient: AttachedAgentClient | undefined;
     try {
         await host.registry.create({ id: "parent", workspace: home, sessionPath: parentPath });
+        await host.registry.agents.get("parent")!.store.appendMessage({
+            role: "user", internal: true, content: [{ type: "text", text: "Reference map" }],
+        });
         await SessionStore.create(childPath, { sessionId: "child", cwd: home, parentId: "parent" });
         await host.registry.resume({ sessionPath: childPath });
         await waitUntil(() => host.registry.agents.get("parent")?.agent.idleForShutdown() === true

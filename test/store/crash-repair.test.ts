@@ -19,7 +19,7 @@ test("crash repair pairs unanswered calls and writes one cut marker", async () =
     const path = join(root, "crow.jsonl");
     try {
         const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the deck" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the deck" }] }, { turnStart: true });
         await store.appendMessage({
             role: "assistant",
             content: [
@@ -67,7 +67,7 @@ test("a cut prompt gets only a marker, and a completed session is untouched", as
     try {
         const path = join(root, "crow.jsonl");
         const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Ahoy" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Ahoy" }] }, { turnStart: true });
         expect(await store.repairCrashedTurn()).toBe(true);
         expect(store.messages()).toHaveLength(1);
         expect((await readSessionTurnState(path)).turnOpen).toBe(false);
@@ -99,14 +99,14 @@ test("a cut delivery is visible and is not an unanswered delivery", async () => 
         await store.recordDelivery({ id: "child-1", sourceAgentId: "child", content: "Found the map" });
         await store.appendDeliveryMessage("child-1", {
             role: "user", internal: true, content: [{ type: "text", text: "Found the map" }],
-        });
+        }, { turnStart: true });
         expect(store.hasUnansweredDeliveryTurn()).toBe(true);
         expect(await store.repairCrashedTurn()).toBe(true);
         expect(store.hasUnansweredDeliveryTurn()).toBe(false);
         expect(store.projectedHarnessMessages()).toEqual([
             { afterMessage: 1, text: CRASH_CUT_MESSAGE, tone: "soft" },
         ]);
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "What next?" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "What next?" }] }, { turnStart: true });
         expect(store.hasUnansweredDeliveryTurn()).toBe(false);
         expect((await readSessionTurnState(path)).turnOpen).toBe(true);
     } finally {
@@ -123,7 +123,7 @@ test("a cut prompt does not add results for calls in an earlier turn", async () 
             role: "assistant", content: [{ type: "tool_call", id: "old", name: "read", input: {} }],
             source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "tool_use",
         });
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Try again" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Try again" }] }, { turnStart: true });
         expect(await store.repairCrashedTurn()).toBe(true);
         expect(store.messages().map((message) => message.role)).toEqual(["assistant", "user"]);
         expect((await readSessionTurnState(path)).turnOpen).toBe(false);
@@ -137,7 +137,7 @@ test("a terminal failure is not repaired after its last user message", async () 
     const path = join(root, "crow.jsonl");
     try {
         const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Ahoy" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Ahoy" }] }, { turnStart: true });
         await store.appendAgentFailure("failure-1", "Stopped unexpectedly");
         const before = await readFile(path, "utf8");
         expect(await (await SessionStore.open(path)).repairCrashedTurn()).toBe(false);

@@ -43,7 +43,7 @@ export function conversationCost(path: string): ConversationCost {
 // Must select the records SessionStore.usageMessages() counts as spending.
 export function addRecordedSpend(totals: SpendTotals, entry: RecordedEntry): void {
     let cost: unknown;
-    if (entry.type === "message") {
+    if (entry.type === "message" || entry.type === "turn_start") {
         if (entry.message?.role !== "assistant" || entry.message.source?.api === "none") return;
         cost = entry.message.usage?.cost;
     } else if (entry.type === "compaction") {

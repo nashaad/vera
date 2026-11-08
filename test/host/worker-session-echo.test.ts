@@ -14,7 +14,7 @@ import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.
 import { WorkerSessionStore } from "../../src/host/worker/session.ts";
 import type { WorkerSessionSeed } from "../../src/host/worker/start.ts";
 import type { ModelMessage } from "../../src/model/types.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 
 const SESSION_START_ADAPTER = fileURLToPath(
     new URL("./fixtures/worker-session-start-adapter.ts", import.meta.url),
@@ -156,7 +156,7 @@ test("the worker applies its own writes and the host's, each once and in file or
     });
 
     for (let round = 0; round < 25; round += 1) {
-        await joined.worker.appendMessage(user(`worker ${round}`));
+        await joined.worker.appendMessage(user(`worker ${round}`), round === 0 ? { turnStart: true } : undefined);
         await joined.host.appendMessage(user(`host ${round}`));
         await waitFor(
             () => joined.worker.appliedThrough()
@@ -169,6 +169,7 @@ test("the worker applies its own writes and the host's, each once and in file or
     expect(texts(joined.worker.messages())).toEqual(
         texts(joined.host.messages()),
     );
+    expect((await readSessionTurnState(joined.host.path)).turnOpen).toBe(true);
 });
 
 test("host records that arrive while the worker's own write is unanswered are not a gap", async () => {

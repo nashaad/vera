@@ -111,6 +111,9 @@ an unknown effect for any unfinished tool call. Check the workspace before
 relying on that call or running it again. Streamed text that was not committed
 before the crash is lost.
 
+Turns interrupted before this version may not appear in the cut-short list or
+receive a transcript marker.
+
 ## Where history is stored
 
 Session files live in `~/.vera/runtime/sessions/`. One host owns the home's

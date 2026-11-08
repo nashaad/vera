@@ -80,7 +80,7 @@ test("a cut delivery does not make a later empty wake start a worker turn", asyn
     await store.recordDelivery({ id: "child", sourceAgentId: "child", content: "Found the map" });
     await store.appendDeliveryMessage("child", {
         role: "user", internal: true, content: [{ type: "text", text: "Found the map" }],
-    });
+    }, { turnStart: true });
     const registry = workerRegistry(root, [textResponse("Ready for the next request")]);
     try {
         const deck = await registry.resume({ sessionPath: path });

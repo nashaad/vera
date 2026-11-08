@@ -30,13 +30,13 @@ for (const inProcessWorker of [false, true]) {
         try {
             await mkdir(sessions, { recursive: true });
             const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
-            await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+            await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
             await store.appendMessage({
                 role: "assistant", content: [{ type: "tool_call", id: "read-map", name: "read", input: { path: "map" } }],
                 source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "tool_use",
             });
             const other = await SessionStore.create(otherPath, { sessionId: "other", cwd: root });
-            await other.appendMessage({ role: "user", content: [{ type: "text", text: "Earlier prompt" }] });
+            await other.appendMessage({ role: "user", content: [{ type: "text", text: "Earlier prompt" }] }, { turnStart: true });
             await writeFile(lockPath, JSON.stringify({
                 schema_version: 3, pid: 424242, started_at: new Date(Date.now() - 60_000).toISOString(),
                 socket_path: socketPath, build_id: "old",

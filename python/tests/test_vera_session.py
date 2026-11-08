@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import tempfile
 import time
 import unittest
@@ -40,6 +41,21 @@ class TestVeraSession(unittest.TestCase):
             self.assertIn("remember teal", text)
             self.assertIn("what colour", text)
             self.assertNotIn("unrelated", text)
+            self.assertEqual(text.count('"type":"turn_start"'), 2)
+            subprocess.run(
+                [
+                    "bun",
+                    "-e",
+                    'import { openSessionForRecovery } from "./src/store/session-store.ts"; '
+                    'await openSessionForRecovery(process.argv[1]);',
+                    str(files[0]),
+                ],
+                cwd=Path(__file__).resolve().parents[2],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(files[0].read_text(), text)
         finally:
             vera.close()
         self.assertFalse(runtime.exists())
