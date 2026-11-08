@@ -139,6 +139,14 @@ test("a killed host repairs a blocked call before the next provider request", as
         const sessionPath = join(root, "sessions", `${agent.id}.jsonl`);
         expect((await readSessionTurnState(sessionPath)).turnOpen).toBe(true);
 
+        await client.send({ type: "prompt", content: "Secure the sails." });
+        await client.send({ type: "prompt", content: "Check the compass." });
+        const queued = await SessionStore.open(sessionPath);
+        expect(queued.queuedPrompts().map((prompt) => prompt.content)).toEqual([
+            "Secure the sails.", "Check the compass.",
+        ]);
+        const requestsBeforeCrash = requests.length;
+
         first.process.kill("SIGKILL");
         await first.process.exited;
         client.close();
@@ -160,9 +168,21 @@ test("a killed host repairs a blocked call before the next provider request", as
         const saved = await readFile(sessionPath, "utf8");
         expect(saved).toContain(CRASH_CUT_MESSAGE);
         client = await attachAgent({ socketPath: socket, agentId: agent.id });
-        expect((await client.receive()).type).toBe("history");
+        let history = await client.receive(AbortSignal.timeout(20_000));
+        while (history.type !== "history" || history.unsentPrompts === undefined) {
+            history = await client.receive(AbortSignal.timeout(20_000));
+        }
+        expect(history).toMatchObject({
+            type: "history",
+            unsentPrompts: [{ content: "Secure the sails." }, { content: "Check the compass." }],
+        });
+        await Bun.sleep(200);
+        expect(requests).toHaveLength(requestsBeforeCrash);
         await client.send({ type: "prompt", content: "What is on the deck?" });
         while ((await client.receive(AbortSignal.timeout(20_000))).type !== "turn_finished") {}
+        let nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        while (nextHistory.type !== "history") nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        expect(nextHistory.unsentPrompts).toBeUndefined();
         expect(requests.length).toBeGreaterThanOrEqual(2);
         const messages = requests.at(-1)!.messages as Array<Record<string, unknown>>;
         const calls = messages.flatMap((message) => (message.tool_calls as Array<{ id: string }> | undefined) ?? []);
@@ -253,8 +273,13 @@ test("a killed host keeps a finished result from a parallel batch", async () => 
         }
         await waitFor(() => existsSync(join(root, "slow-started")), "slow call");
         await waitFor(() => existsSync(join(root, "fast-durable")), "durable fast call");
+        await client.send({ type: "prompt", content: "Secure the sails." });
+        await client.send({ type: "prompt", content: "Check the compass." });
         expect(requests).toHaveLength(1);
         const sessionPath = join(root, "sessions", `${agent.id}.jsonl`);
+        expect((await SessionStore.open(sessionPath)).queuedPrompts().map((prompt) => prompt.content)).toEqual([
+            "Secure the sails.", "Check the compass.",
+        ]);
         const running = (await listAgentsThroughHost(socket)).find((item) => item.id === agent.id);
         workerPid = running?.worker_pid;
         supervisorPid = running?.supervisor_pid;
@@ -276,11 +301,27 @@ test("a killed host keeps a finished result from a parallel batch", async () => 
             { toolCallId: "call-slow", isError: true, content: [{ type: "text", text: CRASHED_TOOL_RESULT }] },
         ]);
         expect((await readSessionTurnState(sessionPath)).turnOpen).toBe(false);
-        expect(await readFile(sessionPath, "utf8")).toContain(CRASH_CUT_MESSAGE);
+        const records = (await readFile(sessionPath, "utf8")).trimEnd().split("\n").map((line) => JSON.parse(line));
+        expect(records.at(-1)).toMatchObject({
+            type: "harness_message", text: CRASH_CUT_MESSAGE, crashCut: true,
+            unsentPrompts: [{ content: "Secure the sails." }, { content: "Check the compass." }],
+        });
         client = await attachAgent({ socketPath: socket, agentId: agent.id });
-        expect((await client.receive()).type).toBe("history");
+        let history = await client.receive(AbortSignal.timeout(20_000));
+        while (history.type !== "history" || history.unsentPrompts === undefined) {
+            history = await client.receive(AbortSignal.timeout(20_000));
+        }
+        expect(history).toMatchObject({
+            type: "history",
+            unsentPrompts: [{ content: "Secure the sails." }, { content: "Check the compass." }],
+        });
+        await Bun.sleep(200);
+        expect(requests).toHaveLength(1);
         await client.send({ type: "prompt", content: "What is on the deck?" });
         while ((await client.receive(AbortSignal.timeout(20_000))).type !== "turn_finished") {}
+        let nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        while (nextHistory.type !== "history") nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        expect(nextHistory.unsentPrompts).toBeUndefined();
         const messages = requests.at(-1)!.messages as Array<Record<string, unknown>>;
         const sent = messages.filter((message) => message.role === "tool");
         expect(sent.find((result) => result.tool_call_id === "call-fast")?.content).toBe("The deck is clear.");

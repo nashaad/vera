@@ -375,6 +375,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
 }
 
 function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    if (update.type === "prompt_admission") return state;
     if (update.type === "prompt_queue") {
         return {
             ...state,

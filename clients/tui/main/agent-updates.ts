@@ -595,12 +595,23 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 }
             }
             if (update.type === "history") {
-                const userTexts = update.entries
-                    .filter((entry) => entry.kind === "user")
-                    .map((entry) => entry.text);
-                rt.composer.loadSubmittedTexts(userTexts);
-                if (userTexts[0] !== undefined) {
-                    adoptFallbackSessionTitle(rt, userTexts[0]);
+                const userPrompts = update.entries.flatMap((entry) => entry.kind === "user"
+                    ? [{ text: entry.text, attachmentIds: entry.attachments?.map((attachment) => attachment.id) }]
+                    : []);
+                const unsent = update.unsentPrompts?.map((prompt) => ({
+                    text: prompt.content,
+                    ...(prompt.attachmentIds === undefined ? {} : { attachmentIds: prompt.attachmentIds }),
+                })) ?? [];
+                if (unsent.length > 0 && !rt.composer.hasRecoveredPrompts()) {
+                    rt.composer.setRecoveredPrompts(unsent);
+                    if (rt.composer.plainText.length === 0 && rt.pendingImages.length === 0) {
+                        rt.composer.setComposerText(unsent[0]!.text);
+                        rt.composer.onHistorySelection?.(unsent[0]!.attachmentIds ?? []);
+                    }
+                }
+                rt.composer.loadSubmittedPrompts(userPrompts);
+                if (userPrompts[0] !== undefined) {
+                    adoptFallbackSessionTitle(rt, userPrompts[0].text);
                 }
                 rt.pendingTranscriptReseed = true;
                 rt.transcriptSeeded = true;

@@ -12,6 +12,7 @@ import {
     attachAgent,
     ExtensionCommandError,
     HistoryPageRequestError,
+    PromptRejectedError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
@@ -276,6 +277,61 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a rejected prompt admission reaches its sender and the attachment stays usable",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json"), findAgent: () => agent });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            const sending = client.send({ type: "prompt", content: "check the sails" });
+            const command = await agent.engine.receive();
+            if (command.type !== "prompt" || command.requestId === undefined) throw new Error("missing prompt request ID");
+            agent.engine.send({
+                type: "prompt_admission", requestId: command.requestId, content: command.content,
+                status: "rejected", reason: "Could not save the queued prompt.", seq: 1,
+            });
+            const rejection = await sending.catch((error: unknown) => error);
+            expect(rejection).toBeInstanceOf(PromptRejectedError);
+            expect((rejection as PromptRejectedError).reason).toBe("Could not save the queued prompt.");
+            agent.engine.send({ type: "assistant_delta", text: "still connected", seq: 2 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", text: "still connected" });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a host prompt refusal rejects its sender once with a typed reason",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            turnStartRefusal: () => "This session is blocked.",
+        });
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json"), findAgent: () => agent });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            const rejection = await client.send({ type: "prompt", content: "check the sails" }).catch((error: unknown) => error);
+            expect(rejection).toBeInstanceOf(PromptRejectedError);
+            expect((rejection as PromptRejectedError).reason).toBe("This session is blocked.");
+            agent.engine.send({ type: "assistant_delta", text: "still connected", seq: 1 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", text: "still connected" });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "attached client exchanges typed commands and updates until detach",
     async () => {
         const directory = temporaryDirectory();
@@ -296,34 +352,39 @@ afterEach(() => {
                 seq: 0,
             });
 
-            await client.send({ type: "prompt", content: "hello" });
-            expect(await agent.engine.receive()).toEqual({
-                type: "prompt",
-                content: "hello",
-            });
+            const sending = client.send({ type: "prompt", content: "hello" });
+            let acknowledged = false;
+            void sending.then(() => { acknowledged = true; });
+            const command = await agent.engine.receive();
+            await Bun.sleep(10);
+            expect(acknowledged).toBe(false);
+            if (command.type !== "prompt" || command.requestId === undefined) throw new Error("missing prompt request ID");
+            expect(command.content).toBe("hello");
+            agent.engine.send({ type: "prompt_admission", requestId: command.requestId, content: command.content, status: "accepted", seq: 1 });
+            await sending;
             agent.engine.send({
                 type: "assistant_delta",
                 text: "hi",
-                seq: 1,
+                seq: 2,
             });
             expect(await client.receive()).toEqual({
                 type: "assistant_delta",
                 text: "hi",
-                seq: 1,
+                seq: 2,
             });
             agent.engine.send({
                 type: "task_notification",
                 deliveryId: "completion:child-1",
                 sourceAgentId: "child-1",
                 content: "The tests pass.",
-                seq: 2,
+                seq: 3,
             });
             expect(await client.receive()).toEqual({
                 type: "task_notification",
                 deliveryId: "completion:child-1",
                 sourceAgentId: "child-1",
                 content: "The tests pass.",
-                seq: 2,
+                seq: 3,
             });
 
             await client.detach();
@@ -710,15 +771,16 @@ afterEach(() => {
         const second = await attachAgent({ socketPath, agentId: agent.id });
         try {
             expect(await first.receive()).toEqual(await second.receive());
-            await first.send({ type: "prompt", content: "hello" });
-            expect(await agent.engine.receive()).toEqual({
-                type: "prompt",
-                content: "hello",
-            });
+            const sending = first.send({ type: "prompt", content: "hello" });
+            const command = await agent.engine.receive();
+            if (command.type !== "prompt" || command.requestId === undefined) throw new Error("missing prompt request ID");
+            expect(command.content).toBe("hello");
+            agent.engine.send({ type: "prompt_admission", requestId: command.requestId, content: command.content, status: "accepted", seq: 1 });
+            await sending;
             const updates = [
-                { type: "user_prompt" as const, content: "hello", seq: 1 },
-                { type: "assistant_delta" as const, text: "hi", seq: 2 },
-                { type: "turn_finished" as const, seq: 3 },
+                { type: "user_prompt" as const, content: "hello", seq: 2 },
+                { type: "assistant_delta" as const, text: "hi", seq: 3 },
+                { type: "turn_finished" as const, seq: 4 },
             ];
             for (const update of updates) {
                 agent.engine.send(update);

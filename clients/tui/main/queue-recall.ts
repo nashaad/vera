@@ -34,7 +34,7 @@ export function recallNewestQueuedPrompt(rt: TuiRuntime): boolean {
 
 // Only the client that asked acts on the answer; every attached client receives it.
 export function settleQueueRecall(rt: TuiRuntime, update: AgentUpdate): void {
-    if (update.type === "notice" && update.key === "queue_withdraw_empty") {
+    if (update.type === "notice" && (update.key === "queue_withdraw_empty" || update.key === "queue_withdraw_failed")) {
         rt.pendingQueueRecall = undefined;
         return;
     }

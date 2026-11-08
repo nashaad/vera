@@ -9,7 +9,7 @@ import type {
     ClientCommand,
 } from "../../src/engine/protocol.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { PromptRejectedError, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -74,6 +74,29 @@ test("stdio forwards commands and rejects bad input without closing", async () =
         line: 3,
         reason: "attachment release is unavailable over stdio",
     });
+});
+
+test("stdio forwards a prompt refusal and accepts later commands", async () => {
+    const client = new FakeAttachedAgentClient();
+    const send = client.send.bind(client);
+    spyOn(client, "send").mockImplementation((command) => command.type === "prompt"
+        ? Promise.reject(new PromptRejectedError("Could not save the queued prompt."))
+        : send(command));
+    let output = "";
+    await runAttachedStdioBridge(
+        Readable.from([
+            '{"type":"prompt","content":"hello","requestId":"prompt-1"}\n',
+            '{"type":"abort"}\n',
+            '{"type":"detach"}\n',
+        ]),
+        { write: (text) => output += text },
+        client,
+    );
+    expect(output.split("\n").filter(Boolean).map((line) => JSON.parse(line))).toContainEqual({
+        type: "prompt_rejected", requestId: "prompt-1", reason: "Could not save the queued prompt.",
+    });
+    expect(client.sent).toEqual([{ type: "abort" }]);
+    expect(client.detached).toBe(true);
 });
 
 test("stdio answers a history page request as unavailable", async () => {
@@ -199,6 +222,30 @@ test("stdio frames updates after its attached marker", async () => {
         },
         { type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 },
     ]);
+});
+
+test("stdio forwards unsent prompt facts with their attachment identities", async () => {
+    const client = new FakeAttachedAgentClient();
+    const input = new Readable({ read() {} });
+    let output = "";
+    const written = Promise.withResolvers<void>();
+    const run = runAttachedStdioBridge(input, {
+        write: (text) => {
+            output += text;
+            if (text.includes('"type":"history"')) written.resolve();
+        },
+    }, client);
+    client.updates.push({
+        type: "history", entries: [], seq: 0,
+        unsentPrompts: [{ content: "check the chart", attachmentIds: ["image-1"] }],
+    });
+    await written.promise;
+    input.push(null);
+    await run;
+    const frames = output.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    expect(frames.find((frame) => frame.type === "history")).toMatchObject({
+        unsentPrompts: [{ content: "check the chart", attachmentIds: ["image-1"] }],
+    });
 });
 
 test("stdio forwards current background agents and later pushes", async () => {

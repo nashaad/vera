@@ -1765,6 +1765,14 @@ export async function startTui(
         guardInput(rt, "image_paste", (path: string) => attachPastedImage(rt, path)),
     );
     rt.composer.onRecallQueuedPrompt = () => recallNewestQueuedPrompt(rt);
+    rt.composer.currentHistoryDraft = () => ({
+        text: rt.composer.expandedText(false),
+        attachmentIds: rt.pendingImages.flatMap((image) => image.id === undefined ? [] : [image.id]),
+    });
+    rt.composer.onHistorySelection = (attachmentIds) => {
+        rt.pendingImages = attachmentIds.map((id) => ({ requestId: randomUUID(), id }));
+        for (const image of rt.pendingImages) rt.composer.attachImageChip(image.requestId);
+    };
     rt.composer.onCommandDelete = () => {
         if (
             rt.composer.plainText.length === 0

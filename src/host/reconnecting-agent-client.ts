@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentUpdate, ClientCommand } from "../engine/protocol.ts";
 import {
     AgentAttachError,
@@ -173,15 +174,17 @@ export function createReconnectingAgentClient(
         send(command) {
             const requestId = privateRequestId(command);
             if (requestId !== undefined) pendingPrivateRequests.add(requestId);
-            if (command.type === "prompt") pendingPrompts.push(command.content);
+            const promptRequestId = command.type === "prompt" ? command.requestId ?? randomUUID() : undefined;
+            if (promptRequestId !== undefined) pendingPrompts.push(promptRequestId);
+            const outgoing = command.type === "prompt" ? { ...command, requestId: promptRequestId } : command;
             const target = reconnectInFlight === undefined
                 ? Promise.resolve(current)
                 : reconnectInFlight;
-            return target.then((attached) => attached.send(command)).catch((error) => {
+            return target.then((attached) => attached.send(outgoing)).then(() => {
+                if (promptRequestId !== undefined) removePendingPrompt(pendingPrompts, promptRequestId);
+            }).catch((error) => {
                 if (requestId !== undefined) pendingPrivateRequests.delete(requestId);
-                if (command.type === "prompt") {
-                    removePendingPrompt(pendingPrompts, command.content);
-                }
+                if (promptRequestId !== undefined) removePendingPrompt(pendingPrompts, promptRequestId);
                 throw error;
             });
         },
@@ -449,17 +452,18 @@ function privateReplyRequestId(update: AgentUpdate): string | undefined {
 }
 
 function settlePendingPrompt(pending: string[], update: AgentUpdate): void {
-    if (update.type === "prompt_rejected") {
-        pending.shift();
+    if (update.type === "prompt_admission") {
+        removePendingPrompt(pending, update.requestId);
         return;
     }
-    if (update.type === "user_prompt") {
-        removePendingPrompt(pending, update.content);
+    if (update.type === "prompt_rejected") {
+        if (update.requestId !== undefined) removePendingPrompt(pending, update.requestId);
+        else pending.shift();
     }
 }
 
-function removePendingPrompt(pending: string[], content: string): void {
-    const index = pending.indexOf(content);
+function removePendingPrompt(pending: string[], requestId: string): void {
+    const index = pending.indexOf(requestId);
     if (index !== -1) pending.splice(index, 1);
 }
 

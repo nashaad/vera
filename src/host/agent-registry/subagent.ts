@@ -231,6 +231,12 @@ export async function runInWorker(reg: AgentRegistry, options: {
         });
         try {
             const outcome = await handle.outcome;
+            if (stopping || outcome.kind === "finished" || outcome.kind === "failed") {
+                await store.exclusively(async () => {});
+                for (const queued of store.queuedPrompts()) {
+                    await store.removeQueuedPrompt(queued.id);
+                }
+            }
             if (stopping || outcome.kind === "finished") {
                 return;
             }

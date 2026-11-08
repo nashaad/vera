@@ -48,8 +48,10 @@ import type {
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
-import type { MessageStamp, SessionSettingOrigin } from "../store/session-store.ts";
+import type { MessageStamp, SessionSettingOrigin, UnsentPrompt } from "../store/session-store.ts";
 import type { PromptQueueState } from "./prompt-queue.ts";
+
+export type { UnsentPrompt } from "../store/session-store.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -201,6 +203,7 @@ export interface PromptCommand {
     readonly type: "prompt";
     readonly content: string;
     readonly attachmentIds?: readonly string[];
+    readonly requestId?: string;
 }
 
 export interface AppendHarnessMessageCommand {
@@ -598,6 +601,7 @@ export interface HistoryUpdate {
     readonly context?: ContextMeasurement;
     readonly usage?: SessionModelUsage;
     readonly promptQueue?: PromptQueueState;
+    readonly unsentPrompts?: readonly UnsentPrompt[];
     /** Present only on a bounded page sent to a paging client. */
     readonly page?: HistoryPageInfo;
 }
@@ -605,6 +609,15 @@ export interface HistoryUpdate {
 export interface PromptQueueUpdate {
     readonly type: "prompt_queue";
     readonly queue: PromptQueueState;
+    readonly seq: number;
+}
+
+export interface PromptAdmissionUpdate {
+    readonly type: "prompt_admission";
+    readonly requestId: string;
+    readonly content: string;
+    readonly status: "accepted" | "rejected";
+    readonly reason?: string;
     readonly seq: number;
 }
 
@@ -1172,6 +1185,7 @@ export interface ImageAttachmentRejectedUpdate {
 export interface PromptRejectedUpdate {
     readonly type: "prompt_rejected";
     readonly reason: string;
+    readonly requestId?: string;
 }
 
 export type ImageAttachmentReplyUpdate =
@@ -1180,6 +1194,7 @@ export type ImageAttachmentReplyUpdate =
 
 export type AgentUpdate =
     | HistoryUpdate
+    | PromptAdmissionUpdate
     | UserPromptUpdate
     | AssistantDeltaUpdate
     | AssistantThinkingUpdate
@@ -1250,10 +1265,12 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         command.type === "prompt"
         && typeof command.content === "string"
         && isAttachmentIds(command.attachmentIds)
+        && (command.requestId === undefined || isNonEmptyString(command.requestId))
     ) {
         return {
             type: "prompt",
             content: command.content,
+            ...(command.requestId === undefined ? {} : { requestId: command.requestId }),
             ...(command.attachmentIds === undefined
                 ? {}
                 : { attachmentIds: [...command.attachmentIds] }),
@@ -1789,6 +1806,7 @@ export function createProtocolEncoder(
     ) => number | undefined = () => undefined,
     usageMessages?: () => readonly ModelMessage[],
     deliveries?: () => DeliveryLookup,
+    unsentPrompts?: () => readonly UnsentPrompt[],
 ): ProtocolEncoder {
     let seq = 0;
     let sessionUsage: SessionModelUsage = { rows: [] };
@@ -1804,6 +1822,11 @@ export function createProtocolEncoder(
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
         if (event.type !== "model_stream" || !event.event.type.startsWith("thinking_")) {
             thinkingBlock = undefined;
+        }
+        if (event.type === "prompt_admission") {
+            seq += 1;
+            sender.send({ ...event, seq });
+            return;
         }
         if (event.type === "prompt_queue_changed") {
             promptQueue = structuredClone(event.queue);
@@ -2424,6 +2447,7 @@ export function createProtocolEncoder(
                 measuredContext = context;
             }
             sessionUsage = summarizeSessionModelUsage(usageMessages?.() ?? messages);
+            const unsent = unsentPrompts?.() ?? [];
             sender.send({
                 type: "history",
                 entries: projectTranscript(
@@ -2438,6 +2462,7 @@ export function createProtocolEncoder(
                 ...(promptQueue === undefined
                     ? {}
                     : { promptQueue: structuredClone(promptQueue) }),
+                ...(unsent.length === 0 ? {} : { unsentPrompts: structuredClone(unsent) }),
                 seq,
             });
         },

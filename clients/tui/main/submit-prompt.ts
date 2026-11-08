@@ -29,6 +29,7 @@ import { appendTuiError, appendTuiNotice, beginTuiTurn, queueTuiPrompt, userEntr
 import { startTuiTimelinePicker } from "../timeline-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 
 export function submitPrompt(rt: TuiRuntime, 
     interceptedText?: string,
@@ -1208,7 +1209,7 @@ export function submitPrompt(rt: TuiRuntime,
             rt.promptSubmitting = false;
             if (rt.shuttingDown) return;
             if (rt.composer.expandedText().trim() === prompt) {
-                rt.composer.rememberSubmittedText(prompt);
+                rt.composer.rememberSubmittedPrompt({ text: prompt, attachmentIds });
                 rt.composer.clearComposer();
             }
             rt.pendingImages = rt.pendingImages.filter(
@@ -1237,30 +1238,51 @@ export function submitPrompt(rt: TuiRuntime,
                 error: error instanceof Error ? error.message : String(error),
             });
             rt.promptSubmitting = false;
-            reportConnectionError(rt, error);
+            reportPromptSendError(rt, error);
         });
         return;
     }
-    rt.composer.rememberSubmittedText(prompt);
-    rt.composer.clearComposer();
     const queueing = rt.state.working || rt.state.queuedPrompts.length > 0;
-    rt.state = queueing
-        ? hostOwnsPromptQueue(rt, rt.client)
-            ? rt.state
-            : queueTuiPrompt(rt.state, prompt)
-        : beginTuiTurn(rt.state, prompt, attachments, injectedPrefix);
-    adoptFallbackSessionTitle(rt, prompt, injectedPrefix);
-    if (!queueing && rt.workingSince === undefined) {
-        rt.workingSince = Date.now();
-        rt.phaseSince = rt.workingSince;
-        rt.quietSince = rt.workingSince;
-        rt.activity = "thinking";
-    }
-    renderState(rt);
-    rt.pendingImages = [];
-    sendCommand(rt, {
+    rt.promptSubmitting = true;
+    rt.flightRecorder?.record({ type: "submit_dispatched" });
+    void rt.client.send({
         type: "prompt",
         content: prompt,
-        ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+    }).then(() => {
+        rt.flightRecorder?.record({ type: "submit_accepted" });
+        rt.promptSubmitting = false;
+        if (rt.shuttingDown) return;
+        if (rt.composer.expandedText().trim() === prompt) {
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
+        }
+        if (queueing && !hostOwnsPromptQueue(rt, rt.client)) {
+            rt.state = queueTuiPrompt(rt.state, prompt);
+        } else if (!queueing) {
+            if (!userEntryShows(rt.state.entries.at(-1), prompt, attachments)) {
+                rt.state = beginTuiTurn(rt.state, prompt, attachments, injectedPrefix);
+            } else if (!rt.state.working) {
+                rt.state = { ...rt.state, working: true };
+            }
+            adoptFallbackSessionTitle(rt, prompt, injectedPrefix);
+            rt.workingSince ??= Date.now();
+            rt.phaseSince ??= rt.workingSince;
+            rt.quietSince = Date.now();
+            rt.activity = "thinking";
+        }
+        renderState(rt);
+    }).catch((error) => {
+        rt.flightRecorder?.record({ type: "submit_failed", error: error instanceof Error ? error.message : String(error) });
+        rt.promptSubmitting = false;
+        reportPromptSendError(rt, error);
     });
+}
+
+function reportPromptSendError(rt: TuiRuntime, error: unknown): void {
+    if (error instanceof PromptRejectedError) {
+        rt.state = appendTuiError(rt.state, error.reason);
+        renderState(rt);
+    } else {
+        reportConnectionError(rt, error);
+    }
 }

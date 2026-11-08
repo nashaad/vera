@@ -192,9 +192,13 @@ interface PendingConfigurationRequired {
     readonly onAbort?: () => void;
 }
 
+export interface InboundPrompt extends PromptCommand {
+    readonly queuedPromptId?: string;
+}
+
 export interface InboundTurn {
-    readonly prompt: PromptCommand;
-    readonly additionalPrompts?: readonly PromptCommand[];
+    readonly prompt: InboundPrompt;
+    readonly additionalPrompts?: readonly InboundPrompt[];
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly triggeredByDelivery?: true;
@@ -206,7 +210,7 @@ interface QueuedTurnContext {
 }
 
 interface QueuedPrompt extends QueuedTurnContext {
-    readonly prompt: PromptCommand;
+    readonly prompt: InboundPrompt;
     readonly triggeredByDelivery?: never;
     readonly select?: never;
     readonly skillInvocation?: never;
@@ -262,6 +266,8 @@ interface ActiveQueueTurn {
 export type InboundTurnOutcome = "completed" | "aborted" | "failed";
 
 export interface InboundCommandRouterOptions {
+    readonly appendQueuedPrompt?: (id: string, prompt: PromptCommand) => Promise<void>;
+    readonly removeQueuedPrompt?: (id: string) => Promise<void>;
     readonly appendHarnessMessage?: (
         text: string,
         tone: "primary" | "soft" | "error",
@@ -444,13 +450,16 @@ export class InboundCommandRouter {
     private compactionAbort: AbortController | undefined;
     private compactionInFlight: Promise<void> | undefined;
     private automaticCompactionAbort: AbortController | undefined;
+    private queueCleanup: Promise<void> = Promise.resolve();
+    private readonly receiveAbort = new AbortController();
+    private readonly receiveTask: Promise<void>;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, EngineCommand>,
         private readonly events: EngineEventBus,
         private readonly options: InboundCommandRouterOptions = {},
     ) {
-        void this.receiveCommands(endpoint);
+        this.receiveTask = this.receiveCommands(endpoint).catch(() => undefined);
     }
 
     beginTurnTiming(clock = new TurnWorkClock()): TurnWorkClock {
@@ -550,7 +559,7 @@ export class InboundCommandRouter {
         } finally {
             this.waitingForPrompt = false;
         }
-        const additionalPrompts: PromptCommand[] = [];
+        const additionalPrompts: InboundPrompt[] = [];
         if (
             claimedItem.prompt !== undefined
             && claimedRelease.mode === "all"
@@ -655,7 +664,7 @@ export class InboundCommandRouter {
     // Prompts may pass held controls, as they would at a turn boundary; they never pass an earlier prompt that has to wait.
     takeHeldPrompts(
         accepts: (prompt: PromptCommand) => boolean,
-    ): readonly PromptCommand[] {
+    ): readonly InboundPrompt[] {
         const active = this.activeQueueTurn;
         if (
             this.activeTurn === undefined
@@ -669,7 +678,7 @@ export class InboundCommandRouter {
         const boundaryIndex = this.release === undefined
             ? -1
             : this.queuedTurns.indexOf(this.release.boundary);
-        const taken: PromptCommand[] = [];
+        const taken: InboundPrompt[] = [];
         const kept: QueuedTurn[] = [];
         let blocked = false;
         for (const [index, queued] of this.queuedTurns.entries()) {
@@ -790,7 +799,7 @@ export class InboundCommandRouter {
         this.signalTurnAvailable();
     }
 
-    private withdrawQueuedPrompt(requestId: string): void {
+    private async withdrawQueuedPrompt(requestId: string): Promise<void> {
         const { boundaryIndex, directBoundaryIndex } = this.queueBoundaries();
         const floor = Math.max(boundaryIndex, directBoundaryIndex);
         let index = this.queuedTurns.length - 1;
@@ -807,6 +816,18 @@ export class InboundCommandRouter {
         }
         const [withdrawn] = this.queuedTurns.splice(index, 1);
         const prompt = withdrawn!.prompt!;
+        try {
+            if (prompt.queuedPromptId !== undefined) {
+                await this.options.removeQueuedPrompt?.(prompt.queuedPromptId);
+            }
+        } catch {
+            this.queuedTurns.splice(Math.min(index, this.queuedTurns.length), 0, withdrawn!);
+            this.events.emit({
+                type: "notice", key: "queue_withdraw_failed", count: 1,
+                text: "Could not recall the queued prompt.",
+            });
+            return;
+        }
         this.pendingPromptCount -= 1;
         this.emitPromptQueue();
         this.events.emit({
@@ -823,9 +844,9 @@ export class InboundCommandRouter {
     halt(reason: string): void {
         if (this.haltReason !== undefined) return;
         this.haltReason = reason;
-        const dropped = this.queuedTurns.filter(
-            (queued) => queued.prompt !== undefined,
-        ).length;
+        const droppedPrompts = this.queuedTurns.flatMap((queued) => queued.prompt === undefined ? [] : [queued.prompt]);
+        const dropped = droppedPrompts.length;
+        this.scheduleQueueCleanup(droppedPrompts);
         this.queuedTurns.splice(0, this.queuedTurns.length);
         this.pendingPromptCount -= dropped;
         this.deliveryTurnQueued = false;
@@ -851,6 +872,39 @@ export class InboundCommandRouter {
         }
         this.activeTurn?.abort(new Error(reason));
         this.emitPromptQueue();
+    }
+
+    async discardQueuedPrompts(): Promise<void> {
+        this.scheduleQueueCleanup(this.queuedTurns.flatMap((queued) => queued.prompt === undefined ? [] : [queued.prompt]));
+        await this.queueCleanup;
+    }
+
+    async stopReceivingCommands(): Promise<void> {
+        this.receiveAbort.abort();
+        await this.receiveTask.catch(() => undefined);
+    }
+
+    restoreUnjoinedPrompts(prompts: readonly InboundPrompt[], modelSettings?: ModelTurnSettings): void {
+        if (prompts.length === 0) return;
+        this.queuedTurns.unshift(...prompts.map((prompt): QueuedPrompt => ({
+            prompt,
+            ...(modelSettings === undefined ? {} : { modelSettings }),
+        })));
+        this.pendingPromptCount += prompts.length;
+        this.emitPromptQueue();
+    }
+
+    private scheduleQueueCleanup(prompts: readonly InboundPrompt[]): void {
+        const ids = prompts.flatMap((prompt) => prompt.queuedPromptId === undefined ? [] : [prompt.queuedPromptId]);
+        if (ids.length === 0) return;
+        this.queueCleanup = this.queueCleanup.then(async () => {
+            for (const id of ids) await this.options.removeQueuedPrompt?.(id);
+        }).catch(() => {
+            this.events.emit({
+                type: "notice", key: "queue_cleanup_failed", count: 1,
+                text: "Could not clear the queued prompts.",
+            });
+        });
     }
 
     clearHalt(): void {
@@ -1249,7 +1303,7 @@ export class InboundCommandRouter {
     ): Promise<void> {
         try {
             while (true) {
-                const command = await endpoint.receive();
+                const command = await endpoint.receive(this.receiveAbort.signal);
                 if (command.type === "owned_timeline_command") {
                     await this.options.handleTimelineCommand?.(
                         command.ownerId,
@@ -1302,12 +1356,55 @@ export class InboundCommandRouter {
                 }
                 if (command.type === "prompt") {
                     await this.contextAppend;
+                    if (this.haltReason !== undefined) {
+                        this.noteNotStarted(this.haltReason);
+                        if (command.requestId !== undefined) this.events.emit({
+                            type: "prompt_admission", requestId: command.requestId,
+                            content: command.content, status: "rejected", reason: this.haltReason,
+                        });
+                        continue;
+                    }
                     const settings = this.options.readModelSettings?.();
+                    const queued = this.activeTurn !== undefined
+                        || this.claimedQueueRelease !== undefined
+                        || this.release !== undefined
+                        || this.queuedTurns.length > 0;
+                    const queuedPromptId = queued && this.options.appendQueuedPrompt !== undefined
+                        ? randomUUID()
+                        : undefined;
+                    if (queuedPromptId !== undefined) {
+                        try {
+                            await this.options.appendQueuedPrompt!(queuedPromptId, command);
+                        } catch {
+                            if (command.requestId !== undefined) {
+                                this.events.emit({
+                                    type: "prompt_admission", requestId: command.requestId,
+                                    content: command.content, status: "rejected",
+                                    reason: "Could not save the queued prompt.",
+                                });
+                            } else {
+                                this.events.emit({
+                                    type: "notice", key: "queue_save_failed", count: 1,
+                                    text: "Could not save the queued prompt.",
+                                });
+                            }
+                            continue;
+                        }
+                        if (this.haltReason !== undefined) {
+                            await this.options.removeQueuedPrompt?.(queuedPromptId);
+                        }
+                    }
                     this.enqueueTurn({
-                        prompt: command,
+                        prompt: queuedPromptId === undefined ? command : { ...command, queuedPromptId },
                         ...(settings === undefined
                             ? {}
                             : { modelSettings: copyModelSettings(settings) }),
+                    });
+                    if (command.requestId !== undefined) this.events.emit({
+                        type: "prompt_admission", requestId: command.requestId,
+                        content: command.content,
+                        status: this.haltReason === undefined ? "accepted" : "rejected",
+                        ...(this.haltReason === undefined ? {} : { reason: this.haltReason }),
                     });
                     continue;
                 }
@@ -1318,7 +1415,7 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "withdraw_queued_prompt") {
-                    this.withdrawQueuedPrompt(command.requestId);
+                    await this.withdrawQueuedPrompt(command.requestId);
                     continue;
                 }
 

@@ -282,13 +282,17 @@ test("attachment-private work makes a disconnect terminal", async () => {
 });
 
 test("a prompt remains private until its sequenced acceptance arrives", async () => {
-    const initial = fakeClient([], 4);
+    const pending = Promise.withResolvers<void>();
+    const initial = { ...fakeClient([], 4), send: async () => pending.promise };
     const client = createReconnectingAgentClient(initial, async () =>
         fakeClient([], 4));
-    await client.send({ type: "prompt", content: "hello" });
+    const sending = client.send({ type: "prompt", content: "hello" });
     await expect(client.receive()).rejects.toThrow(
         "attachment-private request was pending",
     );
+    pending.reject(new Error("closed"));
+    await expect(sending).rejects.toThrow("closed");
+    client.close();
 });
 
 test("sequenced skill replies survive a dropped connection without resubmission", async () => {
@@ -338,17 +342,21 @@ test("sequenced skill replies survive a dropped connection without resubmission"
 });
 
 test("another attachment's prompt does not settle this client's prompts", async () => {
-    const initial = fakeClient([
+    const pending = Promise.withResolvers<void>();
+    const initial = { ...fakeClient([
         { type: "user_prompt", content: "someone else", seq: 5 },
-    ], 4);
+    ], 4), send: async () => pending.promise };
     const client = createReconnectingAgentClient(initial, async () =>
         fakeClient([], 5));
-    await client.send({ type: "prompt", content: "first" });
-    await client.send({ type: "prompt", content: "second" });
+    const first = client.send({ type: "prompt", content: "first" });
+    const second = client.send({ type: "prompt", content: "second" });
     expect(await client.receive()).toMatchObject({ content: "someone else" });
     await expect(client.receive()).rejects.toThrow(
         "attachment-private request was pending",
     );
+    pending.reject(new Error("closed"));
+    await Promise.allSettled([first, second]);
+    client.close();
 });
 
 test("clients without resume support reconnect from a fresh checkpoint", async () => {
@@ -428,7 +436,7 @@ test("commands wait for an in-flight reconnect", async () => {
     attached.resolve(recovered);
     await sending;
     expect(await receiving).toMatchObject({ type: "user_prompt" });
-    expect(sent).toEqual([{ type: "prompt", content: "after reconnect" }]);
+    expect(sent).toEqual([{ type: "prompt", content: "after reconnect", requestId: expect.any(String) }]);
     client.close();
 });
 

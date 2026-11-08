@@ -120,6 +120,12 @@ relying on that call or running it again. Finished tool results that were saved
 before the crash remain in the transcript. Streamed text that was not committed
 before the crash is lost.
 
+After a crash, prompts still waiting in the queue and prompts that received no
+assistant reply return unsent. The earliest appears in an empty composer; if
+you already have a draft, it stays in place. Use Up to recall the recovered
+prompts, including their image attachments. Vera does not send them until you
+choose to submit them.
+
 ## Where history is stored
 
 Session files live in `~/.vera/runtime/sessions/`. One host owns the home's

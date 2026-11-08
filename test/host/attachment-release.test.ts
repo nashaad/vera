@@ -57,14 +57,15 @@ socketTest(
                 remainingInteractiveClients: 1,
             });
             expect(closes).toBe(0);
-            await second.send({ type: "prompt", content: "still here" });
+            const sending = second.send({ type: "prompt", content: "still here" });
             expect(await agent.engine.receive()).toMatchObject({
                 type: "timeline_owner_detached",
             });
-            expect(await agent.engine.receive()).toEqual({
-                type: "prompt",
-                content: "still here",
-            });
+            const command = await agent.engine.receive();
+            if (command.type !== "prompt" || command.requestId === undefined) throw new Error("missing prompt request ID");
+            expect(command.content).toBe("still here");
+            agent.engine.send({ type: "prompt_admission", requestId: command.requestId, content: command.content, status: "accepted", seq: 1 });
+            await sending;
 
             expect(await second.release?.("stop_if_last")).toEqual({
                 outcome: "stopped",

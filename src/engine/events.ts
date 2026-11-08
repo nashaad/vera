@@ -66,6 +66,14 @@ export interface PromptQueuedEvent {
     readonly content: string;
 }
 
+export interface PromptAdmissionEvent {
+    readonly type: "prompt_admission";
+    readonly requestId: string;
+    readonly content: string;
+    readonly status: "accepted" | "rejected";
+    readonly reason?: string;
+}
+
 export interface PromptQueueChangedEvent {
     readonly type: "prompt_queue_changed";
     readonly queue: PromptQueueState;
@@ -566,6 +574,7 @@ export type EngineEvent =
     | TurnStartedEvent
     | DeliveryTurnStartedEvent
     | PromptQueuedEvent
+    | PromptAdmissionEvent
     | PromptQueueChangedEvent
     | PromptWithdrawnEvent
     | AbortRequestedEvent
@@ -707,6 +716,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     prompt_prefix_drift: "warn",
     prompt_queue_changed: "debug",
     prompt_queued: "info",
+    prompt_admission: "debug",
     prompt_withdrawn: "info",
     session_model_settings_history: "debug",
     skill_catalog: "debug",
