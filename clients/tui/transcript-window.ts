@@ -137,3 +137,21 @@ export function tuiTranscriptReusableTail(input: {
     }
     return kept;
 }
+
+// Counts the unchanged entries from the window start at the same indexes, for a window that stops short of the tail.
+export function tuiTranscriptReusablePrefix(input: {
+    readonly previous: readonly (TuiTranscriptEntry | undefined)[];
+    readonly next: readonly TuiTranscriptEntry[];
+    readonly previousStart: number;
+    readonly previousEnd: number;
+}): number {
+    const end = Math.min(input.previousEnd, input.next.length);
+    let index = input.previousStart;
+    while (
+        index < end
+        && tuiTranscriptEntriesEquivalent(input.previous[index], input.next[index])
+    ) {
+        index += 1;
+    }
+    return index - input.previousStart;
+}

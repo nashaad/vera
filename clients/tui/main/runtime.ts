@@ -411,6 +411,8 @@ export interface TuiRuntime {
     pendingTranscriptScrollAnchor: {
         readonly index: number;
         readonly offset: number;
+        readonly width: number;
+        readonly height: number;
     } | undefined;
     sidebarEntryNodes: (
         TextRenderable | MarkdownRenderable | BoxRenderable
