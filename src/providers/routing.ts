@@ -16,6 +16,11 @@ export type PrepareModelRequest = (
     request: ModelRequest,
     provider: string,
 ) => ModelRequest | Promise<ModelRequest>;
+export type BeforeModelTerminal = (
+    request: ModelRequest,
+    event: ModelStreamEvent,
+    contentStarted: boolean,
+) => Promise<void>;
 
 export function applyModelRequestOptions(
     original: ModelRequest,
@@ -127,11 +132,12 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         private readonly defaultProvider: string,
         private readonly fingerprint?: CredentialFingerprint,
         private readonly prepareRequest?: PrepareModelRequest,
+        private readonly beforeTerminal?: BeforeModelTerminal,
     ) {}
 
     stream(request: ModelRequest): ModelStream {
         const provider = request.provider ?? this.defaultProvider;
-        if (this.prepareRequest !== undefined) {
+        if (this.prepareRequest !== undefined || this.beforeTerminal !== undefined) {
             const output = new ModelEventStream();
             void this.producePrepared(provider, request, output);
             return output;
@@ -151,16 +157,20 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         output: ModelEventStream,
     ): Promise<void> {
         let terminal = false;
+        let contentStarted = false;
         try {
             let prepared: ModelRequest;
             try {
-                prepared = await this.preparedRequest(request, provider);
+                prepared = this.prepareRequest === undefined ? request : await this.preparedRequest(request, provider);
             } catch (cause) {
                 throw request.signal?.aborted ? cause : requestBuildFailure(cause);
             }
             for await (const event of this.adapter(provider).stream(prepared)) {
                 if (event.type === "done" || event.type === "error") {
+                    await this.beforeTerminal?.(request, event, contentStarted);
                     terminal = true;
+                } else if (event.type !== "start" && event.type !== "effort_substituted") {
+                    contentStarted = true;
                 }
                 output.push(event);
             }

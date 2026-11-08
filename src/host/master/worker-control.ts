@@ -10,10 +10,15 @@ import { remoteReservations } from "./reservations.ts";
 import { serveSessionEndpoint } from "./remote-endpoint.ts";
 import { sessionTarget } from "./routing.ts";
 import { createPublicForwarder } from "./public-forward.ts";
+import { defaultPermissionPreferencesPath } from "../../engine/permission-preferences.ts";
+import { createLiveVeraConfigReader, defaultVeraConfigPath } from "../../config.ts";
+import { WorkerGlobals } from "./worker-globals.ts";
+import type { GlobalChange } from "./global-services.ts";
+import { applyConfigDefaults } from "./config-defaults.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
-    | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots"
+    | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots" | "inboxUserConfigPath"
 >;
 
 export interface WorkerBootstrap {
@@ -53,10 +58,25 @@ function remoteCommon(peer: ControlPeer): RemoteCommon {
 export async function startControlledWorker(
     peer: ControlPeer, bootstrap: WorkerBootstrap, hello: WorkerHello, generation: number, onShutdown: () => void,
 ): Promise<{ close(): Promise<void> }> {
+    const home = bootstrap.options.home;
+    if (home === undefined) throw new Error("Worker home is unavailable");
+    const globals = new WorkerGlobals(peer, home,
+        bootstrap.options.configPath ?? defaultVeraConfigPath(home),
+        bootstrap.options.permissionPreferencesPath ?? defaultPermissionPreferencesPath(home));
+    const pendingChanges: GlobalChange[] = [];
+    peer.setEventHandler((event, value) => {
+        if (event === "shutdown") onShutdown();
+        else if (event === "config_changed" && isGlobalChange(value)) pendingChanges.push(value);
+    });
+    await globals.initialize();
     const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer), {
         index: hello.index, count: hello.count,
-    });
+    }, globals);
     const host = runtime.sessionHost;
+    const currentConfig = createLiveVeraConfigReader(bootstrap.options.config, {
+        path: bootstrap.options.configPath ?? defaultVeraConfigPath(home),
+    });
+    const reloadDefaults = (): void => applyConfigDefaults(host.registry, currentConfig());
     const endpoint = sessionEndpoint(host);
     const router = remoteRouter(peer);
     const attachments = remoteAttachments(peer);
@@ -90,7 +110,10 @@ export async function startControlledWorker(
     host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     peer.setHandler(async (method, args, signal) => {
         if (method === "public.frame") return await publicForwarder.receiveFrame(args);
-        if (method.startsWith("session.")) return await serveSessionEndpoint(endpoint, method.slice(8), args, signal);
+        if (method.startsWith("session.")) {
+            reloadDefaults();
+            return await serveSessionEndpoint(endpoint, method.slice(8), args, signal);
+        }
         if (method === "worker.canShutdown") return host.handlers.canShutdown();
         if (method === "worker.canReplace") return host.handlers.canReplace();
         if (method === "worker.hasSession") {
@@ -112,9 +135,22 @@ export async function startControlledWorker(
         }
         throw new Error("Unknown worker control request");
     });
+    const applyChange = (kind: GlobalChange): void => {
+        if (kind === "config") reloadDefaults();
+        const reloadCatalog = globals.hasCatalog();
+        void globals.changed(kind).then(async () => {
+            if (kind !== "preferences" && reloadCatalog) await globals.ensureCatalog();
+            host.registry.notifyModelCatalogChanged();
+            host.registry.pushWorkerStateEverywhere();
+        }).catch(() => {});
+    };
     peer.setEventHandler((event, value) => {
         if (event === "shutdown") {
             onShutdown();
+            return;
+        }
+        if (event === "config_changed" && isGlobalChange(value)) {
+            applyChange(value);
             return;
         }
         if (event !== "snapshot" || typeof value !== "object" || value === null) return;
@@ -123,6 +159,7 @@ export async function startControlledWorker(
         if (typeof snapshot.workIndex === "object" && snapshot.workIndex !== null) workIndex = snapshot.workIndex as WorkIndexSnapshot;
         for (const listener of listeners) listener();
     });
+    for (const kind of pendingChanges) applyChange(kind);
     let rosterTimer: ReturnType<typeof setTimeout> | undefined;
     let lastRoster = 0;
     const publishRoster = (): void => {
@@ -201,5 +238,9 @@ export async function startControlledWorker(
 }
 
 export type WorkerIdentity = Pick<HostIdentity, "pid" | "started_at">;
+function isGlobalChange(value: unknown): value is GlobalChange {
+    return value === "auth" || value === "config" || value === "pool"
+        || value === "preferences" || value === "catalog";
+}
 import { randomUUID } from "node:crypto";
 import { readSessionHeader } from "../../store/session-store.ts";

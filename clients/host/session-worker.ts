@@ -4,6 +4,10 @@ import { connectHost } from "../../src/host/connection.ts";
 import { ControlPeer } from "../../src/host/master/control.ts";
 import { startControlledWorker, type WorkerBootstrap, type WorkerHello } from "../../src/host/master/worker-control.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
+import { forbidWorkerConfigWrites } from "../../src/config.ts";
+import { forbidWorkerAuthWrites } from "../../src/providers/auth-storage.ts";
+import { forbidWorkerPoolWrites } from "../../src/model/pool-file-store.ts";
+import { forbidWorkerCatalogWrites } from "../../src/model/catalog-cache.ts";
 
 function option(name: string): string {
     const index = process.argv.indexOf(name);
@@ -13,6 +17,10 @@ function option(name: string): string {
 }
 
 async function main(): Promise<void> {
+    forbidWorkerConfigWrites();
+    forbidWorkerAuthWrites();
+    forbidWorkerPoolWrites();
+    forbidWorkerCatalogWrites();
     const index = Number(option("--worker-index"));
     const count = Number(option("--worker-count"));
     const generation = Number(option("--worker-generation"));

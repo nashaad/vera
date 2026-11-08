@@ -76,6 +76,10 @@ export function sessionModelAdapter(
             sessionId: store.header.id,
             workspace: store.header.cwd,
         }),
+        purpose !== "turn" || reg.options.beforeModelTerminal === undefined ? undefined
+            : (request, event, contentStarted) => reg.options.beforeModelTerminal!(
+                store.header.cwd, request, event, contentStarted,
+            ),
     );
 }
 

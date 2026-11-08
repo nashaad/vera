@@ -44,6 +44,10 @@ export type { SendOpenAICodexResponse } from "./openai-codex-wire.ts";
 
 export interface OpenAICodexAdapterOptions extends OpenAICodexAuthorizationOptions {
     readonly baseUrl?: string;
+    readonly authorization?: {
+        resolve(): Promise<OpenAICodexAuthorization>;
+        refreshRejected(accessToken: string): Promise<OpenAICodexAuthorization>;
+    };
 }
 
 export class OpenAICodexAdapter implements ModelAdapter {
@@ -242,9 +246,8 @@ export function createOpenAICodexAdapter(
     };
 
     return new OpenAICodexAdapter(async (request, signal) => {
-        const authorization = await resolveOpenAICodexAuthorization(
-            authorizationOptions,
-        );
+        const authorization = await (options.authorization?.resolve()
+            ?? resolveOpenAICodexAuthorization(authorizationOptions));
         let response = await send(authorization, request, signal);
         if (response.status === 401) {
             // The server drops these tokens well before the expiry they carry,
@@ -252,10 +255,11 @@ export function createOpenAICodexAdapter(
             const rejected = await response.text();
             let refreshed: OpenAICodexAuthorization;
             try {
-                refreshed = await refreshRejectedOpenAICodexAuthorization(
-                    authorization.accessToken,
-                    authorizationOptions,
-                );
+                refreshed = await (options.authorization?.refreshRejected(authorization.accessToken)
+                    ?? refreshRejectedOpenAICodexAuthorization(
+                        authorization.accessToken,
+                        authorizationOptions,
+                    ));
             } catch {
                 throw new OpenAICodexHttpError(401, rejected);
             }

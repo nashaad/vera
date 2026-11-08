@@ -21,6 +21,12 @@ import {
 import { userPoolFilePath } from "./pool-file-loader.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
+let workerPoolReadOnly = false;
+
+export function forbidWorkerPoolWrites(): void {
+    workerPoolReadOnly = true;
+}
+
 export interface PoolStoreOptions {
     readonly path?: string;
 }
@@ -242,6 +248,7 @@ function updatePoolFile(
     options: PoolStoreOptions,
     update: (file: PoolFile) => PoolFile,
 ): PoolFile {
+    if (workerPoolReadOnly) throw new Error("Worker model pool is read only");
     const path = options.path ?? userPoolFilePath();
     const current = readForUpdate(path);
     const errors = current.issues.filter(

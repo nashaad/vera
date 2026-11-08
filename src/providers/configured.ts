@@ -19,6 +19,7 @@ import { createCustomAnthropicAdapter } from "./custom-anthropic.ts";
 import {
     type OpenRouterAllowanceGuard,
 } from "./openrouter-allowance-guard.ts";
+import type { OpenAICodexAdapterOptions } from "./openai-codex.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
@@ -35,6 +36,7 @@ export interface ConfiguredProviderOptions {
     readonly projectRoot?: string;
     readonly captureFailedRequest?: FailedRequestCapture;
     readonly openRouterAllowanceGuard?: OpenRouterAllowanceGuard;
+    readonly authorization?: OpenAICodexAdapterOptions["authorization"];
 }
 
 export function createConfiguredModelAdapter(

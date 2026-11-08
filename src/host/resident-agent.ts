@@ -76,6 +76,7 @@ export interface ResidentAgentAttachOptions {
 }
 
 export interface ResidentAgentOptions {
+    readonly prepareModelCatalog?: () => Promise<void>;
     /** Reads a page outside the current checkpoint from the owner's store. */
     readonly historyPageSource?: (
         before: string,
@@ -180,7 +181,7 @@ export class ResidentAgent {
             send: (update): void => this.broadcast(update),
             receive: (signal): Promise<EngineCommand> => {
                 // No isClosed guard: the abort buffered by close must still be delivered.
-                return this.inbound.receive(signal).then((queued) => {
+                return this.inbound.receive(signal).then(async (queued) => {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
@@ -190,6 +191,18 @@ export class ResidentAgent {
                     if (queued.command.type === "trigger_delivery_turn") {
                         this.deliveryTurnQueued = false;
                         this.outstandingDeliveryWakes += 1;
+                    }
+                    if (this.options.prepareModelCatalog !== undefined && (
+                        queued.command.type === "get_model_settings"
+                        || queued.command.type === "update_model_settings"
+                        || queued.command.type === "update_session_model_settings"
+                        || queued.command.type === "catalog_refresh"
+                        || queued.command.type === "pool_add"
+                        || queued.command.type === "pool_remove"
+                        || queued.command.type === "pool_name"
+                        || queued.command.type === "pool_move"
+                    )) {
+                        await this.options.prepareModelCatalog();
                     }
                     return queued.command;
                 });

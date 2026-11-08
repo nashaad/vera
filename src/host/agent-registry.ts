@@ -405,7 +405,7 @@ export class AgentRegistry {
         return registrySettings.readReviewer(this);
     }
 
-    applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
+    applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean | Promise<boolean> {
         return registrySettings.applyReviewerPatch(this, patch);
     }
 
@@ -867,6 +867,9 @@ export class AgentRegistry {
         let transferring = ownershipTransfer;
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             historyPageSource: (before) => historyPageFromStore(store, before),
+            ...(this.options.prepareModelCatalog === undefined ? {} : {
+                prepareModelCatalog: this.options.prepareModelCatalog,
+            }),
             modelCatalogFacts: () => ({
                 providerCatalogs: this.options.providerCatalogs?.(),
                 selectionCleared: modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings),

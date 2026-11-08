@@ -24,6 +24,12 @@ export const CODEX_CLIENT_VERSION = "99.0.0";
 export interface CodexCatalogFetchOptions extends OpenAICodexAuthorizationOptions {
     readonly baseUrl?: string;
     readonly cacheDir?: string;
+    readonly authorization?: CodexCatalogAuthorization;
+}
+
+export interface CodexCatalogAuthorization {
+    resolve(): Promise<OpenAICodexAuthorization>;
+    refreshRejected(accessToken: string): Promise<OpenAICodexAuthorization>;
 }
 
 export function readCodexCatalog(cacheDir?: string): ProviderCatalog {
@@ -65,7 +71,10 @@ export async function fetchCodexCatalog(
         }
         return fetchRequest(url, { headers, signal: AbortSignal.timeout(10_000) })
             .catch((error: unknown) => {
-                throw new CodexCatalogError("unavailable", `OpenAI Codex models request failed: ${messageOf(error)}`);
+                const detail = messageOf(error);
+                const safe = options.authorization === undefined
+                    ? detail : detail.replaceAll(authorization.accessToken, "[redacted]");
+                throw new CodexCatalogError("unavailable", `OpenAI Codex models request failed: ${safe}`);
             });
     };
     const authorize = (resolve: () => Promise<OpenAICodexAuthorization>): Promise<OpenAICodexAuthorization> =>
@@ -78,13 +87,12 @@ export async function fetchCodexCatalog(
         throw new CodexCatalogError("missing_credential", "OpenAI Codex is not signed in");
     }
     const signedIn = { ...options, authStorage };
-    const authorization = await authorize(() => resolveOpenAICodexAuthorization(signedIn));
+    const authorization = await authorize(() => options.authorization?.resolve()
+        ?? resolveOpenAICodexAuthorization(signedIn));
     let response = await send(authorization);
     if (response.status === 401) {
-        response = await send(await authorize(() => refreshRejectedOpenAICodexAuthorization(
-            authorization.accessToken,
-            signedIn,
-        )));
+        response = await send(await authorize(() => options.authorization?.refreshRejected(authorization.accessToken)
+            ?? refreshRejectedOpenAICodexAuthorization(authorization.accessToken, signedIn)));
     }
     if (response.status === 401 || response.status === 403) {
         throw new CodexCatalogError("authentication", `OpenAI Codex models returned ${response.status}`);

@@ -24,6 +24,9 @@ export interface InboxAdmissionPolicyOptions {
     readonly projectRoot?: string;
     readonly project?: readonly string[];
     readonly userConfigPath?: string;
+    readonly rememberUser?: (sourceFamily: string) => Promise<void>;
+    readonly rememberProject?: (sourceFamily: string, projectRoot: string) => Promise<void>;
+    readonly onUserWrite?: () => void;
 }
 
 export class InboxAdmissionPolicy {
@@ -31,6 +34,9 @@ export class InboxAdmissionPolicy {
     private readonly project = new Set<string>();
     private readonly projectRoot: string | undefined;
     private readonly userConfigPath: string;
+    private readonly rememberUser?: (sourceFamily: string) => Promise<void>;
+    private readonly rememberProject?: (sourceFamily: string, projectRoot: string) => Promise<void>;
+    private readonly onUserWrite?: () => void;
 
     constructor(options: InboxAdmissionPolicyOptions) {
         addFamilies(this.user, options.user);
@@ -44,17 +50,26 @@ export class InboxAdmissionPolicy {
         this.projectRoot = options.projectRoot;
         this.userConfigPath = options.userConfigPath
             ?? defaultVeraConfigPath();
+        this.rememberUser = options.rememberUser;
+        this.rememberProject = options.rememberProject;
+        this.onUserWrite = options.onUserWrite;
     }
 
     static fromConfig(
         config: Pick<VeraConfig, "inbox">,
         projectRoot?: string,
         userConfigPath?: string,
+        rememberUser?: (sourceFamily: string) => Promise<void>,
+        onUserWrite?: () => void,
+        rememberProject?: (sourceFamily: string, projectRoot: string) => Promise<void>,
     ): InboxAdmissionPolicy {
         return new InboxAdmissionPolicy({
             user: config.inbox?.admit ?? [],
             ...(projectRoot === undefined ? {} : { projectRoot }),
             ...(userConfigPath === undefined ? {} : { userConfigPath }),
+            ...(rememberUser === undefined ? {} : { rememberUser }),
+            ...(onUserWrite === undefined ? {} : { onUserWrite }),
+            ...(rememberProject === undefined ? {} : { rememberProject }),
         });
     }
 
@@ -98,6 +113,13 @@ export class InboxAdmissionPolicy {
             );
         }
 
+        if (scope === "user" && this.rememberUser !== undefined) {
+            return this.rememberUser(sourceFamily).then(() => this.refreshFromDisk());
+        }
+        if (scope === "project" && this.rememberProject !== undefined && this.projectRoot !== undefined) {
+            return this.rememberProject(sourceFamily, this.projectRoot).then(() => this.refreshFromDisk());
+        }
+
         return enqueueAdmissionWrite(path, () => {
             if (scope === "user") {
                 const current = readUserInboxAdmission(this.userConfigPath)
@@ -106,6 +128,7 @@ export class InboxAdmissionPolicy {
                 updateVeraConfigDefaults({
                     inbox: { admit: next },
                 }, { path: this.userConfigPath });
+                this.onUserWrite?.();
                 replaceSet(this.user, next);
                 return;
             }
