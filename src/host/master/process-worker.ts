@@ -12,11 +12,16 @@ import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
 import { startWorkerControlServer, type WorkerControlServer } from "./control-server.ts";
+import type { createCredentialBroker } from "./credentials.ts";
+import { createMasterGlobals, type GlobalChange } from "./global-services.ts";
+import { applyConfigDefaults } from "./config-defaults.ts";
 import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
     readonly workerCount: number;
+    readonly credentials: ReturnType<typeof createCredentialBroker>;
+    readonly onGlobalChangeReady: (notify: (kind: GlobalChange) => void) => void;
 }
 
 interface WorkerSlot {
@@ -61,6 +66,19 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             ),
             generation: 0, ready: false, starting: true, closed: false,
         };
+    });
+    const notifyGlobalChange = (kind: GlobalChange): void => {
+        if (kind === "config") applyConfigDefaults(options.master.registry, options.sessionOptions.currentConfig());
+        for (const slot of slots) void slot.peer?.event("config_changed", kind).catch(() => {});
+    };
+    options.onGlobalChangeReady(notifyGlobalChange);
+    const globals = createMasterGlobals({
+        master: options.master,
+        home: options.sessionOptions.home,
+        lease: options.credentials.lease,
+        changed: notifyGlobalChange,
+        config: options.sessionOptions.currentConfig,
+        configPath: options.hostOptions.inboxUserConfigPath ?? options.sessionOptions.configPath,
     });
     const requestWorker = async <T>(slot: WorkerSlot, method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await slot.connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
@@ -143,6 +161,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
+                    if (method.startsWith("globals.")) return await globals.handle(method, args);
                     if (method.startsWith("extension.")) {
                         return await serveExtensionRequest(options.master.extensions, method, args, signal);
                     }

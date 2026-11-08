@@ -347,7 +347,7 @@ export interface AgentRegistryOptions {
     readonly reviewLog?: ReviewLog;
     readonly writeReviewer?: (
         reviewer: ToolReviewerSettings | null,
-    ) => void;
+    ) => unknown;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly registeredAgents?: readonly AgentDefinition[];
     readonly sessionIdentity?: SessionIdentityProvider;
@@ -359,7 +359,14 @@ export interface AgentRegistryOptions {
     readonly compactionModels?: readonly VeraCatalogModel[];
     readonly compactionOverrides?: CompactionOverrides;
     readonly toolResults?: ToolResultLimits;
-    readonly permissionPreferences?: PermissionPreferenceStore;
+    readonly permissionPreferences?: Pick<PermissionPreferenceStore, "list" | "add" | "remove">;
+    readonly prepareModelCatalog?: () => Promise<void>;
+    readonly beforeModelTerminal?: (
+        workspace: string,
+        request: import("../../model/types.ts").ModelRequest,
+        event: import("../../model/types.ts").ModelStreamEvent,
+        contentStarted: boolean,
+    ) => Promise<void>;
     readonly readAvailableModels?: () => readonly SuggestedModel[];
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     readonly refreshableProviders?: () => readonly string[];
@@ -372,11 +379,11 @@ export interface AgentRegistryOptions {
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
     readonly modelFailureLedger?: ModelFailureLedger;
-    readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
+    readonly updateModelDefaults?: (settings: ModelTurnSettings) => unknown;
     readonly contextLimit?: () => number | undefined;
-    readonly updateContextLimit?: (limit: number | null) => void;
+    readonly updateContextLimit?: (limit: number | null) => unknown;
     readonly configuredOverrides?: () => ConfiguredOverrides;
-    readonly updateOverrides?: (patch: OverrideSettingsPatch) => void;
+    readonly updateOverrides?: (patch: OverrideSettingsPatch) => unknown;
     readonly admitToPool?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -393,18 +400,18 @@ export interface AgentRegistryOptions {
     }>;
     readonly removeFromPool?: (
         entry: { readonly provider: string; readonly model: string },
-    ) => void;
+    ) => unknown;
     readonly namePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
         projectRoot: string,
-    ) => boolean;
+    ) => boolean | Promise<boolean>;
     readonly movePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         delta: number,
         projectRoot: string,
-    ) => boolean;
-    readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
+    ) => boolean | Promise<boolean>;
+    readonly updateApprovalDefault?: (mode: ApprovalMode) => unknown;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly trustNotices?: {

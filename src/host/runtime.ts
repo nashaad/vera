@@ -16,7 +16,9 @@ import {
     type VeraProviderId,
 } from "../config.ts";
 import { eventLogRoot } from "../engine/events.ts";
-import { availableModels } from "../engine/model-settings.ts";
+import { availableModels, type ModelTurnSettings, type OverrideSettingsPatch } from "../engine/model-settings.ts";
+import type { ToolReviewerSettings } from "../engine/reviewer.ts";
+import type { ApprovalMode } from "../sdk/permissions.ts";
 import {
     cachedProviderModels,
     readCachedWindowIndex,
@@ -42,6 +44,7 @@ import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirec
 import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
+import { fileReadStamp } from "../store/read-cache.ts";
 import {
     appendRestartRecord,
     clearRestartRecordsForSession,
@@ -72,6 +75,7 @@ import {
     CodexCatalogError,
     fetchCodexCatalog,
     readCodexCatalog,
+    type CodexCatalogAuthorization,
 } from "../model/codex-catalog.ts";
 import { curatedCachePath, startCuratedRefresh } from "../model/curated-models.ts";
 import {
@@ -161,6 +165,9 @@ import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } f
 import type { SessionShard } from "./shard.ts";
 import { prepareProcessWorker } from "./master/process-worker.ts";
 import { controlSocketPath } from "./master/supervisor.ts";
+import { cachedHostAuthStorage, createCredentialBroker } from "./master/credentials.ts";
+import type { GlobalChange } from "./master/global-services.ts";
+import type { WorkerGlobals } from "./master/worker-globals.ts";
 import type { WorkerExtensionServices } from "./master/extension-catalog.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
@@ -210,6 +217,7 @@ export interface StartResidentHostOptions {
     readonly webRoot?: string;
     // Catalog requests only; model turns keep their own adapters.
     readonly catalogFetch?: typeof globalThis.fetch;
+    readonly credentialFetch?: typeof globalThis.fetch;
 }
 
 export interface HostHealth {
@@ -242,13 +250,15 @@ export interface SessionWorkerRuntime {
 
 export async function startSessionWorkerRuntime(
     options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
+    workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard, remoteExtensions) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
     options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
+    workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
@@ -304,12 +314,22 @@ async function startHostRuntime(
             hostLog({ type: "pool_migrated", message: migration.notice });
         }
     }
-    const currentConfig = createLiveVeraConfigReader(options.config, {
+    let announceGlobalChange: (kind: GlobalChange) => void = () => {};
+    const readConfig = createLiveVeraConfigReader(options.config, {
         path: configPath,
         ...(options.projectRoot === undefined
             ? {}
             : { projectRoot: options.projectRoot }),
     });
+    const currentConfig = options.processWorker !== true ? readConfig : () => {
+        const before = fileReadStamp(configPath);
+        try {
+            return readConfig();
+        } finally {
+            if (fileReadStamp(configPath) !== before) announceGlobalChange("config");
+        }
+    };
+    if (options.processWorker === true) currentConfig();
     rememberSkillSettings(options.projectRoot);
     const currentReachability = () => poolReachability(
         loadPoolFile(poolPath === undefined ? {} : { userPath: poolPath }).merged,
@@ -321,7 +341,7 @@ async function startHostRuntime(
     if (options.inProcessWorker === true && options.processWorker === true) {
         throw new Error("Choose one session worker transport");
     }
-    if (options.processWorker === true && (options.createAdapter !== undefined || options.authStorage !== undefined
+    if (options.processWorker === true && (options.createAdapter !== undefined
         || options.trashSessionArtifacts !== undefined)) {
         throw new Error("Process workers require serializable host services");
     }
@@ -373,8 +393,32 @@ async function startHostRuntime(
         ? veraMachineDirectoryIn(home)
         : sessionDirectory;
     const eventLogDirectory = options.eventLogDirectory;
-    const authStorage = options.authStorage
+    const diskAuthStorage = options.authStorage
         ?? createAuthStorage({ path: defaultAuthStoragePath(home) });
+    const authStorage = workerGlobals !== undefined ? {
+        getCredential: diskAuthStorage.getCredential.bind(diskAuthStorage),
+        setCredential: () => { throw new Error("Worker credentials are read only"); },
+        deleteCredential: () => { throw new Error("Worker credentials are read only"); },
+    } : options.processWorker === true
+        ? cachedHostAuthStorage(diskAuthStorage, defaultAuthStoragePath(home), () => announceGlobalChange("auth"))
+        : diskAuthStorage;
+    const credentials = options.processWorker === true ? createCredentialBroker({
+        authStorage,
+        config: currentConfig,
+        ...(options.credentialFetch === undefined ? {} : { fetch: options.credentialFetch }),
+    }) : undefined;
+    const codexAuthorization: CodexCatalogAuthorization | undefined = credentials === undefined ? undefined : {
+        async resolve() {
+            const lease = await credentials.lease(OPENAI_CODEX_PROVIDER_ID);
+            if (lease.kind !== "oauth") throw new Error("Provider authorization is unavailable");
+            return lease.authorization;
+        },
+        async refreshRejected(token) {
+            const lease = await credentials.lease(OPENAI_CODEX_PROVIDER_ID, token);
+            if (lease.kind !== "oauth") throw new Error("Provider authorization is unavailable");
+            return lease.authorization;
+        },
+    };
     const discoversModelsAtStartup = workerReservations === undefined
         && options.createAdapter === undefined && options.skipStartupDiscovery !== true;
     let models = await timed("model_discovery", () =>
@@ -406,6 +450,7 @@ async function startHostRuntime(
                 }
                 registry.notifyModelCatalogChanged();
                 inProcessWorker?.notifyModelCatalogChanged();
+                announceGlobalChange("catalog");
             })
             .catch(() => undefined)
             .finally(() => {
@@ -471,6 +516,10 @@ async function startHostRuntime(
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
+        ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
+        ...(workerGlobals === undefined ? {} : { workerGlobals }),
+        ...(credentials === undefined ? {} : { masterCredentialLease: credentials.lease }),
+        ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
         ...(options.processWorker === true ? { poolMaster: true } : {}),
         ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,
@@ -517,6 +566,11 @@ async function startHostRuntime(
                         options.config,
                         projectRoot,
                         options.inboxUserConfigPath ?? configPath,
+                        workerGlobals === undefined ? undefined
+                            : (family) => workerGlobals.request<void>("inboxRemember", family),
+                        options.processWorker === true ? () => announceGlobalChange("config") : undefined,
+                        workerGlobals === undefined ? undefined
+                            : (family, projectRoot) => workerGlobals.request<void>("inboxRememberProject", family, projectRoot),
                     ),
             });
             const schedulePath = options.schedulePath ?? defaultSchedulePath(home);
@@ -525,6 +579,11 @@ async function startHostRuntime(
             curatedRefresh = workerReservations === undefined
                 ? startCuratedRefresh({
                     path: curatedCachePath(home),
+                    ...(options.processWorker === true ? {
+                        onResult: (result) => {
+                            if (result.source === "fetched") announceGlobalChange("catalog");
+                        },
+                    } : {}),
                     ...(options.config.curated_models_url === undefined
                         ? {}
                         : { url: options.config.curated_models_url }),
@@ -588,6 +647,7 @@ async function startHostRuntime(
                                     const outcome = await refreshCodexCatalog(authStorage, {
                                         log: hostLog,
                                         cacheDir: cacheDirectory,
+                                        ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
                                         ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
                                     });
                                     if (outcome?.failure !== undefined) return undefined;
@@ -667,19 +727,31 @@ async function startHostRuntime(
                                 return models;
                             } finally {
                                 refreshWebDevArenaInBackground(0);
+                                announceGlobalChange("catalog");
                             }
                         });
                         // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
                         catalogRefreshes = refreshed.then(() => undefined, () => undefined);
                         return refreshed;
                     },
-                    readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
-                    createEffortPool: (projectRoot) =>
-                        createPoolEffortPool({
+                    readPool: (projectRoot) => pooledModels(models, {
+                        ...scoped(projectRoot), ...(options.processWorker === true ? { userPath: join(home, "pool.json") } : {}),
+                    }),
+                    createEffortPool: (projectRoot) => {
+                        const pool = createPoolEffortPool({
                             ...scoped(projectRoot),
+                            ...(options.processWorker === true ? { userPath: join(home, "pool.json"), path: join(home, "pool.json") } : {}),
                             onWriteRefused: (error) =>
                                 hostLog({ type: "pool_write_refused", message: error.message }),
-                        }),
+                        });
+                        return options.processWorker === true ? {
+                            ...pool,
+                            recordLearned(ref, key, fact) {
+                                pool.recordLearned(ref, key, fact);
+                                announceGlobalChange("pool");
+                            },
+                        } : pool;
+                    },
                     readPolicy: (projectRoot) => ({
                         ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig() }),
                         candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }),
@@ -688,6 +760,7 @@ async function startHostRuntime(
                         const config = currentConfig();
                         return admitToPool(entry, onStep, {
                             ...admissionOptions,
+                            ...(options.processWorker === true ? { path: join(home, "pool.json") } : {}),
                             createAdapter: (provider) => createRequestOptionsSnapshotAdapter(
                                 (selected) => createAdapter(selected),
                                 provider,
@@ -696,16 +769,22 @@ async function startHostRuntime(
                             readFeedRow,
                             onWriteRefused: (error) =>
                                 hostLog({ type: "pool_write_refused", message: error.message }),
+                        }).then((outcome) => {
+                            if (outcome.verdict === "added") announceGlobalChange("pool");
+                            return outcome;
                         });
                     },
                     removeFromPool: (entry) => {
                         refusedPoolWrite(() => {
-                            setPoolMembership([`${entry.provider}/${entry.model}`], false);
+                            setPoolMembership([`${entry.provider}/${entry.model}`], false,
+                                options.processWorker === true ? { path: join(home, "pool.json") } : {});
                         }, hostLog);
+                        announceGlobalChange("pool");
                     },
                     namePoolEntry: (entry, name, projectRoot) => {
                         const id = `${entry.provider}/${entry.model}`;
-                        const merged = loadPoolFile({ projectRoot }).merged;
+                        const merged = loadPoolFile({ projectRoot,
+                            ...(options.processWorker === true ? { userPath: join(home, "pool.json") } : {}) }).merged;
                         if (
                             name !== null
                             && poolNameRefusal(merged, id, name) !== undefined
@@ -714,19 +793,23 @@ async function startHostRuntime(
                         }
                         let named = false;
                         const refused = refusedPoolWrite(() => {
-                            const file = namePoolModel(id, name ?? undefined);
+                            const file = namePoolModel(id, name ?? undefined,
+                                options.processWorker === true ? { path: join(home, "pool.json") } : {});
                             named = file.models[id] !== undefined
                                 && file.models[id]?.name === (name ?? undefined);
                         }, hostLog);
+                        if (refused === undefined && named) announceGlobalChange("pool");
                         return refused === undefined && named;
                     },
                     movePoolEntry: (entry, delta) => {
                         const id = `${entry.provider}/${entry.model}`;
                         let held = false;
                         const refused = refusedPoolWrite(() => {
-                            held = Object.hasOwn(readUserPoolFile().models, id);
-                            if (held) movePoolModel(id, delta);
+                            const poolOptions = options.processWorker === true ? { path: join(home, "pool.json") } : {};
+                            held = Object.hasOwn(readUserPoolFile(poolOptions).models, id);
+                            if (held) movePoolModel(id, delta, poolOptions);
                         }, hostLog);
+                        if (refused === undefined && held) announceGlobalChange("pool");
                         return refused === undefined && held;
                     },
                     updateModelDefaults: (settings) => {
@@ -735,20 +818,24 @@ async function startHostRuntime(
                             model: settings.model,
                             // Explicitly null rather than omitted: settings that carry no effort mean the accepted model has none, so a stored default from an earlier model must not survive into the next.
                             reasoning_effort: settings.reasoningEffort ?? null,
-                        });
+                        }, options.processWorker === true ? { path: configPath } : {});
+                        announceGlobalChange("config");
                     },
                     contextLimit: () => currentConfig().context_limit,
                     updateContextLimit: (limit) => {
-                        updateVeraConfigDefaults({ context_limit: limit });
+                        updateVeraConfigDefaults({ context_limit: limit }, options.processWorker === true ? { path: configPath } : {});
+                        announceGlobalChange("config");
                     },
                     updateApprovalDefault: (mode) => {
-                        updateVeraConfigDefaults({ approval_mode: mode });
+                        updateVeraConfigDefaults({ approval_mode: mode }, options.processWorker === true ? { path: configPath } : {});
+                        announceGlobalChange("config");
                     },
                     writeReviewer: (settings) => {
                         if (settings === null || settings.models.length === 0) {
                             updateVeraConfigDefaults({
                                 model_assignment: { assignment: "reviewer", binding: null },
-                            });
+                            }, options.processWorker === true ? { path: configPath } : {});
+                            announceGlobalChange("config");
                             return;
                         }
                         const defaultProvider = currentConfig().provider;
@@ -769,11 +856,55 @@ async function startHostRuntime(
                                     }),
                                 },
                             },
-                        });
+                        }, options.processWorker === true ? { path: configPath } : {});
+                        announceGlobalChange("config");
                     },
                     updateOverrides: (patch) => {
-                        updateVeraConfigDefaults(overridePatchDefaults(patch));
+                        updateVeraConfigDefaults(overridePatchDefaults(patch), options.processWorker === true ? { path: configPath } : {});
+                        announceGlobalChange("config");
                     },
+                    ...(workerGlobals === undefined ? {} : {
+                        readAvailableModels: () => workerGlobals.models(),
+                        refreshAvailableModels: () => workerGlobals.models(),
+                        providerCatalogs: () => workerGlobals.providerCatalogs(),
+                        refreshableProviders: () => workerGlobals.refreshableProviders(),
+                        refreshCatalog: (provider: string) => workerGlobals.refreshCatalog(provider),
+                        readPool: (projectRoot?: string) => pooledModels(workerGlobals.models(), {
+                            ...scoped(projectRoot), userPath: join(home, "pool.json"),
+                        }),
+                        readPolicy: (projectRoot?: string) => ({
+                            ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig(), userPath: join(home, "pool.json") }),
+                            candidates: pooledModels(workerGlobals.models(), {
+                                ...scoped(projectRoot), userPath: join(home, "pool.json"), includeUncurated: true,
+                            }),
+                        }),
+                        createEffortPool: (projectRoot: string) => ({
+                            ...createPoolEffortPool({ ...scoped(projectRoot), userPath: join(home, "pool.json") }),
+                            recordLearned: () => {},
+                        }),
+                        admitToPool: (entry: { provider: string; model: string }, onStep: Parameters<typeof admitToPool>[1],
+                            admissionOptions?: { verify?: boolean }) => admitToPool(entry, onStep, {
+                            ...admissionOptions,
+                            createAdapter: (provider) => createRequestOptionsSnapshotAdapter(
+                                (selected) => createAdapter(selected), provider, currentConfig(),
+                            ),
+                            readFeedRow,
+                            commit: (id, declared, learned) => workerGlobals.commitPool({
+                                id, declared, ...(learned === undefined ? {} : { learned }),
+                            }),
+                            onWriteRefused: (error) => hostLog({ type: "pool_write_refused", message: error.message }),
+                        }),
+                        removeFromPool: (entry: { provider: string; model: string }) => workerGlobals.request<void>("poolRemove", entry),
+                        namePoolEntry: (entry: { provider: string; model: string }, name: string | null, projectRoot: string) =>
+                            workerGlobals.request<boolean>("poolName", entry, name, projectRoot),
+                        movePoolEntry: (entry: { provider: string; model: string }, delta: number, projectRoot: string) =>
+                            workerGlobals.request<boolean>("poolMove", entry, delta, projectRoot),
+                        updateModelDefaults: (settings: ModelTurnSettings) => workerGlobals.request<void>("modelDefaults", settings),
+                        updateContextLimit: (limit: number | null) => workerGlobals.request<void>("contextLimit", limit),
+                        updateApprovalDefault: (mode: ApprovalMode) => workerGlobals.request<void>("approvalDefault", mode),
+                        writeReviewer: (settings: ToolReviewerSettings | null) => workerGlobals.request<void>("reviewer", settings),
+                        updateOverrides: (patch: OverrideSettingsPatch) => workerGlobals.request<void>("overrides", patch),
+                    }),
                 },
             };
         },
@@ -866,7 +997,8 @@ async function startHostRuntime(
                 capabilities: HOST_CAPABILITIES,
             };
             inProcessWorker = options.processWorker === true
-                ? prepareProcessWorker({ ...workerOptions, hostOptions: options, workerCount })
+                ? prepareProcessWorker({ ...workerOptions, hostOptions: options, workerCount, credentials: credentials!,
+                    onGlobalChangeReady: (notify) => { announceGlobalChange = notify; } })
                 : await prepareInProcessWorker(workerOptions);
         }
         const prepareAddress = async (address: string | null | undefined): Promise<void> => {
@@ -968,11 +1100,22 @@ async function startHostRuntime(
 
                 stopWhenIdle,
                 forgetProvider: async (provider, workspace) => {
-                    forgetProviderConnection(provider, authStorage);
-                    providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
-                    await sessionHost.clearProviderSelection(provider);
-                    await inProcessWorker?.clearProviderSelection(provider);
-                    return registry.readHostModelSettings(workspace);
+                    const forget = async () => {
+                        const write = () => forgetProviderConnection(provider, authStorage, options.processWorker === true ? {
+                            configPath, poolPath: join(home, "pool.json"), cacheDir: cacheDirectory,
+                        } : {});
+                        if (credentials === undefined) write();
+                        else await credentials.withProviderMutation(provider, write);
+                        announceGlobalChange("config");
+                        providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
+                        await sessionHost.clearProviderSelection(provider);
+                        await inProcessWorker?.clearProviderSelection(provider);
+                        return registry.readHostModelSettings(workspace);
+                    };
+                    if (credentials === undefined) return await forget();
+                    const forgotten = catalogRefreshes.then(forget);
+                    catalogRefreshes = forgotten.then(() => undefined, () => undefined);
+                    return await forgotten;
                 },
                 operateModels: async (request, onResult, onStep) => {
                     const generations = new Map(request.models.map(({ provider }) =>
@@ -998,6 +1141,7 @@ async function startHostRuntime(
                         const outcomes = await refreshProviderCatalogs(config, {
                             authStorage,
                             cacheDir: cacheDirectory,
+                            ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
                         });
                         models = await discoverAvailableModels(
                             config,
@@ -1005,6 +1149,7 @@ async function startHostRuntime(
                             hostLog,
                             cacheDirectory,
                         );
+                        announceGlobalChange("catalog");
                         return outcomes;
                     });
                     catalogRefreshes = refreshed.then(() => undefined, () => undefined);
@@ -1216,6 +1361,7 @@ export interface CatalogRefreshOptions {
     readonly cacheDir?: string;
     // Codex catalog requests only.
     readonly fetch?: typeof globalThis.fetch;
+    readonly authorization?: CodexCatalogAuthorization;
 }
 
 export async function refreshProviderCatalogs(
@@ -1248,6 +1394,7 @@ export async function refreshProviderCatalogs(
         refreshCodexCatalog(authStorage, {
             ...cacheOptions,
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
         }),
     ]);
     return [
@@ -1272,6 +1419,7 @@ export async function refreshCodexCatalog(
         readonly cacheDir?: string;
         readonly fetch?: typeof globalThis.fetch;
         readonly log?: HostLog;
+        readonly authorization?: CodexCatalogAuthorization;
     },
 ): Promise<CatalogRefreshOutcome | undefined> {
     if (!hasCodexCredential(authStorage)) return undefined;

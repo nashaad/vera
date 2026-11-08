@@ -5,7 +5,7 @@ import { isEffortLevel } from "./effort-ladder.ts";
 import { admitModel } from "./admission.ts";
 import { feedLearnedFacts, type FeedRowReader } from "./feed-cache.ts";
 import type { ModelFeedRow } from "./feed-shape.ts";
-import type { PoolFileModel } from "./pool-file.ts";
+import type { LearnedFacts, PoolFileModel } from "./pool-file.ts";
 import type { ModelAdapter } from "./types.ts";
 import {
     addPoolModel,
@@ -39,6 +39,8 @@ export interface PoolAdmissionOptions {
     readonly onWriteRefused?: (error: PoolFileWriteRefusedError) => void;
     readonly createAdapter?: (provider: string) => ModelAdapter;
     readonly readFeedRow?: FeedRowReader;
+    readonly path?: string;
+    readonly commit?: (id: string, declared: PoolFileModel, learned?: LearnedFacts) => Promise<void>;
 }
 
 export interface PoolAdmissionOutcome {
@@ -56,9 +58,7 @@ export async function admitToPool(
     const catalogModel = effectiveCatalog(entry.provider)
         .models.find((candidate) => candidate.id === entry.model);
     if (options.verify !== true) {
-        const refused = refusedPoolWrite(() => {
-            addPoolModel(id, declaredPoolEntry(catalogModel));
-        }, options);
+        const refused = await commitPool(id, declaredPoolEntry(catalogModel), undefined, options);
         return refused ?? { verdict: "added" };
     }
     let adapter;
@@ -85,11 +85,7 @@ export async function admitToPool(
             label: FEED_STEP_LABEL,
             status: "running",
         });
-        const refused = refusedPoolWrite(() => {
-            addPoolModel(id, declaredPoolEntry(catalogModel));
-            clearLearned(id);
-            recordLearned(id, feedLearnedFacts(feedRow));
-        }, options);
+        const refused = await commitPool(id, declaredPoolEntry(catalogModel), feedLearnedFacts(feedRow), options);
         onStep({
             step: "feed",
             label: FEED_STEP_LABEL,
@@ -109,11 +105,7 @@ export async function admitToPool(
     });
     if (verdict.status === "added") {
         // Two writes because they are two different claims: the user asked for this model, and the probe found these facts.
-        const refused = refusedPoolWrite(() => {
-            addPoolModel(id, declaredPoolEntry(catalogModel));
-            clearLearned(id);
-            recordLearned(id, verdict.learned);
-        }, options);
+        const refused = await commitPool(id, declaredPoolEntry(catalogModel), verdict.learned, options);
         return refused ?? { verdict: "added" };
     }
     return {
@@ -139,19 +131,31 @@ async function freshRowOrUndefined(
     }
 }
 
-function refusedPoolWrite(
-    write: () => void,
+async function commitPool(
+    id: string,
+    declared: PoolFileModel,
+    learned: LearnedFacts | undefined,
     options: PoolAdmissionOptions,
-): { readonly verdict: "pool_write_refused"; readonly reason: string } | undefined {
+): Promise<{ readonly verdict: "pool_write_refused"; readonly reason: string } | undefined> {
     try {
-        write();
+        if (options.commit !== undefined) {
+            await options.commit(id, declared, learned);
+        } else {
+            const storeOptions = options.path === undefined ? {} : { path: options.path };
+            addPoolModel(id, declared, storeOptions);
+            if (learned !== undefined) {
+                clearLearned(id, undefined, storeOptions);
+                recordLearned(id, learned, storeOptions);
+            }
+        }
         return undefined;
     } catch (error) {
-        if (!(error instanceof PoolFileWriteRefusedError)) {
+        if (!(error instanceof PoolFileWriteRefusedError)
+            && !(error instanceof Error && error.name === "PoolFileWriteRefusedError")) {
             throw error;
         }
-        options.onWriteRefused?.(error);
-        return { verdict: "pool_write_refused", reason: error.message };
+        options.onWriteRefused?.(error as PoolFileWriteRefusedError);
+        return { verdict: "pool_write_refused", reason: (error as Error).message };
     }
 }
 

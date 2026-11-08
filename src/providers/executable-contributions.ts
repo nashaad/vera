@@ -28,6 +28,7 @@ const CONTRIBUTIONS: Readonly<Record<string, ExecutableProviderContribution>> = 
         createAdapter: (_provider, options) => createOpenAICodexAdapter({
             ...(options.authStorage === undefined ? {} : { authStorage: options.authStorage }),
             ...(options.fetch === undefined ? {} : { fetch: options.fetch as typeof globalThis.fetch }),
+            ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
         }),
     },
     openrouter: {

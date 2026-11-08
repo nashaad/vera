@@ -17,6 +17,12 @@ import { isSafeProviderId } from "../providers/provider-id.ts";
 import { cacheBuildId } from "../release/cache-build-id.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
+let workerCatalogReadOnly = false;
+
+export function forbidWorkerCatalogWrites(): void {
+    workerCatalogReadOnly = true;
+}
+
 export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
 }
@@ -44,6 +50,7 @@ export function writeProviderCatalogSnapshot(
     catalog: ProviderCatalog,
     options: ProviderCatalogCacheOptions = {},
 ): void {
+    if (workerCatalogReadOnly) throw new Error("Worker provider catalog is read only");
     const directory = options.cacheDir ?? providerCatalogCacheDir();
     const path = providerCatalogCachePath(catalog.provider, directory);
     const temporaryPath = join(
