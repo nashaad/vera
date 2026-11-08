@@ -165,13 +165,8 @@ test("auth storage upgrades the Vera 1 credential map on its next write", () => 
     });
 });
 
-test.each([
-    ["malformed JSON", "{ not json"],
-    ["a shape nothing here writes", '{"schema_version":99,"credentials":[]}'],
-])("a store holding %s is moved aside so a provider can be connected", (
-    _name,
-    contents,
-) => {
+test("a store that is not JSON is moved aside so a provider can be connected", () => {
+    const contents = "{ not json";
     const root = mkdtempSync(join(tmpdir(), "vera-auth-"));
     temporaryDirectories.push(root);
     const path = join(root, "auth.json");
@@ -192,6 +187,98 @@ test.each([
     expect(quarantined).toHaveLength(1);
     expect(readFileSync(quarantined[0]!, "utf8")).toBe(contents);
     expect(quarantined[0]!.startsWith(`${path}.corrupt-`)).toBe(true);
+});
+
+test("a store written in a newer format is refused on read and write, and left alone", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-newer-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const contents = JSON.stringify({
+        schema_version: 3,
+        credentials: { "openai-codex": { type: "oauth", token: "newer" } },
+    });
+    writeFileSync(path, contents);
+    const quarantined: string[] = [];
+    const storage = createAuthStorage({
+        path,
+        onQuarantine: (quarantinePath) => quarantined.push(quarantinePath),
+    });
+    const refused = "auth.json was written by a newer Vera. Update Vera to use it.";
+
+    expect(() => storage.getCredential("openai-codex")).toThrow(refused);
+    expect(() =>
+        storage.setCredential("openrouter", { type: "api_key", key: "k" })
+    ).toThrow(refused);
+    expect(() => storage.deleteCredential("openai-codex")).toThrow(refused);
+
+    expect(readFileSync(path, "utf8")).toBe(contents);
+    expect(quarantined).toEqual([]);
+    expect(readdirSync(root)).toEqual(["auth.json"]);
+});
+
+test("JSON this build does not recognise is refused on read and moved aside on write", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-unknown-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const contents = '{"schema_version":2,"credentials":[]}';
+    writeFileSync(path, contents);
+    const quarantined: string[] = [];
+    const storage = createAuthStorage({
+        path,
+        onQuarantine: (quarantinePath) => quarantined.push(quarantinePath),
+    });
+
+    expect(() => storage.getCredential("openrouter")).toThrow(
+        `Invalid Vera auth storage at ${path}`,
+    );
+    expect(readFileSync(path, "utf8")).toBe(contents);
+    expect(quarantined).toEqual([]);
+
+    storage.setCredential("openrouter", { type: "api_key", key: "fresh" });
+
+    expect(quarantined).toHaveLength(1);
+    expect(readFileSync(quarantined[0]!, "utf8")).toBe(contents);
+    expect(quarantined[0]!.startsWith(`${path}.corrupt-`)).toBe(true);
+    expect(createAuthStorage({ path }).getCredential("openrouter")).toEqual({
+        type: "api_key",
+        key: "fresh",
+    });
+});
+
+test("converting an older format keeps the old bytes beside the file", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-copy-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const legacy = JSON.stringify({
+        openai: { type: "api_key", key: "legacy-key" },
+    });
+    writeFileSync(path, legacy);
+
+    createAuthStorage({ path }).setCredential("next", {
+        type: "api_key",
+        key: "next-key",
+    });
+
+    const copies = readdirSync(root).filter((name) =>
+        name.startsWith("auth.json.pre-v2-")
+    );
+    expect(copies).toHaveLength(1);
+    expect(readFileSync(join(root, copies[0]!), "utf8")).toBe(legacy);
+    expect(apiKey(createAuthStorage({ path }), "openai")).toBe("legacy-key");
+});
+
+test("reading an older format converts it in memory and writes nothing", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-read-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const legacy = JSON.stringify({
+        openai: { type: "api_key", key: "legacy-key" },
+    });
+    writeFileSync(path, legacy);
+
+    expect(apiKey(createAuthStorage({ path }), "openai")).toBe("legacy-key");
+    expect(readFileSync(path, "utf8")).toBe(legacy);
+    expect(readdirSync(root)).toEqual(["auth.json"]);
 });
 
 test("a store that was never written quarantines nothing", () => {

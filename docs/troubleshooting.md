@@ -115,6 +115,14 @@ open. Fix the file; each page reads it again when it opens.
 Skills and `/customize` keep the last settings that loaded too. See
 [Turn a skill off](skills.md#turn-a-skill-off).
 
+## auth.json was written by a newer Vera
+
+Vera refuses to read or change `auth.json` when a newer build wrote it, so the
+saved logins stay in the file. Install the newer build again, or sign in to the
+providers again with this build after the file is removed or moved by hand.
+A file that is not JSON, or is JSON this build does not recognise, is moved
+aside next to the original on the next save, and the TUI names the new path.
+
 ## A configured extension is missing
 
 Open `/extensions` and inspect its status. A missing environment credential
