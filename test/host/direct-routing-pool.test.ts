@@ -16,7 +16,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
-test("locate, create and resume preserve the starting worker as owner", async () => {
+test("locate and create wait while resume refuses a starting worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -36,7 +36,7 @@ test("locate, create and resume preserve the starting worker as owner", async ()
         const sessionPath = join(home, "runtime", "sessions", "crow.jsonl");
         await SessionStore.create(sessionPath, { sessionId: "crow", cwd: home });
         starting = startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -56,9 +56,12 @@ test("locate, create and resume preserve the starting worker as owner", async ()
         void resuming.catch(() => {});
         await Bun.sleep(100);
         expect(createFinished).toBe(false);
-        expect(resumeFinished).toBe(false);
+        expect(resumeFinished).toBe(true);
+        const unavailable = await resuming.then(() => undefined, (error: unknown) => error);
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
         release.resolve();
         host = await starting;
+        resuming = resumeAgentThroughHost(masterPath, sessionPath);
         const [created, resumed] = await Promise.all([creating, resuming]);
         expect(created.location).toMatchObject({ worker_id: "w0", socket_path: join(home, "runtime", "w0.sock") });
         expect(resumed.location).toEqual(created.location);
@@ -104,7 +107,7 @@ test("a real pool routes direct attachments and worker requests through the mast
     let client: AttachedAgentClient | undefined;
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -194,7 +197,7 @@ test("a shutdown accepted on a worker socket reaches the client before the pool 
     let workerPid: number | undefined;
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -235,7 +238,7 @@ test("a reconnecting client reaches a real replacement worker after the host is 
         },
     });
     const options = {
-        home, processWorker: true, skipStartupDiscovery: true,
+        home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
         config: {
             schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
             providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },

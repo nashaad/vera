@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 
 import type { CreateRegisteredAgentOptions, RegisteredAgentSummary, RenameSessionOutcome } from "../agent-registry.ts";
 import type { AgentLocationFailedResponse, AgentLocationResponse, BlockSessionRequest, UnblockSessionRequest } from "../protocol.ts";
@@ -21,8 +22,9 @@ import type { ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
 import type { StopWaitTarget } from "../stop-when-idle.ts";
 import type { AttachmentTreeReader } from "../attachment-coordinator.ts";
 import { LIVE_IDLE_WINDOW_MS } from "../agent-registry/support.ts";
-import { mergeRoster, type SessionOwner } from "./roster.ts";
-import type { OwnedSession, RoutedSession, SessionEndpoint } from "./session-endpoint.ts";
+import { mergeRosters, type SessionOwner, type WorkerOwner } from "./roster.ts";
+import { sessionShardIndex } from "../shard.ts";
+import type { InspectedSession, OwnedSession, RoutedSession, SessionEndpoint } from "./session-endpoint.ts";
 import { blockAcrossOwners, unblockAcrossOwners } from "./block.ts";
 import { searchAcrossOwners } from "./search.ts";
 import { trashAcrossOwners, type PreparedTrash } from "./trash.ts";
@@ -57,7 +59,18 @@ export interface HostRouterOptions {
     readonly workerSocket: string;
     readonly buildId: string;
     readonly workerGeneration?: () => number;
+    readonly workerReady?: () => boolean;
+    readonly extraWorkers?: readonly RouterWorker[];
+    readonly keepResidentOwner?: boolean;
     readonly reserveDelivery?: (id: string, run: () => Promise<ParentDeliveryOutcome>) => Promise<ParentDeliveryOutcome>;
+}
+
+export interface RouterWorker {
+    readonly id: WorkerOwner;
+    readonly endpoint: SessionEndpoint;
+    readonly socket: string;
+    readonly generation: () => number;
+    readonly ready: () => boolean;
 }
 
 export class HostRouter implements ExtensionSessionServices, PeerSessionServices, SubagentSessionServices, SubagentAdmission {
@@ -71,10 +84,22 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private readonly subagentStarts = new Map<string, number>();
     private readonly subagentStartCompletions = new Map<string, OperationCompletion>();
     private readonly masterOpeningParents = new Map<string, string>();
+    private readonly workerOpenings = new Map<string, WorkerOwner>();
     private readonly operationCompletions = new Map<string, OperationCompletion>();
     private pending: Promise<void> = Promise.resolve();
+    private imports: Promise<void> = Promise.resolve();
+    private readonly workers: readonly RouterWorker[];
+    private readonly endpoints: ReadonlyMap<SessionOwner, SessionEndpoint>;
 
-    constructor(private readonly options: HostRouterOptions) {}
+    constructor(private readonly options: HostRouterOptions) {
+        this.workers = [{
+            id: "w0", endpoint: options.worker, socket: options.workerSocket,
+            generation: options.workerGeneration ?? (() => 1), ready: options.workerReady ?? (() => true),
+        }, ...options.extraWorkers ?? []];
+        this.endpoints = new Map<SessionOwner, SessionEndpoint>([
+            ["host", options.master], ...this.workers.map((worker) => [worker.id, worker.endpoint] as const),
+        ]);
+    }
 
     observe(owner: SessionOwner, sessions: readonly RoutedSession[]): void {
         for (const session of sessions) {
@@ -83,14 +108,27 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         }
     }
 
+    observeStored(owner: SessionOwner, summaries: readonly RegisteredAgentSummary[]): void {
+        for (const summary of summaries) {
+            if (!this.owners.has(summary.id) && (owner === "host" || this.hashOwner(summary.id) === owner)) {
+                this.owners.set(summary.id, owner);
+            }
+        }
+    }
+
     create(options: Pick<CreateRegisteredAgentOptions,
         "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession> {
         return this.serial(async () => {
             let id = randomUUID();
-            while (this.masterOpening.has(id) || await this.options.master.resident(id) !== undefined
-                || await this.options.worker.resident(id) !== undefined) id = randomUUID();
-            const session = await this.options.worker.create({ ...options, id });
-            this.owners.set(session.id, "w0");
+            while (this.masterOpening.has(id) || this.owners.has(id)
+                || (await this.allResidents()).some((entry) => entry.session.id === id)) id = randomUUID();
+            const available = this.workers.filter((worker) => worker.ready());
+            if (available.length === 0) throw new UserFacingError("The session worker is unavailable.");
+            const loads = await Promise.all(available.map(async (worker) => (await worker.endpoint.residents()).length));
+            const chosen = available[loads.indexOf(Math.min(...loads))]!;
+            this.owners.set(id, chosen.id);
+            const session = await chosen.endpoint.create({ ...options, id });
+            if (session.id !== id) throw new Error("Session worker returned a different id");
             return session;
         });
     }
@@ -101,37 +139,66 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         }
     }
 
+    inspectForResume(path: string): Promise<InspectedSession> {
+        return this.serial(async () => {
+            const canonical = await this.options.master.canonicalPath(path);
+            const name = basename(canonical);
+            const id = name.endsWith(".jsonl") ? name.slice(0, -6) : undefined;
+            const opening = this.masterOpeningPaths.get(canonical) ?? (id !== undefined && this.masterOpening.has(id) ? id : undefined);
+            if (opening !== undefined) this.waitForOpen(opening);
+            const inspected = await this.options.master.inspect(canonical);
+            if (this.masterOpening.has(inspected.id)) this.waitForOpen(inspected.id);
+            return inspected;
+        });
+    }
+
     async resume(path: string, reservedPaths?: ReadonlySet<string>): Promise<RoutedSession> {
         while (true) {
             const result = await this.serial(async (): Promise<RoutedSession | WaitForOperation> => {
-                const canonical = await this.options.worker.canonicalPath(path);
+                const canonical = await this.options.master.canonicalPath(path);
                 const opening = this.masterOpeningPaths.get(canonical);
-                if (opening !== undefined) return { wait: this.operationCompletions.get(opening)!.promise };
-                const masterAtPath = await this.options.master.residentAt(canonical);
-                const inspected = await (masterAtPath === undefined ? this.options.worker : this.options.master).inspect(canonical);
+                if (opening !== undefined) this.waitForOpen(opening);
+                const name = basename(canonical);
+                const pathId = name.endsWith(".jsonl") ? name.slice(0, -6) : undefined;
+                const pathOwner = pathId === undefined ? undefined : this.owners.get(pathId);
+                if (pathId !== undefined && this.masterOpening.has(pathId)) this.waitForOpen(pathId);
+                const inspected = await this.options.master.inspect(canonical);
                 if (reservedPaths !== undefined && !reservedPaths.has(inspected.sessionPath)) {
                     throw new SessionTransferReservationsChanged();
                 }
-                if (this.masterOpening.has(inspected.id)) return { wait: this.operationCompletions.get(inspected.id)!.promise };
+                if (this.masterOpening.has(inspected.id)) this.waitForOpen(inspected.id);
                 this.assertResumeAvailable(inspected.id, inspected.parentId);
-                const [existing, master] = await Promise.all([
-                    this.options.worker.resident(inspected.id),
-                    this.options.master.resident(inspected.id),
-                ]);
-                if (existing !== undefined && master !== undefined) {
+                const prior = inspected.id === pathId ? pathOwner : this.owners.get(inspected.id);
+                if (this.options.keepResidentOwner === true) {
+                    const selected = prior !== undefined && prior !== "host" ? prior : prior === "host" ? undefined : this.hashOwner(inspected.id);
+                    if (selected !== undefined && !this.worker(selected).ready()) {
+                        throw new UserFacingError("The session worker is unavailable.");
+                    }
+                }
+                const residents = (await this.allResidents()).filter((entry) => entry.session.id === inspected.id);
+                if (residents.length > 1) {
                     throw new Error("Session is resident on both hosts");
                 }
-                if (existing !== undefined) {
-                    if ((await this.options.worker.inspect(existing.sessionPath)).sessionPath !== inspected.sessionPath) {
+                const resident = residents[0];
+                if (this.options.keepResidentOwner === true && prior !== undefined
+                    && resident !== undefined && resident.owner !== prior) {
+                    throw new Error("Session ownership conflicts with its resident host");
+                }
+                const master = resident?.owner === "host" ? resident.session : undefined;
+                if (resident !== undefined && (resident.owner !== "host" || this.options.keepResidentOwner === true)) {
+                    if ((await this.endpoint(resident.owner).inspect(resident.session.sessionPath)).sessionPath !== inspected.sessionPath) {
                         throw new Error("Session id is already in use");
                     }
-                    this.owners.set(inspected.id, "w0");
-                    return existing;
+                    this.owners.set(inspected.id, resident.owner);
+                    return resident.session;
                 }
                 if (master === undefined && this.extensionOperations.has(inspected.id)) {
                     return { wait: this.operationCompletions.get(inspected.id)!.promise };
                 }
                 let transferred: readonly RoutedSession[] = [];
+                const owner = prior !== undefined && prior !== "host" ? prior : this.hashOwner(inspected.id);
+                const worker = this.worker(owner);
+                if (!worker.ready()) throw new UserFacingError("The session worker is unavailable.");
                 if (master !== undefined) {
                     const tree = await this.options.master.tree(inspected.id);
                     if ((await this.options.master.inspect(master.sessionPath)).sessionPath !== inspected.sessionPath) {
@@ -157,27 +224,22 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                         this.owners.set(inspected.id, "host");
                         return master;
                     }
-                    for (const id of released) this.owners.set(id, "w0");
+                    for (const id of released) this.owners.set(id, owner);
                 }
-                this.owners.set(inspected.id, "w0");
-                try {
-                    const session = await this.options.worker.resume(inspected.sessionPath, {
-                        reserved: reservedPaths !== undefined,
-                        ownershipTransfer: master !== undefined,
-                    });
-                    for (const member of transferred) {
-                        if (member.id !== inspected.id) {
-                            await this.options.worker.resume(member.sessionPath, {
-                                reserved: reservedPaths !== undefined,
-                                ownershipTransfer: true,
-                            });
-                        }
+                this.owners.set(inspected.id, owner);
+                const session = await worker.endpoint.resume(inspected.sessionPath, {
+                    reserved: reservedPaths !== undefined,
+                    ownershipTransfer: master !== undefined,
+                });
+                for (const member of transferred) {
+                    if (member.id !== inspected.id) {
+                        await worker.endpoint.resume(member.sessionPath, {
+                            reserved: reservedPaths !== undefined,
+                            ownershipTransfer: true,
+                        });
                     }
-                    return session;
-                } catch (error) {
-                    this.owners.delete(inspected.id);
-                    throw error;
                 }
+                return session;
             });
             if (!("wait" in result)) return result;
             await result.wait;
@@ -187,7 +249,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     locate(id: string, reserved = false): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
         return this.serial(async () => {
             try {
-                const owner = await this.resolvedOwner(id) ?? "w0";
+                const owner = await this.resolvedOwner(id) ?? this.hashOwner(id);
+                if (owner !== "host" && !this.worker(owner).ready()) {
+                    return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." };
+                }
+                if (!this.owners.has(id)) this.owners.set(id, owner);
                 const session = await this.endpoint(owner).find(id, reserved);
                 if (session === undefined) {
                     return { type: "agent_location_failed", reason: "not_found", message: "No session with this id is on this host." };
@@ -195,9 +261,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 this.owners.set(id, owner);
                 return {
                     type: "agent_location",
-                    socket_path: owner === "w0" ? this.options.workerSocket : this.options.masterSocket,
+                    socket_path: owner === "host" ? this.options.masterSocket : this.worker(owner).socket,
                     worker_id: owner,
-                    worker_generation: owner === "w0" ? this.options.workerGeneration?.() ?? 1 : 1,
+                    worker_generation: owner === "host" ? 1 : this.worker(owner).generation(),
                     build_id: this.options.buildId,
                 };
             } catch (error) {
@@ -214,7 +280,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         return this.serial(async () => {
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
-            if (assigned === undefined && owner === "host") return false;
+            if (assigned === undefined && (owner === "host" || owner !== this.hashOwner(id))) return false;
+            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+            if (assigned === undefined) this.owners.set(id, owner);
             const session = await this.endpoint(owner).find(id, reserved);
             if (session === undefined) return false;
             this.owners.set(id, owner);
@@ -224,15 +292,16 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     socketFor(from: SessionOwner, id: string): Promise<string | undefined> {
         return this.serial(async () => {
-            const owner = await this.resolvedOwner(id) ?? "w0";
+            const owner = await this.resolvedOwner(id) ?? this.hashOwner(id);
+            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
             if (owner === from) return undefined;
-            return owner === "w0" ? this.options.workerSocket : this.options.masterSocket;
+            return owner === "host" ? this.options.masterSocket : this.worker(owner).socket;
         });
     }
 
     beginBranch(owner: SessionOwner, id: string): Promise<boolean> {
         return this.serial(async () => {
-            if ((await this.resolvedOwner(id, false) ?? "w0") !== owner) return false;
+            if (await this.claimOwner(id, false) !== owner) return false;
             this.branches.set(id, (this.branches.get(id) ?? 0) + 1);
             return true;
         });
@@ -261,11 +330,8 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async peerRoster(callerId: string, workspace: string, details: boolean): Promise<readonly PeerRosterEntry[]> {
-        const [master, worker] = await Promise.all([
-            this.options.master.peerRoster(callerId, workspace, details),
-            this.options.worker.peerRoster(callerId, workspace, details),
-        ]);
-        return [...master, ...worker].sort((left, right) => left.participant_id.localeCompare(right.participant_id));
+        const rosters = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.peerRoster(callerId, workspace, details)));
+        return rosters.flat().sort((left, right) => left.participant_id.localeCompare(right.participant_id));
     }
 
     async peerSend(caller: PeerCaller, effect: AgentSendEffect): Promise<ToolOutput> {
@@ -275,7 +341,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private async relatedOperation<T>(callerId: string, targetId: string, run: (endpoint: SessionEndpoint) => Promise<T>, waitForStore = false): Promise<T> {
         const ids = [...new Set([callerId, targetId])];
         const owner = await this.serial(async () => {
-            const assigned = await this.resolvedOwner(targetId, waitForStore) ?? "w0";
+            const assigned = await this.claimOwner(targetId, waitForStore);
             for (const id of ids) this.startOperation(id);
             return assigned;
         });
@@ -287,7 +353,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async peerLabel(id: string): Promise<string | undefined> {
-        const owner = await this.serial(async () => await this.resolvedOwner(id, false) ?? "w0");
+        const owner = await this.serial(async () => await this.resolvedOwner(id, false) ?? this.hashOwner(id));
         return this.endpoint(owner).peerLabel(id);
     }
 
@@ -344,11 +410,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     reserveSubagentStart(parentId: string, limit: number): Promise<boolean> {
         return this.serial(async () => {
-            const [master, worker] = await Promise.all([
-                this.options.master.runningSubagents(parentId), this.options.worker.runningSubagents(parentId),
-            ]);
+            const counts = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.runningSubagents(parentId)));
             const starting = this.subagentStarts.get(parentId) ?? 0;
-            if (master + worker + starting >= limit) return false;
+            if (counts.reduce((sum, count) => sum + count, starting) >= limit) return false;
             if (starting === 0) {
                 const completion = Promise.withResolvers<void>();
                 this.subagentStartCompletions.set(parentId, { promise: completion.promise, resolve: completion.resolve });
@@ -370,18 +434,49 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         });
     }
 
-    async beginMasterCreate(id: string, path?: string, parentId?: string): Promise<void> {
+    async beginMasterCreate(
+        id: string, path?: string, parentId?: string, owner: SessionOwner = "host", signal?: AbortSignal,
+    ): Promise<void> {
         while (true) {
+            signal?.throwIfAborted();
             const canonical = path === undefined ? undefined : await this.options.master.canonicalPath(path);
             const waiting = await this.serial(async (): Promise<WaitForOperation | undefined> => {
+                signal?.throwIfAborted();
                 if (this.trashing.has(id)) throw new UserFacingError("This conversation is being moved to the trash.");
                 const pathOwner = canonical === undefined ? undefined : this.masterOpeningPaths.get(canonical);
                 const existing = this.operationCompletions.get(pathOwner ?? id);
-                if (existing !== undefined) return { wait: existing.promise };
-                const [master, worker] = await Promise.all([this.options.master.resident(id), this.options.worker.resident(id)]);
-                if (master !== undefined || worker !== undefined) throw new Error(`Resident agent ${id} already exists`);
+                if (existing !== undefined) {
+                    const recorded = this.owners.get(pathOwner ?? id);
+                    if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
+                        throw new UserFacingError("The session worker is unavailable.");
+                    }
+                    return { wait: existing.promise };
+                }
+                const recorded = this.owners.get(id);
+                if (this.options.keepResidentOwner === true && recorded !== undefined && recorded !== owner) {
+                    if (recorded !== "host" && !this.worker(recorded).ready()) {
+                        throw new UserFacingError("The session worker is unavailable.");
+                    }
+                    throw new Error(`Resident agent ${id} already exists`);
+                }
+                if ((await this.allResidents()).some((entry) => entry.session.id === id)) {
+                    throw new Error(`Resident agent ${id} already exists`);
+                }
+                signal?.throwIfAborted();
+                const current = this.owners.get(id);
+                if (this.options.keepResidentOwner === true && current !== undefined && current !== owner) {
+                    if (current !== "host" && !this.worker(current).ready()) {
+                        throw new UserFacingError("The session worker is unavailable.");
+                    }
+                    throw new Error(`Resident agent ${id} already exists`);
+                }
+                if (owner !== "host" && !this.worker(owner).ready()) {
+                    throw new UserFacingError("The session worker is unavailable.");
+                }
                 this.startOperation(id);
                 this.masterOpening.add(id);
+                if (this.options.keepResidentOwner === true || owner !== "host") this.owners.set(id, owner);
+                if (owner !== "host") this.workerOpenings.set(id, owner);
                 if (parentId !== undefined) this.masterOpeningParents.set(id, parentId);
                 if (canonical !== undefined) this.masterOpeningPaths.set(canonical, id);
                 return undefined;
@@ -392,14 +487,30 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async beginMasterResume(path: string): Promise<string> {
-        const [master, worker] = await Promise.all([
-            this.options.master.residentAt(path), this.options.worker.residentAt(path),
-        ]);
-        const resident = master ?? worker;
+        const residents = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.residentAt(path)));
+        const resident = residents.find((entry) => entry !== undefined);
         if (resident !== undefined) throw new Error(`Resident agent ${resident.id} already exists`);
         const inspected = await this.options.worker.inspect(path);
         await this.beginMasterCreate(inspected.id, inspected.sessionPath);
         return inspected.id;
+    }
+
+    async beginWorkerCreate(owner: WorkerOwner, id: string, path?: string, parentId?: string, signal?: AbortSignal): Promise<void> {
+        await this.beginMasterCreate(id, path, parentId, owner, signal);
+    }
+
+    endWorkerOpen(id: string): void {
+        this.workerOpenings.delete(id);
+        this.endMasterOpen(id);
+    }
+
+    workerExited(owner: WorkerOwner): void {
+        for (const [id, current] of this.owners) {
+            if (current === owner) this.owners.delete(id);
+        }
+        for (const [id, worker] of this.workerOpenings) {
+            if (worker === owner) this.endWorkerOpen(id);
+        }
     }
 
     endMasterOpen(id: string): void {
@@ -412,16 +523,23 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "w0").rename(id, name, reserved));
+        return this.serial(async () => this.endpoint(await this.claimOwner(id)).rename(id, name, reserved));
     }
 
     async trash(id: string, reserved = false): Promise<"trashed" | "busy" | "not_found" | "failed"> {
         const prepared = await this.serial(async (): Promise<PreparedTrash | StoredTrash | "busy"> => {
             if (this.trashing.has(id)) return "busy";
+            const recorded = this.owners.get(id);
+            if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
+                throw new UserFacingError("The session worker is unavailable.");
+            }
             const residents = await this.allResidents();
             const root = residents.find((entry) => entry.session.id === id);
+            if (this.options.keepResidentOwner === true && recorded !== undefined && root !== undefined && root.owner !== recorded) {
+                throw new Error("Session ownership conflicts with its resident host");
+            }
             if (root === undefined || root.session.closed === true || root.session.failed === true) {
-                const storedOwner = await this.resolvedOwner(id) ?? "w0";
+                const storedOwner = await this.claimOwner(id);
                 this.trashing.add(id);
                 this.startOperation(id);
                 this.closing.set(id, (this.closing.get(id) ?? 0) + 1);
@@ -431,27 +549,24 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             const ids = members.map((entry) => entry.session.id);
             if (ids.some((memberId) => this.trashing.has(memberId))) return "busy";
             const registered = residents.map((entry) => entry.session.id);
-            const hostIds = members.filter((entry) => entry.owner === "host").map((entry) => entry.session.id);
-            const workerIds = members.filter((entry) => entry.owner === "w0").map((entry) => entry.session.id);
             for (const memberId of ids) {
                 this.trashing.add(memberId);
                 this.startOperation(memberId);
                 this.closing.set(memberId, (this.closing.get(memberId) ?? 0) + 1);
             }
             try {
-                const results = await Promise.allSettled([
-                    this.options.master.reserveTrash(hostIds, id, registered, ids),
-                    this.options.worker.reserveTrash(workerIds, id, registered, ids),
-                ]);
-                const [host, worker] = results;
-                if (host.status === "fulfilled" && worker.status === "fulfilled"
-                    && host.value.status === "reserved" && worker.value.status === "reserved") {
-                    return { root, members, residents, plans: [...host.value.plans, ...worker.value.plans] };
+                const endpoints = [...this.endpoints.entries()];
+                const results = await Promise.allSettled(endpoints.map(([owner, endpoint]) =>
+                    endpoint.reserveTrash(members.filter((entry) => entry.owner === owner).map((entry) => entry.session.id), id, registered, ids)
+                ));
+                if (results.every((result) => result.status === "fulfilled" && result.value.status === "reserved")) {
+                    return { root, members, residents, plans: results.flatMap((result) =>
+                        result.status === "fulfilled" && result.value.status === "reserved" ? result.value.plans : []
+                    ) };
                 }
-                await Promise.allSettled([
-                    ...(host.status === "fulfilled" && host.value.status === "reserved" ? [this.options.master.releaseTrash(ids)] : []),
-                    ...(worker.status === "fulfilled" && worker.value.status === "reserved" ? [this.options.worker.releaseTrash(ids)] : []),
-                ]);
+                await Promise.allSettled(results.flatMap((result, index) =>
+                    result.status === "fulfilled" && result.value.status === "reserved" ? [endpoints[index]![1].releaseTrash(ids)] : []
+                ));
                 this.finishTrash(ids);
                 const failure = results.find((result) => result.status === "rejected");
                 if (failure?.status === "rejected") throw failure.reason;
@@ -466,7 +581,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             try {
                 const outcome = await this.endpoint(prepared.storedOwner).trash(id, reserved);
                 if (outcome === "trashed") {
-                    await Promise.all([this.options.master.forgetStored(id), this.options.worker.forgetStored(id)]);
+                    await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.forgetStored(id)));
                 }
                 return outcome;
             } finally {
@@ -476,7 +591,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         const reservedIds = prepared.members.map((entry) => entry.session.id);
         try {
             return await trashAcrossOwners(
-                this.options.master, this.options.worker, prepared, (parentId) => this.closing.has(parentId),
+                this.endpoints, prepared, (parentId) => this.closing.has(parentId),
                 () => this.serial(async () => {
                     const current = await this.allResidents();
                     const known = new Set(prepared.members.map((entry) => entry.session.id));
@@ -492,7 +607,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 }),
             );
         } finally {
-            await Promise.allSettled([this.options.master.releaseTrash(reservedIds), this.options.worker.releaseTrash(reservedIds)]);
+            await Promise.allSettled([...this.endpoints.values()].map((endpoint) => endpoint.releaseTrash(reservedIds)));
             this.finishTrash(prepared.members.map((entry) => entry.session.id));
         }
     }
@@ -514,8 +629,15 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private async closeTree(id: string, reason: SessionEndReason | undefined, residentOnly: boolean): Promise<CloseAgentOutcome> {
         const prepared = await this.serial(async () => {
             if (this.trashing.has(id)) return { busy: true as const };
+            const recorded = this.owners.get(id);
+            if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
+                throw new UserFacingError("The session worker is unavailable.");
+            }
             const sessions = await this.allResidents();
             const root = sessions.find((entry) => entry.session.id === id);
+            if (this.options.keepResidentOwner === true && recorded !== undefined && root !== undefined && root.owner !== recorded) {
+                throw new Error("Session ownership conflicts with its resident host");
+            }
             if (residentOnly && (root === undefined || root.session.closed === true || root.session.failed === true)) return { missing: true as const };
             if (root !== undefined && !(await this.endpoint(root.owner).canClose(id))) return { busy: true as const };
             const members = root === undefined ? [] : [root, ...this.descendants(id, sessions)];
@@ -524,17 +646,17 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 this.startOperation(memberId);
                 this.closing.set(memberId, (this.closing.get(memberId) ?? 0) + 1);
             }
-            const storedOwner = root === undefined ? await this.resolvedOwner(id) ?? "w0" : undefined;
+            const storedOwner = root === undefined ? await this.claimOwner(id) : undefined;
             return { members, root, storedOwner };
         });
         if ("busy" in prepared) return { status: "busy" };
         if ("missing" in prepared) return { status: "not_found" };
         const { root } = prepared;
-        if (root === undefined) return this.endpoint(prepared.storedOwner ?? "w0").close(id, reason);
+        if (root === undefined) return this.endpoint(prepared.storedOwner ?? this.hashOwner(id)).close(id, reason);
         const members = [...prepared.members];
         try {
             return await closeAcrossOwners(
-                this.options.master, this.options.worker, root, members, reason ?? "closed",
+                this.endpoints, root, members, reason ?? "closed",
                 () => this.serial(async () => {
                     const current = await this.allResidents();
                     const known = new Set(members.map((member) => member.session.id));
@@ -560,7 +682,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     block(request: BlockSessionRequest): Promise<BlockSessionOutcome> {
         return this.withResidents((sessions) => blockAcrossOwners(
-            this.options.master, this.options.worker, sessions, request,
+            this.endpoints, this.workers[0]!.id, sessions, request,
             () => this.allResidents(), (ids) => this.waitForSubagentStarts(ids),
         ));
     }
@@ -596,7 +718,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     unblock(request: UnblockSessionRequest): Promise<UnblockSessionOutcome> {
-        return this.withResidents((sessions) => unblockAcrossOwners(this.options.master, this.options.worker, sessions, request));
+        return this.withResidents(() => unblockAcrossOwners(this.endpoints, this.workers[0]!.id, request));
     }
 
     sync(id: string): Promise<BranchSyncOutcome> {
@@ -617,21 +739,20 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async facts(sessions: readonly RegisteredAgentSummary[], include: readonly SessionFactName[]): Promise<readonly RegisteredAgentSummary[]> {
-        const [master, worker] = await this.serial(async () => {
-            const master: RegisteredAgentSummary[] = [];
-            const worker: RegisteredAgentSummary[] = [];
+        const assigned = await this.serial(async () => {
+            const assigned = new Map<SessionOwner, RegisteredAgentSummary[]>();
             for (const session of sessions) {
-                ((await this.resolvedOwner(session.id) ?? "w0") === "w0" ? worker : master).push(session);
+                const owner = await this.resolvedOwner(session.id) ?? this.hashOwner(session.id);
+                const rows = assigned.get(owner) ?? [];
+                rows.push(session);
+                assigned.set(owner, rows);
             }
             for (const session of sessions) this.startOperation(session.id);
-            return [master, worker] as const;
+            return assigned;
         });
         try {
-            const [masterRows, workerRows] = await Promise.all([
-                this.options.master.facts(master, include),
-                this.options.worker.facts(worker, include),
-            ]);
-            const rows = new Map([...masterRows, ...workerRows].map((row) => [row.id, row]));
+            const result = await Promise.all([...assigned.entries()].map(([owner, rows]) => this.endpoint(owner).facts(rows, include)));
+            const rows = new Map(result.flat().map((row) => [row.id, row]));
             return sessions.map((session) => rows.get(session.id) ?? session);
         } finally {
             for (const session of sessions) this.finishOperation(session.id);
@@ -639,26 +760,35 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async search(query: SessionSearchQuery): Promise<SessionSearchResults> {
-        if (query.session_id !== undefined) {
-            return await this.extensionOperation(query.session_id, (endpoint) => endpoint.search(query), true);
-        }
-        const master = await this.serial(async () => {
-            const sessions = await this.options.master.residents();
-            for (const session of sessions) {
-                this.startOperation(session.id);
+        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+        const scan = await this.serial(async () => {
+            const owners = [...this.endpoints.entries()];
+            const [rosters, residents] = await Promise.all([
+                Promise.all(owners.map(([, endpoint]) => endpoint.list())),
+                this.allResidents(),
+            ]);
+            const paths = new Map<SessionOwner, string[]>(owners.map(([owner]) => [owner, []]));
+            const seen = new Set<string>();
+            for (const rows of rosters) {
+                for (const row of rows) {
+                    if (seen.has(row.id)) continue;
+                    seen.add(row.id);
+                    const owner = await this.resolvedOwner(row.id) ?? this.hashOwner(row.id);
+                    paths.get(owner)?.push(row.session_path);
+                }
             }
-            return sessions;
+            for (const entry of residents) this.startOperation(entry.session.id);
+            return { paths, residents };
         });
         try {
-            const paths = master.map((session) => session.sessionPath);
-            return await searchAcrossOwners(this.options.master, this.options.worker, paths, query);
+            return await searchAcrossOwners(this.endpoints, scan.paths, query);
         } finally {
-            for (const session of master) this.finishOperation(session.id);
+            for (const entry of scan.residents) this.finishOperation(entry.session.id);
         }
     }
 
     async flush(): Promise<void> {
-        await Promise.all([this.options.master.flush(), this.options.worker.flush()]);
+        await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.flush()));
     }
 
     cut(id: string, reason: string): Promise<boolean> {
@@ -666,13 +796,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async stopWaitTargets(): Promise<readonly StopWaitTarget[]> {
-        const [master, worker] = await Promise.all([this.options.master.stopWaitTargets(), this.options.worker.stopWaitTargets()]);
-        return [...master, ...worker];
+        return (await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.stopWaitTargets()))).flat();
     }
 
     async parkIdle(now = Date.now()): Promise<void> {
-        const [host, worker] = await Promise.all([this.options.master.parkFacts(), this.options.worker.parkFacts()]);
-        const facts = [...host, ...worker];
+        const facts = (await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.parkFacts()))).flat();
         const byId = new Map(facts.map((entry) => [entry.id, entry]));
         const expired: string[] = [];
         for (const entry of facts) {
@@ -694,12 +822,41 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         for (const id of expired) await this.close(id, "idle").catch(() => {});
     }
 
-    importSession(path: string): Promise<SessionImportOutcome> {
-        return this.options.worker.importSession(path);
+    async waitForImports(): Promise<void> {
+        await this.imports;
     }
 
-    listImportableSessions(workspace: string | undefined): Promise<ImportableSessionListing> {
-        return this.options.worker.listImportableSessions(workspace);
+    importSession(path: string): Promise<SessionImportOutcome> {
+        const run = this.imports.then(async () => {
+            if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+            await this.shareImportIndex();
+            let id = randomUUID();
+            while (this.owners.has(id) || this.masterOpening.has(id)) id = randomUUID();
+            this.owners.set(id, "w0");
+            const outcome = await this.options.worker.importSession(path, id);
+            if (outcome.status !== "imported" || outcome.existing) {
+                if (this.owners.get(id) === "w0") this.owners.delete(id);
+            } else if (outcome.sessionId !== id) {
+                throw new Error("Session worker returned a different id");
+            }
+            return outcome;
+        });
+        this.imports = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    async listImportableSessions(workspace: string | undefined): Promise<ImportableSessionListing> {
+        await this.waitForImports();
+        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+        await this.shareImportIndex();
+        return await this.options.worker.listImportableSessions(workspace);
+    }
+
+    private async shareImportIndex(): Promise<void> {
+        const rosters = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.list()));
+        const rows = mergeRosters([...this.endpoints.keys()].map((owner, index) => [owner, rosters[index]!] as const),
+            (id) => this.owners.get(id));
+        await Promise.all(rows.map((row) => this.options.worker.rememberStored(row)));
     }
 
     importedSourceHash(summary: RegisteredAgentSummary): Promise<string | undefined> {
@@ -707,30 +864,50 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     pumpInbox(from: SessionOwner, admittedSeq?: number): Promise<void> {
-        return this.endpoint(from === "host" ? "w0" : "host").pumpInbox(admittedSeq);
+        return from === "host" ? Promise.resolve() : this.options.master.pumpInbox(admittedSeq);
     }
 
     list(): Promise<RegisteredAgentSummary[]> {
         return this.serial(async () => {
-            const [master, worker, masterResidents, workerResidents] = await Promise.all([
-                this.options.master.list(),
-                this.options.worker.list(),
-                this.options.master.residents(),
-                this.options.worker.residents(),
+            const owners = this.activeEndpoints();
+            const [rosters, residents] = await Promise.all([
+                Promise.all(owners.map(([, endpoint]) => endpoint.list())),
+                this.allResidents(),
             ]);
-            const masterIds = new Set(masterResidents.map((session) => session.id));
-            const workerIds = new Set(workerResidents.map((session) => session.id));
-            for (const id of masterIds) {
-                if (workerIds.has(id)) throw new Error("Session is resident on both hosts");
+            const residentOwners = new Map<string, SessionOwner>();
+            for (const entry of residents) {
+                if (residentOwners.has(entry.session.id)) throw new Error("Session is resident on multiple hosts");
+                residentOwners.set(entry.session.id, entry.owner);
             }
-            return mergeRoster(master, worker, (id) => workerIds.has(id)
-                ? "w0"
-                : masterIds.has(id) ? "host" : this.owners.get(id));
+            return mergeRosters(owners.map(([owner], index) => [owner, rosters[index]!] as const),
+                (id) => residentOwners.get(id) ?? this.owners.get(id));
         });
     }
 
     private endpoint(owner: SessionOwner): SessionEndpoint {
-        return owner === "host" ? this.options.master : this.options.worker;
+        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        const endpoint = this.endpoints.get(owner);
+        if (endpoint === undefined) throw new Error("Unknown session owner");
+        return endpoint;
+    }
+
+    private worker(owner: WorkerOwner): RouterWorker {
+        const worker = this.workers.find((candidate) => candidate.id === owner);
+        if (worker === undefined) throw new Error("Unknown session worker");
+        return worker;
+    }
+
+    private hashOwner(id: string): WorkerOwner {
+        return this.workers[sessionShardIndex(id, this.workers.length)]!.id;
+    }
+
+    inboxOwner(id: string): SessionOwner {
+        return this.owners.get(id) ?? this.hashOwner(id);
+    }
+
+    private activeEndpoints(): Array<[SessionOwner, SessionEndpoint]> {
+        return [["host", this.options.master], ...this.workers.filter((worker) => worker.ready())
+            .map((worker): [SessionOwner, SessionEndpoint] => [worker.id, worker.endpoint])];
     }
 
     private async withResidents<T>(run: (sessions: readonly OwnedSession[]) => Promise<T>): Promise<T> {
@@ -747,11 +924,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     private async allResidents(): Promise<readonly OwnedSession[]> {
-        const [master, worker] = await Promise.all([this.options.master.residents(), this.options.worker.residents()]);
-        return [
-            ...master.map((session) => ({ owner: "host" as const, session })),
-            ...worker.map((session) => ({ owner: "w0" as const, session })),
-        ];
+        const endpoints = this.activeEndpoints();
+        const residents = await Promise.all(endpoints.map(([, endpoint]) => endpoint.residents()));
+        return residents.flatMap((sessions, index) => sessions.map((session) => ({ owner: endpoints[index]![0], session })));
     }
 
     async attachmentTree(): Promise<AttachmentTreeReader> {
@@ -776,7 +951,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     private async extensionOperation<T>(id: string, run: (endpoint: SessionEndpoint) => Promise<T>, waitForStore = false): Promise<T> {
         const owner = await this.serial(async () => {
-            const assigned = await this.resolvedOwner(id, waitForStore) ?? "w0";
+            const assigned = await this.claimOwner(id, waitForStore);
             this.startOperation(id);
             return assigned;
         });
@@ -807,29 +982,44 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     private async owner(id: string, waitForStore: boolean): Promise<SessionOwner | undefined> {
         if (waitForStore && this.trashing.has(id)) throw new UserFacingError("This conversation is being moved to the trash.");
-        if (waitForStore && this.masterOpening.has(id)) throw new OwnershipPending(this.operationCompletions.get(id)!.promise);
-        const [master, worker] = await Promise.all([
-            this.options.master.resident(id), this.options.worker.resident(id),
-        ]);
-        if (master !== undefined && worker !== undefined) throw new Error("Session is resident on both hosts");
-        if (worker !== undefined) return "w0";
-        if (master !== undefined) return "host";
+        if (waitForStore && this.masterOpening.has(id)) this.waitForOpen(id);
+        const recorded = this.owners.get(id);
+        if (this.options.keepResidentOwner === true && recorded !== undefined) return recorded;
+        const residents = (await this.allResidents()).filter((entry) => entry.session.id === id);
+        if (residents.length > 1) throw new Error("Session is resident on multiple hosts");
+        if (residents[0] !== undefined) return residents[0].owner;
         const pending = this.operationCompletions.get(id);
         if (waitForStore && pending !== undefined) throw new OwnershipPending(pending.promise);
         const previous = this.owners.get(id);
         if (previous === "host") this.owners.delete(id);
-        if (previous === "w0") return previous;
+        if (previous !== undefined && previous !== "host") return previous;
         const stored = (await this.options.master.list()).find((summary) => summary.id === id && !summary.live);
         if (stored !== undefined) {
-            await this.options.worker.rememberStored(stored);
-            this.owners.set(id, "w0");
-            return "w0";
+            const owner = this.hashOwner(id);
+            await this.endpoint(owner).rememberStored(stored);
+            this.owners.set(id, owner);
+            return owner;
         }
         return undefined;
     }
 
     private async resolvedOwner(id: string, waitForStore = true): Promise<SessionOwner | undefined> {
         return await this.owner(id, waitForStore);
+    }
+
+    private async claimOwner(id: string, waitForStore = true): Promise<SessionOwner> {
+        const owner = await this.resolvedOwner(id, waitForStore) ?? this.hashOwner(id);
+        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        if (!this.owners.has(id)) this.owners.set(id, owner);
+        return owner;
+    }
+
+    private waitForOpen(id: string): never {
+        const owner = this.owners.get(id);
+        if (owner !== undefined && owner !== "host" && !this.worker(owner).ready()) {
+            throw new UserFacingError("The session worker is unavailable.");
+        }
+        throw new OwnershipPending(this.operationCompletions.get(id)!.promise);
     }
 
     private serial<T>(run: () => T | Promise<T>): Promise<T> {

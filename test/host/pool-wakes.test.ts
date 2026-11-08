@@ -8,10 +8,12 @@ import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { sessionShardIndex } from "../../src/host/shard.ts";
 import { defaultInboxPath, Inbox } from "../../src/store/inbox.ts";
 import { defaultSessionDirectory, SessionStore } from "../../src/store/session-store.ts";
 import type { WatchRuntimeContext } from "../../src/watch/source.ts";
 import { startScheduleWakeProvider } from "../support/schedule-wake-provider.ts";
+import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 for (const source of ["inbox", "watch"] as const) {
     test(`a ${source} entry wakes its owning worker once`, async () => {
@@ -24,6 +26,7 @@ for (const source of ["inbox", "watch"] as const) {
         let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
         let client: AttachedAgentClient | undefined;
         let workerPid: number | undefined;
+        let workerPids: number[] = [];
         try {
             await mkdir(extension);
             await writeFile(join(extension, "vera.extension.json"), JSON.stringify({
@@ -60,6 +63,7 @@ for (const source of ["inbox", "watch"] as const) {
                     }],
                 } : {}),
             });
+            workerPids = await readPoolWorkerPids(home);
             const agent = await createAgentThroughHost(host.server.socketPath, home);
             expect(agent.location?.worker_id).toBe("w0");
             workerPid = (await requestHostIdentity(agent.location!.socket_path))!.pid;
@@ -109,6 +113,7 @@ for (const source of ["inbox", "watch"] as const) {
             try {
                 if (source === "watch" && host !== undefined) expect(watchStopped).toBe(true);
                 if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
+                for (const pid of workerPids) expect(() => process.kill(pid, 0)).toThrow();
                 if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
             } finally {
                 await rm(home, { recursive: true, force: true });
@@ -127,6 +132,7 @@ test("a watch entry for a stored session waits until a client attaches", async (
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let client: AttachedAgentClient | undefined;
     let workerPid: number | undefined;
+    let workerPids: number[] = [];
     try {
         await SessionStore.create(sessionPath, { sessionId: id, cwd: home });
         await mkdir(extension);
@@ -153,6 +159,7 @@ test("a watch entry for a stored session waits until a client attaches", async (
                 },
             }],
         });
+        workerPids = await readPoolWorkerPids(home);
         const context = await watching.promise;
         await context.admit([{
             id: "arc:stored", kind: "arc.post", ts: new Date().toISOString(), actor: "lookout",
@@ -170,7 +177,7 @@ test("a watch entry for a stored session waits until a client attaches", async (
             .toMatchObject({ id, live: false });
         expect(stub.requests).toBe(0);
         const resumed = await resumeAgentThroughHost(host.server.socketPath, sessionPath);
-        expect(resumed.location?.worker_id).toBe("w0");
+        expect(resumed.location?.worker_id).toBe(`w${sessionShardIndex(id, workerPids.length)}`);
         workerPid = (await requestHostIdentity(resumed.location!.socket_path))!.pid;
         client = await attachAgent({ socketPath: resumed.location!.socket_path, agentId: id });
         expect((await client.receive()).type).toBe("history");
@@ -190,6 +197,7 @@ test("a watch entry for a stored session waits until a client attaches", async (
         stub.close();
         try {
             if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
+            for (const pid of workerPids) expect(() => process.kill(pid, 0)).toThrow();
             if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
         } finally {
             await rm(home, { recursive: true, force: true });

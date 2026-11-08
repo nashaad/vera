@@ -13,6 +13,7 @@ import type { SessionArtifacts } from "../session-trash.ts";
 import type { StartupFindings } from "../startup-findings.ts";
 import type { SessionHandlers } from "./handlers.ts";
 import type { RestoringSessions } from "./storage.ts";
+import type { SessionShard } from "../shard.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
     "readAvailableModels"
@@ -55,6 +56,7 @@ export interface StartSessionHostOptions {
     readonly cacheDirectory: string;
     readonly sessionDirectory: string;
     readonly restoringSessions?: RestoringSessions;
+    readonly shard?: SessionShard;
     readonly sessionIdentityReservationRoot: string;
     readonly blockedDirectory: string;
     readonly modelFailureLedgerPath: string;

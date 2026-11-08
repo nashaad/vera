@@ -158,6 +158,7 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
 import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./master/in-process.ts";
+import type { SessionShard } from "./shard.ts";
 import { prepareProcessWorker } from "./master/process-worker.ts";
 import { controlSocketPath } from "./master/supervisor.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
@@ -168,6 +169,7 @@ export interface StartResidentHostOptions {
     readonly config: VeraConfig;
     readonly inProcessWorker?: boolean;
     readonly processWorker?: boolean;
+    readonly processWorkerCount?: number;
     readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
@@ -237,13 +239,13 @@ export interface SessionWorkerRuntime {
 }
 
 export async function startSessionWorkerRuntime(
-    options: StartResidentHostOptions, restoringSessions: RestoringSessions,
+    options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
-    options: StartResidentHostOptions, workerReservations?: RestoringSessions,
+    options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     const selectedHome = options.home
@@ -319,7 +321,19 @@ async function startHostRuntime(
         || options.trashSessionArtifacts !== undefined)) {
         throw new Error("Process workers require serializable host services");
     }
-    if (options.processWorker === true) controlSocketPath(home);
+    const workerCount = options.processWorker === true
+        ? options.processWorkerCount ?? Math.max(1, availableParallelism() - 1) : 1;
+    if (!Number.isSafeInteger(workerCount) || workerCount < 1
+        || (options.processWorkerCount !== undefined && options.processWorker !== true)) {
+        throw new Error("Invalid session worker count");
+    }
+    if (options.processWorker === true) {
+        controlSocketPath(home);
+        for (let index = 0; index < workerCount; index += 1) {
+            const candidate = inProcessWorkerSocket(home, index);
+            if (resolve(candidate) === resolve(socketPath)) throw new Error("The host and worker socket paths must differ");
+        }
+    }
     const workerSocket = options.inProcessWorker === true || options.processWorker === true
         ? inProcessWorkerSocket(home) : undefined;
     if (workerSocket !== undefined && resolve(workerSocket) === resolve(socketPath)) {
@@ -456,6 +470,7 @@ async function startHostRuntime(
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
         sessionDirectory, sessionIdentityReservationRoot, blockedDirectory, restoringSessions,
+        ...(shard === undefined ? {} : { shard }),
         modelFailureLedgerPath, authStorage, hostLog, startupLog, startupFindings, timed,
         permissionPreferencesPath: options.permissionPreferencesPath,
         eventLogDirectory,
@@ -842,7 +857,7 @@ async function startHostRuntime(
                 capabilities: HOST_CAPABILITIES,
             };
             inProcessWorker = options.processWorker === true
-                ? prepareProcessWorker({ ...workerOptions, hostOptions: options })
+                ? prepareProcessWorker({ ...workerOptions, hostOptions: options, workerCount })
                 : await prepareInProcessWorker(workerOptions);
         }
         const prepareAddress = async (address: string | null | undefined): Promise<void> => {
@@ -1003,7 +1018,10 @@ async function startHostRuntime(
                     return checkpointOpenStores({ destination, inbox, schedules: scheduleStore });
                 },
 
-                onShutdownAccepted: closeHost,
+                onShutdownAccepted: async () => {
+                    await inProcessWorker?.waitForForwardedShutdowns();
+                    await closeHost();
+                },
 
             }),
         );
@@ -2163,3 +2181,4 @@ async function closeServerAndRest(
         }
     }
 }
+import { availableParallelism } from "node:os";

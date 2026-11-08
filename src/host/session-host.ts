@@ -228,6 +228,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         importRoots: options.importRoots,
         restoringSessions: options.restoringSessions,
+        ...(options.shard === undefined ? {} : { shard: options.shard }),
         forgetRestartRecords: options.forgetRestartRecords,
         recentScheduleRuns: options.recentScheduleRuns,
         onWorkChanged: options.onWorkChanged,
@@ -257,7 +258,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             if (storageStarted) return;
             storageStarted = true;
             if (storageOptions?.scan === false) publishStoredSessions(storedSessionIndex);
-            else void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog).then(publishStoredSessions);
+            else void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog, options.shard).then(publishStoredSessions);
             parkIdleTimer = setInterval(() => {
                 void parkIdle().catch(() => { });
             }, 30_000);

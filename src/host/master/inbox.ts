@@ -42,7 +42,11 @@ export class MasterInboxBridge {
     private readonly claims: Map<string, InboxClaim>;
     private readonly stopped = new AbortController();
 
-    constructor(private readonly coordinator: InboxDeliveryCoordinator, private readonly callback: InboxCall) {
+    constructor(
+        private readonly coordinator: InboxDeliveryCoordinator,
+        private readonly callback: InboxCall,
+        private readonly owns: (label: string) => boolean = () => true,
+    ) {
         const existing = coordinatorClaims.get(coordinator);
         this.claims = existing ?? new Map();
         if (existing === undefined) coordinatorClaims.set(coordinator, this.claims);
@@ -67,12 +71,15 @@ export class MasterInboxBridge {
                 if (previous === undefined) break;
                 await waitForRelease(previous.released, waitSignal);
             }
+            if (!this.owns(registration.label)) throw new Error("Inbox session is owned by another worker");
             const released = Promise.withResolvers<void>();
             const claim: InboxClaim = { released: released.promise, release: () => released.resolve() };
             this.claims.set(registration.label, claim);
             let entry: MasterSession;
-            const callback = (name: string, values: readonly unknown[] = [], callbackSignal?: AbortSignal) =>
-                this.callback(name, [token, ...values], callbackSignal);
+            const callback = (name: string, values: readonly unknown[] = [], callbackSignal?: AbortSignal) => {
+                if (!this.owns(registration.label)) return Promise.reject(new Error("Inbox session is owned by another worker"));
+                return this.callback(name, [token, ...values], callbackSignal);
+            };
             let session: InboxDeliverySession;
             try {
                 session = this.coordinator.attach({
@@ -104,6 +111,7 @@ export class MasterInboxBridge {
         }
         const entry = this.sessions.get(token);
         if (entry === undefined) throw new Error("Inbox session is unavailable");
+        if (method !== "release" && !this.owns(entry.label)) throw new Error("Inbox session is owned by another worker");
         switch (method) {
             case "pump": return await entry.session.pump();
             case "attachment": {

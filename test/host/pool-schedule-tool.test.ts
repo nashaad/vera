@@ -9,6 +9,7 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import { defaultSessionDirectory, SessionStore } from "../../src/store/session-store.ts";
+import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 test("a schedule created by a worker session lands in the master scheduler", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-tool-");
@@ -39,6 +40,7 @@ test("a schedule created by a worker session lands in the master scheduler", asy
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let client: AttachedAgentClient | undefined;
     let workerPid: number | undefined;
+    let workerPids: number[] = [];
     try {
         host = await startResidentHost({
             home, processWorker: true, skipStartupDiscovery: true,
@@ -49,6 +51,7 @@ test("a schedule created by a worker session lands in the master scheduler", asy
                 },
             },
         });
+        workerPids = await readPoolWorkerPids(home);
         const agent = await createAgentThroughHost(host.server.socketPath, home);
         expect(agent.location?.worker_id).toBe("w0");
         const socket = agent.location!.socket_path;
@@ -88,6 +91,7 @@ test("a schedule created by a worker session lands in the master scheduler", asy
         stub.stop(true);
         try {
             if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
+            for (const pid of workerPids) expect(() => process.kill(pid, 0)).toThrow();
             if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
         } finally {
             await rm(home, { recursive: true, force: true });

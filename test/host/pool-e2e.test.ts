@@ -13,7 +13,7 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
 
-test("a real worker serves sessions and waits for the old writer", async () => {
+test("a real worker serves sessions and preserves an existing owner", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-pool-");
     let turns = 0;
     let modelLists = 0;
@@ -39,7 +39,7 @@ test("a real worker serves sessions and waits for the old writer", async () => {
     let write: Promise<void> | undefined;
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto",
                 curated_models_url: "",
@@ -60,14 +60,14 @@ test("a real worker serves sessions and waits for the old writer", async () => {
         const writing = Promise.withResolvers<void>();
         write = entry.store.exclusively(async () => { writing.resolve(); await releaseWrite.promise; });
         await writing.promise;
-        const moving = resumeAgentThroughHost(socket, entry.store.path);
-        await waitFor(() => !host!.registry.agents.has(master.id));
-        expect(await Promise.race([moving.then(() => "opened"), Bun.sleep(40).then(() => "waiting")])).toBe("waiting");
+        const resumed = await resumeAgentThroughHost(socket, entry.store.path);
+        expect(resumed.id).toBe(master.id);
+        expect(resumed.location?.worker_id).toBe("host");
+        expect(host.registry.agents.has(master.id)).toBe(true);
         releaseWrite.resolve();
         await write;
-        expect((await moving).id).toBe(master.id);
-        expect((await locate(socket, master.id)).worker_id).toBe("w0");
-        client = await attachAgent({ socketPath: socket, agentId: master.id });
+        expect((await locate(socket, master.id)).worker_id).toBe("host");
+        client = await attachAgent({ socketPath: socket, agentId: created.id });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Where is the map?" });
         while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
@@ -106,7 +106,7 @@ test("abrupt socket closure releases attachments on both owners", async () => {
     let workerPid: number | undefined;
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -180,7 +180,7 @@ test("a killed session worker repairs its turn and re-offers a queued prompt onc
         },
     });
     const options = {
-        home, processWorker: true, skipStartupDiscovery: true,
+        home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
         config: {
             schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
             providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -272,7 +272,7 @@ test("a worker durably accepts, rejects, withdraws, and clears queued prompts", 
     let path: string | undefined;
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -375,7 +375,7 @@ test("extension calls cross the process boundary and blocked moves attach to the
     let branch: Promise<unknown> | undefined;
     process.env.VERA_HOME = home;
     try {
-        host = await startResidentHost({ home, configPath, config: loadVeraConfig({ path: configPath }), processWorker: true, skipStartupDiscovery: true });
+        host = await startResidentHost({ home, configPath, config: loadVeraConfig({ path: configPath }), processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true });
         const socket = host.server.socketPath;
         const worker = await createAgentThroughHost(socket, home);
         const location = await locate(socket, worker.id);

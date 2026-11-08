@@ -19,6 +19,7 @@ import {
     type RegisteredAgentSummary,
 } from "../agent-registry.ts";
 import type { ResidentAgent } from "../resident-agent.ts";
+import { belongsToSessionShard, type SessionShard } from "../shard.ts";
 
 export type RestoringSessions = Map<string, Promise<void>> & {
     withReservations?: <T>(paths: readonly string[], run: () => Promise<T>) => Promise<T>;
@@ -165,6 +166,7 @@ export async function indexStoredSessions(
     sessionDirectory: string,
     sessions = new Map<string, RegisteredAgentSummary>(),
     log: HostLog = () => {},
+    shard?: SessionShard,
 ): Promise<ReadonlyMap<string, RegisteredAgentSummary>> {
     let names: readonly string[];
     try {
@@ -178,7 +180,8 @@ export async function indexStoredSessions(
         }
         return sessions;
     }
-    for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
+    for (const name of names.filter((value) => value.endsWith(".jsonl")
+        && (shard === undefined || belongsToSessionShard(value.slice(0, -6), shard))).sort()) {
         await indexStoredSession(join(sessionDirectory, name), sessions);
     }
     return sessions;

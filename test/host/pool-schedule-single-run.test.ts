@@ -11,6 +11,7 @@ import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.
 import { defaultSchedulePath } from "../../src/scheduler/store.ts";
 import { defaultInboxPath, Inbox } from "../../src/store/inbox.ts";
 import { startScheduleWakeProvider } from "../support/schedule-wake-provider.ts";
+import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 test("a single host acknowledges a schedule read during its wake turn", async () => {
     await checkScheduleReconnect(false, true);
@@ -34,6 +35,7 @@ async function checkScheduleReconnect(processWorker: boolean, readInbox: boolean
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let client: AttachedAgentClient | undefined;
     let workerPid: number | undefined;
+    let workerPids: number[] = [];
     try {
         host = await startResidentHost({
             home,
@@ -55,6 +57,7 @@ async function checkScheduleReconnect(processWorker: boolean, readInbox: boolean
                 },
             },
         });
+        if (processWorker) workerPids = await readPoolWorkerPids(home);
         const socket = host.server.socketPath;
         const agent = await createAgentThroughHost(socket, home);
         const sessionSocket = processWorker ? agent.location!.socket_path : socket;
@@ -115,6 +118,7 @@ async function checkScheduleReconnect(processWorker: boolean, readInbox: boolean
         stub.close();
         try {
             if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
+            for (const pid of workerPids) expect(() => process.kill(pid, 0)).toThrow();
             if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
         } finally {
             await rm(home, { recursive: true, force: true });

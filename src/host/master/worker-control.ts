@@ -55,7 +55,9 @@ function remoteCommon(peer: ControlPeer): RemoteCommon {
 export async function startControlledWorker(
     peer: ControlPeer, bootstrap: WorkerBootstrap, hello: WorkerHello, generation: number, onShutdown: () => void,
 ): Promise<{ close(): Promise<void> }> {
-    const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer));
+    const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer), {
+        index: hello.index, count: hello.count,
+    });
     const host = runtime.sessionHost;
     const endpoint = sessionEndpoint(host);
     const router = remoteRouter(peer);
@@ -71,7 +73,24 @@ export async function startControlledWorker(
     host.registry.subagentSessions = router;
     host.registry.subagentAdmission = router;
     host.inboxDelivery.setSessionBridge(inbox);
-    host.inboxDelivery.setExternalPump((seq) => router.pumpInbox("w0", seq));
+    const opening = new Set<string>();
+    host.registry.openGuard = {
+        async beginCreate(id, path, parentId) {
+            if (opening.has(id)) throw new Error(`Resident agent ${id} is starting`);
+            if (parentId === undefined) return;
+            await router.beginWorkerCreate(hello.id as `w${number}`, id, path, parentId);
+            opening.add(id);
+        },
+        async beginResume(path) {
+            const { id } = await readSessionHeader(path);
+            if (opening.has(id)) throw new Error(`Resident agent ${id} is starting`);
+            return id;
+        },
+        end(id) {
+            if (opening.delete(id)) void peer.request("router.endWorkerOpen", [id]).catch(() => {});
+        },
+    };
+    host.inboxDelivery.setExternalPump((seq) => router.pumpInbox(hello.id as `w${number}`, seq));
     host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     peer.setHandler(async (method, args, signal) => {
         if (method.startsWith("inbox.")) return await inbox.handle(method.slice(6), args, signal);
@@ -109,7 +128,23 @@ export async function startControlledWorker(
         if (typeof snapshot.workIndex === "object" && snapshot.workIndex !== null) workIndex = snapshot.workIndex as WorkIndexSnapshot;
         for (const listener of listeners) listener();
     });
-    const stopTracking = host.handlers.onRosterChanged(() => { void peer.event("roster_delta").catch(() => {}); });
+    let rosterTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastRoster = 0;
+    const publishRoster = (): void => {
+        rosterTimer = undefined;
+        lastRoster = Date.now();
+        void peer.event("roster_delta").catch(() => {});
+    };
+    const stopRosterListener = host.handlers.onRosterChanged(() => {
+        if (rosterTimer !== undefined) return;
+        const delay = Math.max(0, 1_000 - (Date.now() - lastRoster));
+        if (delay === 0) publishRoster();
+        else rosterTimer = setTimeout(publishRoster, delay);
+    });
+    const stopTracking = (): void => {
+        stopRosterListener();
+        if (rosterTimer !== undefined) clearTimeout(rosterTimer);
+    };
     try {
         server = await startWorkerServer({
             ...host.handlers,
@@ -128,13 +163,22 @@ export async function startControlledWorker(
             findAgent: async (id) => await peer.request<boolean>("host.findWorker", [id])
                 ? host.registry.find(id) : undefined,
             branchAgent: async (request) => {
-                if (!await router.beginBranch("w0", request.sourceId)) return undefined;
-                try { return await host.handlers.branchAgent(request); }
-                finally { await router.endBranch(request.sourceId); }
+                if (!await router.beginBranch(hello.id as `w${number}`, request.sourceId)) return undefined;
+                const id = request.id ?? randomUUID();
+                let opened = false;
+                try {
+                    const path = request.sessionPath ?? (request.ephemeral === true ? undefined : host.registry.options.sessionPathForId?.(id));
+                    await router.beginWorkerCreate(hello.id as `w${number}`, id, path);
+                    opened = true;
+                    return await host.handlers.branchAgent({ ...request, id });
+                } finally {
+                    if (opened) await router.endWorkerOpen(id);
+                    await router.endBranch(request.sourceId);
+                }
             },
             routeRequest: (request) => {
                 const target = sessionTarget(request);
-                return target === undefined ? Promise.resolve(undefined) : router.socketFor("w0", target);
+                return target === undefined ? Promise.resolve(undefined) : router.socketFor(hello.id as `w${number}`, target);
             },
             canShutdown: () => false,
             canReplace: () => false,
@@ -162,3 +206,5 @@ export async function startControlledWorker(
 }
 
 export type WorkerIdentity = Pick<HostIdentity, "pid" | "started_at">;
+import { randomUUID } from "node:crypto";
+import { readSessionHeader } from "../../store/session-store.ts";

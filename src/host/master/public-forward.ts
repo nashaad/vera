@@ -8,6 +8,29 @@ import type { ControlPeer } from "./control.ts";
 
 type FrameSink = (frame: object) => Promise<void>;
 
+export class ForwardedShutdowns {
+    private readonly pending = new Set<Promise<void>>();
+
+    async forward(request: HostRequest, run: () => Promise<void>): Promise<void> {
+        if (request.type !== "shutdown_if_idle" && request.type !== "shutdown_for_replacement") {
+            await run();
+            return;
+        }
+        const done = Promise.withResolvers<void>();
+        this.pending.add(done.promise);
+        try {
+            await run();
+        } finally {
+            this.pending.delete(done.promise);
+            done.resolve();
+        }
+    }
+
+    async wait(): Promise<void> {
+        await Promise.all(this.pending);
+    }
+}
+
 export function createPublicForwarder(peer: ControlPeer) {
     const sinks = new Map<string, FrameSink>();
     return {
@@ -36,6 +59,7 @@ export async function servePublicRequest(
     socketPath: string,
     args: readonly unknown[],
     signal: AbortSignal,
+    shutdowns: ForwardedShutdowns,
 ): Promise<void> {
     const [id, value] = args;
     const encoded = JSON.stringify(value);
@@ -45,9 +69,9 @@ export async function servePublicRequest(
         || request.type === "commit_agent_branch") {
         throw new Error("Invalid forwarded host request");
     }
-    await forwardLocalRequest(socketPath, request, async (frame) => {
+    await shutdowns.forward(request, () => forwardLocalRequest(socketPath, request, async (frame) => {
         await peer.request("public.frame", [id, frame], signal);
-    }, signal);
+    }, signal));
 }
 
 export async function forwardLocalRequest(

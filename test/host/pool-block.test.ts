@@ -16,7 +16,7 @@ for (const owner of ["host", "worker"] as const) {
     test(`block fences a late descendant on the ${owner}`, async () => {
         const home = await mkdtemp("/private/tmp/vera-dev/hs4-block-");
         const host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:1/v1", credential: "none" } },
