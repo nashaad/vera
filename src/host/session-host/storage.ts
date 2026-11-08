@@ -20,11 +20,36 @@ import {
 } from "../agent-registry.ts";
 import type { ResidentAgent } from "../resident-agent.ts";
 
+export type RestoringSessions = Map<string, Promise<void>>;
+
+export async function withSessionReservation<T>(
+    sessionPath: string,
+    inFlight: RestoringSessions,
+    run: (canonicalPath: string) => Promise<T>,
+): Promise<T> {
+    const canonicalPath = await realpath(sessionPath);
+    const previous = inFlight.get(canonicalPath);
+    const result = (previous ?? Promise.resolve()).then(() => run(canonicalPath));
+    const settled = result.then(() => undefined, () => undefined);
+    inFlight.set(canonicalPath, settled);
+    try {
+        return await result;
+    } finally {
+        if (inFlight.get(canonicalPath) === settled) inFlight.delete(canonicalPath);
+    }
+}
+
 export async function resumeOrFind(
     registry: AgentRegistry,
     sessionPath: string,
-    inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
+    inFlight: RestoringSessions = new Map(),
 ): Promise<ResidentAgent> {
+    return await withSessionReservation(sessionPath, inFlight, async (canonicalPath) =>
+        await resumeReserved(registry, canonicalPath)
+    );
+}
+
+export async function resumeReserved(registry: AgentRegistry, sessionPath: string): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
     for (const summary of registry.list()) {
         let existingPath = summary.session_path;
@@ -33,20 +58,10 @@ export async function resumeOrFind(
         }
         if (existingPath === canonicalPath) {
             const agent = registry.find(summary.id);
-            if (agent !== undefined) {
-                return agent;
-            }
+            if (agent !== undefined) return agent;
         }
     }
-    const restoring = inFlight.get(canonicalPath);
-    if (restoring !== undefined) return restoring;
-    const resumed = registry.resume({ sessionPath: canonicalPath });
-    inFlight.set(canonicalPath, resumed);
-    try {
-        return await resumed;
-    } finally {
-        inFlight.delete(canonicalPath);
-    }
+    return await registry.resume({ sessionPath: canonicalPath });
 }
 
 export async function findOrRestoreAgent(

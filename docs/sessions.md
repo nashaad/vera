@@ -106,7 +106,10 @@ opening it. Removing an entry clears its records from the host's restart log.
 
 The list is read when Vera starts on the home screen and each time the home
 screen opens. It does not refresh on a timer. Vera does not resend an
-interrupted turn; send the prompt again if you still need the result.
+interrupted turn. After a crash, the transcript marks the cut turn and records
+an unknown effect for any unfinished tool call. Check the workspace before
+relying on that call or running it again. Streamed text that was not committed
+before the crash is lost.
 
 ## Where history is stored
 

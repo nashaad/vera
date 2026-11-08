@@ -11,6 +11,7 @@ import type { InboxDeliveryCoordinator } from "../inbox-delivery.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
 import type { StartupFindings } from "../startup-findings.ts";
 import type { SessionHandlers } from "./handlers.ts";
+import type { RestoringSessions } from "./storage.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
     "readAvailableModels"
@@ -47,6 +48,7 @@ export interface StartSessionHostOptions {
     readonly configPath: string;
     readonly cacheDirectory: string;
     readonly sessionDirectory: string;
+    readonly restoringSessions?: RestoringSessions;
     readonly sessionIdentityReservationRoot: string;
     readonly blockedDirectory: string;
     readonly modelFailureLedgerPath: string;

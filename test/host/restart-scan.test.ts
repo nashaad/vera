@@ -1,12 +1,16 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { recoverCrashedTurns } from "../../src/host/restart-scan.ts";
-import { listRestartRecords } from "../../src/store/restart-records.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { AgentRegistry } from "../../src/host/agent-registry.ts";
+import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
+import { resumeOrFind, withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
+import { appendRestartRecord, listRestartRecords } from "../../src/store/restart-records.ts";
+import { CRASHED_TOOL_RESULT, CRASH_CUT_MESSAGE, SessionStore, readSessionTurnState } from "../../src/store/session-store.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const source = { provider: "faux", api: "scripted", model: "test" };
 const user: ModelMessage = {
@@ -118,6 +122,82 @@ test("a turn waiting on a tool result is open too", async () => {
     });
 
     expect(result.recorded).toEqual(["crow-tool"]);
+    const repaired = await SessionStore.open(join(s.sessions, "crow-tool.jsonl"));
+    expect(repaired.messages().at(-1)).toMatchObject({
+        role: "tool_result", toolCallId: "call-1", isError: true,
+        content: [{ type: "text", text: CRASHED_TOOL_RESULT }],
+    });
+    expect((await readSessionTurnState(repaired.path)).turnOpen).toBe(false);
+    const seed = await readSessionSeed(repaired.path);
+    expect(seed.records.find((record) => record.text === CRASH_CUT_MESSAGE)).toMatchObject({
+        type: "harness_message", tone: "soft",
+    });
+    expect(JSON.stringify(seed.records)).not.toContain("crashCut");
+});
+
+test("an existing ledger entry does not prevent an interrupted repair", async () => {
+    const s = await scenario();
+    const path = await sessionWith(s.sessions, "crow-open", [user, toolUse()]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+    appendRestartRecord({ session_id: "crow-open", cause: "crash", at: new Date().toISOString() }, s.recordPath);
+    const result = await recoverCrashedTurns({
+        lockPath: s.lockPath, sessionDirectory: s.sessions, recordPath: s.recordPath,
+        isProcessAlive: () => false,
+    });
+    expect(result.recorded).toEqual([]);
+    expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+    expect(listRestartRecords(s.recordPath)).toHaveLength(1);
+});
+
+test("a resume waits for the same session's scan while another session opens", async () => {
+    const s = await scenario();
+    const path = await sessionWith(s.sessions, "crow-open", [user, toolUse()]);
+    const otherPath = await sessionWith(s.root, "crow-other", [user, assistant("stop")]);
+    await writeStaleLock(s.lockPath, s.startedAt);
+    const reservations: RestoringSessions = new Map();
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]), model: "faux/test", approvalMode: "auto",
+    });
+    let entered!: () => void;
+    let release!: () => void;
+    const scanning = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let resumed = false;
+    const scan = recoverCrashedTurns({
+        lockPath: s.lockPath, sessionDirectory: s.sessions, recordPath: s.recordPath,
+        isProcessAlive: () => false,
+        withSession: (file, recover) => withSessionReservation(file, reservations, async () => {
+            entered();
+            await gate;
+            await recover();
+        }),
+    });
+    try {
+        await scanning;
+        const waiting = resumeOrFind(registry, path, reservations).then((agent) => {
+            resumed = true;
+            return agent;
+        });
+        const other = await resumeOrFind(registry, otherPath, reservations);
+        expect(other.id).toBe("crow-other");
+        expect(resumed).toBe(false);
+        release();
+        await scan;
+        const agent = await waiting;
+        expect(agent.id).toBe("crow-open");
+        expect(registry.agents.get(agent.id)?.store.messages().at(-1)).toMatchObject({
+            role: "tool_result", toolCallId: "call-1", isError: true,
+        });
+        const repaired = await readFile(path, "utf8");
+        expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+        expect(await (await SessionStore.open(path)).repairCrashedTurn()).toBe(false);
+        expect(await readFile(path, "utf8")).toBe(repaired);
+    } finally {
+        release();
+        await scan.catch(() => {});
+        await registry.close();
+        await rm(s.root, { recursive: true, force: true });
+    }
 });
 
 test("a finished turn and a cut turn are not recorded", async () => {

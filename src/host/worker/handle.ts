@@ -20,6 +20,7 @@ import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { EngineEvent } from "../../engine/events.ts";
 import type { ModelReasoningEffort } from "../../model/types.ts";
 import type { SessionStore } from "../../store/session-store.ts";
+import { sessionRecordForWire } from "../../store/session-record-projection.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
 import { superviseWorker, type SupervisorHandle } from
@@ -292,7 +293,7 @@ export async function startWorker(
             }),
     });
 
-    options.store.watchRecords(server.pushRecord);
+    options.store.watchRecords((line, record) => server.pushRecord(line, sessionRecordForWire(record)));
 
     return {
         pid,

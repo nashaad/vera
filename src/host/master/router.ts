@@ -18,14 +18,14 @@ export interface SessionEndpoint {
     resident(id: string): Promise<RoutedSession | undefined>;
     residents(): Promise<readonly RoutedSession[]>;
     tree(id: string): Promise<readonly string[]>;
-    find(id: string): Promise<RoutedSession | undefined>;
+    find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
         "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession>;
-    resume(path: string): Promise<RoutedSession>;
+    resume(path: string, reserved?: boolean): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[]>;
     list(): Promise<readonly RegisteredAgentSummary[]>;
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome>;
-    trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed">;
+    rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     close(id: string, reason?: SessionEndReason): Promise<CloseAgentOutcome>;
     block(request: BlockSessionRequest): Promise<BlockSessionOutcome>;
     unblock(request: UnblockSessionRequest): Promise<UnblockSessionOutcome>;
@@ -65,7 +65,7 @@ export class HostRouter {
         });
     }
 
-    resume(path: string): Promise<RoutedSession> {
+    resume(path: string, reserved = false): Promise<RoutedSession> {
         return this.serial(async () => {
             const inspected = await this.options.worker.inspect(path);
             const [existing, master] = await Promise.all([
@@ -94,7 +94,7 @@ export class HostRouter {
             }
             this.owners.set(inspected.id, "w0");
             try {
-                return await this.options.worker.resume(inspected.sessionPath);
+                return await this.options.worker.resume(inspected.sessionPath, reserved);
             } catch (error) {
                 this.owners.delete(inspected.id);
                 throw error;
@@ -102,11 +102,11 @@ export class HostRouter {
         });
     }
 
-    locate(id: string): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+    locate(id: string, reserved = false): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
         return this.serial(async () => {
             try {
                 const owner = await this.resolvedOwner(id) ?? "host";
-                const session = await this.endpoint(owner).find(id);
+                const session = await this.endpoint(owner).find(id, reserved);
                 if (session === undefined) {
                     return { type: "agent_location_failed", reason: "not_found", message: "No session with this id is on this host." };
                 }
@@ -127,12 +127,12 @@ export class HostRouter {
         });
     }
 
-    find(owner: SessionOwner, id: string): Promise<boolean> {
+    find(owner: SessionOwner, id: string, reserved = false): Promise<boolean> {
         return this.serial(async () => {
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
             if (assigned === undefined && owner === "w0") return false;
-            const session = await this.endpoint(owner).find(id);
+            const session = await this.endpoint(owner).find(id, reserved);
             if (session === undefined) return false;
             this.owners.set(id, owner);
             return true;
@@ -161,12 +161,12 @@ export class HostRouter {
         else this.branches.set(id, count - 1);
     }
 
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").rename(id, name));
+    rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
+        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").rename(id, name, reserved));
     }
 
-    trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed"> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").trash(id));
+    trash(id: string, reserved = false): Promise<"trashed" | "busy" | "not_found" | "failed"> {
+        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").trash(id, reserved));
     }
 
     close(id: string, reason?: SessionEndReason): Promise<CloseAgentOutcome> {

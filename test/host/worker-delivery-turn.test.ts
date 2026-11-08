@@ -17,6 +17,7 @@ import { ResidentAgent, type AgentAttachment } from "../../src/host/resident-age
 import { createWorkerBoundaryServer } from "../../src/host/worker/boundary-server.ts";
 import { createJsonPipe } from "../../src/host/worker/pipe.ts";
 import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.ts";
+import { WorkerSessionStore } from "../../src/host/worker/session.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { Inbox } from "../../src/store/inbox.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -65,6 +66,39 @@ test("a delivery turn the worker drops frees the host to replace the conversatio
         deck.triggerDeliveryTurn();
 
         expect(await becomes(() => deck.idleForReplacement())).toBe(true);
+        attachment.detach();
+    } finally {
+        await registry.close();
+    }
+}, 30_000);
+
+test("a cut delivery does not make a later empty wake start a worker turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-delivery-cut-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "deck.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "deck", cwd: root });
+    await store.recordDelivery({ id: "child", sourceAgentId: "child", content: "Found the map" });
+    await store.appendDeliveryMessage("child", {
+        role: "user", internal: true, content: [{ type: "text", text: "Found the map" }],
+    });
+    const registry = workerRegistry(root, [textResponse("Ready for the next request")]);
+    try {
+        const deck = await registry.resume({ sessionPath: path });
+        const attachment = deck.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        const reopened = await SessionStore.open(path);
+        expect(reopened.hasUnansweredDeliveryTurn()).toBe(false);
+        const seed = await readSessionSeed(path);
+        const worker = WorkerSessionStore.seed(path, seed.header);
+        seed.records.forEach((record, index) => worker.applyHostRecord(index + 2, record));
+        expect(worker.projectedHarnessMessages()).toEqual(reopened.projectedHarnessMessages());
+        deck.triggerDeliveryTurn();
+        expect(await becomes(() => deck.idleForReplacement())).toBe(true);
+        expect((await SessionStore.open(path)).messages().filter((message) => message.role === "assistant")).toHaveLength(0);
+        attachment.send({ type: "prompt", content: "What next?" });
+        await receiveType(attachment, "turn_finished");
+        const completed = await SessionStore.open(path);
+        expect(JSON.stringify(completed.messages())).toContain("Ready for the next request");
         attachment.detach();
     } finally {
         await registry.close();
@@ -319,11 +353,13 @@ async function joinedRouter(
         readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
         readonly onDeliveryTurnDiscarded?: (reason: DeliveryDiscardReason) => void;
     } | undefined,
+    prepare?: (store: SessionStore) => Promise<void>,
 ): Promise<InboundRouterHostHooks> {
     const host = await SessionStore.create(join(root, "session.jsonl"), {
         sessionId: "delivery",
         cwd: root,
     });
+    await prepare?.(host);
     const toWorker = new PassThrough();
     const toHost = new PassThrough();
     const server = createWorkerBoundaryServer({
@@ -389,6 +425,18 @@ test("the worker asks the host whether a delivery turn is pending and tells it w
     router.onDeliveryTurnDiscarded?.("empty");
     expect(await becomes(() => reasons.length === 3)).toBe(true);
     expect(reasons).toEqual(["folded", "aborted", "empty"]);
+});
+
+test("the host includes its unanswered delivery in the pending reply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-delivery-host-state-"));
+    temporaryDirectories.push(root);
+    const router = await joinedRouter(root, { hasPendingDeliveryTurn: () => false }, async (store) => {
+        await store.recordDelivery({ id: "child", sourceAgentId: "child", content: "Found the map" });
+        await store.appendDeliveryMessage("child", {
+            role: "user", internal: true, content: [{ type: "text", text: "Found the map" }],
+        });
+    });
+    expect(await router.hasPendingDeliveryTurn?.()).toBe(true);
 });
 
 test("a host that does not answer the pending question has the delivery turn dropped", async () => {
