@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as crypto from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import { mergeRoster } from "../../src/host/master/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
 import { CRASH_CUT_MESSAGE, SessionStore, openSessionForRecovery, readSessionTurnState } from "../../src/store/session-store.ts";
+import { sessionShardIndex } from "../../src/host/shard.ts";
 
 function deferred() {
     let resolve!: () => void;
@@ -91,6 +93,138 @@ function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
         blockRelease: async () => [],
     };
 }
+
+test("a lost create reply must not let another worker open the same session", async () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    const path = `/sessions/${id}.jsonl`;
+    const random = spyOn(crypto, "randomUUID").mockReturnValue(id);
+    const masterSessions = new Map<string, RoutedSession>();
+    const firstSessions = new Map<string, RoutedSession>();
+    const secondSessions = new Map<string, RoutedSession>();
+    const thirdSessions = new Map<string, RoutedSession>();
+    const master = endpoint(masterSessions);
+    const first = endpoint(firstSessions);
+    const second = endpoint(secondSessions);
+    const third = endpoint(thirdSessions);
+    let firstReady = true;
+    master.inspect = async (sessionPath) => ({ id, sessionPath });
+    first.create = async (options) => {
+        firstSessions.set(id, { id, workspace: options.workspace, sessionPath: path });
+        firstReady = false;
+        throw new Error("control connection closed before the create reply");
+    };
+    for (const [worker, sessions] of [[second, secondSessions], [third, thirdSessions]] as const) {
+        worker.resume = async (sessionPath) => {
+            const session = { id, workspace: "/work", sessionPath };
+            sessions.set(id, session);
+            return session;
+        };
+    }
+    const router = new HostRouter({
+        master, worker: first, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        workerReady: () => firstReady,
+        extraWorkers: [
+            { id: "w1", endpoint: second, socket: "/w1.sock", generation: () => 1, ready: () => true },
+            { id: "w2", endpoint: third, socket: "/w2.sock", generation: () => 1, ready: () => true },
+        ],
+        keepResidentOwner: true,
+    });
+    try {
+        expect(sessionShardIndex(id, 3)).toBe(2);
+        const failure = await router.create({ workspace: "/work" }).then(() => undefined, (error: unknown) => error);
+        expect(failure).toBeInstanceOf(Error);
+        expect(firstSessions.has(id)).toBe(true);
+        const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
+        expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+        expect([firstSessions, secondSessions, thirdSessions].filter((sessions) => sessions.has(id))).toHaveLength(1);
+        firstSessions.clear();
+        router.workerExited("w0");
+        await router.resume(path);
+        expect([firstSessions, secondSessions, thirdSessions].filter((sessions) => sessions.has(id))).toHaveLength(1);
+    } finally {
+        random.mockRestore();
+    }
+});
+
+for (const operation of ["resume", "locate", "import", "delivery"] as const) {
+    test(`an uncertain ${operation} keeps the worker as owner`, async () => {
+        const id = operation === "import"
+            ? "00000000-0000-4000-8000-000000000001"
+            : "00000000-0000-4000-8000-000000000002";
+        const path = `/sessions/${id}.jsonl`;
+        const random = operation === "import" ? spyOn(crypto, "randomUUID").mockReturnValue(id) : undefined;
+        const master = endpoint(new Map());
+        const sessions = [new Map<string, RoutedSession>(), new Map<string, RoutedSession>(), new Map<string, RoutedSession>()];
+        const [first, second, third] = sessions.map(endpoint) as [SessionEndpoint, SessionEndpoint, SessionEndpoint];
+        let firstReady = true;
+        master.inspect = async (sessionPath) => ({ id, sessionPath });
+        const loseReply = async (): Promise<never> => {
+            sessions[0]!.set(id, { id, workspace: "/work", sessionPath: path });
+            firstReady = false;
+            throw new Error("control connection closed before the reply");
+        };
+        first.resume = loseReply;
+        first.find = loseReply;
+        first.importSession = loseReply;
+        first.deliverCompletion = loseReply;
+        for (const [worker, owned] of [[second, sessions[1]!], [third, sessions[2]!]] as const) {
+            worker.resume = async (sessionPath) => {
+                const session = { id, workspace: "/work", sessionPath };
+                owned.set(id, session);
+                return session;
+            };
+        }
+        const router = new HostRouter({
+            master, worker: first, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+            workerReady: () => firstReady,
+            extraWorkers: [
+                { id: "w1", endpoint: second, socket: "/w1.sock", generation: () => 1, ready: () => true },
+                { id: "w2", endpoint: third, socket: "/w2.sock", generation: () => 1, ready: () => true },
+            ],
+            keepResidentOwner: true,
+        });
+        try {
+            if (operation === "resume") await router.resume(path).catch(() => {});
+            if (operation === "locate") await router.locate(id);
+            if (operation === "import") await router.importSession("/source.jsonl").catch(() => {});
+            if (operation === "delivery") {
+                await router.deliverCompletion(id, { id: "delivery", sourceAgentId: "child", content: "The map" }).catch(() => {});
+            }
+            expect(sessions[0]!.has(id)).toBe(true);
+            const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
+            expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+            expect(sessions.filter((owned) => owned.has(id))).toHaveLength(1);
+        } finally {
+            random?.mockRestore();
+        }
+    });
+}
+
+test("an uncertain subagent open keeps its worker as owner", async () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    const path = `/sessions/${id}.jsonl`;
+    const firstSessions = new Map<string, RoutedSession>();
+    const master = endpoint(new Map());
+    master.inspect = async (sessionPath) => ({ id, sessionPath });
+    let firstReady = true;
+    const router = new HostRouter({
+        master, worker: endpoint(firstSessions), masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        workerReady: () => firstReady,
+        extraWorkers: [
+            { id: "w1", endpoint: endpoint(new Map()), socket: "/w1.sock", generation: () => 1, ready: () => true },
+            { id: "w2", endpoint: endpoint(new Map()), socket: "/w2.sock", generation: () => 1, ready: () => true },
+        ],
+        keepResidentOwner: true,
+    });
+    await router.beginWorkerCreate("w0", id, path, "parent");
+    firstSessions.set(id, { id, workspace: "/work", sessionPath: path });
+    firstReady = false;
+    const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
+    expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+    expect(firstSessions.has(id)).toBe(true);
+    firstSessions.clear();
+    router.workerExited("w0");
+});
 
 test("closing a cross-owner tree quiesces it before ordered lifecycle events", async () => {
     const parent = { id: "parent", workspace: "/work", sessionPath: "/sessions/parent.jsonl" };

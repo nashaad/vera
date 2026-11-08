@@ -196,13 +196,13 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                     const session = resident(id);
                     return session === undefined ? [] : [session];
                 }),
-                summaries: host.registry.list(),
+                summaries: await host.handlers.listAgents(),
                 work: host.registry.workFacts(),
                 unreadSources: host.registry.unreadResultSources(),
             };
         },
         workSchedules: async (agents) => host.handlers.workSchedules(agents),
-        importSession: (path) => host.handlers.importSession(path),
+        importSession: (path, sessionId) => host.handlers.importSession(path, sessionId),
         listImportableSessions: (workspace) => host.handlers.listImportableSessions(workspace),
         async importedSourceHash(id, path) {
             const entry = host.registry.agents.get(id);

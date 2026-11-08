@@ -8,6 +8,7 @@ type WorkerRouter = Pick<HostRouter,
     | "notifyParent" | "deliverCompletion" | "completionFailure" | "childApproval"
     | "parentClosing" | "reserveSubagentStart" | "releaseSubagentStart"
     | "beginBranch" | "endBranch" | "socketFor" | "pumpInbox" | "importedSourceHash"
+    | "beginWorkerCreate" | "endWorkerOpen"
 >;
 
 const ROUTER_METHODS = {
@@ -16,6 +17,7 @@ const ROUTER_METHODS = {
     closeSubagent: true, notifyParent: true, deliverCompletion: true, completionFailure: true,
     childApproval: true, parentClosing: true, reserveSubagentStart: true, releaseSubagentStart: true,
     beginBranch: true, endBranch: true, socketFor: true, pumpInbox: true, importedSourceHash: true,
+    beginWorkerCreate: true, endWorkerOpen: true,
 } satisfies Record<keyof WorkerRouter, true>;
 
 const ATTACHMENT_METHODS = {
@@ -49,6 +51,8 @@ export async function serveRoutedMethod(
     const allowed = kind === "router" ? ROUTER_METHODS : ATTACHMENT_METHODS;
     if (!Object.hasOwn(allowed, method)) throw new Error("Unknown routed control request");
     const invoke = (target as unknown as Record<string, (...values: unknown[]) => unknown>)[method]!;
-    const values = method === "askSession" || method === "investigate" ? [...args, signal] : [...args];
+    const values = method === "beginWorkerCreate"
+        ? [args[0], args[1], args[2], args[3], signal]
+        : method === "askSession" || method === "investigate" ? [...args, signal] : [...args];
     return await invoke.apply(target, values);
 }

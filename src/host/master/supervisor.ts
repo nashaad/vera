@@ -1,14 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmod, lstat, unlink } from "node:fs/promises";
-import { createConnection, createServer, type Server } from "node:net";
-import { dirname, join } from "node:path";
 
-import { acceptHostConnection } from "../connection.ts";
-import { defaultHostSocketPath } from "../lockfile.ts";
-import { ControlPeer, type ControlEventHandler, type ControlHandler } from "./control.ts";
+import { type ControlPeer, type ControlEventHandler, type ControlHandler } from "./control.ts";
+import { startWorkerControlServer, type WorkerControlServer } from "./control-server.ts";
 import type { SessionSnapshot } from "./session-endpoint.ts";
-import type { WorkerBootstrap, WorkerHello } from "./worker-control.ts";
+import type { WorkerBootstrap } from "./worker-control.ts";
 import { sessionWorkerSpawnSpec } from "./worker-launch.ts";
+import { publishWorkerRecord, type WorkerRecordHandle } from "./worker-record.ts";
+
+export { controlSocketPath } from "./control-server.ts";
 
 export interface WorkerSpawnSpec {
     readonly command: string;
@@ -29,6 +28,9 @@ export class WorkerGenerations {
 export interface SessionWorkerSupervisorOptions {
     readonly home: string;
     readonly socket: string;
+    readonly index?: number;
+    readonly count?: number;
+    readonly control?: WorkerControlServer;
     readonly generation: number;
     readonly bootstrap: WorkerBootstrap;
     readonly handler: ControlHandler;
@@ -47,41 +49,30 @@ export interface SessionWorkerSupervisor {
     close(): Promise<void>;
 }
 
-export function controlSocketPath(home: string): string {
-    const path = join(dirname(defaultHostSocketPath(home)), "control.sock");
-    if (Buffer.byteLength(path, "utf8") >= 104) {
-        throw new Error(`Control socket path exceeds the 103-byte limit: ${path}`);
-    }
-    return path;
-}
-
 export async function startSessionWorkerSupervisor(options: SessionWorkerSupervisorOptions): Promise<SessionWorkerSupervisor> {
     if (!Number.isSafeInteger(options.generation) || options.generation <= 0) {
         throw new Error("Invalid session worker generation");
     }
-    const control = controlSocketPath(options.home);
-    await removeStaleControlSocket(control);
+    const index = options.index ?? 0;
+    const count = options.count ?? 1;
+    if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index < 0 || count <= index) {
+        throw new Error("Invalid session worker index or count");
+    }
+    const ownedControl = options.control === undefined ? await startWorkerControlServer(options.home) : undefined;
+    const control = options.control ?? ownedControl!;
     let child: ChildProcess | undefined;
     let peer: ControlPeer | undefined;
-    let helloSeen = false;
     let stderr = "";
+    let record: Promise<WorkerRecordHandle> | undefined;
     const ready = Promise.withResolvers<SessionSnapshot>();
-    const server: Server = createServer((socket) => {
-        if (peer !== undefined) { socket.destroy(); return; }
-        const candidate = new ControlPeer(acceptHostConnection(socket));
+    const unregister = control.register(`w${index}`, async (candidate, hello) => {
+        if (peer !== undefined || hello.id !== `w${index}` || hello.index !== index || hello.count !== count
+            || hello.pid !== child?.pid || hello.socket !== options.socket
+            || hello.build_id !== options.bootstrap.buildId || typeof hello.started_at !== "string") {
+            throw new Error("Invalid session worker identity");
+        }
         peer = candidate;
         candidate.setHandler(async (method, args, signal) => {
-            if (!helloSeen) {
-                const hello = args[0] as WorkerHello | undefined;
-                if (method !== "hello" || hello?.id !== "w0" || hello.index !== 0 || hello.count !== 1
-                    || hello.pid !== child?.pid || hello.socket !== options.socket
-                    || hello.build_id !== options.bootstrap.buildId || typeof hello.started_at !== "string") {
-                    throw new Error("Invalid session worker identity");
-                }
-                helloSeen = true;
-                options.onConnected(candidate);
-                return options.bootstrap;
-            }
             if (method === "ready") {
                 const snapshot = args[0] as SessionSnapshot | undefined;
                 if (snapshot === undefined || !Array.isArray(snapshot.residents) || !Array.isArray(snapshot.summaries)) {
@@ -93,28 +84,31 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
             return await options.handler(method, args, signal);
         });
         candidate.setEventHandler(options.onEvent);
+        record = publishWorkerRecord(options.home, hello, control.path);
+        await record;
+        options.onConnected(candidate);
         void candidate.closed.then(() => ready.reject(new Error("Session worker control connection closed")));
+        return options.bootstrap;
     });
-    await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(control, () => { server.off("error", reject); resolve(); });
-    });
-    await chmod(control, 0o600);
-    const owned = await lstat(control);
     const spec = options.spawnSpec ?? sessionWorkerSpawnSpec();
-    const args = [...spec.args, "--worker-index", "0", "--worker-count", "1", "--worker-generation", String(options.generation), "--control", control, "--socket", options.socket];
+    const args = [...spec.args, "--worker-index", String(index), "--worker-count", String(count), "--worker-generation", String(options.generation), "--control", control.path, "--socket", options.socket];
     child = spawn(spec.command, args, {
         cwd: process.cwd(), env: { ...process.env, VERA_HOME: options.home }, stdio: ["ignore", "ignore", "pipe"],
     });
     if (child.pid !== undefined) options.onSpawn?.(child.pid);
     child.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16_384); });
-    const exited = new Promise<number | null>((resolve) => child!.once("close", (code) => resolve(code)));
+    const exited = new Promise<number | null>((resolve) => child!.once("close", (code) => resolve(code))).then(async (code) => {
+        const published = await record?.catch(() => undefined);
+        await published?.remove();
+        return code;
+    });
     const spawnError = new Promise<never>((_resolve, reject) => child!.once("error", reject));
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closed: Promise<void> | undefined;
     const close = (): Promise<void> => {
         if (closed !== undefined) return closed;
         closed = (async () => {
+            unregister();
             if (peer !== undefined) {
                 await Promise.race([peer.event("shutdown").catch(() => {}), new Promise<void>((resolve) => setTimeout(resolve, 250))]);
                 peer.close();
@@ -125,8 +119,7 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
                 if (!await finishesWithin(exited, 1_500)) child.kill("SIGKILL");
             }
             await exited;
-            await new Promise<void>((resolve) => server.close(() => resolve()));
-            await removeOwnedSocket(control, owned);
+            await ownedControl?.close();
         })();
         return closed;
     };
@@ -159,29 +152,4 @@ async function finishesWithin(exited: Promise<number | null>, timeoutMs: number)
     } finally {
         if (timer !== undefined) clearTimeout(timer);
     }
-}
-
-async function removeStaleControlSocket(path: string): Promise<void> {
-    const stat = await lstat(path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return undefined;
-        throw error;
-    });
-    if (stat === undefined) return;
-    if (!stat.isSocket()) throw new Error(`Control socket path is occupied: ${path}`);
-    const listening = await new Promise<boolean>((resolve) => {
-        const socket = createConnection(path);
-        const timer = setTimeout(() => { socket.destroy(); resolve(true); }, 250);
-        socket.once("connect", () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-        socket.once("error", () => { clearTimeout(timer); resolve(false); });
-    });
-    if (listening) throw new Error(`Control socket is already in use: ${path}`);
-    await removeOwnedSocket(path, stat);
-}
-
-async function removeOwnedSocket(path: string, owned: Awaited<ReturnType<typeof lstat>>): Promise<void> {
-    const current = await lstat(path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return undefined;
-        throw error;
-    });
-    if (current?.isSocket() && current.dev === owned.dev && current.ino === owned.ino) await unlink(path);
 }

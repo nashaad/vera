@@ -1,5 +1,7 @@
 import type { HostLog } from "../host-log.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
+import { basename } from "node:path";
+import { belongsToSessionShard, type SessionShard } from "../shard.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -28,6 +30,7 @@ import { createSessionBlockService, type SessionBlockService } from "../session-
 import {
     importSessionFile,
     markImportedSessions,
+    type SessionImportOutcome,
 } from "../session-import-service.ts";
 import { buildWorkIndex, type WorkAgentFacts, type WorkIndexSnapshot, type WorkScheduleFacts } from "../work-index.ts";
 
@@ -79,6 +82,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "onAgentStartFailure"
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
+    readonly importSession: (path: string, sessionId?: string) => Promise<SessionImportOutcome>;
     readonly resumeAgent: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
     readonly resumeAgentReserved: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
     readonly findAgentReserved: (agentId: string) => Promise<ResidentAgent | undefined>;
@@ -102,6 +106,7 @@ interface SessionHandlerOptions {
     readonly extensionLoadFailures: readonly ExtensionLoadFailure[];
     readonly sessionDirectory: string;
     readonly restoringSessions?: RestoringSessions;
+    readonly shard?: SessionShard;
     readonly blockedDirectory: string;
     readonly modelFailureLedgerPath: string;
     readonly storedSessionIndex: Map<string, RegisteredAgentSummary>;
@@ -274,6 +279,10 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         searchShard: (query, includePaths, excludePaths) => searchSessionShard(sessionDirectory, query, {
             ...(includePaths === undefined ? {} : { includePaths }),
             ...(excludePaths === undefined ? {} : { excludePaths }),
+            ...(options.shard === undefined ? {} : { includeUnindexedPath: (path: string) => {
+                const name = basename(path);
+                return name.endsWith(".jsonl") && belongsToSessionShard(name.slice(0, -6), options.shard!);
+            } }),
         }),
         onRosterChanged: (listener) => {
             const stopRoster = registry.onRosterChanged(listener);
@@ -300,12 +309,13 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         unblockSession: (request) => sessionBlocks.unblock(request),
         renameSession: (targetId, name) => withTarget(targetId, () => renameSessionReserved(targetId, name)),
         renameSessionReserved,
-        importSession: (path) => {
+        importSession: (path, sessionId) => {
             const run = importQueue.then(async () => {
                 await storedSessions;
                 const outcome = await importSessionFile(path, {
                     sessionDirectory,
                     indexed: storedSessionIndex.values(),
+                    ...(sessionId === undefined ? {} : { createSessionId: () => sessionId }),
                     ...(importedSourceHash === undefined ? {} : { importedSourceHash }),
                 });
                 if (outcome.status === "imported" && !outcome.existing) {

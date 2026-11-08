@@ -60,6 +60,7 @@ export interface SessionSearchOptions {
     readonly sessionPath?: string;
     readonly includePaths?: readonly string[];
     readonly excludePaths?: readonly string[];
+    readonly includeUnindexedPath?: (path: string) => boolean;
 }
 
 export interface SearchFileRank {
@@ -130,7 +131,8 @@ export async function searchSessionShard(
             .map(async ({ path, order }) => {
                 if (included !== undefined || excluded.size > 0) {
                     const canonical = await realpath(path).catch(() => resolve(path));
-                    if ((included !== undefined && !included.has(canonical)) || excluded.has(canonical)) return undefined;
+                    if ((included !== undefined && !included.has(canonical) && options.includeUnindexedPath?.(path) !== true)
+                        || excluded.has(canonical)) return undefined;
                 }
                 const info = await stat(path).catch(() => undefined);
                 return info === undefined

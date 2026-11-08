@@ -1,13 +1,15 @@
 import { compareSearchRank, MAX_SEARCH_RESULTS, type SessionSearchQuery, type SessionSearchResults } from "../../store/session-search.ts";
+import type { SessionOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
 
 export async function searchAcrossOwners(
-    master: SessionEndpoint, worker: SessionEndpoint, masterPaths: readonly string[], query: SessionSearchQuery,
+    endpoints: ReadonlyMap<SessionOwner, SessionEndpoint>, paths: ReadonlyMap<SessionOwner, readonly string[]>, query: SessionSearchQuery,
 ): Promise<SessionSearchResults> {
-    const shards = await Promise.all([
-        master.searchShard(query, masterPaths),
-        worker.searchShard(query, undefined, masterPaths),
-    ]);
+    const shards = await Promise.all([...endpoints.entries()].map(([owner, endpoint]) =>
+        endpoint.searchShard(query, paths.get(owner) ?? [], [...paths.entries()].flatMap(([other, values]) =>
+            other === owner ? [] : values
+        ))
+    ));
     const ranked = shards.flatMap((shard) => shard.results).sort((left, right) => compareSearchRank(left.rank, right.rank));
     const selected = ranked.slice(0, MAX_SEARCH_RESULTS);
     const last = selected.at(-1)?.rank;

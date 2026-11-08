@@ -9,7 +9,7 @@ import { startResidentHost } from "../../../src/host/runtime.ts";
 const home = process.env.VERA_HOME!;
 const configPath = join(home, "config.json");
 const host = await startResidentHost({
-    home, configPath, config: loadVeraConfig({ path: configPath }), processWorker: true, skipStartupDiscovery: true,
+    home, configPath, config: loadVeraConfig({ path: configPath }), processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
 });
 const worker = await requestHostIdentity(inProcessWorkerSocket(home));
 await writeFile(join(home, "ready.json"), JSON.stringify({
