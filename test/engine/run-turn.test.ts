@@ -55,6 +55,9 @@ import {
 } from "../../src/engine/recovery.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { createOpenAICodexAdapter } from "../../src/providers/openai-codex.ts";
+import { createCustomOpenAIAdapter } from "../../src/providers/custom-openai.ts";
+import { createModelFailureRecorder } from "../../src/engine/model-failure-recorder.ts";
+import { ModelFailureLedger, readModelFailures } from "../../src/store/model-failures.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -2320,6 +2323,67 @@ test("a transient model failure reports its retry to attached clients", async ()
             providerMessage: "upstream reset",
         }),
     }));
+});
+
+test("a local build failure reaches the client, session replay, and diagnostics ledger", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-request-build-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const ledgerPath = join(workspace, "ledger.jsonl");
+    const store = await SessionStore.create(sessionPath, { sessionId: "crow", cwd: workspace });
+    for (let index = 0; index < 2; index += 1) {
+        await store.appendMessage({
+            role: "assistant",
+            content: [{ type: "tool_call", id: "call_bash_1", name: "bash", input: { command: "echo ahoy" } }],
+            source: { provider: "stub", api: "openai-chat-completions", model: "crow" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        });
+        await store.appendMessage({
+            role: "tool_result",
+            toolCallId: "call_bash_1",
+            toolName: "bash",
+            content: [{ type: "text", text: "ahoy" }],
+            isError: false,
+        });
+    }
+    let sent = 0;
+    const adapter = createCustomOpenAIAdapter({
+        provider: "stub",
+        baseUrl: "http://stub.invalid/v1",
+        fetch: async () => { sent += 1; throw new Error("unexpected request"); },
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    events.subscribe(createModelFailureRecorder({ ledger: new ModelFailureLedger(ledgerPath), sessionId: "crow" }));
+    const state: RunTurnState = {
+        messages: [...store.messages()],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        waitForModelRetry: async () => { throw new Error("unexpected retry"); },
+    };
+    channel.client.send({ type: "prompt", content: "continue" });
+    const result = await runTurn(adapter, "crow", state);
+    const modelFailure = { model: "stub/crow", kind: "request_build" };
+
+    expect(sent).toBe(0);
+    expect(result).toMatchObject({ stopReason: "error", modelFailure });
+    expect(updates.filter((update) => update.type === "model_activity")).toEqual([]);
+    expect(updates.at(-1)).toMatchObject({ type: "turn_finished", outcome: "error", modelFailure });
+    const reopened = await SessionStore.open(sessionPath);
+    expect(projectTranscript(reopened.messages()).at(-1)).toMatchObject({ kind: "error", modelFailure });
+    expect(readModelFailures(ledgerPath)).toMatchObject([{
+        provider: "stub",
+        model: "crow",
+        kind: "request_build",
+        detail: "Tool call ID normalization produced duplicate ID: call_bash_1",
+    }]);
 });
 
 for (const recovers of [true, false]) {

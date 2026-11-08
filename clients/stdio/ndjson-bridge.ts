@@ -9,6 +9,7 @@ import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { MessageChannel } from "../../src/engine/message-channel.ts";
 import {
     ExtensionCommandError,
+    PromptRejectedError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import {
@@ -214,7 +215,16 @@ export async function runAttachedStdioBridge(
                     });
                     continue;
                 }
-                await client.send(message);
+                try {
+                    await client.send(message);
+                } catch (error) {
+                    if (message.type !== "prompt" || !(error instanceof PromptRejectedError)) throw error;
+                    writeJson(output, {
+                        type: "prompt_rejected",
+                        reason: error.reason,
+                        ...(message.requestId === undefined ? {} : { requestId: message.requestId }),
+                    });
+                }
             }
             if (!stopping) {
                 await detach();

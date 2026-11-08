@@ -1289,6 +1289,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
                     },
                     { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
                 ],
+                unsentPrompts: [{ content: "stored prompt" }],
                 usage: { rows: [] },
                 seq: 0,
             });

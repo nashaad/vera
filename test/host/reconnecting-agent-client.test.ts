@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 
@@ -27,6 +27,59 @@ const KRAKEN_BUILD = "vera-kraken-2";
 type ScriptedIdentity = { readonly buildId: string } | "no_build_id" | "silent";
 
 const temporaryDirectories: string[] = [];
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a stopped peer stays attached until it is killed, then closes immediately",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "peer.sock");
+        const identityLog = join(directory, "identity.log");
+        const peer = Bun.spawn([
+            process.execPath,
+            join(import.meta.dir, "fixtures/connection-loss-peer.ts"),
+            socketPath,
+            identityLog,
+        ], { stdout: "ignore", stderr: "pipe" });
+        let client: AttachedAgentClient | undefined;
+        try {
+            const readyDeadline = Date.now() + 5_000;
+            while (!existsSync(socketPath) && Date.now() < readyDeadline) {
+                if (peer.exitCode !== null) throw new Error("Peer exited before listening");
+                await Bun.sleep(20);
+            }
+            expect(existsSync(socketPath)).toBeTrue();
+            client = await attachReconnectingAgent({
+                socketPath: () => socketPath,
+                agentId: "agent-1",
+                buildId: CROW_BUILD,
+                failOnDisconnect: true,
+            });
+            expect((await client.receive()).type).toBe("history");
+            let settled = false;
+            const pending = client.receive().then(
+                () => { settled = true; return undefined; },
+                (error: unknown) => { settled = true; return error; },
+            );
+            const initialIdentities = readFileSync(identityLog, "utf8");
+            expect(initialIdentities.length).toBeGreaterThan(0);
+            await Bun.sleep(1_300);
+            expect(readFileSync(identityLog, "utf8")).toBe(initialIdentities);
+            peer.kill("SIGSTOP");
+            await Bun.sleep(5_300);
+            expect(settled).toBeFalse();
+            expect(client.closed).toBeFalse();
+            const startedAt = performance.now();
+            peer.kill("SIGKILL");
+            expect(await pending).toBeInstanceOf(Error);
+            expect(performance.now() - startedAt).toBeLessThan(2_000);
+        } finally {
+            client?.close();
+            if (peer.exitCode === null) peer.kill("SIGKILL");
+            await peer.exited;
+        }
+    },
+    18_000,
+);
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
@@ -229,13 +282,17 @@ test("attachment-private work makes a disconnect terminal", async () => {
 });
 
 test("a prompt remains private until its sequenced acceptance arrives", async () => {
-    const initial = fakeClient([], 4);
+    const pending = Promise.withResolvers<void>();
+    const initial = { ...fakeClient([], 4), send: async () => pending.promise };
     const client = createReconnectingAgentClient(initial, async () =>
         fakeClient([], 4));
-    await client.send({ type: "prompt", content: "hello" });
+    const sending = client.send({ type: "prompt", content: "hello" });
     await expect(client.receive()).rejects.toThrow(
         "attachment-private request was pending",
     );
+    pending.reject(new Error("closed"));
+    await expect(sending).rejects.toThrow("closed");
+    client.close();
 });
 
 test("sequenced skill replies survive a dropped connection without resubmission", async () => {
@@ -285,17 +342,21 @@ test("sequenced skill replies survive a dropped connection without resubmission"
 });
 
 test("another attachment's prompt does not settle this client's prompts", async () => {
-    const initial = fakeClient([
+    const pending = Promise.withResolvers<void>();
+    const initial = { ...fakeClient([
         { type: "user_prompt", content: "someone else", seq: 5 },
-    ], 4);
+    ], 4), send: async () => pending.promise };
     const client = createReconnectingAgentClient(initial, async () =>
         fakeClient([], 5));
-    await client.send({ type: "prompt", content: "first" });
-    await client.send({ type: "prompt", content: "second" });
+    const first = client.send({ type: "prompt", content: "first" });
+    const second = client.send({ type: "prompt", content: "second" });
     expect(await client.receive()).toMatchObject({ content: "someone else" });
     await expect(client.receive()).rejects.toThrow(
         "attachment-private request was pending",
     );
+    pending.reject(new Error("closed"));
+    await Promise.allSettled([first, second]);
+    client.close();
 });
 
 test("clients without resume support reconnect from a fresh checkpoint", async () => {
@@ -375,7 +436,7 @@ test("commands wait for an in-flight reconnect", async () => {
     attached.resolve(recovered);
     await sending;
     expect(await receiving).toMatchObject({ type: "user_prompt" });
-    expect(sent).toEqual([{ type: "prompt", content: "after reconnect" }]);
+    expect(sent).toEqual([{ type: "prompt", content: "after reconnect", requestId: expect.any(String) }]);
     client.close();
 });
 

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { emptyUsage } from "../../src/model/types.ts";
+import { createSessionBranch } from "../../src/store/session-branch.ts";
 import {
     CRASHED_TOOL_RESULT,
     CRASH_CUT_MESSAGE,
@@ -57,6 +58,99 @@ test("crash repair pairs unanswered calls and writes one cut marker", async () =
         const again = await SessionStore.open(path);
         expect(await again.repairCrashedTurn()).toBe(false);
         expect(await readFile(path, "utf8")).toBe(repaired);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("crash repair keeps an already committed result in a half-finished batch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-crash-batch-"));
+    const path = join(root, "crow.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the deck" }] }, { turnStart: true });
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "tool_call", id: "fast", name: "subagent", input: { description: "Inspect the deck" } },
+                { type: "tool_call", id: "slow", name: "subagent", input: { description: "Inspect the mast" } },
+                { type: "tool_call", id: "last", name: "subagent", input: { description: "Inspect the hold" } },
+            ],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(), stopReason: "tool_use",
+        });
+        const saved = await store.appendMessage({
+            role: "tool_result", toolCallId: "fast", toolName: "subagent",
+            content: [{ type: "text", text: "The deck is clear." }], isError: false,
+        });
+        if (saved.message.role !== "tool_result") throw new Error("Expected a tool result");
+
+        const reopened = await SessionStore.open(path);
+        expect(await reopened.repairCrashedTurn()).toBe(true);
+        const results = reopened.messages().filter((message) => message.role === "tool_result");
+        expect(results).toEqual([
+            saved.message,
+            {
+                role: "tool_result", toolCallId: "slow", toolName: "subagent",
+                content: [{ type: "text", text: CRASHED_TOOL_RESULT }], isError: true,
+            },
+            {
+                role: "tool_result", toolCallId: "last", toolName: "subagent",
+                content: [{ type: "text", text: CRASHED_TOOL_RESULT }], isError: true,
+            },
+        ]);
+        expect(reopened.activeEntries().find((entry) => entry.id === saved.id)?.message).toEqual(saved.message);
+        expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+        const snapshot = await readSessionSnapshot(path);
+        expect(snapshot.messages).toEqual(reopened.messages());
+        expect(snapshot.harnessMessages.at(-1)).toEqual({ afterMessage: 5, text: CRASH_CUT_MESSAGE, tone: "soft" });
+        expect(await (await SessionStore.open(path)).repairCrashedTurn()).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("branching an older crash-repaired batch keeps its stored result order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-crash-branch-"));
+    try {
+        const store = await SessionStore.create(join(root, "source.jsonl"), { sessionId: "source", cwd: root });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the ship" }] }, { turnStart: true });
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "tool_call", id: "slow", name: "subagent", input: {} },
+                { type: "tool_call", id: "fast", name: "subagent", input: {} },
+            ],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(), stopReason: "tool_use",
+        });
+        await store.appendMessage({
+            role: "tool_result", toolCallId: "fast", toolName: "subagent",
+            content: [{ type: "text", text: "Deck clear" }], isError: false,
+        });
+        await store.repairCrashedTurn();
+        const branch = await createSessionBranch({ source: store, destinationPath: join(root, "side.jsonl"), sessionId: "side", position: "at" });
+        const ids = (session: SessionStore) => session.messages().flatMap((message) =>
+            message.role === "tool_result" ? [message.toolCallId] : []
+        );
+        expect(ids(store)).toEqual(["fast", "slow"]);
+        expect(ids(branch.store)).toEqual(ids(store));
+        expect(ids(await SessionStore.open(branch.store.path))).toEqual(ids(store));
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a notice after a non-tool message keeps the current store position", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-notice-anchor-"));
+    try {
+        const store = await SessionStore.create(join(root, "session.jsonl"), { sessionId: "crow", cwd: root });
+        const first = await store.appendMessage({ role: "user", content: [{ type: "text", text: "First" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Second" }] });
+        await store.appendHarnessMessage("Crew notice", "soft", first.id);
+        expect(store.projectedHarnessMessages()).toEqual([
+            { afterMessage: 2, text: "Crew notice", tone: "soft" },
+        ]);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

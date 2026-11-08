@@ -15,7 +15,7 @@ import { handleWizardKey, wizardFieldIsOpen } from "../onboarding-wizard.ts";
 import { onboardingInput } from "./model-pickers.ts";
 import { runOnboardingWizardAction, updateWizardSession } from "./onboarding-wizard-ops.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
-import { isJsonlViewClient } from "../jsonl-view-client.ts";
+import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
@@ -45,6 +45,7 @@ import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import type { KeyEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 
 export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefined): boolean {
     const scrollLines = binding === "scroll_line_up"
@@ -58,6 +59,10 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         : undefined;
     if (binding !== "jump_to_bottom" && scrollLines === undefined) {
         return false;
+    }
+    rt.transcriptResizeAnchor = undefined;
+    if (scrollLines === undefined || scrollLines > 0) {
+        clearTranscriptAnchorPadding(rt);
     }
     if (scrollLines === undefined) {
         rt.transcript.scrollTo(rt.transcript.scrollHeight);
@@ -161,6 +166,19 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
     if (
+        isHomeClient(rt.client) && rt.homeCommandMode
+        && key.name === "escape" && !key.ctrl && !key.shift && !key.meta
+        && !key.super && !key.hyper && !anyOverlayOpen(rt)
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.homeCommandMode = false;
+        rt.composer.clearComposer();
+        focusActiveSurface(rt);
+        renderState(rt);
+        return;
+    }
+    if (
         isHomeClient(rt.client)
         && rt.sessionSwitchPending
         && rt.homeTypedText !== undefined
@@ -188,6 +206,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
     if (
         isHomeClient(rt.client)
+        && !rt.homeCommandMode
         && !rt.sessionSwitchPending
         && !rt.commandPaletteView.surface.visible
         && !anyOverlayOpen(rt)
@@ -753,6 +772,18 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
 
     if (rt.settingsPicker !== undefined) {
+        const focused = focusedAgentState(rt);
+        if (
+            rt.settingsPicker.kind === "session"
+            && rt.settingsPicker.nothingToLeave === true
+            && !isWorkerFreeClient(rt.client)
+            && (focused.transcriptStarted === true || focused.working
+                || focused.compactingSince !== undefined || focused.queuedPrompts.length > 0
+                || rt.promptSubmitting || rt.pendingUiRequest !== undefined
+                || rt.hostedSidebar.pane !== undefined)
+        ) {
+            rt.settingsPicker = { ...rt.settingsPicker, nothingToLeave: false };
+        }
         const viewportRows = tuiPickerViewportRows(
             rt.renderer,
             rt.settingsPicker,
@@ -1520,6 +1551,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderState(rt);
         if (wasFollowing) {
             if (side === undefined) {
+                clearTranscriptAnchorPadding(rt);
                 rt.transcript.scrollTo(rt.transcript.scrollHeight);
             } else {
                 rt.sidebar.scrollToBottom();
@@ -1612,6 +1644,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderState(rt);
         if (wasFollowing) {
             if (side === undefined) {
+                clearTranscriptAnchorPadding(rt);
                 rt.transcript.scrollTo(rt.transcript.scrollHeight);
             } else {
                 rt.sidebar.scrollToBottom();

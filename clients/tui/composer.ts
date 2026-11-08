@@ -51,13 +51,20 @@ interface TrackedMarker {
     readonly end: number;
 }
 
+export interface ComposerHistoryPrompt {
+    readonly text: string;
+    readonly attachmentIds?: readonly string[];
+}
+
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
     private collapsedPasteExtmarks = new Map<number, number>();
     private collapsedPasteTypeId?: number;
     private nextCollapsedPasteId = 1;
-    private submittedTexts: string[] = [];
+    private submittedTexts: ComposerHistoryPrompt[] = [];
     private submittedTextIndex?: number;
+    private recoveredPrompts: ComposerHistoryPrompt[] = [];
+    private historyDraft: ComposerHistoryPrompt | undefined;
     private imageChips: ImageChip[] = [];
     private imageChipExtmarks = new Map<string, number>();
     private imageChipStyleId?: number;
@@ -68,6 +75,8 @@ export class TuiComposer extends TextareaRenderable {
     /** Called before OpenTUI's word-delete binding handles Command-Delete. */
     onCommandDelete?: () => boolean;
     onRecallQueuedPrompt?: () => boolean;
+    onHistorySelection?: (attachmentIds: readonly string[]) => void;
+    currentHistoryDraft?: () => ComposerHistoryPrompt;
 
     attachImageChip(requestId: string): void {
         this.ensureImageChipStyle();
@@ -131,15 +140,17 @@ export class TuiComposer extends TextareaRenderable {
             && !key.meta
             && !key.super
             && !key.hyper
-            && (this.plainText.length === 0 || this.submittedTextIndex !== undefined)
+            && (this.plainText.length === 0 || this.submittedTextIndex !== undefined
+                || this.recoveredPrompts.length > 0)
             && this.submittedTexts.length > 0
         ) {
+            if (this.submittedTextIndex === undefined) {
+                this.historyDraft = this.currentHistoryDraft?.() ?? { text: this.expandedText() };
+            }
             const nextIndex = this.submittedTextIndex === undefined
                 ? this.submittedTexts.length - 1
                 : Math.max(0, this.submittedTextIndex - 1);
-            this.submittedTextIndex = nextIndex;
-            this.setText(this.submittedTexts[nextIndex] ?? "");
-            this.cursorOffset = this.plainText.length;
+            this.showHistoryPrompt(this.submittedTexts[nextIndex]!, nextIndex);
             return true;
         }
         if (
@@ -154,14 +165,11 @@ export class TuiComposer extends TextareaRenderable {
         ) {
             const nextIndex = this.submittedTextIndex + 1;
             if (nextIndex === this.submittedTexts.length) {
-                this.submittedTextIndex = undefined;
-                this.setText("");
-                this.cursorOffset = 0;
+                this.showHistoryPrompt(this.historyDraft ?? { text: "" });
+                this.historyDraft = undefined;
                 return true;
             }
-            this.submittedTextIndex = nextIndex;
-            this.setText(this.submittedTexts[nextIndex] ?? "");
-            this.cursorOffset = this.plainText.length;
+            this.showHistoryPrompt(this.submittedTexts[nextIndex]!, nextIndex);
             return true;
         }
         if (
@@ -410,7 +418,7 @@ export class TuiComposer extends TextareaRenderable {
         this.collapsedPasteExtmarks.set(id, extmarkId);
     }
 
-    expandedText(): string {
+    expandedText(trim = true): string {
         this.syncImageChips();
         let expanded = this.plainText;
         const replacements = this.trackedMarkers().map((tracked) => {
@@ -435,7 +443,7 @@ export class TuiComposer extends TextareaRenderable {
                 + replacement.text
                 + expanded.slice(replacement.end);
         }
-        return expanded.trim();
+        return trim ? expanded.trim() : expanded;
     }
 
     clearComposer(): void {
@@ -450,15 +458,57 @@ export class TuiComposer extends TextareaRenderable {
     }
 
     rememberSubmittedText(text: string): void {
-        if (text.length > 0) {
-            this.submittedTexts.push(text);
+        this.rememberSubmittedPrompt({ text });
+    }
+
+    rememberSubmittedPrompt(prompt: ComposerHistoryPrompt): void {
+        if (prompt.text.length > 0 || (prompt.attachmentIds?.length ?? 0) > 0) {
+            const key = historyPromptKey(prompt);
+            if (this.recoveredPrompts.some((item) => historyPromptKey(item) === key)) {
+                this.submittedTexts = this.submittedTexts.filter((item) => historyPromptKey(item) !== key);
+            }
+            this.submittedTexts.push(structuredClone(prompt));
             this.submittedTextIndex = undefined;
         }
     }
 
     loadSubmittedTexts(texts: readonly string[]): void {
-        this.submittedTexts = texts.filter((text) => text.length > 0);
+        this.loadSubmittedPrompts(texts.map((text) => ({ text })));
+    }
+
+    loadSubmittedPrompts(prompts: readonly ComposerHistoryPrompt[]): void {
+        const recoveredKeys = new Set(this.recoveredPrompts.map(historyPromptKey));
+        this.submittedTexts = [
+            ...prompts.filter((prompt) => (prompt.text.length > 0 || (prompt.attachmentIds?.length ?? 0) > 0)
+                && !recoveredKeys.has(historyPromptKey(prompt))),
+            ...this.recoveredPrompts,
+        ];
         this.submittedTextIndex = undefined;
+    }
+
+    hasRecoveredPrompts(): boolean {
+        return this.recoveredPrompts.length > 0;
+    }
+
+    setRecoveredPrompts(prompts: readonly ComposerHistoryPrompt[]): void {
+        const seen = new Set<string>();
+        this.recoveredPrompts = prompts.filter((prompt) => {
+            const key = historyPromptKey(prompt);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        }).map((prompt) => structuredClone(prompt));
+    }
+
+    clearRecoveredPrompts(): void {
+        this.recoveredPrompts = [];
+        this.historyDraft = undefined;
+    }
+
+    private showHistoryPrompt(prompt: ComposerHistoryPrompt, index?: number): void {
+        this.setComposerText(prompt.text);
+        this.submittedTextIndex = index;
+        this.onHistorySelection?.(prompt.attachmentIds ?? []);
     }
 
     setComposerText(text: string): void {
@@ -474,6 +524,10 @@ export class TuiComposer extends TextareaRenderable {
         this.cursorOffset = text.length;
         this.onTypedRowsChange?.(TUI_COMPOSER_MIN_TEXT_ROWS);
     }
+}
+
+function historyPromptKey(prompt: ComposerHistoryPrompt): string {
+    return JSON.stringify([prompt.text, prompt.attachmentIds ?? []]);
 }
 
 export const COMPOSER_PLACEHOLDER = "Message Vera\u2026";

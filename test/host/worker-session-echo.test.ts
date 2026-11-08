@@ -14,6 +14,7 @@ import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.
 import { WorkerSessionStore } from "../../src/host/worker/session.ts";
 import type { WorkerSessionSeed } from "../../src/host/worker/start.ts";
 import type { ModelMessage } from "../../src/model/types.ts";
+import { sessionRecordForWire } from "../../src/store/session-record-projection.ts";
 import { readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 
 const SESSION_START_ADAPTER = fileURLToPath(
@@ -171,6 +172,24 @@ test("the worker applies its own writes and the host's, each once and in file or
     );
     expect((await readSessionTurnState(joined.host.path)).turnOpen).toBe(true);
 });
+
+for (const repairedBeforeSeed of [false, true]) {
+    test(`a worker ${repairedBeforeSeed ? "seeds" : "receives"} a repaired turn as closed`, async () => {
+        const joined = await link(async (host, connect) => {
+            await host.appendMessage(user("inspect"), { turnStart: true });
+            await host.appendQueuedPrompt("next", { content: "check the sails" });
+            if (repairedBeforeSeed) expect(await host.repairCrashedTurn()).toBe(true);
+            const linked = connect(await readSessionSeed(host.path));
+            host.watchRecords((line, record) => linked.pushRecord(line, sessionRecordForWire(record)));
+            return linked;
+        });
+        if (!repairedBeforeSeed) expect(await joined.host.repairCrashedTurn()).toBe(true);
+        await waitFor(() => joined.worker.appliedThrough() === joined.host.appendedLineCount());
+        expect(joined.worker.unsentPrompts()).toEqual([{ content: "inspect" }, { content: "check the sails" }]);
+        expect(await joined.worker.finishAbortedTurn()).toBe(false);
+        expect(joined.diverged).toEqual([]);
+    });
+}
 
 test("host records that arrive while the worker's own write is unanswered are not a gap", async () => {
     const joined = await link(async (host, connect) => {

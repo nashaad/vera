@@ -9,7 +9,7 @@ import type {
     ClientCommand,
 } from "../../src/engine/protocol.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { PromptRejectedError, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -22,7 +22,7 @@ import {
 import { HISTORY_PAGE_MAX_ENTRIES } from "../../src/host/history-page.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import type {
@@ -76,6 +76,29 @@ test("stdio forwards commands and rejects bad input without closing", async () =
     });
 });
 
+test("stdio forwards a prompt refusal and accepts later commands", async () => {
+    const client = new FakeAttachedAgentClient();
+    const send = client.send.bind(client);
+    spyOn(client, "send").mockImplementation((command) => command.type === "prompt"
+        ? Promise.reject(new PromptRejectedError("Could not save the queued prompt."))
+        : send(command));
+    let output = "";
+    await runAttachedStdioBridge(
+        Readable.from([
+            '{"type":"prompt","content":"hello","requestId":"prompt-1"}\n',
+            '{"type":"abort"}\n',
+            '{"type":"detach"}\n',
+        ]),
+        { write: (text) => output += text },
+        client,
+    );
+    expect(output.split("\n").filter(Boolean).map((line) => JSON.parse(line))).toContainEqual({
+        type: "prompt_rejected", requestId: "prompt-1", reason: "Could not save the queued prompt.",
+    });
+    expect(client.sent).toEqual([{ type: "abort" }]);
+    expect(client.detached).toBe(true);
+});
+
 test("stdio answers a history page request as unavailable", async () => {
     const client = new FakeAttachedAgentClient();
     let output = "";
@@ -117,6 +140,50 @@ test("the reusable NDJSON endpoint frames engine messages and EOF", async () => 
     });
 });
 
+test("stdio carries the local build failure in live and replayed updates", async () => {
+    const client = new FakeAttachedAgentClient();
+    const input = new Readable({ read() {} });
+    const frames: Record<string, unknown>[] = [];
+    let finish!: () => void;
+    const written = new Promise<void>((resolve) => finish = resolve);
+    const run = runAttachedStdioBridge(input, {
+        write: (text) => {
+            const frame = JSON.parse(text) as Record<string, unknown>;
+            frames.push(frame);
+            if (frame.type === "turn_finished") finish();
+        },
+    }, client);
+    const modelFailure = { model: "stub/crow", kind: "request_build" as const };
+    client.updates.push({
+        type: "history",
+        entries: [{ kind: "error", outcome: "error", detail: "duplicate ID", modelFailure }],
+        seq: 1,
+    });
+    client.updates.push({
+        type: "turn_finished",
+        outcome: "error",
+        error: "duplicate ID",
+        modelFailure,
+        seq: 2,
+    });
+    await written;
+    input.push(null);
+    await run;
+
+    expect(frames).toContainEqual({
+        type: "history",
+        entries: [{ kind: "error", outcome: "error", detail: "duplicate ID", modelFailure }],
+        seq: 1,
+    });
+    expect(frames).toContainEqual({
+        type: "turn_finished",
+        outcome: "error",
+        error: "duplicate ID",
+        modelFailure,
+        seq: 2,
+    });
+});
+
 test("stdio frames updates after its attached marker", async () => {
     const client = new FakeAttachedAgentClient();
     const input = new Readable({ read() {} });
@@ -155,6 +222,30 @@ test("stdio frames updates after its attached marker", async () => {
         },
         { type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 },
     ]);
+});
+
+test("stdio forwards unsent prompt facts with their attachment identities", async () => {
+    const client = new FakeAttachedAgentClient();
+    const input = new Readable({ read() {} });
+    let output = "";
+    const written = Promise.withResolvers<void>();
+    const run = runAttachedStdioBridge(input, {
+        write: (text) => {
+            output += text;
+            if (text.includes('"type":"history"')) written.resolve();
+        },
+    }, client);
+    client.updates.push({
+        type: "history", entries: [], seq: 0,
+        unsentPrompts: [{ content: "check the chart", attachmentIds: ["image-1"] }],
+    });
+    await written.promise;
+    input.push(null);
+    await run;
+    const frames = output.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    expect(frames.find((frame) => frame.type === "history")).toMatchObject({
+        unsentPrompts: [{ content: "check the chart", attachmentIds: ["image-1"] }],
+    });
 });
 
 test("stdio forwards current background agents and later pushes", async () => {
@@ -624,6 +715,9 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             workspace: process.cwd(),
         });
         expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount);
+        expect(historyFrame(resumedFrames).entries).not.toContainEqual({
+            kind: "harness", text: CRASH_CUT_MESSAGE, tone: "soft",
+        });
         expect(historyFrame(resumedFrames).page).toBeUndefined();
         expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
         expect(resumedFrames.some((frame) => frame.type === "turn_finished"))

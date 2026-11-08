@@ -265,6 +265,7 @@ export class ResidentAgent {
                     outgoing.push({
                         type: "prompt_rejected",
                         reason: refusal,
+                        ...(command.requestId === undefined ? {} : { requestId: command.requestId }),
                     });
                     return;
                 }
@@ -626,10 +627,24 @@ export class ResidentAgent {
         }
         const snapshot = clone(update);
         this.lastSequence = snapshot.seq;
+        if (snapshot.type === "user_prompt"
+            || (snapshot.type === "status" && snapshot.state === "working")) {
+            const { unsentPrompts: _unsentPrompts, ...checkpoint } = this.checkpoint;
+            this.checkpoint = checkpoint;
+        }
         if (snapshot.type === "context") {
             this.lastContext = snapshot.measurement;
         }
         const previousStatus = this.currentStatus;
+        let pendingPromptChanged = false;
+        if ((snapshot.type === "prompt_admission" && snapshot.status === "rejected")
+            || snapshot.type === "prompt_withdrawn"
+            || (snapshot.type === "notice" && snapshot.key === "queue_save_failed")) {
+            if (this.unstartedPrompts > 0) {
+                this.unstartedPrompts -= 1;
+                pendingPromptChanged = true;
+            }
+        }
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
@@ -715,7 +730,7 @@ export class ResidentAgent {
             }
         }
         if (
-            this.currentStatus !== previousStatus
+            (this.currentStatus !== previousStatus || pendingPromptChanged)
             && snapshot.type !== "agent_failed"
         ) {
             this.notifyRunStateChanged();

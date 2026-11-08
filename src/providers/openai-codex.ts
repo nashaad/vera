@@ -21,6 +21,7 @@ import {
 import { ModelEventStream } from "../model/stream.ts";
 import { promptCacheKey } from "../model/prompt-cache.ts";
 import { transformMessages } from "../model/transform.ts";
+import { buildModelRequest } from "../model/request-build.ts";
 import type {
     AssistantMessage,
     ModelAdapter,
@@ -57,7 +58,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
 
     stream(request: ModelRequest): ModelEventStream {
         const stream = new ModelEventStream();
-        void this.produce(snapshotImageInputs(request), stream);
+        void this.produce(request, stream);
         return stream;
     }
 
@@ -75,7 +76,10 @@ export class OpenAICodexAdapter implements ModelAdapter {
 
         try {
             throwIfAborted(request.signal);
-            const messages = transformMessages(request.messages, { target: source });
+            request = buildModelRequest(() => snapshotImageInputs(request));
+            const messages = buildModelRequest(() =>
+                transformMessages(request.messages, { target: source })
+            );
             const reasoning = request.reasoningEffort === undefined
                 ? undefined
                 : await resolveReasoningSelection(
@@ -90,25 +94,27 @@ export class OpenAICodexAdapter implements ModelAdapter {
             if (substituted !== undefined) {
                 stream.push(substituted);
             }
-            const cacheKey = promptCacheKey(request);
-            const providerRequest: OpenAICodexRequest = {
-                model: request.model,
-                instructions: request.systemPrompt ?? "",
-                input: encodeOpenAICodexInput(messages, request.model),
-                tools: encodeOpenAICodexTools(request.tools ?? []),
-                tool_choice: "auto",
-                parallel_tool_calls: true,
-                reasoning: {
-                    ...(reasoning?.providerEffort === undefined
-                        ? {}
-                        : { effort: reasoning.providerEffort }),
-                    summary: "auto",
-                },
-                store: false,
-                stream: true,
-                include: ["reasoning.encrypted_content"],
-                ...(cacheKey === undefined ? {} : { prompt_cache_key: cacheKey }),
-            };
+            const providerRequest: OpenAICodexRequest = buildModelRequest(() => {
+                const cacheKey = promptCacheKey(request);
+                return {
+                    model: request.model,
+                    instructions: request.systemPrompt ?? "",
+                    input: encodeOpenAICodexInput(messages, request.model),
+                    tools: encodeOpenAICodexTools(request.tools ?? []),
+                    tool_choice: "auto",
+                    parallel_tool_calls: true,
+                    reasoning: {
+                        ...(reasoning?.providerEffort === undefined
+                            ? {}
+                            : { effort: reasoning.providerEffort }),
+                        summary: "auto",
+                    },
+                    store: false,
+                    stream: true,
+                    include: ["reasoning.encrypted_content"],
+                    ...(cacheKey === undefined ? {} : { prompt_cache_key: cacheKey }),
+                };
+            });
 
             const events = await this.sendResponse(
                 providerRequest,
@@ -230,7 +236,7 @@ export function createOpenAICodexAdapter(
         return fetchRequest(`${baseUrl}/responses`, {
             method: "POST",
             headers,
-            body: JSON.stringify(request),
+            body: buildModelRequest(() => JSON.stringify(request)),
             signal,
         });
     };

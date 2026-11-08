@@ -15,6 +15,7 @@ import type { AgentRegistry } from "../agent-registry.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { announceSessionEnd } from "./session-end.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
+import type { TrashReservation, TrashRestartPlan } from "./trash.ts";
 
 export async function create(reg: AgentRegistry, options: CreateRegisteredAgentOptions): Promise<ResidentAgent> {
         return reg.createWithKind(
@@ -76,6 +77,7 @@ async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReaso
                 const entry = reg.agents.get(memberId);
                 if (entry !== undefined) {
                     reg.closingCompletionRecipients.add(entry.store);
+                    entry.releasingForTransfer = reason === undefined;
                     entry.agent.close();
                 }
             }
@@ -588,16 +590,50 @@ function descendantBlocksTrash(entry: RegisteredAgentEntry): boolean {
             || !entry.agent.idleForShutdown();
     }
 
-interface RestartPlan {
-        readonly id: string;
-        readonly sessionPath: string;
-        readonly kind: RegisteredAgentKind;
-        readonly eventLogPath: string | undefined;
-        readonly parentId: string | undefined;
-        // A child can be resident while its parent is not; that child restarts as it was.
-        readonly parentRegistered: boolean;
-        readonly completed: boolean;
+export function reserveDistributedTrash(reg: AgentRegistry, ids: readonly string[], rootId: string, registeredIds: readonly string[], reservedIds: readonly string[]): TrashReservation {
+        const registered = new Set(registeredIds);
+        const entries = ids.map((id) => reg.agents.get(id));
+        if (entries.some((entry) => entry === undefined)) return { status: "busy" };
+        if (reservedIds.some((id) => reg.trashingIds.has(id))) return { status: "busy" };
+        for (const entry of entries) {
+            if (entry === undefined) continue;
+            const id = entry.agent.id;
+            if (reg.trashingIds.has(id) || reg.startingIds.has(id)
+                || (id === rootId
+                    ? !entry.agent.idleForShutdown() || entry.pendingAsyncTurns > 0 || entry.pendingCompletionDeliveries > 0
+                    : descendantBlocksTrash(entry))) return { status: "busy" };
+        }
+        const plans = entries.flatMap((entry) => entry === undefined || (entry.agent.id !== rootId && !entryIsLive(entry))
+            ? []
+            : [{ ...restartPlan(reg, entry), parentRegistered: entry.parentId !== undefined && registered.has(entry.parentId) }]);
+        for (const id of reservedIds) reg.trashingIds.add(id);
+        return { status: "reserved", plans };
     }
+
+export async function finishDistributedCloseMember(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry, reason: SessionEndReason): Promise<ClosedMember | undefined> {
+        announceSessionEnd(reg, entry, reason);
+        await reg.reapClosedAgent(id, entry);
+        return entry.ephemeral ? undefined : { id, sessionPath: entry.store.path };
+    }
+
+export function releaseDistributedTrash(reg: AgentRegistry, ids: readonly string[]): void {
+        for (const id of ids) reg.trashingIds.delete(id);
+    }
+
+export async function restartDistributedTrashMember(reg: AgentRegistry, plan: TrashRestartPlan): Promise<boolean> {
+        if (reg.isClosed || !(await restartClosedAgent(reg, plan))) return false;
+        if (reg.isClosed) {
+            await abandonStart(reg, plan.id, "shutdown");
+            return false;
+        }
+        return true;
+    }
+
+export function abandonDistributedTrashRestart(reg: AgentRegistry, id: string): Promise<void> {
+        return abandonStart(reg, id, "deleted");
+    }
+
+type RestartPlan = TrashRestartPlan;
 
 function restartPlan(reg: AgentRegistry, entry: RegisteredAgentEntry): RestartPlan {
         return {

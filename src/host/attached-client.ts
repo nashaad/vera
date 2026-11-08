@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
     AgentUpdate,
     ClientCommand,
@@ -107,6 +108,13 @@ export class HistoryPageRequestError extends Error {
     constructor(readonly reason: HistoryPageFailureReason) {
         super(`History page request failed: ${reason}`);
         this.name = "HistoryPageRequestError";
+    }
+}
+
+export class PromptRejectedError extends Error {
+    constructor(readonly reason: string) {
+        super(reason);
+        this.name = "PromptRejectedError";
     }
 }
 
@@ -301,6 +309,10 @@ function createAttachedClient(
     let nextExtensionRequestId = 1;
     let nextHistoryPageRequestId = 1;
     let pendingHistoryPage: PendingHistoryPage | undefined;
+    const promptAdmissions = new Map<string, {
+        readonly resolve: () => void;
+        readonly reject: (error: Error) => void;
+    }>();
     const extensionRequests = new Map<string, {
         readonly kind: "list" | "run";
         readonly resolve: (value: unknown) => void;
@@ -318,6 +330,7 @@ function createAttachedClient(
     void released.catch(() => undefined);
     void readMessages();
     void connection.closedReason().then((error) => {
+        failPromptAdmissions(error);
         failExtensionRequests(error);
         failHistoryPage(error);
         rejectDetached?.(error);
@@ -378,7 +391,20 @@ function createAttachedClient(
             if (isClosed || connection.closed || isDetaching) {
                 return Promise.reject(new Error("Agent attachment is closed"));
             }
-            return connection.send(command);
+            if (command.type !== "prompt") return connection.send(command);
+            const requestId = command.requestId ?? randomUUID();
+            if (promptAdmissions.has(requestId)) return Promise.reject(new Error("Prompt request ID is already pending"));
+            return new Promise<void>((resolve, reject) => {
+                promptAdmissions.set(requestId, { resolve, reject });
+                resumeReading?.();
+                resumeReading = undefined;
+                void connection.send({ ...command, requestId }).catch((error: unknown) => {
+                    const pending = promptAdmissions.get(requestId);
+                    if (pending === undefined) return;
+                    promptAdmissions.delete(requestId);
+                    pending.reject(error instanceof Error ? error : new Error(String(error)));
+                });
+            });
         },
         receive(signal): Promise<AgentUpdate> {
             return updates.receive(signal).then((update) => {
@@ -522,6 +548,7 @@ function createAttachedClient(
                 if (
                     !isDetaching
                     && extensionRequests.size === 0
+                    && promptAdmissions.size === 0
                     && pendingUpdateCount >= maxPendingUpdates
                 ) {
                     await new Promise<void>((resolve) => resumeReading = resolve);
@@ -616,6 +643,23 @@ function createAttachedClient(
                     continue;
                 }
                 const update = frame.update;
+                if (update.type === "prompt_admission") {
+                    acceptSequence(update.seq, false);
+                }
+                if ((update.type === "prompt_admission" || update.type === "prompt_rejected")
+                    && update.requestId !== undefined) {
+                    const pending = promptAdmissions.get(update.requestId);
+                    if (pending !== undefined) {
+                        promptAdmissions.delete(update.requestId);
+                        if (update.type === "prompt_admission" && update.status === "accepted") pending.resolve();
+                        else pending.reject(new PromptRejectedError(update.reason ?? "The prompt was rejected."));
+                        if (update.type === "prompt_rejected") continue;
+                    }
+                }
+                if (update.type === "prompt_admission") {
+                    if (pendingUpdateCount === 0) lastDeliveredSequence = update.seq;
+                    continue;
+                }
                 if (pendingUpdateCount >= maxPendingUpdates) {
                     throw new Error(
                         "Agent updates exceeded the client buffer while an extension request was pending",
@@ -668,6 +712,7 @@ function createAttachedClient(
         resumeReading?.();
         resumeReading = undefined;
         updates.fail(error);
+        failPromptAdmissions(error);
         failExtensionRequests(error);
         failHistoryPage(error);
         rejectDetached?.(error);
@@ -913,6 +958,11 @@ function createAttachedClient(
             pending.reject(error);
         }
         extensionRequests.clear();
+    }
+
+    function failPromptAdmissions(error: Error): void {
+        for (const pending of promptAdmissions.values()) pending.reject(error);
+        promptAdmissions.clear();
     }
 }
 

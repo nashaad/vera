@@ -14,6 +14,7 @@ export type ModelFailureKind =
     | "unavailable_tool_call"
     | "stream_error"
     | "provider_failure"
+    | "request_build"
     | "compaction_failed"
     | "other";
 
@@ -42,6 +43,7 @@ export function modelFailureKind(
     message: AssistantMessage,
     failure?: ProviderFailure,
 ): ModelFailureKind {
+    if (failure?.kind === "request_build") return "request_build";
     if (failure !== undefined) return "provider_failure";
     const detail = message.errorMessage ?? "";
     if (detail.startsWith("Model returned no visible response")) {
@@ -234,6 +236,13 @@ export function modelFailureNudge(
     if (raised.has(signature)) return undefined;
     const count = countModelFailureSignature(records, signature);
     if (count < MODEL_FAILURE_NUDGE_THRESHOLD) return undefined;
+    if (latest.kind === "request_build") {
+        return {
+            signature,
+            text: `Vera could not build the request for ${latest.provider}/${latest.model}.`
+                + " Fix: open /diagnostics and check the Vera report.",
+        };
+    }
     return {
         signature,
         text: `${latest.provider}/${latest.model} has failed this way`

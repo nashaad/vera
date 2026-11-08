@@ -7,6 +7,7 @@ export type ProviderFailureKind =
     | "payment_required"
     | "permission"
     | "invalid_request"
+    | "request_build"
     | "not_found"
     | "request_too_large"
     | "unknown";

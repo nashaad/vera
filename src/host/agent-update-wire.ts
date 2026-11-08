@@ -31,6 +31,7 @@ export type AgentUpdateFrame =
 const KNOWN_AGENT_UPDATE_TYPES: Record<AgentUpdate["type"], true> = {
     history: true,
     prompt_queue: true,
+    prompt_admission: true,
     prompt_withdrawn: true,
     context: true,
     model_activity: true,
@@ -124,6 +125,8 @@ function parseKnownAgentUpdate(
         return update.seq === undefined
                 && typeof update.reason === "string"
                 && update.reason.trim().length > 0
+                && (update.requestId === undefined
+                    || (typeof update.requestId === "string" && update.requestId.length > 0))
             ? value as AgentUpdate
             : undefined;
     }
@@ -139,6 +142,14 @@ function parseKnownAgentUpdate(
             && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
             && (update.promptQueue === undefined
                 || isPromptQueueState(update.promptQueue))
+            && (update.unsentPrompts === undefined
+                || (Array.isArray(update.unsentPrompts)
+                    && update.unsentPrompts.every((candidate) => {
+                        const prompt = asRecord(candidate);
+                        return prompt !== undefined
+                            && typeof prompt.content === "string"
+                            && isAttachmentIdList(prompt.attachmentIds);
+                    })))
             && (update.status === undefined || isAgentStatus(update.status))
             && (update.page === undefined || isHistoryPageInfo(update.page))
             ? { ...update, entries } as unknown as AgentUpdate
@@ -146,6 +157,14 @@ function parseKnownAgentUpdate(
     }
     if (update.type === "prompt_queue") {
         return isPromptQueueState(update.queue)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "prompt_admission") {
+        return typeof update.requestId === "string" && update.requestId.length > 0
+                && typeof update.content === "string"
+                && (update.status === "accepted" && update.reason === undefined
+                    || update.status === "rejected" && typeof update.reason === "string" && update.reason.length > 0)
             ? value as AgentUpdate
             : undefined;
     }
@@ -1207,6 +1226,7 @@ function isProviderFailureKind(value: unknown): boolean {
         || value === "payment_required"
         || value === "permission"
         || value === "invalid_request"
+        || value === "request_build"
         || value === "not_found"
         || value === "request_too_large"
         || value === "unknown";

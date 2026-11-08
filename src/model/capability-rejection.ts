@@ -19,6 +19,7 @@ const NON_CAPABILITY_KINDS: ReadonlySet<ProviderFailure["kind"]> = new Set([
     "authentication",
     "payment_required",
     "permission",
+    "request_build",
     "request_too_large",
 ]);
 

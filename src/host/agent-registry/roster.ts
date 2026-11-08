@@ -3,7 +3,8 @@ import { SessionChangedFileCounts } from "../../store/preimage-stash.ts";
 import { sessionSummary } from "./roster-summary.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ToolOutput } from "../../tools/types.ts";
 import { workspaceKey } from "../../workspace-key.ts";
-import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, gitRosterFacts, normalizeSessionName, participantLabel, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
+import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, gitRosterFacts, normalizeSessionName, participantLabel, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
+import type { PeerCaller, PeerRosterEntry } from "./peer-services.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { UNCOUNTED_INBOX_KINDS, type InboxAdmissionCandidate, type InboxAdmissionDecision } from "../inbox-delivery.ts";
 import { PEER_MESSAGE_KIND, RETIRED_PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "../local-participation.ts";
@@ -26,16 +27,27 @@ const notifications = new WeakMap<AgentRegistry, RosterNotification>();
 const pendingSources = new WeakMap<RegisteredAgentEntry["store"], PendingSources>();
 const changedFileCounts = new WeakMap<RegisteredAgentEntry, SessionChangedFileCounts>();
 
-export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
+export async function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
         if (caller === undefined) {
-            return Promise.resolve({
+            return {
                 kind: "output",
                 output: "This session is no longer registered with the host.",
                 isError: true,
-            });
+            };
         }
-        const here = workspaceKey(caller.agent.workspace);
+        const rows = reg.peerSessions === undefined
+            ? localPeerRoster(reg, callerId, caller.agent.workspace, details)
+            : await reg.peerSessions.peerRoster(callerId, caller.agent.workspace, details);
+        return {
+            kind: "output",
+            output: JSON.stringify({ self_participant_id: callerId, participants: rows }),
+            isError: false,
+        };
+    }
+
+export function localPeerRoster(reg: AgentRegistry, callerId: string, workspace: string, details: boolean): readonly PeerRosterEntry[] {
+        const here = workspaceKey(workspace);
         const rows = [...reg.agents.entries()]
             .filter(([id, entry]) =>
                 id !== callerId
@@ -77,19 +89,11 @@ export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, det
                     session_path: entry.store.path,
                 };
             });
-        return Promise.resolve({
-            kind: "output",
-            output: JSON.stringify({
-                self_participant_id: callerId,
-                participants: rows,
-            }),
-            isError: false,
-        });
+        return rows;
     }
 
 export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string, effect: AgentSendEffect): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
-        const recipient = reg.agents.get(effect.to);
         const inbox = reg.options.inboxDelivery;
         if (caller === undefined || caller.inbox === undefined || inbox === undefined) {
             return toolError("Native inbox participation is unavailable in this session.");
@@ -97,6 +101,22 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         if (effect.to === callerId) {
             return toolError("agent_send cannot send a message to its own session.");
         }
+        const participant: PeerCaller = {
+            id: callerId,
+            workspace: caller.agent.workspace,
+            label: participantLabel(caller),
+            hop: caller.peerHop,
+            readThrough: caller.inbox.consumer.offset(),
+        };
+        return reg.peerSessions === undefined
+            ? await sendToPeer(reg, participant, effect)
+            : await reg.peerSessions.peerSend(participant, effect);
+    }
+
+export async function sendToPeer(reg: AgentRegistry, caller: PeerCaller, effect: AgentSendEffect): Promise<ToolOutput> {
+        const recipient = reg.agents.get(effect.to);
+        const inbox = reg.options.inboxDelivery;
+        if (inbox === undefined) return toolError("Native inbox participation is unavailable in this session.");
         if (
             recipient === undefined
             || recipient.kind !== "interactive"
@@ -106,7 +126,7 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         ) {
             return toolError(`No native Vera participant ${effect.to}.`);
         }
-        if (!sameWorkspace(caller, recipient)) {
+        if (workspaceKey(caller.workspace) !== workspaceKey(recipient.agent.workspace)) {
             return toolError("agent_send recipients must be in the same workspace.");
         }
         // A stray reply_to on a new note is dropped and reported as reply_to_applied: false.
@@ -115,19 +135,18 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         if (effect.replyTo !== undefined) {
             const replied = inbox.entry(effect.replyTo);
             const message = replied === undefined ? undefined : parsePeerMessage(replied);
-            const readThrough = caller.inbox.consumer.offset();
             if (!(
                 message === undefined
                 || message.from !== effect.to
-                || message.to !== callerId
-                || readThrough < effect.replyTo
+                || message.to !== caller.id
+                || caller.readThrough < effect.replyTo
             )) {
                 replyTo = effect.replyTo;
             }
         }
         const payload: PeerMessagePayload = {
             version: 1,
-            from: callerId,
+            from: caller.id,
             to: effect.to,
             text: effect.text,
             ...(replyTo === undefined ? {} : { reply_to: replyTo }),
@@ -137,8 +156,8 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         const stored = await inbox.append({
             source: VERA_INBOX_SOURCE,
             kind: PEER_MESSAGE_KIND,
-            actor: callerId,
-            session: callerId,
+            actor: caller.id,
+            session: caller.id,
             address: effect.to,
             payload: JSON.stringify(payload),
         });
@@ -170,7 +189,7 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         };
     }
 
-export async function wakeForPeerMessage(reg: AgentRegistry, caller: RegisteredAgentEntry, recipient: RegisteredAgentEntry, seq: number): Promise<{
+export async function wakeForPeerMessage(reg: AgentRegistry, caller: PeerCaller, recipient: RegisteredAgentEntry, seq: number): Promise<{
         readonly delivered: boolean;
         readonly reason?:
             | "approval_mode"
@@ -185,7 +204,7 @@ export async function wakeForPeerMessage(reg: AgentRegistry, caller: RegisteredA
         ) {
             return { delivered: false, reason: "approval_mode" };
         }
-        const hop = caller.peerHop + 1;
+        const hop = caller.hop + 1;
         if (hop > MAX_PEER_HOP) {
             return { delivered: false, reason: "hop_limit" };
         }
@@ -198,7 +217,7 @@ export async function wakeForPeerMessage(reg: AgentRegistry, caller: RegisteredA
             return { delivered: false, reason: "rate_limit" };
         }
         try {
-            await recordPeerMessage(reg, recipient, participantLabel(caller), seq);
+            await recordPeerMessage(reg, recipient, caller.label, seq);
             recipient.agent.triggerDeliveryTurn();
         } catch {
             return { delivered: false, reason: "unavailable" };
@@ -228,19 +247,25 @@ async function recordPeerMessage(reg: AgentRegistry, recipient: RegisteredAgentE
         return recorded;
     }
 
-function peerSenderLabel(reg: AgentRegistry, seq: number): string | undefined {
+export function localPeerLabel(reg: AgentRegistry, id: string): string | undefined {
+        const sender = reg.agents.get(id);
+        return sender === undefined ? undefined : participantLabel(sender);
+    }
+
+async function peerSenderLabel(reg: AgentRegistry, seq: number): Promise<string | undefined> {
         const stored = reg.options.inboxDelivery?.entry(seq);
         const message = stored === undefined ? undefined : parsePeerMessage(stored);
         if (message === undefined) return undefined;
-        const sender = reg.agents.get(message.from);
-        return sender === undefined ? message.from : participantLabel(sender);
+        return localPeerLabel(reg, message.from)
+            ?? await reg.peerSessions?.peerLabel(message.from)
+            ?? message.from;
     }
 
 // An admitted turn for a peer message needs the notice, or the recipient wakes with nothing new to read.
 // A notice that cannot be recorded rejects, so the inbox starts the entry again at its next pump.
 export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: RegisteredAgentEntry, candidate: InboxAdmissionCandidate): Promise<void> {
         if (candidate.kind === PEER_MESSAGE_KIND) {
-            const sender = peerSenderLabel(reg, candidate.seq);
+            const sender = await peerSenderLabel(reg, candidate.seq);
             // A notice already recorded by a detached wake is not repeated, and its turn is not run twice.
             if (sender !== undefined) {
                 const recorded = await recordPeerMessage(reg, recipient, sender, candidate.seq);
@@ -440,10 +465,7 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
 export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
         const notification = notifications.get(reg);
         if (notification?.facts !== undefined) return notification.facts;
-        const unreadResults = new Set<string>();
-        for (const entry of reg.agents.values()) {
-            for (const source of unreadSources(entry)) unreadResults.add(source);
-        }
+        const unreadResults = new Set(unreadResultSources(reg));
         const facts = reg.list().flatMap((summary) => {
             const entry = reg.agents.get(summary.id);
             if (entry === undefined) return [];
@@ -477,6 +499,14 @@ export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
         });
         if (notification !== undefined) notification.facts = facts;
         return facts;
+    }
+
+export function unreadResultSources(reg: AgentRegistry): readonly string[] {
+        const sources = new Set<string>();
+        for (const entry of reg.agents.values()) {
+            for (const source of unreadSources(entry)) sources.add(source);
+        }
+        return [...sources];
     }
 
 function unreadSources(entry: RegisteredAgentEntry): readonly string[] {

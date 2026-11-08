@@ -10,7 +10,7 @@ import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { importSessionFile } from "../../src/host/session-import-service.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
-import { CRASH_CUT_MESSAGE, readSessionSnapshot, readSessionTurnState } from "../../src/store/session-store.ts";
+import { CRASH_CUT_MESSAGE, readSessionSnapshot, readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const adapterModule = fileURLToPath(new URL("./fixtures/worker-scripted-adapter.ts", import.meta.url));
@@ -157,6 +157,33 @@ test("a provider failure stays terminal on resume and the next turn works", asyn
     }
 });
 
+test("releasing an idle worker for transfer preserves an open stored turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-transfer-worker-tail-"));
+    const path = join(root, "session.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: () => ({ module: adapterModule, options: { script: [] } }),
+        model: "faux/test", approvalMode: "auto",
+    });
+    try {
+        const agent = await registry.create({ id: "crow", workspace: root, sessionPath: path });
+        await receiveUntil(agent.attach(), (update) => update.type === "history");
+        const entry = registry.agents.get("crow");
+        if (entry === undefined) throw new Error("Expected a running worker");
+        await entry.store.appendMessage({ role: "user", content: [{ type: "text", text: "Check the cove" }] }, { turnStart: true });
+        const before = await readFile(path, "utf8");
+        expect((await registry.releaseAgentTree("crow")).status).toBe("closed");
+        expect(await readFile(path, "utf8")).toBe(before);
+        const resumed = await registry.resume({ sessionPath: path, ownershipTransfer: true });
+        await receiveUntil(resumed.attach(), (update) => update.type === "history");
+        expect(await readFile(path, "utf8")).toBe(before);
+        expect((await readSessionTurnState(path)).turnOpen).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 15_000);
+
 test("closing a worker at an approval persists an abort and allows a later turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-close-worker-tail-"));
     const path = join(root, "session.jsonl");
@@ -177,12 +204,18 @@ test("closing a worker at an approval persists an abort and allows a later turn"
         await receiveUntil(client, (update) => update.type === "history");
         client.send({ type: "prompt", content: "Check the cove" });
         await receiveUntil(client, (update) => update.type === "ui_request");
+        client.send({ type: "prompt", content: "Check the sails" });
+        await receiveUntil(client, (update) => update.type === "prompt_queue");
+        expect((await SessionStore.open(path)).queuedPrompts()).toHaveLength(1);
         const pid = Number((await readFile(pidPath, "utf8")).trim());
         await registry.closeAgent("crow");
         expect(() => process.kill(pid, 0)).toThrow();
         const snapshot = await readSessionSnapshot(path);
         expect(snapshot.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted" });
         expect(snapshot.messages.filter((message) => message.role === "tool_result" && message.toolCallId === "call-1")).toHaveLength(1);
+        const stopped = await SessionStore.open(path);
+        expect(stopped.queuedPrompts()).toEqual([]);
+        expect(stopped.unsentPrompts()).toEqual([]);
         await expectNoCrash(path);
         const resumed = await registry.resume({ sessionPath: path });
         const next = resumed.attach();
@@ -216,6 +249,9 @@ for (const writeFailure of [false, true]) {
             await receiveUntil(client, (update) => update.type === "history");
             client.send({ type: "prompt", content: "Check the cove" });
             await receiveUntil(client, (update) => update.type === "ui_request");
+            client.send({ type: "prompt", content: "Check the sails" });
+            await receiveUntil(client, (update) => update.type === "prompt_queue");
+            expect((await SessionStore.open(path)).queuedPrompts()).toHaveLength(1);
             const entry = registry.agents.get("crow");
             if (entry?.worker === undefined) throw new Error("Expected a running worker");
             const send = entry.worker.send.bind(entry.worker);
@@ -233,6 +269,9 @@ for (const writeFailure of [false, true]) {
                 const snapshot = await readSessionSnapshot(path);
                 expect(snapshot.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted", errorMessage: "Turn aborted" });
                 expect(snapshot.messages.filter((message) => message.role === "tool_result" && message.toolCallId === "call-1")).toHaveLength(1);
+                const stopped = await SessionStore.open(path);
+                expect(stopped.queuedPrompts()).toEqual([]);
+                expect(stopped.unsentPrompts()).toEqual([]);
                 await expectNoCrash(path);
             }
             expect(() => process.kill(pid, 0)).toThrow();

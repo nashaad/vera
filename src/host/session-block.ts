@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { readSessionIndexMetadata } from "../store/session-store.ts";
 
@@ -23,6 +23,13 @@ export type SessionBlockState =
 export interface StoredSessionTree {
     readonly parents: ReadonlyMap<string, string>;
     readonly names: ReadonlyMap<string, string>;
+}
+
+export interface StoredSessionTreeRow {
+    readonly id: string;
+    readonly parent?: string;
+    readonly name?: string;
+    readonly order: number;
 }
 
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -119,29 +126,53 @@ export async function readStoredSessionTree(
 ): Promise<StoredSessionTree> {
     const parents = new Map<string, string>();
     const names = new Map<string, string>();
+    for (const row of await readStoredSessionTreeShard(sessionDirectory)) {
+        if (row.parent !== undefined) parents.set(row.id, row.parent);
+        if (row.name !== undefined) names.set(row.id, row.name);
+    }
+    return { parents, names };
+}
+
+export async function readStoredSessionTreeShard(
+    sessionDirectory: string,
+    includePaths?: readonly string[],
+    excludePaths: readonly string[] = [],
+): Promise<readonly StoredSessionTreeRow[]> {
+    const canonicalPaths = async (paths: readonly string[]): Promise<Set<string>> => new Set(await Promise.all(
+        paths.map((path) => realpath(path).catch(() => resolve(path))),
+    ));
+    const included = includePaths === undefined ? undefined : await canonicalPaths(includePaths);
+    const excluded = await canonicalPaths(excludePaths);
     let files: string[];
     try {
         files = readdirSync(sessionDirectory);
     } catch (error) {
-        if (isMissingFile(error)) return { parents, names };
+        if (isMissingFile(error)) return [];
         throw error;
     }
-    for (const file of files) {
+    const rows: StoredSessionTreeRow[] = [];
+    for (const [order, file] of files.entries()) {
         if (!file.endsWith(".jsonl")) continue;
+        const path = join(sessionDirectory, file);
+        if (included !== undefined || excluded.size > 0) {
+            const canonical = await realpath(path).catch(() => resolve(path));
+            if ((included !== undefined && !included.has(canonical)) || excluded.has(canonical)) continue;
+        }
         let metadata;
         try {
-            metadata = await readSessionIndexMetadata(
-                join(sessionDirectory, file),
-            );
+            metadata = await readSessionIndexMetadata(path);
         } catch {
             continue;
         }
         const { header } = metadata;
         const parent = header.delegation?.parentId ?? header.parentId;
-        if (parent !== undefined) parents.set(header.id, parent);
-        if (metadata.title !== undefined) names.set(header.id, metadata.title);
+        rows.push({
+            id: header.id, order,
+            ...(parent === undefined ? {} : { parent }),
+            ...(metadata.title === undefined ? {} : { name: metadata.title }),
+        });
     }
-    return { parents, names };
+    return rows;
 }
 
 // Breadth-first from the root. The root is always first, even when no header names it.

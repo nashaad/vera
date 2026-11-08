@@ -8,6 +8,7 @@ import {
 } from "../../src/providers/routing.ts";
 import type { ModelAdapter, ModelStream } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 
 function stubAdapter(): ModelAdapter {
     return {
@@ -318,14 +319,21 @@ test("a request-body collision is one terminal failure before dispatch", async (
         },
     );
 
-    const result = await routing.stream({
+    const stream = routing.stream({
         model: "test/model",
         messages: [],
-    }).result();
+    });
+    const events = [];
+    for await (const event of stream) events.push(event);
+    const result = await stream.result();
 
     expect(sent).toBe(false);
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain('field "provider"');
+    const terminal = events.at(-1);
+    expect(terminal?.type === "error" && terminal.error).toBeInstanceOf(ProviderFailureError);
+    expect(terminal?.type === "error" && (terminal.error as ProviderFailureError).failure)
+        .toMatchObject({ kind: "request_build", resolution: "none" });
 });
 
 test("a prepared stream that ends early becomes a terminal error", async () => {

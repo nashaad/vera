@@ -42,6 +42,9 @@ test("turn start and its first message are one durable record", async () => {
         expect((await readSessionTurnState(path)).turnOpen).toBe(true);
         const search = await searchSessionFile(path, new Date().toISOString(), "chart", { query: "chart" }, 10);
         expect(search?.hits).toHaveLength(1);
+        await store.appendQueuedPrompt("waiting", { content: "uncommitted queue text" });
+        expect(await searchSessionFile(path, new Date().toISOString(), "uncommitted", { query: "uncommitted" }, 10)).toBeUndefined();
+        await store.removeQueuedPrompt("waiting");
         expect(await (await SessionStore.open(path)).repairCrashedTurn()).toBe(true);
         expect((await readSessionSnapshot(path)).harnessMessages.at(-1)?.text).toBe(CRASH_CUT_MESSAGE);
     } finally {
@@ -86,6 +89,39 @@ test("passive context inside a running turn does not hide a crash", async () => 
         expect((await readSessionTurnState(path)).turnOpen).toBe(true);
         await openSessionForRecovery(path);
         expect((await readSessionSnapshot(path)).harnessMessages.at(-1)?.text).toBe(CRASH_CUT_MESSAGE);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a new turn starting with internal context after a cut can be repaired", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-second-cut-context-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+        await store.appendMessage(user("first"), { turnStart: true });
+        expect(await store.repairCrashedTurn()).toBe(true);
+        await store.appendMessage({ ...user("Restored context"), internal: true, contextSource: "session_start" }, { turnStart: true });
+        expect((await readSessionTurnState(path)).turnOpen).toBe(true);
+        expect(await store.repairCrashedTurn()).toBe(true);
+        expect((await readSessionSnapshot(path)).harnessMessages.filter((entry) => entry.text === CRASH_CUT_MESSAGE)).toHaveLength(2);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("crash recovery re-offers only prompts from the started turn and its queue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-cut-previous-user-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+        await store.appendMessage(user("earlier context"));
+        await store.appendMessage(user("current prompt"), { turnStart: true });
+        await store.appendQueuedPrompt("next", { content: "queued prompt" });
+        expect(await store.repairCrashedTurn()).toBe(true);
+        expect((await SessionStore.open(path)).unsentPrompts()).toEqual([
+            { content: "current prompt" }, { content: "queued prompt" },
+        ]);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

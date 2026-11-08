@@ -22,6 +22,14 @@ for moving between active tasks.
 attached for this client. Use its resume overlay when you want to continue
 working. Home means no conversation is open.
 
+## Read the transcript
+
+Ctrl+Up and Ctrl+Down scroll one row. Ctrl+U and Ctrl+D scroll half a page,
+and Ctrl+End returns to the bottom. When the terminal width changes while you
+read earlier text, the row containing that text stays at the top. Returning to
+the original width restores the original row until you scroll or the transcript
+changes. At the bottom, the transcript continues to follow new text.
+
 ## Stop, park, or exit
 
 | Action | Result |
@@ -108,11 +116,19 @@ The list is read when Vera starts on the home screen and each time the home
 screen opens. It does not refresh on a timer. Vera does not resend an
 interrupted turn. After a crash, the transcript marks the cut turn and records
 an unknown effect for any unfinished tool call. Check the workspace before
-relying on that call or running it again. Streamed text that was not committed
+relying on that call or running it again. Finished tool results that were saved
+before the crash remain in the transcript. Streamed text that was not committed
 before the crash is lost.
 
-Turns interrupted before this version may not appear in the cut-short list or
-receive a transcript marker.
+After a crash, prompts still waiting in the queue and prompts that received no
+assistant reply return unsent. The earliest appears in an empty composer; if
+you already have a draft, it stays in place. Use Up to recall the recovered
+prompts, including their image attachments. Vera does not send them until you
+choose to submit them.
+If only queued prompts were left, Vera marks the unsent queue after the last reply.
+
+Session files written by older builds have no turn-start records, so a turn
+cut in one of them is not marked.
 
 ## Where history is stored
 

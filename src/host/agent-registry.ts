@@ -34,7 +34,7 @@ import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "
 import { projectTranscript } from "../engine/protocol.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ApplyCommittedToolEffect, ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
-import { SessionStore, type SessionSettingOrigin } from "../store/session-store.ts";
+import { SessionStore, defaultSessionPath, type SessionSettingOrigin } from "../store/session-store.ts";
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../agents/catalog.ts";
 import { type AgentDefinition } from "../agents/definition.ts";
 import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "../agents/snapshot.ts";
@@ -71,6 +71,8 @@ import { investigateSession, type SessionInvestigateCall } from "./agent-registr
 import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
+import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "./agent-registry/peer-services.ts";
+import type { SubagentAdmission, SubagentSessionServices } from "./agent-registry/subagent-services.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
 import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
@@ -79,10 +81,20 @@ import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block
 // A worker that does not confirm the cut in time keeps running; the cut reports it as failed.
 const STOP_CUT_ACK_TIMEOUT_MS = 2000;
 
+export interface RegistryOpenGuard {
+    beginCreate(id: string, path?: string): Promise<void>;
+    beginResume(path: string): Promise<string>;
+    end(id: string): void;
+}
+
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
 
 export class AgentRegistry {
+    peerSessions: PeerSessionServices | undefined;
+    subagentSessions: SubagentSessionServices | undefined;
+    subagentAdmission: SubagentAdmission | undefined;
+    openGuard: RegistryOpenGuard | undefined;
     readonly agents = new Map<string, RegisteredAgentEntry>();
     readonly startingIds = new Set<string>();
     readonly trashingIds = new Set<string>();
@@ -270,19 +282,44 @@ export class AgentRegistry {
         inherited?: InheritedAgentSettings,
         clientPromptRefusal?: string,
     ): Promise<ResidentAgent> {
-        return registryLifecycle.createWithKind(this, options, kind, inherited, clientPromptRefusal);
+        const guard = this.openGuard;
+        if (guard === undefined) return registryLifecycle.createWithKind(this, options, kind, inherited, clientPromptRefusal);
+        const id = options.id ?? randomUUID();
+        const path = options.sessionPath ?? (options.ephemeral === true ? undefined : this.options.sessionPathForId?.(id) ?? defaultSessionPath(id));
+        await guard.beginCreate(id, path);
+        try {
+            return await registryLifecycle.createWithKind(this, { ...options, id }, kind, inherited, clientPromptRefusal);
+        } finally {
+            guard.end(id);
+        }
     }
 
     async resume(
         options: ResumeRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
-        return registryLifecycle.resume(this, options);
+        const guard = this.openGuard;
+        if (guard === undefined) return registryLifecycle.resume(this, options);
+        const id = await guard.beginResume(options.sessionPath);
+        try {
+            return await registryLifecycle.resume(this, options);
+        } finally {
+            guard.end(id);
+        }
     }
 
     async branch(
         options: BranchRegisteredAgentOptions,
     ): Promise<BranchedRegisteredAgent | undefined> {
-        return registryLifecycle.branch(this, options);
+        const guard = this.openGuard;
+        if (guard === undefined) return registryLifecycle.branch(this, options);
+        const id = options.id ?? randomUUID();
+        const path = options.sessionPath ?? (options.ephemeral === true ? undefined : this.options.sessionPathForId?.(id) ?? defaultSessionPath(id));
+        await guard.beginCreate(id, path);
+        try {
+            return await registryLifecycle.branch(this, { ...options, id });
+        } finally {
+            guard.end(id);
+        }
     }
 
     async trashSession(
@@ -575,6 +612,22 @@ export class AgentRegistry {
         return registryRoster.applyAgentRosterEffect(this, callerId, details);
     }
 
+    localPeerRoster(callerId: string, workspace: string, details: boolean): readonly PeerRosterEntry[] {
+        return registryRoster.localPeerRoster(this, callerId, workspace, details);
+    }
+
+    localPeerLabel(id: string): string | undefined {
+        return registryRoster.localPeerLabel(this, id);
+    }
+
+    unreadResultSources(): readonly string[] {
+        return registryRoster.unreadResultSources(this);
+    }
+
+    sendToPeer(caller: PeerCaller, effect: AgentSendEffect): Promise<ToolOutput> {
+        return registryRoster.sendToPeer(this, caller, effect);
+    }
+
     async applyAgentSendEffect(
         callerId: string,
         effect: AgentSendEffect,
@@ -583,7 +636,7 @@ export class AgentRegistry {
     }
 
     async wakeForPeerMessage(
-        caller: RegisteredAgentEntry,
+        caller: PeerCaller,
         recipient: RegisteredAgentEntry,
         seq: number,
     ): Promise<{
@@ -1647,12 +1700,12 @@ export class AgentRegistry {
     }
 
     monitorAsyncSubagent(
-        parentStore: SessionStore,
+        parent: registrySubagent.SubagentParent,
         childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): void {
-        return registrySubagent.monitorAsyncSubagent(this, parentStore, childEntry, attachment, completionSequence);
+        return registrySubagent.monitorAsyncSubagent(this, parent, childEntry, attachment, completionSequence);
     }
 
     async notifyParent(
@@ -1663,12 +1716,12 @@ export class AgentRegistry {
     }
 
     async deliverBackgroundResult(
-        parentStore: SessionStore,
+        parent: registrySubagent.SubagentParent,
         childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): Promise<void> {
-        return registrySubagent.deliverBackgroundResult(this, parentStore, childEntry, attachment, completionSequence);
+        return registrySubagent.deliverBackgroundResult(this, parent, childEntry, attachment, completionSequence);
     }
 
     async relayChildToolApproval(

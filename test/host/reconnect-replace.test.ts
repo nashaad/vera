@@ -85,7 +85,7 @@ async function startDetachedHost(): Promise<{
     readonly agentId: string;
 }> {
     const home = await mkdtemp(join(tmpdir(), "vera-reconnect-host-"));
-    const veraHome = join(home, ".vera");
+    const veraHome = join(home, "vera");
     const profile = join(veraHome);
     await mkdir(profile, { recursive: true });
     seedTestRelease(home);

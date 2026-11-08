@@ -19,6 +19,8 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
+import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -215,6 +217,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         && rt.pendingUiRequest === undefined
                         && rt.followTranscriptAfterUiRequest
                     ) {
+                        clearTranscriptAnchorPadding(rt);
                         rt.transcript.scrollTo(rt.transcript.scrollHeight);
                         rt.followTranscriptAfterUiRequest = false;
                         renderJumpToBottom(rt);
@@ -333,6 +336,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 receiveSkillInvocation(rt, update);
                 continue;
+            }
+            if (update.type === "history" && rt.reconnectHistoryPending) {
+                rt.reconnectHistoryPending = false;
+                rt.state = { ...rt.state, entries: [] };
             }
             rt.state = applyAgentUpdate(rt.state, update);
             if (isSettingsRetryTrigger(rt, update)) {
@@ -588,12 +595,23 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 }
             }
             if (update.type === "history") {
-                const userTexts = update.entries
-                    .filter((entry) => entry.kind === "user")
-                    .map((entry) => entry.text);
-                rt.composer.loadSubmittedTexts(userTexts);
-                if (userTexts[0] !== undefined) {
-                    adoptFallbackSessionTitle(rt, userTexts[0]);
+                const userPrompts = update.entries.flatMap((entry) => entry.kind === "user"
+                    ? [{ text: entry.text, attachmentIds: entry.attachments?.map((attachment) => attachment.id) }]
+                    : []);
+                const unsent = update.unsentPrompts?.map((prompt) => ({
+                    text: prompt.content,
+                    ...(prompt.attachmentIds === undefined ? {} : { attachmentIds: prompt.attachmentIds }),
+                })) ?? [];
+                if (unsent.length > 0 && !rt.composer.hasRecoveredPrompts()) {
+                    rt.composer.setRecoveredPrompts(unsent);
+                    if (rt.composer.plainText.length === 0 && rt.pendingImages.length === 0) {
+                        rt.composer.setComposerText(unsent[0]!.text);
+                        rt.composer.onHistorySelection?.(unsent[0]!.attachmentIds ?? []);
+                    }
+                }
+                rt.composer.loadSubmittedPrompts(userPrompts);
+                if (userPrompts[0] !== undefined) {
+                    adoptFallbackSessionTitle(rt, userPrompts[0].text);
                 }
                 rt.pendingTranscriptReseed = true;
                 rt.transcriptSeeded = true;
@@ -679,7 +697,8 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             rejectPendingExtensionSettingsFor(rt, rt.client, error);
             reportConnectionError(
                 rt,
-                error instanceof DOMException && error.name === "TimeoutError"
+                (error instanceof DOMException && error.name === "TimeoutError")
+                    || error instanceof HostConnectionClosedError
                     ? new Error("Lost the connection to the host.")
                     : error,
             );

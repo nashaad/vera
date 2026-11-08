@@ -224,6 +224,7 @@ test("a stored agent failure is not recorded as a crash", async () => {
     try {
         const path = await sessionWith(s.sessions, "crow-failed", [user]);
         const store = await SessionStore.open(path);
+        await store.appendQueuedPrompt("held", { content: "Check the sails" });
         await store.appendAgentFailure("failure-1", "Stopped unexpectedly");
         await writeStaleLock(s.lockPath, s.startedAt);
         const result = await recoverCrashedTurns({

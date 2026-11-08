@@ -98,3 +98,61 @@ for (const inProcessWorker of [false, true]) {
         }
     }, 20_000);
 }
+
+test("an attachment repairs a nonstandard session on the master while the worker starts", async () => {
+    const root = await mkdtemp("/tmp/vera-dev/crash1-startup.");
+    const sessions = join(root, "sessions");
+    const blockedPath = join(sessions, "a.jsonl");
+    const targetPath = join(sessions, "other-name.jsonl");
+    const socketPath = join(root, "host.sock");
+    const lockPath = join(root, "host.json");
+    const original = SessionStore.prototype.repairCrashedTurn;
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let host: ResidentHost | undefined;
+    let client: AttachedAgentClient | undefined;
+    try {
+        await mkdir(sessions, { recursive: true });
+        const blocked = await SessionStore.create(blockedPath, { sessionId: "blocked", cwd: root });
+        await blocked.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the deck" }] }, { turnStart: true });
+        const target = await SessionStore.create(targetPath, { sessionId: "crow", cwd: root });
+        await target.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
+        await writeFile(lockPath, JSON.stringify({
+            schema_version: 3, pid: 424242, started_at: new Date(Date.now() - 60_000).toISOString(),
+            socket_path: socketPath, build_id: "old",
+        }));
+        SessionStore.prototype.repairCrashedTurn = async function () {
+            if (this.header.id === "blocked") {
+                enter();
+                await gate;
+            }
+            return await original.call(this);
+        };
+        const starting = startResidentHost({
+            home: root,
+            config: { schema_version: 1, provider: "openrouter", model: "faux/test", approval_mode: "auto" },
+            socketPath, lockPath, sessionDirectory: sessions, inProcessWorker: true,
+            createAdapter: () => new FauxAdapter([]),
+        });
+        try {
+            await entered;
+            client = await attachAgent({ socketPath, agentId: "crow" });
+            expect((await client.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+            expect((await readSessionTurnState(targetPath)).turnOpen).toBe(false);
+            release();
+            host = await starting;
+            expect(host.registry.agents.has("crow")).toBe(true);
+            expect((await readFile(targetPath, "utf8")).split(CRASH_CUT_MESSAGE)).toHaveLength(2);
+        } finally {
+            release();
+            host ??= await starting.catch(() => undefined);
+        }
+    } finally {
+        SessionStore.prototype.repairCrashedTurn = original;
+        client?.close();
+        await host?.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 20_000);

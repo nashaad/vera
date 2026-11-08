@@ -1,5 +1,5 @@
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import {
     isSessionImportProvenance,
@@ -58,6 +58,24 @@ export interface SessionSearchOptions {
     readonly maxResults?: number;
     readonly maxHitsPerSession?: number;
     readonly sessionPath?: string;
+    readonly includePaths?: readonly string[];
+    readonly excludePaths?: readonly string[];
+}
+
+export interface SearchFileRank {
+    readonly updatedAt: string;
+    readonly order: number;
+}
+
+export interface RankedSessionSearchResult {
+    readonly result: SessionSearchResult;
+    readonly rank: SearchFileRank;
+}
+
+export interface SessionSearchShard {
+    readonly results: readonly RankedSessionSearchResult[];
+    readonly truncated: boolean;
+    readonly lastFile?: SearchFileRank;
 }
 
 export async function searchSessions(
@@ -65,8 +83,17 @@ export async function searchSessions(
     query: SessionSearchQuery,
     options: SessionSearchOptions = {},
 ): Promise<SessionSearchResults> {
+    const shard = await searchSessionShard(sessionDirectory, query, options);
+    return { results: shard.results.map((entry) => entry.result), truncated: shard.truncated };
+}
+
+export async function searchSessionShard(
+    sessionDirectory: string,
+    query: SessionSearchQuery,
+    options: SessionSearchOptions = {},
+): Promise<SessionSearchShard> {
     const needle = query.query.trim().toLowerCase();
-    if (needle.length === 0) return NO_SEARCH_RESULTS;
+    if (needle.length === 0) return { results: [], truncated: false };
     const maxResults = options.maxResults ?? MAX_SEARCH_RESULTS;
     const maxHits = options.maxHitsPerSession
         ?? (query.session_id === undefined
@@ -81,29 +108,39 @@ export async function searchSessions(
         try {
             names = await readdir(sessionDirectory);
         } catch {
-            return NO_SEARCH_RESULTS;
+            return { results: [], truncated: false };
         }
     }
 
     const paths = sessionPath === undefined
         ? names
-            .filter((name) => name.endsWith(".jsonl"))
-            .filter((name) => query.session_id === undefined
+            .map((name, order) => ({ name, order }))
+            .filter(({ name }) => name.endsWith(".jsonl"))
+            .filter(({ name }) => query.session_id === undefined
                 || name === `${query.session_id}.jsonl`)
-            .map((name) => join(sessionDirectory, name))
-        : [sessionPath];
+            .map(({ name, order }) => ({ path: join(sessionDirectory, name), order }))
+        : [{ path: sessionPath, order: 0 }];
+    const canonicalPaths = async (paths: readonly string[]): Promise<Set<string>> => new Set(await Promise.all(
+        paths.map((path) => realpath(path).catch(() => resolve(path))),
+    ));
+    const included = options.includePaths === undefined ? undefined : await canonicalPaths(options.includePaths);
+    const excluded = await canonicalPaths(options.excludePaths ?? []);
     const files = (await Promise.all(
         paths
-            .map(async (path) => {
+            .map(async ({ path, order }) => {
+                if (included !== undefined || excluded.size > 0) {
+                    const canonical = await realpath(path).catch(() => resolve(path));
+                    if ((included !== undefined && !included.has(canonical)) || excluded.has(canonical)) return undefined;
+                }
                 const info = await stat(path).catch(() => undefined);
                 return info === undefined
                     ? undefined
-                    : { path, updatedAt: info.mtime.toISOString() };
+                    : { path, updatedAt: info.mtime.toISOString(), order };
             }),
     )).flatMap((file) => file === undefined ? [] : [file])
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+        .sort(compareSearchRank);
 
-    const results: SessionSearchResult[] = [];
+    const results: RankedSessionSearchResult[] = [];
     let truncated = false;
     for (const file of files) {
         if (results.length >= maxResults) {
@@ -117,9 +154,18 @@ export async function searchSessions(
             query,
             maxHits,
         );
-        if (result !== undefined) results.push(result);
+        if (result !== undefined) results.push({ result, rank: { updatedAt: file.updatedAt, order: file.order } });
     }
-    return { results, truncated };
+    const last = files.at(-1);
+    return {
+        results,
+        truncated,
+        ...(last === undefined ? {} : { lastFile: { updatedAt: last.updatedAt, order: last.order } }),
+    };
+}
+
+export function compareSearchRank(left: SearchFileRank, right: SearchFileRank): number {
+    return right.updatedAt.localeCompare(left.updatedAt) || left.order - right.order;
 }
 
 export async function searchSessionFile(

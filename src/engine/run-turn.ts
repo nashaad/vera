@@ -547,6 +547,7 @@ export async function runHeadlessLoop(
         },
         () => store.usageMessages(),
         () => store.deliveredMessages(),
+        () => store.unsentPrompts(),
     );
     if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({
@@ -576,8 +577,17 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        appendQueuedPrompt: (id, prompt) => store.appendQueuedPrompt(id, {
+            content: prompt.content,
+            ...(prompt.attachmentIds === undefined ? {} : { attachmentIds: prompt.attachmentIds }),
+        }),
+        removeQueuedPrompt: (id) => store.removeQueuedPrompt(id),
         appendHarnessMessage: async (text, tone) => {
-            await store.appendHarnessMessage(text, tone);
+            const last = messages.at(-1);
+            const afterMessageId = last === undefined
+                ? null
+                : store.activeMessageStamps().get(last)?.id;
+            await store.appendHarnessMessage(text, tone, afterMessageId);
             protocol.checkpoint(messages);
         },
         appendContext: async (contextMessages, harnessMessage) => {
@@ -936,8 +946,17 @@ export async function runHeadlessLoop(
             }
         }
     } finally {
-        await state.toolRuntime.close();
-        if (ownsProcessRegistry) await processRegistry.close();
+        try {
+            await inbound.stopReceivingCommands();
+            try {
+                await inbound.discardQueuedPrompts();
+            } finally {
+                for (const queued of store.queuedPrompts()) await store.removeQueuedPrompt(queued.id);
+            }
+        } finally {
+            await state.toolRuntime.close();
+            if (ownsProcessRegistry) await processRegistry.close();
+        }
     }
 }
 
@@ -1010,6 +1029,11 @@ export async function runTurn(
     });
     let assistantMessage!: AssistantMessage;
     let turnThrew = false;
+    const claimedPrompts = new Map(
+        [turn.prompt, ...(turn.additionalPrompts ?? [])].flatMap((prompt) =>
+            prompt.queuedPromptId === undefined ? [] : [[prompt.queuedPromptId, prompt] as const]
+        ),
+    );
 
     try {
         const modelSettings = turn.modelSettings
@@ -1079,8 +1103,9 @@ export async function runTurn(
                 activeModel,
             )
         ) {
-            for (const message of userMessages) {
-                await commitMessage(state, message);
+            for (const [index, message] of userMessages.entries()) {
+                await commitMessage(state, message, turnPrompts[index]?.queuedPromptId);
+                if (turnPrompts[index]?.queuedPromptId !== undefined) claimedPrompts.delete(turnPrompts[index]!.queuedPromptId!);
                 state.events.emit({ type: "turn_started", message });
             }
             assistantMessage = attachmentErrorMessage(
@@ -1119,8 +1144,9 @@ export async function runTurn(
         if (userMessages.length === 0) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
-            for (const message of userMessages) {
-                await commitMessage(state, message);
+            for (const [index, message] of userMessages.entries()) {
+                await commitMessage(state, message, turnPrompts[index]?.queuedPromptId);
+                if (turnPrompts[index]?.queuedPromptId !== undefined) claimedPrompts.delete(turnPrompts[index]!.queuedPromptId!);
                 state.events.emit({ type: "turn_started", message });
             }
             for (const [promptIndex, prompt] of turnPrompts.entries()) {
@@ -1887,6 +1913,9 @@ export async function runTurn(
                     )
                 );
             for (const prompt of joined) {
+                if (prompt.queuedPromptId !== undefined) claimedPrompts.set(prompt.queuedPromptId, prompt);
+            }
+            for (const prompt of joined) {
                 const message: UserMessage = {
                     role: "user",
                     content: [
@@ -1898,7 +1927,8 @@ export async function runTurn(
                     ],
                     arrivedDuringTurn: true,
                 };
-                await commitMessage(state, message);
+                await commitMessage(state, message, prompt.queuedPromptId);
+                if (prompt.queuedPromptId !== undefined) claimedPrompts.delete(prompt.queuedPromptId);
                 state.events.emit({ type: "turn_started", message });
                 promptTexts.push(prompt.content);
             }
@@ -1967,6 +1997,11 @@ export async function runTurn(
                 : "completed";
         state.inbound.finishTurnTiming(turnClock);
         state.inbound.finishTurn(outcome);
+        if (turn.signal.aborted) {
+            for (const id of claimedPrompts.keys()) await state.store.removeQueuedPrompt?.(id);
+        } else {
+            state.inbound.restoreUnjoinedPrompts([...claimedPrompts.values()], turn.modelSettings);
+        }
     }
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
@@ -3056,25 +3091,70 @@ async function finishToolCalls(
     readonly completed: readonly CompletedToolCall[];
     readonly interrupt?: TurnInterrupt;
 }> {
-    const settled = await Promise.allSettled(pending);
+    const outcomes = pending.map((call) => call.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+    ));
+    let failure: { readonly reason: unknown } | undefined;
+    let previous = Promise.resolve();
+    const committed = outcomes.map((outcome) => {
+        const write = previous.then(async () => {
+            if (failure !== undefined) throw failure.reason;
+            const settled = await outcome;
+            if (settled.status === "rejected") return undefined;
+            try {
+                const entry = await state.store.appendMessage(settled.value.result);
+                if (settled.value.afterCommit !== undefined) {
+                    try {
+                        if (state.applyCommittedToolEffect === undefined) {
+                            throw new Error("No owner can apply the committed tool effect");
+                        }
+                        await state.applyCommittedToolEffect(settled.value.afterCommit);
+                    } catch (reason) {
+                        failure = { reason };
+                        return { toolCall: settled.value, entry, afterCommitFailure: { reason } };
+                    }
+                }
+                return {
+                    toolCall: settled.value,
+                    entry,
+                };
+            } catch (reason) {
+                failure = { reason };
+                throw reason;
+            }
+        });
+        const recorded = write.then(
+            (value) => ({ status: "fulfilled" as const, value }),
+            (reason: unknown) => ({ status: "rejected" as const, reason }),
+        );
+        previous = recorded.then(() => undefined);
+        return recorded;
+    });
+    const settled = await Promise.all(outcomes);
     const completed = settled.flatMap((toolCall) =>
         toolCall.status === "fulfilled" ? [toolCall.value] : []
     );
-    for (const toolCall of completed) {
-        await commitMessage(state, toolCall.result);
-        if (toolCall.afterCommit !== undefined) {
-            if (state.applyCommittedToolEffect === undefined) {
-                throw new Error("No owner can apply the committed tool effect");
+    try {
+        for (let index = 0; index < settled.length; index += 1) {
+            if (settled[index]?.status !== "fulfilled") continue;
+            const saved = await committed[index]!;
+            if (saved.status === "rejected") throw saved.reason;
+            if (saved.value === undefined) continue;
+            const { toolCall, entry } = saved.value;
+            state.messages.push(entry.message);
+            if (saved.value.afterCommitFailure !== undefined) throw saved.value.afterCommitFailure.reason;
+            if (toolCall.result.presentation !== undefined) {
+                state.events.emit({
+                    type: "tool_presentation_ready",
+                    tool: toolCall.result.toolName,
+                    presentation: toolCall.result.presentation,
+                });
             }
-            await state.applyCommittedToolEffect(toolCall.afterCommit);
         }
-        if (toolCall.result.presentation !== undefined) {
-            state.events.emit({
-                type: "tool_presentation_ready",
-                tool: toolCall.result.toolName,
-                presentation: toolCall.result.presentation,
-            });
-        }
+    } catch (error) {
+        await Promise.all(committed);
+        throw error;
     }
     const rejected = settled.find(
         (toolCall) => toolCall.status === "rejected",
@@ -3181,11 +3261,12 @@ async function resolveToolInteraction(
 async function commitMessage(
     state: RunTurnState,
     message: ModelMessage,
+    queuedPromptId?: string,
 ): Promise<void> {
-    const entry = await state.store.appendMessage(
-        message,
-        state.turnStartPending === true ? { turnStart: true } : undefined,
-    );
+    const entry = await state.store.appendMessage(message, {
+        ...(state.turnStartPending === true ? { turnStart: true as const } : {}),
+        ...(queuedPromptId === undefined ? {} : { queuedPromptId }),
+    });
     state.turnStartPending = false;
     state.messages.push(entry.message);
 }

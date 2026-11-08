@@ -18,6 +18,9 @@ or the host stopped, press **Ctrl+L** to restart the host into the same
 conversation. To quit instead, press Ctrl+C twice. Vera prints
 the command to resume this session before it exits.
 
+During automatic recovery, the TUI keeps the conversation visible, shows
+`reconnecting…`, and stops the live turn and tool timers until it reconnects.
+
 Ctrl+L does what Reconnect host does: it starts a host if none runs and
 reopens this session. If the installed build differs from the
 TUI's build, the TUI relaunches into the installed build and keeps the
@@ -156,6 +159,9 @@ A spent usage limit shows when it resets. The error is saved with the
 conversation, so a reopened conversation shows it too. The provider's full
 response is in `/diagnostics`: open the **Vera** report and look under
 **MODEL FAILURES**.
+
+If Vera cannot build a request locally, it stops without retrying and the
+Vera report in `/diagnostics` contains the error.
 
 ## A change could not be saved
 
