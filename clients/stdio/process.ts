@@ -8,6 +8,7 @@ import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
     createAgentThroughHost,
     resumeAgentThroughHost,
+    type ReadyAgent,
 } from "../../src/host/agent-start-client.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
@@ -73,12 +74,13 @@ export async function runStdioProcess(
 ): Promise<void> {
     const buildId = thisProcessBuildId();
     const host = await findOrStartResidentHost();
-    const agentId = await resolveAgentId(host.socket_path, target);
+    const agent = await resolveAgent(host.socket_path, target);
     const client = await attachReconnectingAgent({
         socketPath: () => host.socket_path,
-        agentId,
+        agentId: agent.id,
         buildId,
         requestedCapabilities: STDIO_CAPABILITIES,
+        ...(agent.location === undefined ? {} : { initialLocation: agent.location }),
     });
     const stopping = new AbortController();
     const onSignal = (): void => stopping.abort();
@@ -95,20 +97,20 @@ export async function runStdioProcess(
     }
 }
 
-async function resolveAgentId(
+async function resolveAgent(
     socketPath: string,
     target: StdioStartTarget,
-): Promise<string> {
+): Promise<Pick<ReadyAgent, "id" | "location">> {
     if (target.type === "create") {
-        return (await createAgentThroughHost(
+        return await createAgentThroughHost(
             socketPath,
             process.cwd(),
             undefined,
             undefined,
-        )).id;
+        );
     }
     if (target.type === "attach") {
-        return target.agentId;
+        return { id: target.agentId };
     }
 
     const resolved = resolveResumeTarget(
@@ -116,9 +118,9 @@ async function resolveAgentId(
         target.selector,
     );
     return resolved.type === "attach"
-        ? resolved.agentId
-        : (await resumeAgentThroughHost(
+        ? { id: resolved.agentId }
+        : await resumeAgentThroughHost(
             socketPath,
             resolved.sessionPath,
-        )).id;
+        );
 }

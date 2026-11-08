@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { controlSocketPath, startSessionWorkerSupervisor } from "../../src/host/master/supervisor.ts";
+import { controlSocketPath, startSessionWorkerSupervisor, WorkerGenerations } from "../../src/host/master/supervisor.ts";
+
+test("worker generations increase independently for each worker id", () => {
+    const generations = new WorkerGenerations();
+    expect(generations.next("w0")).toBe(1);
+    expect(generations.next("w1")).toBe(1);
+    expect(generations.next("w0")).toBe(2);
+    expect(generations.next("w1")).toBe(2);
+});
 
 test("a worker that exits before ready is reaped", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-supervisor-");
@@ -12,6 +20,7 @@ test("a worker that exits before ready is reaped", async () => {
         await expect(startSessionWorkerSupervisor({
             home,
             socket: join(home, "runtime", "w0.sock"),
+            generation: 1,
             bootstrap: {
                 options: { home, config: { schema_version: 1, provider: "openrouter", model: "stub", approval_mode: "auto" } },
                 masterSocket: join(home, "runtime", "host.sock"),

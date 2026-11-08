@@ -762,6 +762,7 @@ test("host identity round trips role and worker fields", async () => {
         build_id: "vera-abc1234",
         role: "worker",
         worker_id: "w1",
+        worker_generation: 7,
         worker_index: 1,
         worker_count: 4,
         workers_ready: 2,
@@ -774,10 +775,19 @@ test("host identity round trips role and worker fields", async () => {
         build_id: "vera-abc1234",
         role: "worker",
         worker_id: "w1",
+        worker_generation: 7,
         worker_index: 1,
         worker_count: 4,
         workers_ready: 2,
     });
+});
+
+test("a worker identity rejects an invalid generation", async () => {
+    const identity = {
+        type: "host_identity", pid: 202, started_at: "2026-07-17T12:00:00.000Z",
+        build_id: "vera-abc1234", role: "worker", worker_id: "w1", worker_generation: 0,
+    };
+    expect(await requestIdentityFromPeer(`${JSON.stringify(identity)}\n`)).toBeUndefined();
 });
 
 test("an identity without a role parses as the host role", async () => {

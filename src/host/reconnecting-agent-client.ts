@@ -2,14 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { AgentUpdate, ClientCommand } from "../engine/protocol.ts";
 import {
     AgentAttachError,
+    AgentLocationChangedError,
     attachAgent,
     type AttachedAgentClient,
 } from "./attached-client.ts";
 import {
     CLIENT_CAPABILITIES,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+    HOST_CAPABILITY_SESSION_ROUTING,
 } from "./capabilities.ts";
-import { requestHostIdentity, type HostStopWaitEvent } from "./protocol.ts";
+import { connectHost } from "./connection.ts";
+import { parseAgentLocationReply, requestHostIdentity, type HostIdentity, type HostStopWaitEvent } from "./protocol.ts";
+import type { ReadyAgentLocation } from "./agent-start-client.ts";
 import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
@@ -26,6 +30,7 @@ export interface ReconnectingAgentOptions {
     readonly failOnDisconnect?: boolean;
     /** Defaults to CLIENT_CAPABILITIES; paging clients pass PAGING_CAPABILITIES. */
     readonly requestedCapabilities?: readonly string[];
+    readonly initialLocation?: ReadyAgentLocation;
 }
 
 export class HostBuildChangedError extends Error {
@@ -48,33 +53,71 @@ export interface ReconnectPolicy {
     readonly deadlineMs?: number;
     readonly delaysMs?: readonly number[];
     readonly failOnDisconnect?: boolean;
+    readonly retryDirectDisconnect?: () => boolean;
 }
 
 export async function attachReconnectingAgent(
     options: ReconnectingAgentOptions,
 ): Promise<AttachedAgentClient> {
+    let initialLocation = options.initialLocation;
+    let directAttached = false;
+    const requestedCapabilities = options.requestedCapabilities ?? CLIENT_CAPABILITIES;
+    const routing = requestedCapabilities.includes(HOST_CAPABILITY_SESSION_ROUTING);
     const attach = async (
         afterSequence: number | undefined,
         signal: AbortSignal,
     ): Promise<AttachedAgentClient> => {
-        const socketPath = options.socketPath();
-        await confirmHostBuild(socketPath, options.buildId, signal);
-        return attachAgent({
+        const masterSocket = options.socketPath();
+        const masterIdentity = await confirmHostBuild(masterSocket, options.buildId, signal);
+        let location: RoutingLocation | undefined = routing ? initialLocation : undefined;
+        initialLocation = undefined;
+        if (location === undefined && routing && (masterIdentity.workers_ready !== undefined || directAttached)) {
+            location = await locateAgent(masterSocket, options.agentId, signal);
+        }
+        const attachAt = (socketPath: string): Promise<AttachedAgentClient> => attachAgent({
             socketPath,
             agentId: options.agentId,
-            requestedCapabilities: options.requestedCapabilities
-                ?? CLIENT_CAPABILITIES,
+            requestedCapabilities,
             ...(options.interactive === true
                 ? { interactive: true, clientId: options.clientId }
                 : {}),
             ...(afterSequence === undefined ? {} : { afterSequence }),
             signal,
         });
+        if (location === undefined) {
+            const client = await attachAt(masterSocket);
+            directAttached = false;
+            return client;
+        }
+        let lastError: unknown = new Error("The session worker is unavailable");
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const target = location;
+            const isMaster = target.worker_id === "host" && target.socket_path === masterSocket;
+            const identity = isMaster ? masterIdentity : await requestHostIdentity(target.socket_path);
+            signal.throwIfAborted();
+            const matches = target.build_id === undefined || target.build_id === options.buildId;
+            const verified = isMaster ? matches : matches && identity?.role === "worker"
+                && identity.build_id === options.buildId
+                && identity.worker_id === target.worker_id
+                && identity.worker_generation === target.worker_generation;
+            if (verified) {
+                try {
+                    const client = await attachAt(target.socket_path);
+                    directAttached = !isMaster;
+                    return client;
+                } catch (error) {
+                    if (!(error instanceof AgentLocationChangedError) && !isRefusedSocket(error)) throw error;
+                    lastError = error;
+                }
+            }
+            if (attempt === 0) location = await locateAgent(masterSocket, options.agentId, signal);
+        }
+        throw lastError;
     };
     return createReconnectingAgentClient(
         await attach(undefined, new AbortController().signal),
         attach,
-        { failOnDisconnect: options.failOnDisconnect },
+        { failOnDisconnect: options.failOnDisconnect, retryDirectDisconnect: () => directAttached },
     );
 }
 
@@ -213,7 +256,8 @@ export function createReconnectingAgentClient(
                         if (closed || signal?.aborted === true) {
                             throw error;
                         }
-                        if (policy.failOnDisconnect === true && current.closed) {
+                        if (policy.failOnDisconnect === true && current.closed
+                            && policy.retryDirectDisconnect?.() !== true) {
                             throw error;
                         }
                         if (pendingPrivateRequests.size > 0
@@ -412,7 +456,7 @@ async function confirmHostBuild(
     socketPath: string,
     buildId: string,
     signal: AbortSignal,
-): Promise<void> {
+): Promise<HostIdentity> {
     for (const delayMs of BUILD_CHECK_DELAYS_MS) {
         if (delayMs > 0) await delay(delayMs, signal);
         const identity = await requestHostIdentity(socketPath);
@@ -420,9 +464,40 @@ async function confirmHostBuild(
         if (identity.build_id !== buildId) {
             throw new HostBuildChangedError(buildId, identity.build_id);
         }
-        return;
+        return identity;
     }
     throw new Error("The Vera host did not report its build, so this client did not attach.");
+}
+
+interface RoutingLocation extends ReadyAgentLocation {
+    readonly build_id?: string;
+}
+
+async function locateAgent(socketPath: string, agentId: string, signal: AbortSignal): Promise<RoutingLocation> {
+    const deadline = AbortSignal.any([signal, AbortSignal.timeout(RECONNECT_DEADLINE_MS)]);
+    for (let attempt = 0; ; attempt += 1) {
+        deadline.throwIfAborted();
+        const connection = await connectHost({ socketPath, signal: deadline });
+        const abort = (): void => connection.close();
+        deadline.addEventListener("abort", abort, { once: true });
+        try {
+            await connection.send({ type: "locate_agent", agent_id: agentId });
+            const response = parseAgentLocationReply(JSON.stringify(await connection.receive()));
+            if (response === undefined) throw new Error("Host returned an invalid session location");
+            if (response.type === "agent_location") return response;
+            if (response.reason === "not_found") throw new Error(response.message);
+        } finally {
+            deadline.removeEventListener("abort", abort);
+            connection.close();
+        }
+        const delayMs = RECONNECT_DELAYS_MS[Math.min(attempt + 1, RECONNECT_DELAYS_MS.length - 1)] ?? 0;
+        if (delayMs > 0) await delay(delayMs, deadline);
+    }
+}
+
+function isRefusedSocket(error: unknown): boolean {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    return code === "ECONNREFUSED" || code === "ENOENT" || code === "ECONNRESET";
 }
 
 function privateRequestId(command: ClientCommand): string | undefined {

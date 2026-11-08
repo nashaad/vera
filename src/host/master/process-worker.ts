@@ -4,9 +4,10 @@ import { ControlReservations } from "./reservations.ts";
 import { remoteSessionEndpoint } from "./remote-endpoint.ts";
 import { serveRoutedMethod } from "./remote-routing.ts";
 import { prepareRoutedHost } from "./routing.ts";
-import { startSessionWorkerSupervisor, type SessionWorkerSupervisor } from "./supervisor.ts";
+import { startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupervisor } from "./supervisor.ts";
 import { COMMON_METHODS, type WorkerBootstrap, type WorkerStartOptions } from "./worker-control.ts";
 import type { ControlPeer } from "./control.ts";
+import { servePublicRequest } from "./public-forward.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
@@ -20,6 +21,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let peer: ControlPeer | undefined;
     let supervisor: SessionWorkerSupervisor | undefined;
     let workerReady = false;
+    let workerStarting = true;
+    let workerClosed = false;
+    const started = Promise.withResolvers<void>();
+    const finishStarting = (): void => { workerStarting = false; started.resolve(); };
+    const generations = new WorkerGenerations();
+    let workerGeneration = 0;
     const requestWorker = async <T>(method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
     const routed = prepareRoutedHost({
@@ -28,8 +35,11 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         masterSocket: options.masterSocket,
         workerSocket: options.workerSocket,
         buildId: options.buildId,
+        workerGeneration: () => workerGeneration,
         reservations,
         workerReady: () => workerReady,
+        workerStarting: () => workerStarting,
+        waitForWorkerStart: () => started.promise,
         workerCanShutdown: async () => workerReady && await requestWorker<boolean>("worker.canShutdown"),
         workerCanReplace: async () => workerReady && await requestWorker<boolean>("worker.canReplace"),
         onWorkerChanged: (listener) => { changes.add(listener); return () => { changes.delete(listener); }; },
@@ -57,18 +67,31 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     return {
         masterHandlers: routed.masterHandlers,
         async start() {
+            workerStarting = true;
             try {
+                workerGeneration = generations.next("w0");
                 supervisor = await startSessionWorkerSupervisor({
                     home: options.sessionOptions.home, socket: options.workerSocket, bootstrap,
+                    generation: workerGeneration,
                     onConnected(value) {
                         peer = value;
                         connected.resolve(value);
-                        void value.closed.then(() => { workerReady = false; broker.close(); });
+                        void value.closed.then(() => {
+                            workerClosed = true;
+                            workerReady = false;
+                            finishStarting();
+                            broker.close();
+                        });
                     },
                     onEvent(event) {
                         if (event === "roster_delta") for (const listener of [...changes]) listener();
                     },
                     async handler(method, args, signal) {
+                        if (method === "public.request") {
+                            if (peer === undefined) throw new Error("Worker control is unavailable");
+                            await servePublicRequest(peer, options.masterSocket, args, signal);
+                            return;
+                        }
                         if (method === "reservation.acquire") {
                             if (!Array.isArray(args[0]) || !args[0].every((path) => typeof path === "string")) {
                                 throw new Error("Invalid session reservation");
@@ -101,10 +124,13 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                         throw new Error("Unknown master control request");
                     },
                 });
+                if (workerClosed) throw new Error("Session worker closed before ready");
                 workerReady = true;
+                finishStarting();
                 routed.router.observe("w0", supervisor.snapshot.residents);
                 routed.snapshots.refresh();
             } catch (error) {
+                finishStarting();
                 connected.reject(error);
                 throw error;
             }
@@ -120,6 +146,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         flushStores: () => routed.router.flush(),
         async close() {
             workerReady = false;
+            finishStarting();
             stopSnapshots();
             routed.close();
             broker.close();

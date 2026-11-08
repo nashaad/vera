@@ -93,6 +93,7 @@ import {
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_SESSION_TITLE,
+    HOST_CAPABILITY_SESSION_ROUTING,
     HOST_CAPABILITY_STOP_WAIT,
     HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
@@ -143,6 +144,42 @@ export interface RestartRecordsPort {
 
 type ForwardableHostRequest = Extract<HostRequest, { readonly type: "attach" | "branch_agent" }>;
 
+function isMasterOnlyRequest(request: HostRequest): boolean {
+    switch (request.type) {
+        case "create_agent":
+        case "resume_agent":
+        case "list_agents":
+        case "locate_agent":
+        case "shutdown_if_idle":
+        case "shutdown_for_replacement":
+        case "stop_host":
+        case "cut_stop_wait":
+        case "restart_records":
+        case "restart_record_dismiss":
+        case "provider_forget":
+        case "model_operation":
+        case "model_settings":
+        case "catalog_refresh":
+        case "refresh_catalogs":
+        case "annex_url":
+        case "extension_load_failures":
+        case "checkpoint_stores":
+        case "search_sessions":
+        case "schedule_operation":
+        case "sync_agent_context":
+        case "trash_session":
+        case "close_agent":
+        case "block_session":
+        case "unblock_session":
+        case "import_session":
+        case "list_importable_sessions":
+        case "rename_session":
+            return true;
+        default:
+            return false;
+    }
+}
+
 export interface StartHostServerOptions {
     readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
@@ -152,10 +189,18 @@ export interface StartHostServerOptions {
     readonly buildId?: string;
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
+    readonly onListening?: (identity: HostIdentity) => Promise<void>;
     // Runs after the startup claim, before this host publishes its lock.
     readonly recoverPrevious?: () => Promise<void>;
     readonly capabilities?: readonly string[];
     readonly locateAgent?: (agentId: string) => Promise<AgentLocationResponse | AgentLocationFailedResponse>;
+    readonly readyLocation?: (agentId: string) => Promise<AgentLocationResponse | undefined>;
+    readonly readWorkersReady?: () => number;
+    readonly forwardMasterRequest?: (
+        request: HostRequest,
+        send: (message: object) => Promise<void>,
+        signal: AbortSignal,
+    ) => Promise<void>;
     readonly routeRequest?: (request: ForwardableHostRequest) => Promise<string | undefined>;
     readonly attachmentCoordinator?: AttachmentCoordinator;
     readonly limits?: {
@@ -306,14 +351,14 @@ export async function startHostServer(
 
 export async function startWorkerServer(
     options: StartHostServerOptions,
-    worker: { readonly id: string; readonly index: number; readonly count: number },
+    worker: { readonly id: string; readonly index: number; readonly count: number; readonly generation: number },
 ): Promise<HostListener> {
     return await startListener(options, worker);
 }
 
 async function startListener(
     options: StartHostServerOptions,
-    worker?: { readonly id: string; readonly index: number; readonly count: number },
+    worker?: { readonly id: string; readonly index: number; readonly count: number; readonly generation: number },
 ): Promise<HostListener | HostServer> {
     const socketPath = options.socketPath ?? defaultHostSocketPath();
     const capabilities = parseHostCapabilities(options.capabilities ?? []);
@@ -329,6 +374,7 @@ async function startListener(
         ...(worker === undefined ? {} : {
             role: "worker" as const,
             worker_id: worker.id,
+            worker_generation: worker.generation,
             worker_index: worker.index,
             worker_count: worker.count,
         }),
@@ -463,6 +509,9 @@ async function startListener(
             capabilities,
             options.findAgent ?? (() => undefined),
             options.locateAgent,
+            options.readyLocation,
+            options.readWorkersReady,
+            options.forwardMasterRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
@@ -541,6 +590,7 @@ async function startListener(
         );
         if (worker !== undefined) workerSocketStat = await lstat(socketPath);
         await chmod(socketPath, 0o600);
+        if (options.onListening !== undefined) await options.onListening(identity);
         await options.recoverPrevious?.();
         const lock = worker === undefined ? await createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
@@ -643,6 +693,9 @@ function receiveConnection(
         agentId: string,
     ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>,
     locateAgent: StartHostServerOptions["locateAgent"],
+    readyLocation: StartHostServerOptions["readyLocation"],
+    readWorkersReady: StartHostServerOptions["readWorkersReady"],
+    forwardMasterRequest: StartHostServerOptions["forwardMasterRequest"],
     routeRequest: StartHostServerOptions["routeRequest"],
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
@@ -1245,6 +1298,15 @@ function receiveConnection(
 
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
+        if (request !== undefined && forwardMasterRequest !== undefined && isMasterOnlyRequest(request)) {
+            clearDeadline();
+            finished = true;
+            const controller = new AbortController();
+            socket.once("close", () => controller.abort());
+            void forwardMasterRequest(request, send, controller.signal)
+                .then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         if ((request?.type === "attach" || request?.type === "branch_agent")
             && routeRequest !== undefined && !isShutdownFenced()) {
             const destination = await routeRequest(request);
@@ -1254,9 +1316,18 @@ function receiveConnection(
             }
             if (destination !== undefined) {
                 clearDeadline();
+                if (request.type === "attach" && identity.role === "worker"
+                    && request.requested_capabilities?.includes(HOST_CAPABILITY_SESSION_ROUTING)) {
+                    finished = true;
+                    void send({ type: "agent_location_changed", socket_path: destination })
+                        .then(() => socket.end(), () => socket.destroy());
+                    return;
+                }
                 attachmentClosed = operationOpened();
                 try {
-                    forwarded = await forwardSessionConnection(socket, destination, line);
+                    forwarded = await forwardSessionConnection(
+                        socket, destination, line, identity.role !== "worker" && request.type === "attach",
+                    );
                 } catch {
                     attachmentClosed();
                     attachmentClosed = undefined;
@@ -1282,8 +1353,10 @@ function receiveConnection(
                 build_id: identity.build_id,
                 role: identity.role ?? "host",
                 ...(identity.worker_id === undefined ? {} : { worker_id: identity.worker_id }),
+                ...(identity.worker_generation === undefined ? {} : { worker_generation: identity.worker_generation }),
                 ...(identity.worker_index === undefined ? {} : { worker_index: identity.worker_index }),
                 ...(identity.worker_count === undefined ? {} : { worker_count: identity.worker_count }),
+                ...(readWorkersReady === undefined ? {} : { workers_ready: readWorkersReady() }),
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -2001,7 +2074,7 @@ function receiveConnection(
                 if (destination !== undefined) {
                     attachmentClosed = operationOpened();
                     try {
-                        forwarded = await forwardSessionConnection(socket, destination, line);
+                        forwarded = await forwardSessionConnection(socket, destination, line, identity.role !== "worker");
                     } catch {
                         attachmentClosed();
                         attachmentClosed = undefined;
@@ -2249,29 +2322,34 @@ function receiveConnection(
         operation: "create" | "resume",
         start: () => Promise<Pick<ResidentAgent, "id" | "workspace">>,
     ): void {
-        void Promise.resolve().then(start).then(
-            (agent) => send({
+        void Promise.resolve().then(start).then(async (agent) => {
+            const location = await readyLocation?.(agent.id);
+            return send({
                 type: "agent_ready",
                 agent_id: agent.id,
                 workspace: agent.workspace,
-            }).then(() => socket.end(), () => socket.destroy()),
-            (error: unknown) => {
-                if (userFacingMessage(error) === undefined) {
-                    try {
-                        onAgentStartFailure(operation, error);
-                    } catch {
-                    }
+                ...(location === undefined ? {} : {
+                    socket_path: location.socket_path,
+                    worker_id: location.worker_id,
+                    worker_generation: location.worker_generation,
+                }),
+            }).then(() => socket.end(), () => socket.destroy());
+        }).catch((error: unknown) => {
+            if (userFacingMessage(error) === undefined) {
+                try {
+                    onAgentStartFailure(operation, error);
+                } catch {
                 }
-                return send({
-                    type: "agent_start_failed",
-                    operation,
-                    ...reasonOf(error),
-                }).then(
-                    () => socket.end(),
-                    () => socket.destroy(),
-                );
-            },
-        );
+            }
+            return send({
+                type: "agent_start_failed",
+                operation,
+                ...reasonOf(error),
+            }).then(
+                () => socket.end(),
+                () => socket.destroy(),
+            );
+        });
     }
 
     function reasonOf(error: unknown): {

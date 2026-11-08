@@ -15,7 +15,9 @@ function option(name: string): string {
 async function main(): Promise<void> {
     const index = Number(option("--worker-index"));
     const count = Number(option("--worker-count"));
-    if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index < 0 || count <= index) {
+    const generation = Number(option("--worker-generation"));
+    if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index < 0 || count <= index
+        || !Number.isSafeInteger(generation) || generation <= 0) {
         throw new Error("Invalid worker index or count");
     }
     const control = option("--control");
@@ -32,7 +34,7 @@ async function main(): Promise<void> {
     process.once("SIGINT", onSignal);
     try {
         const bootstrap = await peer.request<WorkerBootstrap>("hello", [hello]);
-        const worker = await startControlledWorker(peer, bootstrap, hello, onSignal);
+        const worker = await startControlledWorker(peer, bootstrap, hello, generation, onSignal);
         try {
             await Promise.race([peer.closed, shutdown.promise]);
         } finally {

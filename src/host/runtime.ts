@@ -888,6 +888,9 @@ async function startHostRuntime(
                 ...(options.projectRoot === undefined
                     ? {}
                     : { projectRoot: options.projectRoot }),
+                ...(inProcessWorker === undefined ? {} : {
+                    onListening: (identity) => inProcessWorker!.start(identity),
+                }),
                 recoverPrevious: async () => {
                     try {
                         const scan = await recoverCrashedTurns({
@@ -993,7 +996,6 @@ async function startHostRuntime(
 
             }),
         );
-        await inProcessWorker?.start(server.identity);
         try {
             annex = await startAnnexProcess({
                 home,

@@ -6,6 +6,7 @@ import {
     createAgentThroughHost,
     resumeAgentThroughHost,
     syncAgentContextThroughHost,
+    type ReadyAgentLocation,
 } from "../../src/host/agent-start-client.ts";
 import {
     createHostLockfile,
@@ -61,13 +62,14 @@ export function createConfiguredTuiAgentClients(
     buildId: string = thisProcessBuildId(),
 ): ConfiguredTuiAgentClients {
     const clientId = randomUUID();
-    const attach = (agentId: string) => attachReconnectingAgent({
+    const attach = (agentId: string, initialLocation?: ReadyAgentLocation) => attachReconnectingAgent({
         socketPath,
         agentId,
         buildId,
         interactive: true,
         clientId,
         failOnDisconnect: true,
+        ...(initialLocation === undefined ? {} : { initialLocation }),
     });
     const pairedSocket = () => pairedHostSocket(socketPath(), buildId);
     return {
@@ -79,7 +81,7 @@ export function createConfiguredTuiAgentClients(
                 approvalMode,
                 lifetime,
             );
-            return attach(ready.id);
+            return attach(ready.id, ready.location);
         },
         async branch(
             sourceAgentId,
@@ -120,7 +122,7 @@ export function createConfiguredTuiAgentClients(
                 agentId,
                 "at",
             );
-            return attach(ready.id);
+            return attach(ready.id, ready.location);
         },
         async fork(agentId, boundaryId) {
             const ready = await branchAgentThroughHost(
@@ -136,7 +138,7 @@ export function createConfiguredTuiAgentClients(
         },
         async resume(sessionPath) {
             const ready = await resumeAgentThroughHost(await pairedSocket(), sessionPath);
-            return attach(ready.id);
+            return attach(ready.id, ready.location);
         },
     };
 }

@@ -9,6 +9,7 @@ import { remoteAttachments, remoteRouter } from "./remote-routing.ts";
 import { remoteReservations } from "./reservations.ts";
 import { serveSessionEndpoint } from "./remote-endpoint.ts";
 import { sessionTarget } from "./routing.ts";
+import { createPublicForwarder } from "./public-forward.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -50,13 +51,14 @@ function remoteCommon(peer: ControlPeer): RemoteCommon {
 }
 
 export async function startControlledWorker(
-    peer: ControlPeer, bootstrap: WorkerBootstrap, hello: WorkerHello, onShutdown: () => void,
+    peer: ControlPeer, bootstrap: WorkerBootstrap, hello: WorkerHello, generation: number, onShutdown: () => void,
 ): Promise<{ close(): Promise<void> }> {
     const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer));
     const host = runtime.sessionHost;
     const endpoint = sessionEndpoint(host);
     const router = remoteRouter(peer);
     const attachments = remoteAttachments(peer);
+    const publicForwarder = createPublicForwarder(peer);
     const listeners = new Set<() => void>();
     let summaries: readonly RegisteredAgentSummary[] = [];
     let workIndex: WorkIndexSnapshot = EMPTY_WORK_INDEX;
@@ -68,6 +70,7 @@ export async function startControlledWorker(
     host.inboxDelivery.setExternalPump((seq) => router.pumpInbox("w0", seq));
     host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     peer.setHandler(async (method, args, signal) => {
+        if (method === "public.frame") return await publicForwarder.receiveFrame(args);
         if (method.startsWith("session.")) return await serveSessionEndpoint(endpoint, method.slice(8), args, signal);
         if (method === "worker.canShutdown") return host.handlers.canShutdown();
         if (method === "worker.canReplace") return host.handlers.canReplace();
@@ -113,6 +116,7 @@ export async function startControlledWorker(
             pid: hello.pid,
             startedAt: hello.started_at,
             attachmentCoordinator: attachments,
+            forwardMasterRequest: publicForwarder.forward,
             onRosterChanged: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
             listBackgroundAgents: () => summaries,
             readWorkIndex: () => workIndex,
@@ -129,7 +133,7 @@ export async function startControlledWorker(
             },
             canShutdown: () => false,
             canReplace: () => false,
-        }, { id: hello.id, index: hello.index, count: hello.count });
+        }, { id: hello.id, index: hello.index, count: hello.count, generation });
         await peer.request("ready", [await endpoint.snapshot()]);
     } catch (error) {
         stopTracking();

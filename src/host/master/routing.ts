@@ -1,4 +1,4 @@
-import { userFacingMessage } from "../../user-facing-error.ts";
+import { UserFacingError } from "../../user-facing-error.ts";
 import type { HostRequest } from "../protocol.ts";
 import type { StartHostServerOptions } from "../server.ts";
 import type { SessionHost } from "../session-host.ts";
@@ -16,8 +16,11 @@ export interface RoutedHostOptions {
     readonly masterSocket: string;
     readonly workerSocket: string;
     readonly buildId: string;
+    readonly workerGeneration: () => number;
     readonly reservations: RestoringSessions;
     readonly workerReady: () => boolean;
+    readonly workerStarting: () => boolean;
+    readonly waitForWorkerStart: () => Promise<void>;
     readonly workerCanShutdown: () => boolean | Promise<boolean>;
     readonly workerCanReplace: () => boolean | Promise<boolean>;
     readonly onWorkerChanged: (listener: () => void) => () => void;
@@ -29,6 +32,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     const router = new HostRouter({
         master: masterEndpoint, worker: workerEndpoint, masterSocket: options.masterSocket,
         workerSocket: options.workerSocket, buildId: options.buildId,
+        workerGeneration: options.workerGeneration,
         reserveDelivery: (id, run) => reserveAgent(id, () => run()),
     });
     const attachments = new InteractiveAttachmentCoordinator(
@@ -76,7 +80,12 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             throw error;
         }
     }
+    async function requireWorker(): Promise<void> {
+        if (options.workerStarting()) await options.waitForWorkerStart();
+        if (!options.workerReady()) throw new UserFacingError("The session worker is unavailable.");
+    }
     const resumeSession = async (path: string) => {
+        await requireWorker();
         while (true) {
             const inspected = await masterEndpoint.inspect(path);
             router.assertResumeAvailable(inspected.id, inspected.parentId);
@@ -87,10 +96,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             )];
             try {
                 return await withSessionReservations(paths, options.reservations, async (canonicalPaths) => {
-                    if (options.workerReady()) return await router.resume(inspected.sessionPath, new Set(canonicalPaths));
-                    const session = await masterEndpoint.resume(inspected.sessionPath, { reserved: true });
-                    router.observe("host", [session]);
-                    return session;
+                    return await router.resume(inspected.sessionPath, new Set(canonicalPaths));
                 });
             } catch (error) {
                 if (error instanceof SessionTransferReservationsChanged) continue;
@@ -99,27 +105,23 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         }
     };
     const common = {
-        locateAgent: (id: string) => reserveAgent(id, async (reserved, path) => {
+        locateAgent: async (id: string) => {
             if (!options.workerReady()) {
-                try {
-                    const session = path === undefined
-                        ? await masterEndpoint.find(id, reserved)
-                        : await masterEndpoint.resume(path, { reserved });
-                    if (session !== undefined) router.observe("host", [session]);
-                } catch (error) {
+                if (await masterEndpoint.resident(id) !== undefined) {
                     return {
-                        type: "agent_location_failed" as const, reason: "worker_unavailable" as const,
-                        message: userFacingMessage(error) ?? "The session could not be loaded.",
+                        type: "agent_location" as const, socket_path: options.masterSocket,
+                        worker_id: "host", worker_generation: 1, build_id: options.buildId,
                     };
                 }
+                return options.workerStarting()
+                    ? { type: "agent_location_failed" as const, reason: "starting" as const, message: "The session worker is starting." }
+                    : { type: "agent_location_failed" as const, reason: "worker_unavailable" as const, message: "The session worker is unavailable." };
             }
-            return await router.locate(id, reserved);
-        }),
+            return await reserveAgent(id, (reserved) => router.locate(id, reserved));
+        },
         createAgent: async (request: Parameters<HostRouter["create"]>[0]) => {
-            if (options.workerReady()) return await router.create(request);
-            const session = await masterEndpoint.create(request);
-            router.observe("host", [session]);
-            return session;
+            await requireWorker();
+            return await router.create(request);
         },
         resumeAgent: resumeSession,
         listAgents: () => router.list(),
@@ -147,17 +149,23 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         };
     const masterHandlers: Partial<StartHostServerOptions> = {
         ...common,
-        findAgent: async (id) => await reserveAgent(id, async (reserved, path) => {
+        readWorkersReady: () => options.workerReady() ? 1 : 0,
+        readyLocation: async (id) => {
+            const location = await common.locateAgent(id);
+            if (location.type === "agent_location_failed") throw new Error(location.message);
+            return location;
+        },
+        findAgent: async (id) => {
             if (!options.workerReady()) {
-                const session = path === undefined
-                    ? await masterEndpoint.find(id, reserved)
-                    : await masterEndpoint.resume(path, { reserved });
-                if (session === undefined) return undefined;
-                router.observe("host", [session]);
-            } else if (!await router.find("host", id, reserved)) return undefined;
-            await snapshots.wait();
-            return options.master.registry.find(id);
-        }),
+                if (await masterEndpoint.resident(id) !== undefined) return options.master.registry.find(id);
+                await requireWorker();
+            }
+            return await reserveAgent(id, async (reserved) => {
+                if (!await router.find("host", id, reserved)) return undefined;
+                await snapshots.wait();
+                return options.master.registry.find(id);
+            });
+        },
         branchAgent: branch("host", options.master),
         routeRequest: route("host"),
         canShutdown: async () => options.master.handlers.canShutdown() && await options.workerCanShutdown(),
