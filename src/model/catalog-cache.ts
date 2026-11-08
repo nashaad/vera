@@ -100,7 +100,7 @@ export function readProviderCatalogSnapshot(
 const readSnapshot = createFileReadCache((path): ProviderCatalog | undefined => {
     try {
         const value: unknown = JSON.parse(readRegularFileTextSync(path));
-        if (!isProviderCatalog(value) || !isWrittenByThisBuild(value)) {
+        if (!isProviderCatalog(value) || isFromAnotherBuild(value)) {
             return undefined;
         }
         const { build_id: _buildId, ...catalog } = value as ProviderCatalog & { build_id?: unknown };
@@ -111,11 +111,13 @@ const readSnapshot = createFileReadCache((path): ProviderCatalog | undefined => 
 });
 
 /**
- * A cache file another build wrote, or one from before build ids were
- * recorded, is treated as absent so this build fetches its own copy.
+ * True only when the file names a build id and it is not this build's. A file
+ * with no build id predates stamping and is read as before.
  */
-export function isWrittenByThisBuild(value: unknown): boolean {
-    return isRecord(value) && value.build_id === cacheBuildId();
+export function isFromAnotherBuild(value: unknown): boolean {
+    return isRecord(value)
+        && value.build_id !== undefined
+        && value.build_id !== cacheBuildId();
 }
 
 export function listDiscoveredProviders(

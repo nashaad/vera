@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
 import {
-    isWrittenByThisBuild,
+    isFromAnotherBuild,
     providerCatalogCacheDir,
 } from "./catalog-cache.ts";
 import { cacheBuildId } from "../release/cache-build-id.ts";
@@ -88,9 +88,9 @@ export function readWebDevArenaSnapshot(
         const value: unknown = JSON.parse(
             readRegularFileTextSync(webDevArenaCachePath(cacheDir)),
         );
-        return isWrittenByThisBuild(value)
-            ? parseWebDevArenaSnapshot(value)
-            : undefined;
+        return isFromAnotherBuild(value)
+            ? undefined
+            : parseWebDevArenaSnapshot(value);
     } catch {
         return undefined;
     }

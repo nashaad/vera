@@ -137,6 +137,22 @@ describe("WebDev Arena snapshot", () => {
         writeFileSync(join(directory, "webdev-arena.json"), "{not json");
         expect(readWebDevArenaSnapshot(directory)).toBeUndefined();
     });
+    test("a snapshot with no build id is read", () => {
+        const directory = cacheDir();
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, "webdev-arena.json"), JSON.stringify({
+            schema_version: 1,
+            source: "lmarena-ai/leaderboard-dataset",
+            config: "webdev",
+            split: "latest",
+            license: "CC-BY-4.0",
+            fetched_at: new Date().toISOString(),
+            rows: [{ model_name: "old", rating: 1, category: "webdev" }],
+        }));
+
+        expect(readWebDevArenaSnapshot(directory)?.rows).toHaveLength(1);
+    });
+
     test("a snapshot another build wrote is refetched, not read", async () => {
         const directory = cacheDir();
         mkdirSync(directory, { recursive: true });

@@ -210,7 +210,7 @@ describe("provider catalog cache", () => {
             .toBe(cacheBuildId());
     });
 
-    test("a snapshot with no build id, from before build ids were recorded, reads as absent", () => {
+    test("a snapshot with no build id, from before build ids were recorded, is read", () => {
         const cacheDir = temporaryDirectory();
         writeFileSync(join(cacheDir, "example.json"), JSON.stringify({
             schema_version: 2,
@@ -219,8 +219,8 @@ describe("provider catalog cache", () => {
             models: [{ id: "old", label: "Old", levels: [] }],
         }));
 
-        expect(readProviderCatalogSnapshot("example", { cacheDir }).models)
-            .toEqual([]);
+        expect(readProviderCatalogSnapshot("example", { cacheDir }).models
+            .map((model) => model.id)).toEqual(["old"]);
     });
 
     test("a dev checkout stamps its cache with the source tree identity", () => {
