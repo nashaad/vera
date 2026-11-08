@@ -24,6 +24,7 @@ export async function resumeOrFind(
     registry: AgentRegistry,
     sessionPath: string,
     inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
+    ownershipTransfer = false,
 ): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
     for (const summary of registry.list()) {
@@ -40,7 +41,7 @@ export async function resumeOrFind(
     }
     const restoring = inFlight.get(canonicalPath);
     if (restoring !== undefined) return restoring;
-    const resumed = registry.resume({ sessionPath: canonicalPath });
+    const resumed = registry.resume({ sessionPath: canonicalPath, ownershipTransfer });
     inFlight.set(canonicalPath, resumed);
     try {
         return await resumed;

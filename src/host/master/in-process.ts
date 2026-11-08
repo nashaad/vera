@@ -39,7 +39,7 @@ export interface InProcessWorker {
 }
 
 export async function prepareInProcessWorker(options: InProcessWorkerOptions): Promise<InProcessWorker> {
-    const worker = await startSessionHost(options.sessionOptions);
+    const worker = await startSessionHost({ ...options.sessionOptions, sessionWorker: true });
     const masterEndpoint = sessionEndpoint(options.master);
     const workerEndpoint = sessionEndpoint(worker);
     const router = new HostRouter({
@@ -49,6 +49,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         workerSocket: options.workerSocket,
         buildId: options.buildId,
     });
+    options.master.setExtensionSessions(router);
     const stopMasterTracking = options.master.handlers.onRosterChanged(() => {
         void masterEndpoint.residents().then((sessions) => router.observe("host", sessions));
     });
@@ -124,6 +125,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         async close() {
+            options.master.setExtensionSessions(options.master.localExtensionSessions);
             stopMasterTracking();
             stopWorkerTracking();
             try {

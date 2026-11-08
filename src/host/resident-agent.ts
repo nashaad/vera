@@ -98,7 +98,7 @@ export interface ResidentAgentOptions {
     /** Called after attached clients have the started update. */
     readonly onCompactionStarted?: (update: CompactionUpdate) => void;
     /** Called after an update that may change status, the open request, or context. */
-    readonly onSessionFactsChanged?: () => void;
+    readonly onSessionFactsChanged?: (update: AgentUpdate) => void;
     /** Returns the refusal text while the session is blocked; read at each turn start. */
     readonly turnStartRefusal?: () => string | undefined;
 }
@@ -736,7 +736,7 @@ export class ResidentAgent {
         }
         if (SESSION_FACT_UPDATES.has(snapshot.type)) {
             try {
-                this.options.onSessionFactsChanged?.();
+                this.options.onSessionFactsChanged?.(snapshot);
             } catch {
                 // A listener that throws must not break the update it observed.
             }
