@@ -79,7 +79,7 @@ test("restart scan repairs a killed worker's turn and queued prompt", async () =
         hold = false;
         release.resolve();
 
-        host = await startResidentHost({ home, config, processWorker: true, skipStartupDiscovery: true });
+        host = await startResidentHost({ home, config, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true });
         const recovered = await SessionStore.open(path);
         expect(recovered.unsentPrompts()).toEqual([{ content: "Inspect the deck." }, { content: "Check the sails." }]);
         expect((await readFile(path, "utf8")).split(CRASH_CUT_MESSAGE)).toHaveLength(2);

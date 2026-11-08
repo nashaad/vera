@@ -1309,7 +1309,18 @@ function receiveConnection(
         }
         if ((request?.type === "attach" || request?.type === "branch_agent")
             && routeRequest !== undefined && !isShutdownFenced()) {
-            const destination = await routeRequest(request);
+            let destination: string | undefined;
+            try {
+                destination = await routeRequest(request);
+            } catch {
+                clearDeadline();
+                finished = true;
+                const failure = request.type === "attach"
+                    ? { type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" }
+                    : { type: "agent_branch_failed", reason: "failed" };
+                await send(failure).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
             if (isShutdownFenced()) {
                 socket.destroy();
                 return;
@@ -2066,7 +2077,15 @@ function receiveConnection(
         }
         if (agent === undefined) {
             if (routeRequest !== undefined && !isShutdownFenced()) {
-                const destination = await routeRequest(request);
+                let destination: string | undefined;
+                try {
+                    destination = await routeRequest(request);
+                } catch {
+                    finished = true;
+                    await send({ type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" })
+                        .then(() => socket.end(), () => socket.destroy());
+                    return;
+                }
                 if (isShutdownFenced()) {
                     socket.destroy();
                     return;

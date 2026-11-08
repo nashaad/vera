@@ -24,7 +24,7 @@ test("stdio attaches to the worker returned by the master", async () => {
     const forwarded = spyOn(forwarding, "forwardSessionConnection");
     try {
         host = await startResidentHost({
-            home, processWorker: true, skipStartupDiscovery: true,
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },

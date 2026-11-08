@@ -106,7 +106,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     pumpInbox(admittedSeq?: number): Promise<void>;
     snapshot(): Promise<SessionSnapshot>;
     workSchedules(agents: readonly WorkAgentFacts[]): Promise<readonly WorkScheduleFacts[]>;
-    importSession(path: string): Promise<SessionImportOutcome>;
+    importSession(path: string, sessionId?: string): Promise<SessionImportOutcome>;
     listImportableSessions(workspace: string | undefined): Promise<ImportableSessionListing>;
     importedSourceHash(id: string, path: string): Promise<string | undefined>;
     suppressCompletion(id: string, suppress: boolean): Promise<void>;
