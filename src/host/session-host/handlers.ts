@@ -68,7 +68,10 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "canShutdown"
     | "canReplace"
     | "onAgentStartFailure"
->> {}
+>> {
+    readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
+    readonly resumeAgent: (sessionPath: string) => Promise<ResidentAgent>;
+}
 
 interface SessionHandlerOptions {
     readonly registry: AgentRegistry;
