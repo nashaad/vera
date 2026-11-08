@@ -576,7 +576,11 @@ export async function runHeadlessLoop(
     });
     inbound = new InboundCommandRouter(endpoint, events, {
         appendHarnessMessage: async (text, tone) => {
-            await store.appendHarnessMessage(text, tone);
+            const last = messages.at(-1);
+            const afterMessageId = last === undefined
+                ? null
+                : store.activeMessageStamps().get(last)?.id;
+            await store.appendHarnessMessage(text, tone, afterMessageId);
             protocol.checkpoint(messages);
         },
         appendContext: async (contextMessages, harnessMessage) => {
@@ -3048,25 +3052,70 @@ async function finishToolCalls(
     readonly completed: readonly CompletedToolCall[];
     readonly interrupt?: TurnInterrupt;
 }> {
-    const settled = await Promise.allSettled(pending);
+    const outcomes = pending.map((call) => call.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+    ));
+    let failure: { readonly reason: unknown } | undefined;
+    let previous = Promise.resolve();
+    const committed = outcomes.map((outcome) => {
+        const write = previous.then(async () => {
+            if (failure !== undefined) throw failure.reason;
+            const settled = await outcome;
+            if (settled.status === "rejected") return undefined;
+            try {
+                const entry = await state.store.appendMessage(settled.value.result);
+                if (settled.value.afterCommit !== undefined) {
+                    try {
+                        if (state.applyCommittedToolEffect === undefined) {
+                            throw new Error("No owner can apply the committed tool effect");
+                        }
+                        await state.applyCommittedToolEffect(settled.value.afterCommit);
+                    } catch (reason) {
+                        failure = { reason };
+                        return { toolCall: settled.value, entry, afterCommitFailure: { reason } };
+                    }
+                }
+                return {
+                    toolCall: settled.value,
+                    entry,
+                };
+            } catch (reason) {
+                failure = { reason };
+                throw reason;
+            }
+        });
+        const recorded = write.then(
+            (value) => ({ status: "fulfilled" as const, value }),
+            (reason: unknown) => ({ status: "rejected" as const, reason }),
+        );
+        previous = recorded.then(() => undefined);
+        return recorded;
+    });
+    const settled = await Promise.all(outcomes);
     const completed = settled.flatMap((toolCall) =>
         toolCall.status === "fulfilled" ? [toolCall.value] : []
     );
-    for (const toolCall of completed) {
-        await commitMessage(state, toolCall.result);
-        if (toolCall.afterCommit !== undefined) {
-            if (state.applyCommittedToolEffect === undefined) {
-                throw new Error("No owner can apply the committed tool effect");
+    try {
+        for (let index = 0; index < settled.length; index += 1) {
+            if (settled[index]?.status !== "fulfilled") continue;
+            const saved = await committed[index]!;
+            if (saved.status === "rejected") throw saved.reason;
+            if (saved.value === undefined) continue;
+            const { toolCall, entry } = saved.value;
+            state.messages.push(entry.message);
+            if (saved.value.afterCommitFailure !== undefined) throw saved.value.afterCommitFailure.reason;
+            if (toolCall.result.presentation !== undefined) {
+                state.events.emit({
+                    type: "tool_presentation_ready",
+                    tool: toolCall.result.toolName,
+                    presentation: toolCall.result.presentation,
+                });
             }
-            await state.applyCommittedToolEffect(toolCall.afterCommit);
         }
-        if (toolCall.result.presentation !== undefined) {
-            state.events.emit({
-                type: "tool_presentation_ready",
-                tool: toolCall.result.toolName,
-                presentation: toolCall.result.presentation,
-            });
-        }
+    } catch (error) {
+        await Promise.all(committed);
+        throw error;
     }
     const rejected = settled.find(
         (toolCall) => toolCall.status === "rejected",
