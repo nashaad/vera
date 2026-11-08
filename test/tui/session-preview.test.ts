@@ -13,6 +13,7 @@ import {
 test("a preview keeps the last user and assistant turns", () => {
     expect(sessionPreviewLines([
         { kind: "user", text: "first" },
+        { kind: "reasoning", text: "follow the stars" },
         { kind: "tool", tool: "bash", args: {} },
         { kind: "assistant", text: "second" },
     ])).toEqual([

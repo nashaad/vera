@@ -66,7 +66,7 @@ export async function exportSession(
             snapshot.messageStamps,
             snapshot.harnessMessages,
             snapshot.deliveredMessages,
-        ),
+        ).filter(isExportedEntry),
         ...(snapshot.agentFailure === undefined
             ? {}
             : {
@@ -83,6 +83,7 @@ export async function exportSession(
 }
 
 export function renderSessionMarkdown(exported: SessionExport): string {
+    const transcript = exported.transcript.filter(isExportedEntry);
     const lines = [
         "# Vera conversation",
         "",
@@ -99,8 +100,8 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         );
     }
 
-    const importedThrough = lastImportedEntry(exported);
-    for (const [index, entry] of exported.transcript.entries()) {
+    const importedThrough = lastImportedEntry({ ...exported, transcript });
+    for (const [index, entry] of transcript.entries()) {
         const heading = index <= importedThrough
                 && imported !== undefined
                 && (entry.kind === "assistant" || entry.kind === "empty")
@@ -161,6 +162,12 @@ export function renderSessionMarkdown(exported: SessionExport): string {
     return `${lines.join("\n")}\n`;
 }
 
+type ExportedTranscriptEntry = Exclude<TranscriptEntry, { kind: "reasoning" }>;
+
+function isExportedEntry(entry: TranscriptEntry): entry is ExportedTranscriptEntry {
+    return entry.kind !== "reasoning";
+}
+
 // Transcript entry ids are `<message id>#<n>`; -1 when no entry is imported.
 function lastImportedEntry(exported: SessionExport): number {
     const boundary = exported.session.imported_from?.last_message_id;
@@ -196,7 +203,7 @@ function renderTranscriptText(
     return entry.text.length === 0 ? images : `${entry.text}\n${images}`;
 }
 
-function transcriptHeading(entry: TranscriptEntry): string {
+function transcriptHeading(entry: ExportedTranscriptEntry): string {
     if (entry.kind === "user") {
         return "## You";
     }

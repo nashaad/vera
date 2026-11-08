@@ -76,6 +76,29 @@ test("entry IDs survive a restart", async () => {
     expect(identities(await SessionStore.open(path))).toEqual(before);
 });
 
+test("reasoning has its own stable IDs without renumbering other entries", async () => {
+    const { store, path } = await storeWith([{
+        role: "assistant",
+        content: [
+            { type: "thinking", text: "check the map" },
+            { type: "text", text: "sail north" },
+            { type: "thinking", text: "watch the stars" },
+            { type: "tool_call", id: "call-1", name: "read", input: {} },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    }]);
+    const expected: [string | undefined, string][] = [
+        ["message-1#r0", "reasoning"],
+        ["message-1#0", "assistant"],
+        ["message-1#r1", "reasoning"],
+        ["message-1#1", "tool"],
+    ];
+    expect(identities(store)).toEqual(expected);
+    expect(identities(await SessionStore.open(path))).toEqual(expected);
+});
+
 test("compaction leaves transcript IDs alone", async () => {
     const { store } = await storeWith([
         userMessage("first request"),

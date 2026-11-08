@@ -46,7 +46,11 @@ afterEach(() => {
             firstSocketPath,
             firstRequests,
             [
-                { type: "history", entries: [], seq: 0 },
+                {
+                    type: "history",
+                    entries: [{ kind: "future", value: 1 }, { kind: "reasoning", text: "follow the stars" }],
+                    seq: 0,
+                },
                 { type: "assistant_delta", text: "first", seq: 1 },
             ],
         );
@@ -63,7 +67,10 @@ afterEach(() => {
         });
         socketPath = secondSocketPath;
         try {
-            expect(await client.receive()).toMatchObject({ seq: 0 });
+            expect(await client.receive()).toMatchObject({
+                seq: 0,
+                entries: [{ kind: "reasoning", text: "follow the stars" }],
+            });
             expect(await client.receive()).toMatchObject({ seq: 1 });
             expect(client.lastSequence).toBe(1);
             expect(await client.receive()).toEqual({
@@ -529,6 +536,10 @@ test("a paging client retries a page on its replacement attachment", async () =>
         request_id: "history-page-1",
         before: "older#0",
         entries: [{
+            kind: "reasoning" as const,
+            id: "older#r0",
+            text: "follow the stars",
+        }, {
             kind: "assistant" as const,
             id: "older#0",
             text: "older",
@@ -569,7 +580,8 @@ test("a paging client retries a page on its replacement attachment", async () =>
     expect(cursors).toEqual([4]);
 
     const page = await client.requestHistoryPage("older#0");
-    expect(page.entries[0]!.id).toBe("older#0");
+    expect(page.entries[0]).toEqual({ kind: "reasoning", id: "older#r0", text: "follow the stars" });
+    expect(page.entries[1]!.id).toBe("older#0");
     expect(retried).toBe("older#0");
     client.close();
 });
@@ -583,7 +595,7 @@ function temporaryDirectory(): string {
 async function scriptedAttachHost(
     socketPath: string,
     requests: unknown[],
-    updates: readonly AgentUpdate[],
+    updates: readonly unknown[],
     identity: ScriptedIdentity = { buildId: CROW_BUILD },
 ): Promise<Server> {
     const server = createServer((socket) => {

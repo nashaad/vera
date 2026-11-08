@@ -624,7 +624,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             : update.entries.findLast((entry) => entry.kind !== "harness")
                 ?.turnTiming?.finishedAt;
         const canonicalEntries = applyToolDetailPreference(
-            toTuiTranscriptEntries(update.entries, reopenedTurnFinishedAt),
+            toTuiTranscriptEntries(update.entries, reopenedTurnFinishedAt, state.thinkingExpanded),
             state.toolDetailsExpanded,
         );
         return withLiveThinking({
@@ -1418,8 +1418,8 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     });
 }
 
-function thoughtSummary(seconds: number): string {
-    return `Reasoning summary: ${seconds.toFixed(1)}s`;
+function thoughtSummary(seconds?: number): string {
+    return seconds === undefined ? "Reasoning summary" : `Reasoning summary: ${seconds.toFixed(1)}s`;
 }
 
 export function dropTuiThinking(state: TuiState): TuiState {
@@ -2496,6 +2496,7 @@ function toolCallPairs(
 function toTuiTranscriptEntries(
     entries: readonly TranscriptEntry[],
     reopenedTurnFinishedAt?: number,
+    thinkingExpanded?: boolean,
 ): TuiTranscriptEntry[] {
     let converted: TuiTranscriptEntry[] = [];
     const withheld = withheldToolEntries(entries);
@@ -2534,6 +2535,13 @@ function toTuiTranscriptEntries(
                     entry.processId ?? waitProcessId,
                     toolResultText(entry.output, entry.tool),
                 ) ?? converted;
+        } else if (entry.kind === "reasoning") {
+            converted = insertBeforeTrailingAssistantEntries(converted, withStoreEntryId({
+                kind: "thought",
+                text: thoughtSummary(),
+                reasoning: entry.text.trim(),
+                ...(thinkingExpanded === true ? { expanded: true } : {}),
+            }, entry));
         } else if (!blankAssistant) {
             converted = [...converted, withStoreEntryId(
                 toSingleTuiTranscriptEntry(entry),
@@ -2583,7 +2591,7 @@ export function transcriptMessageId(
 }
 
 function toSingleTuiTranscriptEntry(
-    entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" }>,
+    entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" | "reasoning" }>,
 ): TuiTranscriptEntry {
     if (entry.kind === "error" && entry.classifierFailure !== undefined) {
         const text = classifierFailureText(entry.classifierFailure);
@@ -2630,9 +2638,9 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "delivery") {
         return deliveryEntry(entry.sourceAgentId, entry.deliveryKind, entry.content, entry.sourceKind);
     }
-    return entry.kind === "user"
-        ? userEntry(entry.text, entry.attachments)
-        : entry;
+    if (entry.kind === "user") return userEntry(entry.text, entry.attachments);
+    if (entry.kind === "assistant") return entry;
+    return assertNever(entry);
 }
 
 // An extension's text is shown as sent; Vera adds no wording to it.
@@ -2940,18 +2948,25 @@ function insertBeforeTrailingAssistant(
     state: TuiState,
     entry: TuiTranscriptEntry,
 ): TuiState {
-    const entries = [...state.entries];
+    return { ...state, entries: insertBeforeTrailingAssistantEntries(state.entries, entry) };
+}
+
+function insertBeforeTrailingAssistantEntries(
+    current: readonly TuiTranscriptEntry[],
+    entry: TuiTranscriptEntry,
+): TuiTranscriptEntry[] {
+    const entries = [...current];
     const last = entries.at(-1);
     const index = last?.kind === "assistant" ? entries.length - 1 : entries.length;
     if (entry.kind === "thought") {
         const previous = lastThought(entries, index);
         if (previous !== undefined) {
             entries[previous.index] = mergeThoughts(previous.entry, entry);
-            return { ...state, entries };
+            return entries;
         }
     }
     entries.splice(index, 0, entry);
-    return { ...state, entries };
+    return entries;
 }
 
 function lastThought(
@@ -2972,7 +2987,9 @@ function mergeThoughts(
     first: TuiTextTranscriptEntry,
     second: TuiTextTranscriptEntry,
 ): TuiTextTranscriptEntry {
-    const seconds = (first.seconds ?? 0) + (second.seconds ?? 0);
+    const seconds = first.seconds === undefined && second.seconds === undefined
+        ? undefined
+        : (first.seconds ?? 0) + (second.seconds ?? 0);
     const reasoning = [first.reasoning, second.reasoning]
         .filter((part) => part !== undefined && part.length > 0)
         .join("\n\n");
@@ -2980,7 +2997,7 @@ function mergeThoughts(
     return {
         ...first,
         text: thoughtSummary(seconds),
-        seconds,
+        ...(seconds === undefined ? {} : { seconds }),
         ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded && reasoning.length > 0 ? { expanded: true } : {}),
     };
@@ -3000,19 +3017,44 @@ function preserveLiveReviewEntries(
         && (entry.kind === "diff"
             || (entry.liveOnly !== true && entry.reviewSplit !== true))
     );
+    const canonicalWithoutThoughts = canonical.filter((entry) => entry.kind !== "thought");
     const base = current.some((entry) =>
         entry.kind === "review"
         || (entry.kind !== "diff" && entry.autoApprovals !== undefined)
     )
-            && transcriptEntriesEqual(withoutTransientEntries, canonical)
+            && transcriptEntriesEqual(withoutTransientEntries, canonicalWithoutThoughts)
         ? current.filter((entry) =>
             entry.kind !== "thought" && entry.kind !== "thinking"
             && (entry.kind === "diff" || entry.liveOnly !== true)
         )
-        : canonical;
+        : canonicalWithoutThoughts;
+    const live = anchoredReasoningEntries(current);
+    const matched = new Set<number>();
+    const anchored = anchoredReasoningEntries(canonical).map((item) => {
+        if (item.entry.kind !== "thought") return item;
+        const reasoning = item.entry.reasoning;
+        const index = live.findIndex((candidate, position) =>
+            !matched.has(position)
+            && candidate.after === item.after
+            && candidate.entry.kind === "thought"
+            && candidate.entry.reasoning === reasoning
+        );
+        if (index < 0) return item;
+        matched.add(index);
+        const liveEntry = live[index]!.entry;
+        return {
+            ...item,
+            entry: liveEntry.kind === "diff" ? item.entry : {
+                ...liveEntry,
+                ...(item.entry.entryId === undefined ? {} : { entryId: item.entry.entryId }),
+            },
+        };
+    });
+    anchored.push(...live.filter((_, index) => !matched.has(index)));
+    anchored.sort((left, right) => left.after - right.after);
     return restoreReasoningEntries(
         restoreDimmedPrefixes(base, current),
-        anchoredReasoningEntries(current),
+        anchored,
     );
 }
 

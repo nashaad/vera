@@ -106,6 +106,7 @@ function withoutSessionUsage(
 test("stored model messages project to a client transcript", () => {
     expect(projectTranscript(messages)).toEqual([
         { kind: "user", text: "inspect it" },
+        { kind: "reasoning", text: "private reasoning" },
         { kind: "assistant", text: "I will read it." },
         { kind: "tool", tool: "read", args: { path: "note.txt" } },
         {
@@ -116,6 +117,48 @@ test("stored model messages project to a client transcript", () => {
         },
         { kind: "assistant", text: "It says contents." },
     ]);
+});
+
+test("history projects readable reasoning in stored order across turns", () => {
+    const source = { provider: "faux", api: "test", model: "test" };
+    const transcript = projectTranscript([
+        { role: "user", content: [{ type: "text", text: "first" }] },
+        {
+            role: "assistant",
+            content: [
+                { type: "thinking", text: "first summary", signature: "secret-signature" },
+                { type: "text", text: "starting" },
+                { type: "tool_call", id: "one", name: "read", input: {} },
+                { type: "thinking", text: "between calls" },
+                { type: "tool_call", id: "two", name: "read", input: {} },
+                { type: "thinking", text: "", signature: "encrypted-only" },
+            ],
+            source,
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        { role: "user", content: [{ type: "text", text: "second" }] },
+        {
+            role: "assistant",
+            content: [{ type: "thinking", text: "second summary" }, { type: "text", text: "done" }],
+            source,
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+    ]);
+    expect(transcript).toEqual([
+        { kind: "user", text: "first" },
+        { kind: "reasoning", text: "first summary" },
+        { kind: "assistant", text: "starting" },
+        { kind: "tool", tool: "read", args: {} },
+        { kind: "reasoning", text: "between calls" },
+        { kind: "tool", tool: "read", args: {} },
+        { kind: "user", text: "second" },
+        { kind: "reasoning", text: "second summary" },
+        { kind: "assistant", text: "done" },
+    ]);
+    expect(JSON.stringify(transcript)).not.toContain("secret-signature");
+    expect(JSON.stringify(transcript)).not.toContain("encrypted-only");
 });
 
 test("durable tool presentations replay after their tool call", () => {

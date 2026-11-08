@@ -14,7 +14,19 @@ import {
     stopWaitWireMessage,
     requestHostIdentity,
     requestHostShutdownIfIdle,
+    type HistoryPageResponse,
 } from "../../src/host/protocol.ts";
+
+test("the host history page wire carries reasoning facts", () => {
+    const page: HistoryPageResponse = {
+        type: "history_page",
+        request_id: "page-1",
+        before: "later#0",
+        entries: [{ kind: "reasoning", id: "earlier#r0", text: "follow the stars" }],
+        page: { pageVersion: 1, hasMore: false },
+    };
+    expect(JSON.parse(encodeHostResponse(page))).toEqual(page);
+});
 
 test("host protocol parses identity requests and encodes responses", () => {
     expect(HOST_MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(HOST_PROTOCOL_VERSION);

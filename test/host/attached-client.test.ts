@@ -857,6 +857,27 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached history skips unknown entries and rejects malformed known entries",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const reasoning = { kind: "reasoning", text: "follow the stars" } as const;
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [{ kind: "future", text: "ignored" }, reasoning], seq: 0 },
+            { type: "history", entries: [{ kind: "reasoning", text: 12 }], seq: 0 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toEqual({ type: "history", entries: [reasoning], seq: 0 });
+            await expect(client.receive()).rejects.toThrow("Host sent an invalid agent update");
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "attached client rejects a gap after its replay checkpoint",
     async () => {
         const directory = temporaryDirectory();
@@ -1464,6 +1485,10 @@ function transcriptEntries(count: number): readonly {
         const fallback = {
             kind: "page" as const,
             entries: [{
+                kind: "reasoning" as const,
+                id: "older#r0",
+                text: "follow the stars",
+            }, {
                 kind: "assistant" as const,
                 id: "older#0",
                 text: "older",
@@ -1512,7 +1537,7 @@ function transcriptEntries(count: number): readonly {
             await expect(first).resolves.toMatchObject({
                 type: "history_page",
                 before: "outside#0",
-                entries: [{ id: "older#0" }],
+                entries: [{ kind: "reasoning", id: "older#r0", text: "follow the stars" }, { id: "older#0" }],
             });
         } finally {
             client.close();
