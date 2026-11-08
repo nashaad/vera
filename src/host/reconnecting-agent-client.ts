@@ -22,6 +22,7 @@ export interface ReconnectingAgentOptions {
     readonly buildId: string;
     readonly interactive?: boolean;
     readonly clientId?: string;
+    readonly failOnDisconnect?: boolean;
     /** Defaults to CLIENT_CAPABILITIES; paging clients pass PAGING_CAPABILITIES. */
     readonly requestedCapabilities?: readonly string[];
 }
@@ -45,6 +46,7 @@ export class HostBuildChangedError extends Error {
 export interface ReconnectPolicy {
     readonly deadlineMs?: number;
     readonly delaysMs?: readonly number[];
+    readonly failOnDisconnect?: boolean;
 }
 
 export async function attachReconnectingAgent(
@@ -71,6 +73,7 @@ export async function attachReconnectingAgent(
     return createReconnectingAgentClient(
         await attach(undefined, new AbortController().signal),
         attach,
+        { failOnDisconnect: options.failOnDisconnect },
     );
 }
 
@@ -205,6 +208,9 @@ export function createReconnectingAgentClient(
                         return update;
                     } catch (error) {
                         if (closed || signal?.aborted === true) {
+                            throw error;
+                        }
+                        if (policy.failOnDisconnect === true && current.closed) {
                             throw error;
                         }
                         if (pendingPrivateRequests.size > 0

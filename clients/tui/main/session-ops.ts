@@ -84,10 +84,12 @@ export function switchToClient(rt: TuiRuntime,
     rt.state = options.preserveReconnectTranscript === true
         ? {
             ...createTuiState(),
+            entries: rt.state.entries,
             transcriptStarted: true,
             reopenedTurnFinishedAt: rt.state.reopenedTurnFinishedAt,
         }
         : createTuiState();
+    rt.reconnectHistoryPending = options.preserveReconnectTranscript === true;
     // A hop the notice never landed in is over; it must not surface in whichever conversation rebuilds next.
     rt.pendingBackNotice = undefined;
     rt.pendingSessionSwitchNotice = undefined;
