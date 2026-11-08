@@ -14,6 +14,34 @@ function settle(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+test("a stop holds turns while it checks remote owners", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    const first = Promise.withResolvers<void>();
+    let stopped = 0;
+    let checks = 0;
+    const events: StopWhenIdleEvent[] = [];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [],
+        waitingOnAsync: async () => {
+            if (checks++ === 0) await first.promise;
+            return waiting;
+        },
+        onStopped: () => { stopped += 1; },
+        pollIntervalMs: 5,
+    });
+    coordinator.request((event) => { events.push(event); });
+    expect(coordinator.holdsTurns).toBe(true);
+    expect(stopped).toBe(0);
+    first.resolve();
+    await settle();
+    expect(events).toContainEqual({ type: "waiting", waiting_on: [working] });
+    expect(stopped).toBe(0);
+    waiting = [];
+    await settle();
+    expect(events.at(-1)).toEqual({ type: "stopped" });
+    expect(stopped).toBe(1);
+});
+
 test("stop-when-idle reports waiting targets, reprints only on change, then stops", async () => {
     let waiting: StopWaitTarget[] = [working];
     let stopped = 0;

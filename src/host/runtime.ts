@@ -393,15 +393,16 @@ export async function startResidentHost(
         inbox.close();
     };
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
-        waitingOn: (): readonly StopWaitTarget[] => [
-            ...registry.stopWaitTargets(), ...(inProcessWorker?.waitingOn() ?? []),
-        ],
+        waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        ...(workerSocket === undefined ? {} : {
+            waitingOnAsync: () => inProcessWorker?.waitingOn() ?? Promise.resolve(registry.stopWaitTargets()),
+        }),
         onStopped: () => closeHost(),
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
-        cutSession: async (sessionId, reason) =>
-            await registry.cutSessionForStop(sessionId, reason)
-            || await inProcessWorker?.cutSession(sessionId, reason) === true,
+        cutSession: (sessionId, reason) => inProcessWorker === undefined
+            ? registry.cutSessionForStop(sessionId, reason)
+            : inProcessWorker.cutSession(sessionId, reason),
         recordCut: recordStopCut,
     });
     const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
@@ -434,8 +435,20 @@ export async function startResidentHost(
             workChangeListeners.add(listener);
             return () => { workChangeListeners.delete(listener); };
         },
-        createServices: (createAdapter) => {
-            if (sharedServices !== undefined) return sharedServices;
+        createServices: (createAdapter, sessionWorker) => {
+            if (sharedServices !== undefined) {
+                if (sessionWorker !== true) return sharedServices;
+                return {
+                    ...sharedServices,
+                    inboxDelivery: new InboxDeliveryCoordinator(consumers, {
+                        admissionFor: (projectRoot) => projectRoot === undefined
+                            ? undefined
+                            : InboxAdmissionPolicy.fromConfig(
+                                options.config, projectRoot, options.inboxUserConfigPath ?? configPath,
+                            ),
+                    }),
+                };
+            }
             inbox = Inbox.open(
                 options.inboxPath ?? defaultInboxPath(home),
             );
@@ -769,14 +782,13 @@ export async function startResidentHost(
         return closing;
     };
     try {
-        sessionHost.startStorage();
+        sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
             inProcessWorker = await prepareInProcessWorker({
                 master: sessionHost, sessionOptions, masterSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
             });
-            sessionHost.startStorage();
         }
         watches = startWatchRuntimeIfConfigured(inbox, {
             watches: extensions.contributions().watches(),
@@ -918,11 +930,10 @@ export async function startResidentHost(
                     runScheduleOperation: (operation) => scheduler!.execute(operation),
                 }),
 
-                checkpointStores: async (destination) => checkpointOpenStores({
-                    destination,
-                    inbox,
-                    schedules: scheduleStore,
-                }),
+                checkpointStores: async (destination) => {
+                    await inProcessWorker?.flushStores();
+                    return checkpointOpenStores({ destination, inbox, schedules: scheduleStore });
+                },
 
                 onShutdownAccepted: closeHost,
 
@@ -987,7 +998,6 @@ export async function startResidentHost(
                     : { message: status.lastError }),
             }),
         });
-        sessionHost.startStorage();
     } catch (error) {
         try {
             await closeSidecars();

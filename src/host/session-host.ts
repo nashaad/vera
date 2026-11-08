@@ -88,7 +88,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                     : { captureFailedRequest }),
             });
         });
-    const services = options.createServices(createAdapter);
+    const services = options.createServices(createAdapter, options.sessionWorker);
     const eventLogPathForId = eventLogEnabled(currentConfig())
         ? (agentId: string, cwd: string) =>
             eventLogDirectory === undefined
@@ -234,6 +234,10 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         hostLog,
     });
     let parkIdleTimer: ReturnType<typeof setInterval> | undefined;
+    let parkIdle = async (): Promise<void> => {
+        const closed = await registry.parkExpiredIdle();
+        await indexClosedMembers(registry, closed, storedSessionIndex);
+    };
     let storageStarted = false;
     const stopMaintenance = (): void => {
         if (parkIdleTimer !== undefined) {
@@ -242,18 +246,20 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         }
     };
     return {
-        registry, extensions, handlers, createAdapter, localExtensionSessions,
+        registry, extensions, handlers, createAdapter, localExtensionSessions, inboxDelivery: services.inboxDelivery,
         setExtensionSessions(services) {
             extensionSessions = services;
         },
-        startStorage() {
+        setParkIdle(park) {
+            parkIdle = park;
+        },
+        startStorage(storageOptions) {
             if (storageStarted) return;
             storageStarted = true;
-            void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog).then(publishStoredSessions);
+            if (storageOptions?.scan === false) publishStoredSessions(storedSessionIndex);
+            else void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog).then(publishStoredSessions);
             parkIdleTimer = setInterval(() => {
-                void registry.parkExpiredIdle()
-                    .then((closed) => indexClosedMembers(registry, closed, storedSessionIndex))
-                    .catch(() => { });
+                void parkIdle().catch(() => { });
             }, 30_000);
         },
         stopMaintenance,

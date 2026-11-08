@@ -101,10 +101,7 @@ import {
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
 import { forwardSessionConnection } from "./master/forward.ts";
-import {
-    InteractiveAttachmentRegistry,
-    type InteractiveAttachmentLease,
-} from "./interactive-attachments.ts";
+import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./attachment-coordinator.ts";
 
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
 const MAX_REQUEST_BYTES = MAX_FRAME_BYTES;
@@ -160,6 +157,7 @@ export interface StartHostServerOptions {
     readonly capabilities?: readonly string[];
     readonly locateAgent?: (agentId: string) => Promise<AgentLocationResponse | AgentLocationFailedResponse>;
     readonly routeRequest?: (request: ForwardableHostRequest) => Promise<string | undefined>;
+    readonly attachmentCoordinator?: AttachmentCoordinator;
     readonly limits?: {
         readonly maxRequestBytes?: number;
         readonly requestIdleMs?: number;
@@ -340,7 +338,9 @@ async function startListener(
         pid: identity.pid,
     });
     const sockets = new Set<Socket>();
-    const interactiveAttachments = new InteractiveAttachmentRegistry();
+    const interactiveAttachments = options.attachmentCoordinator ?? new InteractiveAttachmentCoordinator(
+        async () => options.readAgentTree ?? ((agentId) => [agentId]),
+    );
     let shutdownFenced = false;
     let activeAttachments = 0;
     let activeServerOperations = 0;
@@ -514,7 +514,6 @@ async function startListener(
             options.readWorkIndex ?? (() => EMPTY_WORK_INDEX),
             options.searchSessions,
             interactiveAttachments,
-            options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
             options.refreshCatalog,
             options.refreshCatalogs,
@@ -719,8 +718,7 @@ function receiveConnection(
     searchSessions:
         | ((query: SessionSearchQuery) => Promise<SessionSearchResults>)
         | undefined,
-    interactiveAttachments: InteractiveAttachmentRegistry,
-    readAgentTree: (rootAgentId: string) => readonly string[],
+    interactiveAttachments: AttachmentCoordinator,
     readModelSettings: (workspace?: string) => ModelTurnSettings | undefined,
     refreshCatalog: ((
         provider: string,
@@ -778,7 +776,7 @@ function receiveConnection(
     let initialRequestPending = false;
     let writes: Promise<void> = Promise.resolve();
     let attachmentClosed: (() => void) | undefined;
-    let interactiveAttachment: InteractiveAttachmentLease | undefined;
+    let interactiveAttachment: string | undefined;
     let attachedAgentId: string | undefined;
     let attachedClientId: string | undefined;
     let attachedCapabilities: readonly string[] = [];
@@ -821,19 +819,9 @@ function receiveConnection(
         attachedCapabilities = [];
         const abandonedInteractiveAttachment = interactiveAttachment;
         interactiveAttachment = undefined;
-        abandonedInteractiveAttachment?.release();
         if (abandonedAgentId !== undefined
             && abandonedInteractiveAttachment !== undefined) {
-            interactiveAttachments.deferStop(abandonedAgentId);
-            const timer = setTimeout(() => {
-                for (const rootId of interactiveAttachments.readyDeferredStops(
-                    abandonedAgentId,
-                    readAgentTree,
-                )) {
-                    void closeAgent(rootId, "detached").catch(() => undefined);
-                }
-            }, limits.interactiveDisconnectGraceMs);
-            timer.unref();
+            abandonInteractive(abandonedInteractiveAttachment, abandonedAgentId);
         }
         attachedWorkspace = undefined;
         for (const controller of extensionRequests) {
@@ -848,6 +836,15 @@ function receiveConnection(
         }
     });
     socket.once("error", () => socket.destroy());
+    function abandonInteractive(leaseId: string, agentId: string): void {
+        void interactiveAttachments.abandon(leaseId, agentId).catch(() => undefined);
+        const timer = setTimeout(() => {
+            void interactiveAttachments.ready(agentId).then((roots) => {
+                for (const rootId of roots) void closeAgent(rootId, "detached").catch(() => undefined);
+            }).catch(() => undefined);
+        }, limits.interactiveDisconnectGraceMs);
+        timer.unref();
+    }
     socket.on("data", (chunk: Buffer) => {
         if (finished) {
             return;
@@ -964,29 +961,23 @@ function receiveConnection(
             attachment.detach();
             attachment = undefined;
             const detachedInteractive = interactiveAttachment;
-            detachedInteractive?.release();
             interactiveAttachment = undefined;
             attachedAgentId = undefined;
             attachedClientId = undefined;
             attachedCapabilities = [];
-            if (
-                detachedAgentId !== undefined
-                && detachedInteractive !== undefined
-            ) {
-                for (const rootId of interactiveAttachments.readyDeferredStops(
-                    detachedAgentId,
-                    readAgentTree,
-                )) {
-                    void closeAgent(rootId, "detached").catch(() => undefined);
-                }
-            }
+            const deferredStops = detachedAgentId !== undefined && detachedInteractive !== undefined
+                ? interactiveAttachments.detach(detachedInteractive, detachedAgentId)
+                : Promise.resolve([]);
             attachedWorkspace = undefined;
             for (const controller of extensionRequests) {
                 controller.abort();
             }
             extensionRequests.clear();
             extensionRequestIds.clear();
-            void send({ type: "detached" }).then(
+            void deferredStops.catch(() => []).then((roots) => {
+                for (const rootId of roots) void closeAgent(rootId, "detached").catch(() => undefined);
+                return send({ type: "detached" });
+            }).then(
                 () => socket.end(),
                 () => socket.destroy(),
             );
@@ -1017,72 +1008,42 @@ function receiveConnection(
             stopWatchingStopWait = undefined;
             const releasedAgentId = attachedAgentId;
             const releasedClientId = attachedClientId;
+            const releasedLease = interactiveAttachment;
             attachment.detach();
             attachment = undefined;
             attachedAgentId = undefined;
             attachedClientId = undefined;
             attachedCapabilities = [];
-            interactiveAttachment.release();
             interactiveAttachment = undefined;
-            const remaining = interactiveAttachments.clientCount(
-                readAgentTree(releasedAgentId),
-                releasedClientId,
-            );
             attachedWorkspace = undefined;
             for (const controller of extensionRequests) controller.abort();
             extensionRequests.clear();
             extensionRequestIds.clear();
-            let rootsToStop: readonly string[] = [];
-            if (message.policy === "keep_running") {
-                interactiveAttachments.keepRunning(
-                    releasedAgentId,
-                    readAgentTree,
-                );
-            } else if (message.policy === "force_stop") {
-                rootsToStop = interactiveAttachments.forceStop(
-                    releasedAgentId,
-                    readAgentTree,
-                );
-            } else {
-                rootsToStop = interactiveAttachments.stopIfLast(
-                    releasedAgentId,
-                    releasedClientId,
-                    readAgentTree,
-                ).rootsToStop;
-            }
-            if (rootsToStop.length === 0) {
-                void send({
-                    type: "attachment_released",
-                    agent_id: releasedAgentId,
-                    outcome: "detached",
-                    remaining_interactive_clients: remaining,
-                }).then(() => socket.end(), () => socket.destroy());
-                return;
-            }
-            void Promise.all(rootsToStop.map((rootId) => closeAgent(rootId, "detached"))).then(
-                (results) => results.every((result) => result.status === "closed")
-                    ? send({
-                        type: "attachment_released",
-                        agent_id: releasedAgentId,
-                        outcome: "stopped",
-                        remaining_interactive_clients: remaining,
-                        session_retained: results.every((result) =>
-                            result.sessionRetained !== false
-                        ),
-                    })
-                    : send({
-                        type: "attachment_release_rejected",
-                        agent_id: releasedAgentId,
-                        reason: results.find((result) =>
-                            result.status !== "closed"
-                        )?.status ?? "failed",
-                    }),
-                () => send({
+            void interactiveAttachments.release(releasedLease, releasedAgentId, releasedClientId, message.policy).then(
+                async ({ remaining, rootsToStop }) => {
+                    if (rootsToStop.length === 0) {
+                        return send({
+                            type: "attachment_released", agent_id: releasedAgentId,
+                            outcome: "detached", remaining_interactive_clients: remaining,
+                        });
+                    }
+                    const results = await Promise.all(rootsToStop.map((rootId) => closeAgent(rootId, "detached")));
+                    return results.every((result) => result.status === "closed")
+                        ? send({
+                            type: "attachment_released", agent_id: releasedAgentId, outcome: "stopped",
+                            remaining_interactive_clients: remaining,
+                            session_retained: results.every((result) => result.sessionRetained !== false),
+                        })
+                        : send({
+                            type: "attachment_release_rejected", agent_id: releasedAgentId,
+                            reason: results.find((result) => result.status !== "closed")?.status ?? "failed",
+                        });
+                },
+            ).catch(() => send({
                     type: "attachment_release_rejected",
                     agent_id: releasedAgentId,
                     reason: "failed",
-                }),
-            ).then(() => socket.end(), () => socket.destroy());
+            })).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (isShutdownFenced()) {
@@ -2101,14 +2062,19 @@ function receiveConnection(
         attachedWorkspace = agent.workspace;
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
-        sentBackgroundAgents = readBackgroundAgents(attachedId);
         attachedCapabilities = negotiated;
         if (request.attachment_kind === "interactive") {
-            interactiveAttachment = interactiveAttachments.open(
+            const lease = await interactiveAttachments.open(
                 agent.id,
                 request.client_id!,
             );
+            if (socket.destroyed || finished || attachment === undefined) {
+                abandonInteractive(lease, agent.id);
+                return;
+            }
+            interactiveAttachment = lease;
         }
+        sentBackgroundAgents = readBackgroundAgents(attachedId);
         const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
         const wantsSessionTitle = negotiated.includes(
             HOST_CAPABILITY_SESSION_TITLE,

@@ -69,7 +69,7 @@ export interface StartSessionHostOptions {
     readonly timed: <T>(phase: string, run: () => T | Promise<T>) => Promise<T>;
     readonly onExtensionFailure?: (failure: ExtensionRegistryFailure) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
-    readonly createServices: (createAdapter: AgentRegistryOptions["createAdapter"]) => SessionHostServices;
+    readonly createServices: (createAdapter: AgentRegistryOptions["createAdapter"], sessionWorker?: boolean) => SessionHostServices;
     readonly turnsHeld: () => boolean;
     readonly inboxActorForSession: () => string | null;
     readonly annexUrl: () => string | undefined;
@@ -84,9 +84,11 @@ export interface SessionHost {
     readonly handlers: SessionHandlers;
     readonly createAdapter: AgentRegistryOptions["createAdapter"];
     readonly localExtensionSessions: ExtensionSessionServices;
+    readonly inboxDelivery: InboxDeliveryCoordinator;
     setExtensionSessions(services: ExtensionSessionServices): void;
+    setParkIdle(park: () => Promise<void>): void;
     // The resident host starts the scan after publishing its listener.
-    startStorage(): void;
+    startStorage(options?: { readonly scan?: boolean }): void;
     stopMaintenance(): void;
     clearProviderSelection(provider: string): Promise<void>;
     closeAfterStartupFailure(): Promise<void>;
