@@ -375,6 +375,16 @@ export interface LoadVeraConfigOptions {
     readonly extensionDirectory?: string;
 }
 
+let workerConfigReadOnly = false;
+
+export function forbidWorkerConfigWrites(): void {
+    workerConfigReadOnly = true;
+}
+
+function requireWritableConfig(): void {
+    if (workerConfigReadOnly) throw new Error("Worker configuration is read only");
+}
+
 export interface VeraConfigDefaultsPatch {
     readonly provider?: VeraProviderId;
     /** Adds the id to `disabled_included_extensions`, or takes it off. */
@@ -547,7 +557,7 @@ export function loadVeraConfig(
         throw new VeraConfigError(path, `it is not valid JSON (${message})`);
     }
 
-    const migrated = migrateShippedProviderDeclarations(path, value);
+    const migrated = workerConfigReadOnly ? value : migrateShippedProviderDeclarations(path, value);
     checkShippedProviderDeclarations(path, migrated);
     checkDeclaredProviderCaches(path, migrated);
     const movedReviewerKeys = reviewerRouteKeys(migrated);
@@ -711,6 +721,7 @@ export function migrateShippedProviderDeclarations(
 }
 
 function writeMigratedConfig(path: string, value: Record<string, unknown>): void {
+    requireWritableConfig();
     const temporaryPath = join(dirname(path), `.config-migration-${randomUUID()}.tmp`);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
@@ -751,6 +762,7 @@ export function updateVeraConfigDefaults(
     patch: VeraConfigDefaultsPatch,
     options: LoadVeraConfigOptions = {},
 ): VeraConfig {
+    requireWritableConfig();
     const path = options.path ?? defaultVeraConfigPath();
     const current = existsSync(path)
         ? loadVeraConfig({ path })
@@ -890,6 +902,7 @@ function writeVeraConfigFile(
     path: string,
     config: VeraConfig | Omit<VeraConfig, "approval_mode">,
 ): void {
+    requireWritableConfig();
     // Loading resolves hooks and merges discovered and managed extensions;
     // only what the file itself declares goes back to disk.
     const { extensions: _resolvedExtensions, ...settings } = configForDisk(config);

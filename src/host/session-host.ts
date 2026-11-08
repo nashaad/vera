@@ -30,6 +30,9 @@ import {
 } from "../engine/permission-preferences.ts";
 import { credentialFingerprint } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import { createLeasedAdapter } from "./master/leased-adapter.ts";
+import { createLearnedFactObserver } from "./master/learned-facts.ts";
+import { applyConfigDefaults } from "./master/config-defaults.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { skillScriptTool } from "../skills/script.ts";
@@ -58,12 +61,24 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     } = options;
     const logDirectory = eventLogRoot(home);
     const reviewLog = createReviewLogger({ path: defaultReviewLogPath(home) });
-    const permissionPreferences = await timed("permission_preferences", () =>
-        PermissionPreferenceStore.open(
+    const storedPreferences = options.workerGlobals?.permissionPreferences
+        ?? await timed("permission_preferences", () => PermissionPreferenceStore.open(
             options.permissionPreferencesPath
             ?? defaultPermissionPreferencesPath(home),
-        )
-    );
+        ));
+    const permissionPreferences = options.onPreferencesChanged === undefined ? storedPreferences : {
+        list: () => storedPreferences.list(),
+        async add(when: Parameters<typeof storedPreferences.add>[0]) {
+            const result = await storedPreferences.add(when);
+            options.onPreferencesChanged!();
+            return result;
+        },
+        async remove(id: string) {
+            const removed = await storedPreferences.remove(id);
+            if (removed) options.onPreferencesChanged!();
+            return removed;
+        },
+    };
     const { extensions, sessionIdentity, extensionLoadFailures } = await startSessionExtensions(options);
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
@@ -75,11 +90,12 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             captureFailedRequest?: FailedRequestCapture,
         ) => {
             const config = currentConfig();
-            return createConfiguredModelAdapter({
+            const selected = {
                 ...config,
                 provider: (provider ?? config.provider) as
                     VeraConfig["provider"],
-            }, {
+            };
+            const adapterOptions = {
                 authStorage,
                 log: hostLog,
                 openRouterAllowanceGuard,
@@ -87,7 +103,11 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                 ...(captureFailedRequest === undefined
                     ? {}
                     : { captureFailedRequest }),
-            });
+            };
+            const lease = options.workerGlobals?.lease.bind(options.workerGlobals) ?? options.masterCredentialLease;
+            return lease === undefined
+                ? createConfiguredModelAdapter(selected, adapterOptions)
+                : createLeasedAdapter(selected, adapterOptions, lease);
         });
     const services = options.createServices(createAdapter, options.sessionWorker);
     const eventLogPathForId = eventLogEnabled(currentConfig())
@@ -104,6 +124,13 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             .map((entry) => entry.tool);
     const registry: AgentRegistry = new AgentRegistry({
         ...services.models,
+        ...(options.workerGlobals === undefined ? {} : {
+            prepareModelCatalog: () => {
+                applyConfigDefaults(registry, currentConfig());
+                return options.workerGlobals!.ensureCatalog();
+            },
+            beforeModelTerminal: createLearnedFactObserver(options.workerGlobals, home, hostLog),
+        }),
         ...createSessionHooks({ currentConfig, extensions, hostLog, home, startupFindings, sessionImportNotes }),
         sessionBlockDirectory: blockedDirectory,
         turnsHeld: (): boolean => options.turnsHeld(),
@@ -114,7 +141,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         ),
         createAdapter,
         modelMiddleware: extensions.modelMiddleware(),
-        ...(options.sessionWorker === true || options.createAdapter !== undefined || hasModelRequestHooks
+        ...(options.sessionWorker === true || options.disableTurnWorker === true || options.createAdapter !== undefined || hasModelRequestHooks
             || (!workerExtensionsEnabled()
                 && extensions.modelMiddleware().length > 0)
             ? {}

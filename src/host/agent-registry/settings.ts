@@ -90,11 +90,11 @@ export function readReviewer(reg: AgentRegistry): ToolReviewerSettings | undefin
             : reg.options.readReviewer();
     }
 
-export function applyReviewerPatch(reg: AgentRegistry, patch: ReviewerSettingsPatch | null): boolean {
+export function applyReviewerPatch(reg: AgentRegistry, patch: ReviewerSettingsPatch | null): boolean | Promise<boolean> {
         if (patch === null) {
             reg.reviewerSettings = undefined;
-            reg.options.writeReviewer?.(null);
-            return true;
+            const write = reg.options.writeReviewer?.(null);
+            return write instanceof Promise ? write.then(() => true) : true;
         }
         const carried = reg.readReviewer();
         const fallback = patch.fallback === undefined
@@ -109,8 +109,8 @@ export function applyReviewerPatch(reg: AgentRegistry, patch: ReviewerSettingsPa
                 ...(fallback === undefined ? [] : [{ ...fallback }]),
             ],
         };
-        reg.options.writeReviewer?.(reg.reviewerSettings);
-        return true;
+        const write = reg.options.writeReviewer?.(reg.reviewerSettings);
+        return write instanceof Promise ? write.then(() => true) : true;
     }
 
 export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntry, patch: ModelSettingsPatch): {
@@ -225,7 +225,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             if (reg.options.updateOverrides === undefined) {
                 return undefined;
             }
-            reg.options.updateOverrides(
+            await reg.options.updateOverrides(
                 patch.overrides === null ? clearedOverrides() : patch.overrides,
             );
         }
@@ -255,7 +255,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
         }
         if (patch.contextLimit !== undefined) {
             if (reg.options.updateContextLimit === undefined) return undefined;
-            reg.options.updateContextLimit(patch.contextLimit);
+            await reg.options.updateContextLimit(patch.contextLimit);
             if (
                 patch.provider === undefined
                 && patch.model === undefined
@@ -280,7 +280,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             }
         }
         if (patch.reviewer !== undefined) {
-            if (!reg.applyReviewerPatch(patch.reviewer)) {
+            if (!await reg.applyReviewerPatch(patch.reviewer)) {
                 return undefined;
             }
             if (
@@ -315,7 +315,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             reg.originFor(entry, settings),
         );
         const saved = savedDefaults(reg, settings);
-        reg.options.updateModelDefaults?.(saved);
+        await reg.options.updateModelDefaults?.(saved);
         reg.defaultModel = saved.model;
         reg.defaultProvider = saved.provider ?? reg.defaultProvider;
         reg.defaultReasoningEffort = saved.reasoningEffort;
@@ -545,7 +545,7 @@ export async function poolRemove(reg: AgentRegistry, id: string, entry: { readon
         ) {
             return undefined;
         }
-        reg.options.removeFromPool({
+        await reg.options.removeFromPool({
             provider: entry.provider.trim(),
             model: entry.model.trim(),
         });
@@ -576,7 +576,7 @@ export async function poolName(reg: AgentRegistry, id: string, entry: { readonly
         ) {
             return undefined;
         }
-        const named = reg.options.namePoolEntry({
+        const named = await reg.options.namePoolEntry({
             provider: entry.provider.trim(),
             model: entry.model.trim(),
         }, name === null ? null : name.trim(), agentEntry.store.header.cwd);
@@ -610,7 +610,7 @@ export async function poolMove(reg: AgentRegistry, id: string, entry: { readonly
         ) {
             return undefined;
         }
-        const moved = reg.options.movePoolEntry({
+        const moved = await reg.options.movePoolEntry({
             provider: entry.provider.trim(),
             model: entry.model.trim(),
         }, delta, agentEntry.store.header.cwd);

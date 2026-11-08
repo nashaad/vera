@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,8 +15,9 @@ function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-test("a master-owned per-turn worker does not start another MCP server", async () => {
+test("a master-owned turn does not start another MCP server", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7bm-");
+    const webRoot = join(home, "web");
     const previous = process.env.VERA_WORKER_EXTENSIONS;
     process.env.VERA_WORKER_EXTENSIONS = "1";
     const started = Promise.withResolvers<void>();
@@ -36,9 +37,25 @@ test("a master-owned per-turn worker does not start another MCP server", async (
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let client: AttachedAgentClient | undefined;
     const pids = new Set<number>();
+    const starts = (): string[] => {
+        const path = join(home, "processes.log");
+        if (!existsSync(path)) return [];
+        const lines = readFileSync(path, "utf8").split("\n").filter((line) => line.startsWith("start "));
+        for (const line of lines) {
+            const pid = Number(line.slice(6));
+            if (Number.isSafeInteger(pid) && pid > 0) pids.add(pid);
+        }
+        return lines;
+    };
     try {
+        await mkdir(webRoot);
+        await Promise.all([
+            writeFile(join(webRoot, "index.html"), "<!doctype html><title>Vera</title>"),
+            writeFile(join(webRoot, "main.js"), ""),
+            writeFile(join(webRoot, "styles.css"), ""),
+        ]);
         host = await startResidentHost({
-            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
+            home, webRoot, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "ask", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -48,27 +65,30 @@ test("a master-owned per-turn worker does not start another MCP server", async (
             },
         });
         pids.add((await requestHostIdentity(join(home, "runtime", "w0.sock")))!.pid);
-        const starts = (): string[] => readFileSync(join(home, "processes.log"), "utf8").split("\n")
-            .filter((line) => line.startsWith("start "));
+        expect(host.annexPid).toBeDefined();
+        pids.add(host.annexPid!);
         expect(starts()).toHaveLength(1);
-        pids.add(Number(starts()[0]!.slice(6)));
+        expect(pids.size).toBe(3);
         const agent = await host.registry.create({ workspace: home });
         client = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Chart the crow course" });
         await Promise.race([started.promise, Bun.sleep(15_000).then(() => { throw new Error("Provider was not reached"); })]);
-        const worker = host.registry.agents.get(agent.id)!.worker;
-        expect(worker).toBeDefined();
-        pids.add(worker!.pid);
-        if (worker?.supervisor?.pid !== null && worker?.supervisor?.pid !== undefined) pids.add(worker.supervisor.pid);
+        expect(host.registry.agents.get(agent.id)!.worker).toBeUndefined();
         expect(starts()).toHaveLength(1);
         release.resolve();
-        while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
+        let update = await client.receive(AbortSignal.timeout(10_000));
+        while (update.type !== "turn_finished") update = await client.receive(AbortSignal.timeout(10_000));
+        expect(update.outcome).toBeUndefined();
+        expect(host.registry.agents.get(agent.id)!.worker).toBeUndefined();
+        expect(starts()).toHaveLength(1);
     } finally {
         release.resolve();
         client?.close();
         if (host?.annexPid !== undefined) pids.add(host.annexPid);
+        starts();
         await host?.close();
+        starts();
         stub.stop(true);
         if (previous === undefined) delete process.env.VERA_WORKER_EXTENSIONS;
         else process.env.VERA_WORKER_EXTENSIONS = previous;

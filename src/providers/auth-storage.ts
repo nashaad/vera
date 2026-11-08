@@ -17,6 +17,12 @@ import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
 
+let workerAuthReadOnly = false;
+
+export function forbidWorkerAuthWrites(): void {
+    workerAuthReadOnly = true;
+}
+
 const NEWER_AUTH_MESSAGE =
     "auth.json was written by a newer Vera. Update Vera to use it.";
 
@@ -97,6 +103,7 @@ export function createAuthStorage(
         },
 
         setCredential(provider: string, credential: StoredCredential): void {
+            if (workerAuthReadOnly) throw new Error("Worker credentials are read only");
             const stored = readForWrite(path, options.onQuarantine);
             keepFormatCopy(path, stored.converted);
             writeStoredAuth(path, {
@@ -109,6 +116,7 @@ export function createAuthStorage(
         },
 
         deleteCredential(provider: string): void {
+            if (workerAuthReadOnly) throw new Error("Worker credentials are read only");
             const stored = readForWrite(path, options.onQuarantine);
             keepFormatCopy(path, stored.converted);
             const credentials: Record<string, StoredCredential> = {};

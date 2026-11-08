@@ -466,7 +466,7 @@ export async function applyApprovalMode(reg: AgentRegistry, id: string, mode: Ap
         }
         await reg.leaveAgentThatForbidsAccess(entry, id, mode);
         await entry.store.appendApprovalMode(mode);
-        reg.options.updateApprovalDefault?.(mode);
+        await reg.options.updateApprovalDefault?.(mode);
         reg.defaultApprovalMode = mode;
         entry.approvalMode = mode;
         return entry.approvalMode;
