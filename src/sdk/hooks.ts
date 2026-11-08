@@ -26,6 +26,10 @@ export interface HookToolResult {
 
 export type HookPower = "observe" | "mutate" | "block" | "replace" | "continue";
 
+export interface HookFailureOptions {
+    readonly onFailure: "deny" | "allow";
+}
+
 export interface ObserveHookResult {
     readonly power: "observe";
 }

@@ -1,5 +1,6 @@
 import type { JsonValue } from "./hooks.ts";
 import type {
+    HookFailureOptions,
     ModelRequestHook,
     PostToolUseHook,
     PreToolUseHook,
@@ -266,26 +267,27 @@ export interface VeraExtensionAgentSpec {
 }
 
 export interface VeraExtensionHooks {
-    registerModelMiddleware(middleware: ModelMiddleware): VeraExtensionDisposer;
-    registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
-    registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
-    registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
+    registerModelMiddleware(middleware: ModelMiddleware, options?: never): VeraExtensionDisposer;
+    registerPreToolUse(hook: PreToolUseHook, options?: HookFailureOptions): VeraExtensionDisposer;
+    registerPostToolUse(hook: PostToolUseHook, options?: HookFailureOptions): VeraExtensionDisposer;
+    registerPreTurn(hook: PreTurnHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.turn_ending`. */
-    registerTurnEnding(hook: TurnEndingHook): VeraExtensionDisposer;
-    registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer;
+    registerTurnEnding(hook: TurnEndingHook, options?: HookFailureOptions): VeraExtensionDisposer;
+    registerSessionStart(hook: SessionStartHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.turn_finished`. */
-    registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer;
+    registerTurnFinished(hook: TurnFinishedHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.session_updated`. */
-    registerSessionUpdated(hook: SessionUpdatedHook): VeraExtensionDisposer;
+    registerSessionUpdated(hook: SessionUpdatedHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.pre_compact`. */
-    registerPreCompact(hook: PreCompactHook): VeraExtensionDisposer;
+    registerPreCompact(hook: PreCompactHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.session_end`. */
-    registerSessionEnd(hook: SessionEndHook): VeraExtensionDisposer;
+    registerSessionEnd(hook: SessionEndHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.subagent_finished`. */
-    registerSubagentFinished(hook: SubagentFinishedHook): VeraExtensionDisposer;
+    registerSubagentFinished(hook: SubagentFinishedHook, options?: HookFailureOptions): VeraExtensionDisposer;
     registerModelRequest(
         namespace: string,
         hook: ModelRequestHook,
+        options?: never,
     ): VeraExtensionDisposer;
     registerCommand(spec: VeraExtensionCommandHookSpec): VeraExtensionDisposer;
 }
@@ -313,6 +315,7 @@ export interface VeraExtensionCommandHookSpec {
     /** Wire format used on stdin/stdout. Defaults to Vera's native format. */
     readonly protocol?: "vera" | "claude";
     readonly timeoutMs?: number;
+    readonly onFailure?: HookFailureOptions["onFailure"];
 }
 
 export interface VeraExtensionToolSpec {
