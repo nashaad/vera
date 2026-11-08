@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
 import {
     parseWebDevArenaSnapshot,
     readWebDevArenaSnapshot,
@@ -136,4 +137,32 @@ describe("WebDev Arena snapshot", () => {
         writeFileSync(join(directory, "webdev-arena.json"), "{not json");
         expect(readWebDevArenaSnapshot(directory)).toBeUndefined();
     });
+    test("a snapshot another build wrote is refetched, not read", async () => {
+        const directory = cacheDir();
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, "webdev-arena.json"), JSON.stringify({
+            schema_version: 1,
+            source: "lmarena-ai/leaderboard-dataset",
+            config: "webdev",
+            split: "latest",
+            license: "CC-BY-4.0",
+            fetched_at: new Date().toISOString(),
+            rows: [{ model_name: "stale", rating: 1, category: "webdev" }],
+            build_id: "vera-another-build",
+        }));
+
+        expect(readWebDevArenaSnapshot(directory)).toBeUndefined();
+        const snapshot = await refreshWebDevArena({
+            cacheDir: directory,
+            maxAgeMs: 3_600_000,
+            fetch: respondPages(2),
+            endpoint: "https://example.test/rows",
+        });
+
+        expect(snapshot?.rows).toHaveLength(2);
+        expect(readWebDevArenaSnapshot(directory)?.rows).toHaveLength(2);
+        expect(JSON.parse(readFileSync(join(directory, "webdev-arena.json"), "utf8")).build_id)
+            .toBe(cacheBuildId());
+    });
 });
+

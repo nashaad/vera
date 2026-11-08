@@ -7,7 +7,11 @@ import {
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
-import { providerCatalogCacheDir } from "./catalog-cache.ts";
+import {
+    isWrittenByThisBuild,
+    providerCatalogCacheDir,
+} from "./catalog-cache.ts";
+import { cacheBuildId } from "../release/cache-build-id.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const WEBDEV_ARENA_CACHE_FILE = "webdev-arena.json";
@@ -84,7 +88,9 @@ export function readWebDevArenaSnapshot(
         const value: unknown = JSON.parse(
             readRegularFileTextSync(webDevArenaCachePath(cacheDir)),
         );
-        return parseWebDevArenaSnapshot(value);
+        return isWrittenByThisBuild(value)
+            ? parseWebDevArenaSnapshot(value)
+            : undefined;
     } catch {
         return undefined;
     }
@@ -314,7 +320,10 @@ function writeWebDevArenaSnapshot(
         `.webdev-arena-${randomUUID()}.tmp`,
     );
     mkdirSync(directory, { recursive: true });
-    writeFileSync(temporaryPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+    writeFileSync(
+        temporaryPath,
+        `${JSON.stringify({ ...snapshot, build_id: cacheBuildId() }, null, 2)}\n`,
+    );
     renameSync(temporaryPath, path);
 }
 

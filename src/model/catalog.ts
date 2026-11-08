@@ -1,5 +1,6 @@
 import { createFileReadCache, createReadCache } from "../store/read-cache.ts";
 import {
+    isWrittenByThisBuild,
     providerCatalogCacheDir,
     providerCatalogCachePath,
 } from "./catalog-cache.ts";
@@ -128,7 +129,8 @@ function loadDiscoverySource(
 
 const readDiscoverySource = createFileReadCache((path): SourceCatalog | undefined => {
     try {
-        return parseCatalog(JSON.parse(readRegularFileTextSync(path)));
+        const value: unknown = JSON.parse(readRegularFileTextSync(path));
+        return isWrittenByThisBuild(value) ? parseCatalog(value) : undefined;
     } catch {
         return undefined;
     }

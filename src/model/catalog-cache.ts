@@ -14,6 +14,7 @@ import {
     veraRuntimeDirectoryIn,
 } from "../profile-paths.ts";
 import { isSafeProviderId } from "../providers/provider-id.ts";
+import { cacheBuildId } from "../release/cache-build-id.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface ProviderCatalogCacheOptions {
@@ -53,7 +54,7 @@ export function writeProviderCatalogSnapshot(
     mkdirSync(directory, { recursive: true });
     writeFileSync(
         temporaryPath,
-        `${JSON.stringify(catalog, null, 2)}\n`,
+        `${JSON.stringify({ ...catalog, build_id: cacheBuildId() }, null, 2)}\n`,
     );
     renameSync(temporaryPath, path);
 }
@@ -99,11 +100,23 @@ export function readProviderCatalogSnapshot(
 const readSnapshot = createFileReadCache((path): ProviderCatalog | undefined => {
     try {
         const value: unknown = JSON.parse(readRegularFileTextSync(path));
-        return isProviderCatalog(value) ? value : undefined;
+        if (!isProviderCatalog(value) || !isWrittenByThisBuild(value)) {
+            return undefined;
+        }
+        const { build_id: _buildId, ...catalog } = value as ProviderCatalog & { build_id?: unknown };
+        return catalog;
     } catch {
         return undefined;
     }
 });
+
+/**
+ * A cache file another build wrote, or one from before build ids were
+ * recorded, is treated as absent so this build fetches its own copy.
+ */
+export function isWrittenByThisBuild(value: unknown): boolean {
+    return isRecord(value) && value.build_id === cacheBuildId();
+}
 
 export function listDiscoveredProviders(
     options: ProviderCatalogCacheOptions = {},

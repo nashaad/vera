@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import type { OutriderDriver } from "../../../clients/tui/main/outrider-ops.ts";
+import { cacheBuildId } from "../../../src/release/cache-build-id.ts";
 
 const SMALL = "qwen35-0.8b";
 const LARGER = "qwen35-2b";
@@ -65,6 +66,7 @@ function home(): string {
     }));
     writeFileSync(join(veraHome, "runtime", "cache", "outrider.json"), JSON.stringify({
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "outrider",
         fetched_at: new Date().toISOString(),
         models: [SMALL, LARGER].map((id) => ({ id, label: id, levels: [] })),

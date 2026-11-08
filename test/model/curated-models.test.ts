@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
+
 import {
     CURATED_FRESHNESS_MS,
     curatedKey,
@@ -199,6 +201,7 @@ test("a curated pick marks the provider row it matches", () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "vera-curated-catalog-"));
     writeFileSync(join(cacheDir, "openrouter.json"), JSON.stringify({
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "openrouter",
         models: [
             { id: "qwen/qwen3.8-max-0902", label: "Qwen3.8 Max", levels: [] },

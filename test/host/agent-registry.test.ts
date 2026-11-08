@@ -8,6 +8,7 @@ import type {
     TurnFinishedHookPayload,
     SessionUpdatedHookPayload,
 } from "../../src/sdk/hooks.ts";
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
 import {
     mkdir,
     mkdtemp,
@@ -5209,6 +5210,7 @@ test("a stored effort a model's discovered levels refuse is not served", async (
         join(cacheDir, "ollama.json"),
         JSON.stringify({
             schema_version: 2,
+            build_id: cacheBuildId(),
             provider: "ollama",
             models: [
                 { id: "granite4.1:8b", label: "granite4.1:8b", levels: [] },

@@ -6,6 +6,8 @@ import {
     writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+
+import { cacheBuildId } from "../../src/release/cache-build-id.ts";
 import { tmpdir } from "node:os";
 
 import {
@@ -36,6 +38,7 @@ function withDiscovery(
 function snapshot(models: unknown[]): unknown {
     return {
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "test",
         fetched_at: "2026-07-27T00:00:00Z",
         models,
@@ -57,6 +60,15 @@ test("reads what discovery published for the provider", () => {
                 context_window: 128000,
                 levels: [{ id: "high", label: "High" }],
             }]);
+        },
+    );
+});
+
+test("a discovery file another build wrote is not used", () => {
+    withDiscovery(
+        { ...snapshot([{ id: "foreign", label: "Foreign", levels: [] }]) as object, build_id: "vera-another-build" },
+        (cacheDir) => {
+            expect(effectiveCatalog("test", { cacheDir }).models).toEqual([]);
         },
     );
 });
@@ -114,6 +126,7 @@ test("Ollama thinking models get overlay vocabulary, not High/Medium/Low", () =>
     mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, "ollama.json"), JSON.stringify({
         schema_version: 2,
+        build_id: cacheBuildId(),
         provider: "ollama",
         models: [{
             id: "qwen3:latest",
