@@ -67,14 +67,16 @@ test("a worker extension writes under the host's explicit home", async () => {
             "test.storage-mark",
             "activated.txt",
         );
-        await waitFor(() => existsSync(profileMarker));
-        expect(existsSync(join(
+        const machineMarker = join(
             explicitHome,
             "machine",
             EXTENSION_DATA_DIRECTORY,
             "test.storage-mark",
             "activated.txt",
-        ))).toBe(true);
+        );
+        await waitFor(() => existsSync(profileMarker) && existsSync(machineMarker));
+        expect(existsSync(profileMarker)).toBe(true);
+        expect(existsSync(machineMarker)).toBe(true);
         expect(existsSync(join(
             ambientHome,
             EXTENSION_DATA_DIRECTORY,
