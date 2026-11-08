@@ -94,7 +94,11 @@ test("failed auto-reconnect stays disconnected and Reconnect host from the palet
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("could not start host.");
+        pane = await session.waitForVisiblePane("Could not reconnect: could not start host");
+        expect(pane).toContain("Host sent a non-contiguous agent update sequence.");
+        expect(pane.indexOf("Host sent a non-contiguous agent update sequence.")).toBeLessThan(
+            pane.indexOf("Could not reconnect: could not start host"),
+        );
         expect(pane).toContain(
             "disconnected · Ctrl+L restart · Ctrl+C quit for resume command",
         );
@@ -129,7 +133,14 @@ test("Reconnect host from the palette while disconnected attaches without a repl
     });
 
     try {
-        await session.waitForVisiblePane("could not start host.");
+        const pane = await session.waitForVisiblePane("Could not reconnect: could not start host");
+        expect(pane).toContain("Host sent a non-contiguous agent update sequence.");
+        expect(pane.indexOf("Host sent a non-contiguous agent update sequence.")).toBeLessThan(
+            pane.indexOf("Could not reconnect: could not start host"),
+        );
+        expect(pane.replace(/\s+/g, "")).toContain(
+            disconnectedRecoveryHint().replace(/\s+/g, ""),
+        );
         await reconnectFromPalette(session);
         await session.waitForVisiblePane("Host reconnected.");
 
