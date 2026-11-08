@@ -38,6 +38,7 @@ export interface InProcessWorker {
     cutSession(id: string, reason: string): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
+    notifyAnnexChanged(url: string | undefined): Promise<void>;
     flushStores(): Promise<void>;
     waitForForwardedShutdowns(): Promise<void>;
     close(): Promise<void>;
@@ -127,6 +128,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         cutSession: (id, reason) => router.cut(id, reason),
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
+        notifyAnnexChanged: async () => {},
         flushStores: () => router.flush(),
         waitForForwardedShutdowns: () => forwardedShutdowns.wait(),
         async close() {

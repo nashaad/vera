@@ -32,11 +32,20 @@ export interface McpToolResult {
     readonly isError: boolean;
 }
 
+interface ConnectionAttempt {
+    readonly controller: AbortController;
+    readonly promise: Promise<McpTransport>;
+    waiters: number;
+    settled: boolean;
+}
+
 export class McpServerClient {
     readonly config: McpServerConfig;
     tools: readonly McpToolDefinition[] = [];
     prompts: readonly McpPromptDefinition[] = [];
     private transport: McpTransport | undefined;
+    private connecting: ConnectionAttempt | undefined;
+    private closing: Promise<void> | undefined;
 
     constructor(config: McpServerConfig) {
         this.config = config;
@@ -47,6 +56,10 @@ export class McpServerClient {
     }
 
     async connect(signal?: AbortSignal): Promise<void> {
+        await this.liveTransport(signal);
+    }
+
+    private async openTransport(signal: AbortSignal): Promise<McpTransport> {
         const transport = this.config.kind === "stdio"
             ? startStdioTransport(
                 this.config.command,
@@ -54,19 +67,24 @@ export class McpServerClient {
                 this.config.cwd,
             )
             : startHttpTransport(this.config.url, this.config.headers);
+        const abort = (): void => { void transport.close(); };
+        signal.addEventListener("abort", abort, { once: true });
         try {
             await transport.request("initialize", {
                 protocolVersion: PROTOCOL_VERSION,
                 capabilities: {},
                 clientInfo: { name: "vera-mcp", version: "0.1.0" },
             }, signal);
-            await transport.notify("notifications/initialized");
+            await transport.notify("notifications/initialized", undefined, signal);
             this.tools = await listAllTools(transport, signal);
             this.prompts = await listAllPrompts(transport, signal);
-            this.transport = transport;
+            if (signal.aborted) throw abortError();
+            return transport;
         } catch (error) {
-            transport.close();
+            await transport.close();
             throw error;
+        } finally {
+            signal.removeEventListener("abort", abort);
         }
     }
 
@@ -124,19 +142,99 @@ export class McpServerClient {
             .join("\n\n");
     }
 
-    close(): void {
-        this.transport?.close();
+    close(): Promise<void> {
+        if (this.closing !== undefined) return this.closing;
+        const transport = this.transport;
         this.transport = undefined;
+        const attempt = this.connecting;
+        attempt?.controller.abort();
+        const closing = Promise.all([
+            transport?.close(),
+            attempt?.promise.then((connected) => connected.close(), () => {}),
+        ]).then(() => {}).finally(() => {
+            if (this.closing === closing) this.closing = undefined;
+        });
+        this.closing = closing;
+        return closing;
     }
 
     private async liveTransport(signal?: AbortSignal): Promise<McpTransport> {
+        if (signal?.aborted) throw abortError();
+        if (this.closing !== undefined) {
+            await waitForCleanup(this.closing, signal);
+            return this.liveTransport(signal);
+        }
         if (this.transport !== undefined && this.transport.alive) {
             return this.transport;
         }
         this.transport = undefined;
-        await this.connect(signal);
-        return this.transport!;
+        let attempt = this.connecting;
+        if (attempt?.controller.signal.aborted) {
+            await waitForCleanup(attempt.promise, signal);
+            return this.liveTransport(signal);
+        }
+        if (attempt === undefined) {
+            const controller = new AbortController();
+            const promise = this.openTransport(controller.signal).then(async (transport) => {
+                if (controller.signal.aborted) {
+                    await transport.close();
+                    throw abortError();
+                }
+                this.transport = transport;
+                return transport;
+            }).finally(() => {
+                attempt!.settled = true;
+                if (this.connecting === attempt) this.connecting = undefined;
+            });
+            attempt = { controller, promise, waiters: 0, settled: false };
+            this.connecting = attempt;
+        }
+        return waitForConnection(attempt, signal);
     }
+}
+
+function waitForConnection(attempt: ConnectionAttempt, signal?: AbortSignal): Promise<McpTransport> {
+    attempt.waiters += 1;
+    return new Promise((resolve, reject) => {
+        let finished = false;
+        const release = (): boolean => {
+            if (finished) return false;
+            finished = true;
+            signal?.removeEventListener("abort", abort);
+            attempt.waiters -= 1;
+            if (attempt.waiters === 0 && !attempt.settled) attempt.controller.abort();
+            return true;
+        };
+        const abort = (): void => {
+            if (release()) reject(abortError());
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        attempt.promise.then(
+            (transport) => { if (release()) resolve(transport); },
+            (error: unknown) => { if (release()) reject(error); },
+        );
+        if (signal?.aborted) abort();
+    });
+}
+
+async function waitForCleanup(promise: Promise<unknown>, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw abortError();
+    await new Promise<void>((resolve, reject) => {
+        const abort = (): void => { cleanup(); reject(abortError()); };
+        const cleanup = (): void => signal?.removeEventListener("abort", abort);
+        signal?.addEventListener("abort", abort, { once: true });
+        promise.then(
+            () => { cleanup(); resolve(); },
+            () => { cleanup(); resolve(); },
+        );
+        if (signal?.aborted) abort();
+    });
+}
+
+function abortError(): Error {
+    const error = new Error("mcp request aborted");
+    error.name = "AbortError";
+    return error;
 }
 
 async function listAllTools(

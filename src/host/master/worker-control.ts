@@ -10,6 +10,7 @@ import { remoteReservations } from "./reservations.ts";
 import { serveSessionEndpoint } from "./remote-endpoint.ts";
 import { sessionTarget } from "./routing.ts";
 import { createPublicForwarder } from "./public-forward.ts";
+import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -22,6 +23,7 @@ export interface WorkerBootstrap {
     readonly lockPath: string;
     readonly buildId: string;
     readonly capabilities: readonly string[];
+    readonly extensionCatalog: ExtensionCatalog;
 }
 
 export interface WorkerHello {
@@ -55,7 +57,7 @@ export async function startControlledWorker(
 ): Promise<{ close(): Promise<void> }> {
     const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer), {
         index: hello.index, count: hello.count,
-    });
+    }, remoteExtensions(peer, bootstrap.extensionCatalog));
     const host = runtime.sessionHost;
     const endpoint = sessionEndpoint(host);
     const router = remoteRouter(peer);
@@ -104,6 +106,10 @@ export async function startControlledWorker(
         }
         if (method === "worker.catalogChanged") {
             host.registry.notifyModelCatalogChanged();
+            return;
+        }
+        if (method === "worker.annexChanged") {
+            runtime.setAnnexUrl(typeof args[0] === "string" ? args[0] : undefined);
             return;
         }
         if (method === "worker.stopMaintenance") {

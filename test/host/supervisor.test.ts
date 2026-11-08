@@ -25,6 +25,7 @@ test("a worker that exits before ready is reaped", async () => {
                 options: { home, config: { schema_version: 1, provider: "openrouter", model: "stub", approval_mode: "auto" } },
                 masterSocket: join(home, "runtime", "host.sock"),
                 lockPath: join(home, "runtime", "host.json"), buildId: "test", capabilities: [],
+                extensionCatalog: { extensionOrder: [], toolCatalog: [], commandCatalog: [] },
             },
             handler: async () => undefined,
             onEvent: () => {},

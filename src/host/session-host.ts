@@ -39,9 +39,10 @@ import {
 } from "./agent-registry.ts";
 import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
+import { orderByExtension } from "./master/extension-catalog.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
 
-import { startSessionExtensions } from "./session-host/extensions.ts";
+import { startSessionExtensions, withoutMasterExtensions } from "./session-host/extensions.ts";
 import { createSessionHandlers } from "./session-host/handlers.ts";
 import { createSessionHooks } from "./session-host/hooks.ts";
 import { indexClosedMembers, indexStoredSessions } from "./session-host/storage.ts";
@@ -96,6 +97,11 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                 : join(eventLogDirectory, `${agentId}.jsonl`)
         : undefined;
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
+    const extensionTools = options.remoteExtensions === undefined
+        ? extensions.tools()
+        : orderByExtension(options.remoteExtensions.catalog.extensionOrder,
+            [...extensions.toolsByExtension(), ...options.remoteExtensions.tools], (entry) => entry.extensionId)
+            .map((entry) => entry.tool);
     const registry: AgentRegistry = new AgentRegistry({
         ...services.models,
         ...createSessionHooks({ currentConfig, extensions, hostLog, home, startupFindings, sessionImportNotes }),
@@ -170,12 +176,14 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             return currentConfig().permission_modes;
         },
         permissionPreferences,
-        extensionTools: [...extensions.tools(), skillScriptTool],
+        extensionTools: [...extensionTools, skillScriptTool],
         trustNotices: {
             tools: extensions.installedUnreviewedTools(),
             store: new TrustNoticeStore(defaultTrustNoticePath(home)),
         },
-        workerExtensions: () => workerExtensionConfigs(currentConfig()),
+        workerExtensions: () => options.poolMaster === true
+            ? withoutMasterExtensions(workerExtensionConfigs(currentConfig()))
+            : workerExtensionConfigs(currentConfig()),
         registeredAgents: extensions.agents(),
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
@@ -225,6 +233,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     });
     const handlers = createSessionHandlers({
         registry, extensions, extensionLoadFailures, sessionDirectory, blockedDirectory,
+        ...(options.remoteExtensions === undefined ? {} : { remoteExtensions: options.remoteExtensions }),
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         importRoots: options.importRoots,
         restoringSessions: options.restoringSessions,

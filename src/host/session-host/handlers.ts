@@ -2,6 +2,7 @@ import type { HostLog } from "../host-log.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { basename } from "node:path";
 import { belongsToSessionShard, type SessionShard } from "../shard.ts";
+import { orderByExtension, type WorkerExtensionServices } from "../master/extension-catalog.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -103,6 +104,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
 interface SessionHandlerOptions {
     readonly registry: AgentRegistry;
     readonly extensions: ExtensionRegistry;
+    readonly remoteExtensions?: WorkerExtensionServices;
     readonly extensionLoadFailures: readonly ExtensionLoadFailure[];
     readonly sessionDirectory: string;
     readonly restoringSessions?: RestoringSessions;
@@ -336,28 +338,23 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             return markImportedSessions(listed, storedSessionIndex.values());
         },
         readExtensionState: (sessionId) => extensions.sessionState(sessionId),
-        listExtensionCommands: () => extensions.commands(),
+        listExtensionCommands: () => options.remoteExtensions === undefined ? extensions.commands()
+            : orderByExtension(options.remoteExtensions.catalog.extensionOrder,
+                [...extensions.commands(), ...options.remoteExtensions.catalog.commandCatalog], (command) => command.source),
         runExtensionCommand: (
             name,
             argumentsText,
             workspace,
             signal,
             sessionId,
-        ) => extensions.invokeCommand(
-            name,
-            argumentsText,
-            workspace,
-            signal,
-            sessionId,
-            sessionId === undefined
-                ? undefined
-                : commandSessionPath(
-                    registry,
-                    sessionId,
-                    sessionDirectory,
-                    storedSessionIndex,
-                ),
-        ),
+        ) => {
+            const path = sessionId === undefined ? undefined
+                : commandSessionPath(registry, sessionId, sessionDirectory, storedSessionIndex);
+            if (options.remoteExtensions?.catalog.commandCatalog.some((command) => command.name === name)) {
+                return options.remoteExtensions.invokeCommand(name, argumentsText, workspace, signal, sessionId, path);
+            }
+            return extensions.invokeCommand(name, argumentsText, workspace, signal, sessionId, path);
+        },
         canShutdown: () => registry.idleForShutdown(),
         canReplace: () => registry.idleForReplacement(),
         onAgentStartFailure: (operation, error) => hostLog({

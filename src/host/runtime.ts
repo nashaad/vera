@@ -160,6 +160,7 @@ import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } f
 import type { SessionShard } from "./shard.ts";
 import { prepareProcessWorker } from "./master/process-worker.ts";
 import { controlSocketPath } from "./master/supervisor.ts";
+import type { WorkerExtensionServices } from "./master/extension-catalog.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -234,17 +235,20 @@ export async function startResidentHost(
 
 export interface SessionWorkerRuntime {
     readonly sessionHost: SessionHost;
+    setAnnexUrl(url: string | undefined): void;
     close(): Promise<void>;
 }
 
 export async function startSessionWorkerRuntime(
     options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
+    remoteExtensions?: WorkerExtensionServices,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, remoteExtensions) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
     options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
+    remoteExtensions?: WorkerExtensionServices,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     const selectedHome = options.home
@@ -465,6 +469,8 @@ async function startHostRuntime(
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
+        ...(options.processWorker === true ? { poolMaster: true } : {}),
+        ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
         sessionDirectory, sessionIdentityReservationRoot, blockedDirectory, restoringSessions,
@@ -778,6 +784,7 @@ async function startHostRuntime(
         sessionHost.setParkIdle(async () => {});
         return {
             sessionHost,
+            setAnnexUrl(url) { annexUrl = url; },
             async close() {
                 try {
                     await sessionHost.close();
@@ -801,13 +808,15 @@ async function startHostRuntime(
     };
     const markAnnexFailed = (reason: string): void => {
         annexUrl = undefined;
+        void inProcessWorker?.notifyAnnexChanged(undefined).catch(() => {});
         annexUnavailable =
             `${reason} Restart the host to bring the annex back.`;
         annexHealth.annex = "failed";
         annexHealth.annexReason = reason;
     };
-    const markAnnexOk = (url: string): void => {
+    const markAnnexOk = async (url: string): Promise<void> => {
         annexUrl = url;
+        await inProcessWorker?.notifyAnnexChanged(url);
         annexUnavailable = undefined;
         annexHealth.annex = "ok";
         delete annexHealth.annexReason;
@@ -1037,7 +1046,7 @@ async function startHostRuntime(
                     });
                 },
             });
-            markAnnexOk(annex.url);
+            await markAnnexOk(annex.url);
             if (annex.busyPort !== undefined) {
                 hostLog({
                     type: "annex_port_busy",
