@@ -16,6 +16,7 @@ import type { RestoringSessions } from "./storage.ts";
 import type { SessionShard } from "../shard.ts";
 import type { WorkerGlobals } from "../master/worker-globals.ts";
 import type { LeaseCredential } from "../master/leased-adapter.ts";
+import type { WorkerExtensionServices } from "../master/extension-catalog.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
     "readAvailableModels"
@@ -54,6 +55,8 @@ export interface StartSessionHostOptions {
     readonly workerGlobals?: WorkerGlobals;
     readonly masterCredentialLease?: LeaseCredential;
     readonly onPreferencesChanged?: () => void;
+    readonly poolMaster?: boolean;
+    readonly remoteExtensions?: WorkerExtensionServices;
     readonly config: VeraConfig;
     readonly currentConfig: () => VeraConfig;
     readonly currentReachability: () => ReturnType<typeof poolReachability>;

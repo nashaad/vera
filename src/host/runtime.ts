@@ -119,8 +119,9 @@ import {
 } from "../providers/registry.ts";
 import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
 import {
+    SchedulerRuntime,
     startSchedulerRuntime,
-    type SchedulerRuntime,
+    type SchedulerRuntimeOptions,
 } from "../scheduler/runtime.ts";
 import { defaultSchedulePath, ScheduleStore } from "../scheduler/store.ts";
 import {
@@ -167,6 +168,7 @@ import { controlSocketPath } from "./master/supervisor.ts";
 import { cachedHostAuthStorage, createCredentialBroker } from "./master/credentials.ts";
 import type { GlobalChange } from "./master/global-services.ts";
 import type { WorkerGlobals } from "./master/worker-globals.ts";
+import type { WorkerExtensionServices } from "./master/extension-catalog.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -242,19 +244,22 @@ export async function startResidentHost(
 
 export interface SessionWorkerRuntime {
     readonly sessionHost: SessionHost;
+    setAnnexUrl(url: string | undefined): void;
     close(): Promise<void>;
 }
 
 export async function startSessionWorkerRuntime(
     options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
+    remoteExtensions?: WorkerExtensionServices,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard, workerGlobals) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
     options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
+    remoteExtensions?: WorkerExtensionServices,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     const selectedHome = options.home
@@ -456,8 +461,8 @@ async function startHostRuntime(
     const blockedDirectory = options.blockedDirectory ?? veraBlockedDirectory(home);
     let inbox!: Inbox;
     let consumers: ReturnType<typeof createConsumerRegistry>;
-    let inboxDelivery: InboxDeliveryCoordinator;
-    let scheduleStore: ScheduleStore;
+    let inboxDelivery!: InboxDeliveryCoordinator;
+    let scheduleStore!: ScheduleStore;
     let curatedRefresh: ReturnType<typeof startCuratedRefresh>;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
@@ -482,6 +487,7 @@ async function startHostRuntime(
         await scheduler?.close();
         scheduleStore.close();
         inboxDelivery.close();
+        await inboxDelivery.drainRemote();
         inbox.close();
     };
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
@@ -514,6 +520,8 @@ async function startHostRuntime(
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
         ...(credentials === undefined ? {} : { masterCredentialLease: credentials.lease }),
         ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
+        ...(options.processWorker === true ? { poolMaster: true } : {}),
+        ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
         sessionDirectory, sessionIdentityReservationRoot, blockedDirectory, restoringSessions,
@@ -539,7 +547,7 @@ async function startHostRuntime(
                 if (sessionWorker !== true) return sharedServices;
                 return {
                     ...sharedServices,
-                    inboxDelivery: new InboxDeliveryCoordinator(consumers, {
+                    inboxDelivery: new InboxDeliveryCoordinator(createConsumerRegistry(inbox, undefined, true), {
                         admissionFor: (projectRoot) => projectRoot === undefined
                             ? undefined
                             : InboxAdmissionPolicy.fromConfig(
@@ -548,10 +556,9 @@ async function startHostRuntime(
                     }),
                 };
             }
-            inbox = Inbox.open(
-                options.inboxPath ?? defaultInboxPath(home),
-            );
-            consumers = createConsumerRegistry(inbox);
+            const inboxPath = options.inboxPath ?? defaultInboxPath(home);
+            inbox = workerReservations === undefined ? Inbox.open(inboxPath) : Inbox.openReadOnly(inboxPath);
+            consumers = createConsumerRegistry(inbox, undefined, workerReservations !== undefined);
             inboxDelivery = new InboxDeliveryCoordinator(consumers, {
                 admissionFor: (projectRoot) => projectRoot === undefined
                     ? undefined
@@ -566,9 +573,9 @@ async function startHostRuntime(
                             : (family, projectRoot) => workerGlobals.request<void>("inboxRememberProject", family, projectRoot),
                     ),
             });
-            scheduleStore = ScheduleStore.open(
-                options.schedulePath ?? defaultSchedulePath(home),
-            );
+            const schedulePath = options.schedulePath ?? defaultSchedulePath(home);
+            scheduleStore = workerReservations === undefined
+                ? ScheduleStore.open(schedulePath) : ScheduleStore.openReadOnly(schedulePath);
             curatedRefresh = workerReservations === undefined
                 ? startCuratedRefresh({
                     path: curatedCachePath(home),
@@ -909,6 +916,7 @@ async function startHostRuntime(
         sessionHost.setParkIdle(async () => {});
         return {
             sessionHost,
+            setAnnexUrl(url) { annexUrl = url; },
             async close() {
                 try {
                     await sessionHost.close();
@@ -932,13 +940,15 @@ async function startHostRuntime(
     };
     const markAnnexFailed = (reason: string): void => {
         annexUrl = undefined;
+        void inProcessWorker?.notifyAnnexChanged(undefined).catch(() => {});
         annexUnavailable =
             `${reason} Restart the host to bring the annex back.`;
         annexHealth.annex = "failed";
         annexHealth.annexReason = reason;
     };
-    const markAnnexOk = (url: string): void => {
+    const markAnnexOk = async (url: string): Promise<void> => {
         annexUrl = url;
+        await inProcessWorker?.notifyAnnexChanged(url);
         annexUnavailable = undefined;
         annexHealth.annex = "ok";
         delete annexHealth.annexReason;
@@ -991,6 +1001,16 @@ async function startHostRuntime(
                     onGlobalChangeReady: (notify) => { announceGlobalChange = notify; } })
                 : await prepareInProcessWorker(workerOptions);
         }
+        const prepareAddress = async (address: string | null | undefined): Promise<void> => {
+            if (address === null || address === undefined || inProcessWorker === undefined) return;
+            if (inbox.offsetOf({ nodeId: consumers.nodeId, label: address }) !== null) return;
+            if (await inProcessWorker.knowsSession(address)) {
+                inbox.registerConsumer({ nodeId: consumers.nodeId, label: address });
+            }
+        };
+        if (inProcessWorker !== undefined) {
+            inboxDelivery.setBeforeAppend((entry) => prepareAddress(entry.address));
+        }
         watches = startWatchRuntimeIfConfigured(inbox, {
             watches: extensions.contributions().watches(),
             ...(options.watchConnectors === undefined
@@ -998,24 +1018,24 @@ async function startHostRuntime(
                 : { connectors: options.watchConnectors }),
             secret: options.watchSecret
                 ?? (() => readArcToken(options.arcConfigPath)),
+            ...(inProcessWorker === undefined ? {} : { beforeAdmit: prepareAddress }),
             onAppended: () => {
                 void inboxDelivery.pumpAll();
             },
         });
-        scheduler = await timed("scheduler", () =>
-            startSchedulerRuntime({
-                store: scheduleStore,
-                emit: (key, entry) =>
-                    inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
-                onRunEmitted: notifyWorkChanged,
-                onError: (error) => hostLog({
-                    type: "scheduler_failed",
-                    message: error instanceof Error
-                        ? error.message
-                        : String(error),
-                }),
-            })
-        );
+        const schedulerOptions: SchedulerRuntimeOptions = {
+            store: scheduleStore,
+            emit: (key, entry) =>
+                inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
+            onRunEmitted: notifyWorkChanged,
+            onError: (error) => hostLog({
+                type: "scheduler_failed",
+                message: error instanceof Error ? error.message : String(error),
+            }),
+        };
+        scheduler = workerSocket === undefined
+            ? await timed("scheduler", () => startSchedulerRuntime(schedulerOptions))
+            : new SchedulerRuntime(schedulerOptions);
         const providerGenerations = new Map<string, number>();
         server = await timed(
             "server_listen_and_lockfile",
@@ -1159,6 +1179,9 @@ async function startHostRuntime(
 
             }),
         );
+        if (workerSocket !== undefined) {
+            await timed("scheduler", () => scheduler!.start());
+        }
         try {
             annex = await startAnnexProcess({
                 home,
@@ -1182,7 +1205,7 @@ async function startHostRuntime(
                     });
                 },
             });
-            markAnnexOk(annex.url);
+            await markAnnexOk(annex.url);
             if (annex.busyPort !== undefined) {
                 hostLog({
                     type: "annex_port_busy",

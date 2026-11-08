@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
+import { ExtensionCommandUnavailableError, InvalidExtensionCommandResultError } from "../../extensions/commands.ts";
+import { ExtensionOperationTimeoutError } from "../../extensions/operation.ts";
 import type { HostConnection } from "../connection.ts";
 
 interface ControlArgument {
@@ -18,6 +20,7 @@ interface PendingRequest {
     readonly resolve: (value: unknown) => void;
     readonly reject: (error: unknown) => void;
     readonly cleanup: () => void;
+    chunks?: string[];
 }
 
 interface IncomingRequest {
@@ -27,6 +30,9 @@ interface IncomingRequest {
 
 export type ControlHandler = (method: string, args: readonly unknown[], signal: AbortSignal) => Promise<unknown>;
 export type ControlEventHandler = (event: string, value: unknown) => void;
+
+const RESPONSE_CHUNK_SIZE = 256 * 1_024;
+const RESPONSE_CHUNK_THRESHOLD = 1_024 * 1_024;
 
 export class ControlPeer {
     private readonly pending = new Map<string, PendingRequest>();
@@ -95,6 +101,22 @@ export class ControlPeer {
 
     private dispatch(value: unknown): void {
         const frame = record(value);
+        if (frame?.type === "response_chunk" && typeof frame.id === "string") {
+            const pending = this.pending.get(frame.id);
+            if (pending === undefined) return;
+            if (typeof frame.chunk !== "string" || typeof frame.last !== "boolean") {
+                throw new Error("Invalid control response chunk");
+            }
+            (pending.chunks ??= []).push(frame.chunk);
+            if (frame.last) {
+                const response = record(JSON.parse(pending.chunks.join("")));
+                if (response?.type !== "response" || response.id !== frame.id) {
+                    throw new Error("Invalid chunked control response");
+                }
+                this.dispatch(response);
+            }
+            return;
+        }
         if (frame?.type === "response" && typeof frame.id === "string") {
             const pending = this.pending.get(frame.id);
             if (pending === undefined) return;
@@ -137,8 +159,28 @@ export class ControlPeer {
 
     private async respond(id: string, request: IncomingRequest, result: { value?: unknown; error?: ControlError }): Promise<void> {
         if (request.cancelled) return;
-        this.incoming.delete(id);
-        await this.connection.send({ type: "response", id, ...result }).catch(() => {});
+        try {
+            const response = { type: "response", id, ...result };
+            const encoded = JSON.stringify(response);
+            if (encoded.length <= RESPONSE_CHUNK_THRESHOLD) {
+                await this.connection.send(response);
+            } else {
+                for (let offset = 0; offset < encoded.length; offset += RESPONSE_CHUNK_SIZE) {
+                    if (request.cancelled) return;
+                    await this.connection.send({
+                        type: "response_chunk", id,
+                        chunk: encoded.slice(offset, offset + RESPONSE_CHUNK_SIZE),
+                        last: offset + RESPONSE_CHUNK_SIZE >= encoded.length,
+                    });
+                }
+            }
+        } catch (error) {
+            if (!request.cancelled) {
+                await this.connection.send({ type: "response", id, error: encodeError(error) }).catch(() => {});
+            }
+        } finally {
+            if (this.incoming.get(id) === request) this.incoming.delete(id);
+        }
     }
 }
 
@@ -148,7 +190,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function encodeError(error: unknown): ControlError {
-    const name = error instanceof Error ? error.name : "Error";
+    const name = error instanceof ExtensionCommandUnavailableError ? "ExtensionCommandUnavailableError"
+        : error instanceof InvalidExtensionCommandResultError ? "InvalidExtensionCommandResultError"
+        : error instanceof ExtensionOperationTimeoutError ? "ExtensionOperationTimeoutError"
+        : error instanceof Error ? error.name : "Error";
     const message = error instanceof Error ? error.message : String(error);
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
     return {
@@ -165,7 +210,11 @@ function decodeError(value: unknown): Error {
     }
     const error = data.name === "ProviderUnavailableError" && typeof data.provider === "string"
         ? new ProviderUnavailableError(data.provider)
-        : data.name === "UserFacingError" ? new UserFacingError(data.message) : new Error(data.message);
+        : data.name === "UserFacingError" ? new UserFacingError(data.message)
+        : data.name === "ExtensionCommandUnavailableError" ? new ExtensionCommandUnavailableError(data.message)
+        : data.name === "InvalidExtensionCommandResultError" ? new InvalidExtensionCommandResultError(data.message)
+        : data.name === "ExtensionOperationTimeoutError" ? new ExtensionOperationTimeoutError(data.message)
+        : new Error(data.message);
     error.name = data.name;
     if (typeof data.code === "string") (error as NodeJS.ErrnoException).code = data.code;
     return error;

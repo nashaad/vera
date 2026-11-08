@@ -13,7 +13,7 @@ interface VeraExtensionApiShape {
     readonly commands: {
         register(spec: Record<string, unknown>): void;
     };
-    onDispose(dispose: () => void): void;
+    onDispose(dispose: () => void | Promise<void>): void;
 }
 
 export async function activate(vera: VeraExtensionApiShape): Promise<void> {
@@ -21,6 +21,14 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
     if (servers.length === 0) {
         return;
     }
+    const owned = new Set<McpServerClient>();
+    const activation = new AbortController();
+    let disposed = false;
+    vera.onDispose(async () => {
+        disposed = true;
+        activation.abort();
+        await Promise.all([...owned].map((client) => client.close()));
+    });
     const store = new TokenStore(vera.storage.machine);
     const oauthServers = servers.filter(
         (server) => server.kind === "http" && server.auth === "oauth",
@@ -30,7 +38,8 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
     }
 
     const clients = await Promise.all(servers.map(async (config) => {
-        const authorized = await withStoredToken(config, store);
+        const authorized = await withStoredToken(config, store, activation.signal);
+        if (disposed) return undefined;
         if (authorized === undefined) {
             console.error(
                 `[vera.mcp] server ${config.name} has no login yet; `
@@ -39,15 +48,21 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
             return undefined;
         }
         const client = new McpServerClient(authorized);
+        owned.add(client);
         try {
             await withTimeout(
-                client.connect(),
+                client.connect(activation.signal),
                 CONNECT_TIMEOUT_MS,
                 `mcp server ${config.name} did not finish initializing`,
             );
+            if (disposed) {
+                await client.close();
+                return undefined;
+            }
             return client;
         } catch (error) {
-            client.close();
+            await client.close();
+            if (disposed) return undefined;
             console.error(
                 `[vera.mcp] skipping server ${config.name}: ${message(error)}`,
             );
@@ -60,11 +75,6 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
     if (connected.length === 0) {
         return;
     }
-    vera.onDispose(() => {
-        for (const client of connected) {
-            client.close();
-        }
-    });
 
     for (const client of connected) {
         registerTools(vera, client);
@@ -76,11 +86,12 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
 async function withStoredToken(
     config: McpServerConfig,
     store: TokenStore,
+    signal: AbortSignal,
 ): Promise<McpServerConfig | undefined> {
     if (config.kind !== "http" || config.auth !== "oauth") {
         return config;
     }
-    const accessToken = await freshAccessToken(store, config.name);
+    const accessToken = await freshAccessToken(store, config.name, signal);
     if (accessToken === undefined) {
         return undefined;
     }

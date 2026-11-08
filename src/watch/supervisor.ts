@@ -34,6 +34,7 @@ export interface WatchSupervisorOptions {
     readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     readonly random?: () => number;
     readonly onStateChange?: (status: WatchStatus) => void;
+    readonly beforeAdmit?: () => Promise<void>;
 }
 
 export class SupervisedWatch {
@@ -46,6 +47,7 @@ export class SupervisedWatch {
     private readonly sleep: (ms: number, signal: AbortSignal) => Promise<void>;
     private readonly random: () => number;
     private readonly onStateChange: (status: WatchStatus) => void;
+    private readonly beforeAdmit?: () => Promise<void>;
 
     private controller: AbortController | null = null;
     private loop: Promise<void> | null = null;
@@ -64,6 +66,7 @@ export class SupervisedWatch {
         this.sleep = options.sleep ?? defaultSleep;
         this.random = options.random ?? Math.random;
         this.onStateChange = options.onStateChange ?? ((): void => undefined);
+        this.beforeAdmit = options.beforeAdmit;
     }
 
     status(): WatchStatus {
@@ -156,6 +159,7 @@ export class SupervisedWatch {
             signal,
             cursor: (): string | null => this.admission.cursor(),
             admit: async (events: readonly SourceEvent[]): Promise<void> => {
+                if (this.beforeAdmit !== undefined) await this.beforeAdmit();
                 this.admission.admit(events);
             },
             checkpoint: (checkpoint: SourceCheckpoint): void => {

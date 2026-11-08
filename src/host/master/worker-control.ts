@@ -15,10 +15,13 @@ import { createLiveVeraConfigReader, defaultVeraConfigPath } from "../../config.
 import { WorkerGlobals } from "./worker-globals.ts";
 import type { GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
+import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
+import { WorkerInboxBridge } from "./inbox.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
-    | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots" | "inboxUserConfigPath"
+    | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots"
+    | "inboxPath" | "inboxUserConfigPath" | "schedulePath" | "arcConfigPath"
 >;
 
 export interface WorkerBootstrap {
@@ -27,6 +30,7 @@ export interface WorkerBootstrap {
     readonly lockPath: string;
     readonly buildId: string;
     readonly capabilities: readonly string[];
+    readonly extensionCatalog: ExtensionCatalog;
 }
 
 export interface WorkerHello {
@@ -71,7 +75,7 @@ export async function startControlledWorker(
     await globals.initialize();
     const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer), {
         index: hello.index, count: hello.count,
-    }, globals);
+    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog));
     const host = runtime.sessionHost;
     const currentConfig = createLiveVeraConfigReader(bootstrap.options.config, {
         path: bootstrap.options.configPath ?? defaultVeraConfigPath(home),
@@ -81,6 +85,7 @@ export async function startControlledWorker(
     const router = remoteRouter(peer);
     const attachments = remoteAttachments(peer);
     const publicForwarder = createPublicForwarder(peer);
+    const inbox = new WorkerInboxBridge((method, args, signal) => peer.request(`inbox.${method}`, args, signal));
     const listeners = new Set<() => void>();
     let summaries: readonly RegisteredAgentSummary[] = [];
     let workIndex: WorkIndexSnapshot = EMPTY_WORK_INDEX;
@@ -89,6 +94,7 @@ export async function startControlledWorker(
     host.registry.peerSessions = router;
     host.registry.subagentSessions = router;
     host.registry.subagentAdmission = router;
+    host.inboxDelivery.setSessionBridge(inbox);
     const opening = new Set<string>();
     host.registry.openGuard = {
         async beginCreate(id, path, parentId) {
@@ -109,6 +115,7 @@ export async function startControlledWorker(
     host.inboxDelivery.setExternalPump((seq) => router.pumpInbox(hello.id as `w${number}`, seq));
     host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     peer.setHandler(async (method, args, signal) => {
+        if (method.startsWith("inbox.")) return await inbox.handle(method.slice(6), args, signal);
         if (method === "public.frame") return await publicForwarder.receiveFrame(args);
         if (method.startsWith("session.")) {
             reloadDefaults();
@@ -127,6 +134,10 @@ export async function startControlledWorker(
         }
         if (method === "worker.catalogChanged") {
             host.registry.notifyModelCatalogChanged();
+            return;
+        }
+        if (method === "worker.annexChanged") {
+            runtime.setAnnexUrl(typeof args[0] === "string" ? args[0] : undefined);
             return;
         }
         if (method === "worker.stopMaintenance") {

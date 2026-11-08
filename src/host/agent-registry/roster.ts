@@ -243,7 +243,8 @@ async function recordPeerMessage(reg: AgentRegistry, recipient: RegisteredAgentE
                 ...(message.reply_to === undefined ? {} : { replyTo: message.reply_to }),
             },
         });
-        recipient.inbox?.noteDelivered(seq);
+        const acknowledged = recipient.inbox?.noteDelivered(seq);
+        if (acknowledged !== undefined) await acknowledged;
         return recorded;
     }
 
@@ -321,7 +322,8 @@ async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAg
             kind: "attention",
             sourceKind: "extension",
         });
-        recipient.inbox?.noteDelivered(seq);
+        const acknowledged = recipient.inbox?.noteDelivered(seq);
+        if (acknowledged !== undefined) await acknowledged;
         return recorded;
     }
 

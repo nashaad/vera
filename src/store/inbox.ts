@@ -72,8 +72,12 @@ interface EntryRow {
 export class Inbox {
     private readonly database: Database;
 
-    private constructor(database: Database) {
+    private constructor(database: Database, readOnly = false) {
         this.database = database;
+        if (readOnly) {
+            this.database.exec("PRAGMA busy_timeout = 5000");
+            return;
+        }
         this.database.exec("PRAGMA journal_mode = WAL");
         this.database.exec("PRAGMA foreign_keys = ON");
         this.database.exec("PRAGMA busy_timeout = 5000");
@@ -85,6 +89,10 @@ export class Inbox {
             mkdirSync(dirname(path), { recursive: true });
         }
         return new Inbox(new Database(path, { create: true }));
+    }
+
+    static openReadOnly(path: string): Inbox {
+        return new Inbox(new Database(path, { readonly: true }), true);
     }
 
     close(): void {
@@ -171,8 +179,12 @@ export class Inbox {
         return row?.seq ?? 0;
     }
 
-    registerConsumer(consumer: ConsumerId): number {
-        const start = this.tail();
+    registerConsumer(consumer: ConsumerId, initialOffset?: number): number {
+        const tail = this.tail();
+        if (initialOffset !== undefined && (!Number.isSafeInteger(initialOffset) || initialOffset < 0)) {
+            throw new Error("inbox initial offset must be a nonnegative integer");
+        }
+        const start = initialOffset === undefined ? tail : Math.min(initialOffset, tail);
         this.database
             .query<null, [string, string, number, string]>(
                 `INSERT INTO consumer_offsets (node_id, label, seq, updated_at)
@@ -229,6 +241,10 @@ export class Inbox {
                 `unknown inbox consumer ${consumer.nodeId}/${consumer.label}`,
             );
         }
+        return this.unreadStatsAfter(after, options);
+    }
+
+    unreadStatsAfter(after: number, options: InboxReadOptions): InboxUnreadStats {
         const { clauses, parameters } = readPredicate(after, options);
         const row = this.database
             .query<

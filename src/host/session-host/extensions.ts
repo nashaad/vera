@@ -1,5 +1,7 @@
-import type { VeraConfig } from "../../config.ts";
+import type { VeraConfig, VeraExtensionConfig } from "../../config.ts";
 import { hostExtensionConfigs } from "../../extensions/host-set.ts";
+import { loadExtensionManifest } from "../../extensions/manifest.ts";
+import { MASTER_EXTENSION_IDS, type WorkerExtensionServices } from "../master/extension-catalog.ts";
 import { veraMachineDirectoryIn } from "../../profile-paths.ts";
 import type { HostLog } from "../host-log.ts";
 
@@ -20,12 +22,23 @@ interface SessionExtensionOptions {
     readonly startupFindings: StartupFindings;
     readonly timed: <T>(phase: string, run: () => T | Promise<T>) => Promise<T>;
     readonly onExtensionFailure?: (failure: ExtensionRegistryFailure) => void;
+    readonly remoteExtensions?: WorkerExtensionServices;
 }
 
 export async function startSessionExtensions(options: SessionExtensionOptions) {
     const { home, startupLog, startupFindings, timed } = options;
     const extensionLoadFailures: ExtensionLoadFailure[] = [];
-    const hostExtensionSet = hostExtensionConfigs(options.config);
+    const available = options.remoteExtensions === undefined
+        ? undefined : new Set(options.remoteExtensions.catalog.extensionOrder);
+    const hostExtensionSet = hostExtensionConfigs(options.config).filter((extension) => {
+        if (available === undefined) return true;
+        try {
+            const id = loadExtensionManifest(extension.path).manifest.id;
+            return available.has(id) && !MASTER_EXTENSION_IDS.has(id);
+        } catch {
+            return false;
+        }
+    });
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
@@ -75,4 +88,11 @@ export async function startSessionExtensions(options: SessionExtensionOptions) {
         );
     }
     return { extensions, sessionIdentity, extensionLoadFailures };
+}
+
+export function withoutMasterExtensions(configs: readonly VeraExtensionConfig[]): readonly VeraExtensionConfig[] {
+    return configs.filter((extension) => {
+        try { return !MASTER_EXTENSION_IDS.has(loadExtensionManifest(extension.path).manifest.id); }
+        catch { return true; }
+    });
 }

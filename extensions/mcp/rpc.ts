@@ -23,8 +23,8 @@ export interface McpTransport {
         params: unknown,
         signal?: AbortSignal,
     ): Promise<unknown>;
-    notify(method: string, params?: unknown): Promise<void>;
-    close(): void;
+    notify(method: string, params?: unknown, signal?: AbortSignal): Promise<void>;
+    close(): Promise<void>;
     readonly alive: boolean;
 }
 
@@ -47,6 +47,7 @@ export function startStdioTransport(
     let nextId = 1;
     let alive = true;
     let buffer = "";
+    const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
 
     const fail = (reason: string) => {
         if (!alive) return;
@@ -129,6 +130,10 @@ export function startStdioTransport(
         },
         close() {
             fail("mcp connection closed");
+            const timer = setTimeout(() => {
+                if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            }, 1_000);
+            return exited.finally(() => clearTimeout(timer));
         },
     };
 }
@@ -219,14 +224,14 @@ export function startHttpTransport(
         request(method, params, signal) {
             return post({ jsonrpc: "2.0", id: nextId++, method, params }, signal);
         },
-        async notify(method, params) {
+        async notify(method, params, signal) {
             await post({
                 jsonrpc: "2.0",
                 method,
                 ...(params === undefined ? {} : { params }),
-            });
+            }, signal);
         },
-        close() {
+        async close() {
             alive = false;
         },
     };
