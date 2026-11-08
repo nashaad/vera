@@ -19,6 +19,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { AsyncQueue } from "../../engine/async-queue.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { SessionFacts } from "../../store/session-facts.ts";
+import { sessionRecordForWire } from "../../store/session-record-projection.ts";
 import type { InstructionRoot } from "../../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type {
@@ -607,7 +608,7 @@ export async function readSessionSeed(path: string): Promise<WorkerSessionSeed> 
         path,
         header: JSON.parse(header ?? "{}") as Record<string, unknown>,
         records: records.map(
-            (line) => JSON.parse(line) as Record<string, unknown>,
+            (line) => sessionRecordForWire(JSON.parse(line) as Record<string, unknown>),
         ),
     };
 }

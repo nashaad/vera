@@ -15,6 +15,7 @@ import {
 import {
     type AgentRegistry,
     renameStoredSession,
+    type RenameSessionOutcome,
     type RegisteredAgentSummary,
 } from "../agent-registry.ts";
 import type { ExtensionLoadFailure } from "../protocol.ts";
@@ -34,7 +35,10 @@ import {
     indexStoredSession,
     mergeStoredAndResidentAgents,
     resumeOrFind,
+    resumeReserved,
     storedSessionExists, storedSessionPath,
+    withSessionReservation,
+    type RestoringSessions,
 } from "./storage.ts";
 
 export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
@@ -72,6 +76,11 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
     readonly resumeAgent: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
+    readonly resumeAgentReserved: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
+    readonly findAgentReserved: (agentId: string) => Promise<ResidentAgent | undefined>;
+    readonly storedSessionPath: (agentId: string) => Promise<string | undefined>;
+    readonly renameSessionReserved: (agentId: string, name: string | null) => Promise<RenameSessionOutcome>;
+    readonly trashSessionReserved: (agentId: string) => Promise<"trashed" | "busy" | "not_found" | "failed">;
     readonly releaseAgent: (id: string) => Promise<CloseAgentOutcome>;
 }
 
@@ -80,6 +89,7 @@ interface SessionHandlerOptions {
     readonly extensions: ExtensionRegistry;
     readonly extensionLoadFailures: readonly ExtensionLoadFailure[];
     readonly sessionDirectory: string;
+    readonly restoringSessions?: RestoringSessions;
     readonly blockedDirectory: string;
     readonly modelFailureLedgerPath: string;
     readonly storedSessionIndex: Map<string, RegisteredAgentSummary>;
@@ -96,14 +106,62 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
     const { registry, extensions, extensionLoadFailures, sessionDirectory, blockedDirectory,
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         forgetRestartRecords, recentScheduleRuns, onWorkChanged, hostLog } = options;
-    const restoringSessions = new Map<string, Promise<ResidentAgent>>();
+    const restoringSessions = options.restoringSessions ?? new Map();
     const resumeSession = (sessionPath: string, ownershipTransfer = false) =>
         resumeOrFind(registry, sessionPath, restoringSessions, ownershipTransfer);
+    const resumeSessionReserved = (sessionPath: string, ownershipTransfer = false) =>
+        resumeReserved(registry, sessionPath, ownershipTransfer);
+    const findSession = (agentId: string, resume: (path: string) => Promise<ResidentAgent>) =>
+        findOrRestoreAgent(registry, agentId, sessionDirectory, storedSessions, resume);
     const importableSessions = new ImportableSessionScanner(options.importRoots ?? importRootsFrom(process.env));
     const sessionBlocks = createSessionBlockService({ registry, sessionDirectory, blockedDirectory });
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
     // Imports run one at a time so two requests for one file cannot both write.
     let importQueue: Promise<void> = Promise.resolve();
+    const withTarget = async <T>(id: string, run: () => Promise<T>): Promise<T> => {
+        const path = registry.agents.get(id)?.store.path
+            ?? await storedSessionPath(id, sessionDirectory, await storedSessions);
+        if (path === undefined) return await run();
+        try {
+            return await withSessionReservation(path, restoringSessions, run);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return await run();
+            throw error;
+        }
+    };
+    const trashSessionReserved = async (targetId: string): Promise<"trashed" | "busy" | "not_found" | "failed"> => {
+        const resident = await registry.trashSession(targetId);
+        if (resident === "trashed") {
+            storedSessionIndex.delete(targetId);
+            forgetRestartRecords(targetId);
+        }
+        if (resident !== "not_found") return resident;
+        const stored = await registry.trashStoredSession(targetId, async () => {
+            const sessionPath = await storedSessionPath(targetId, sessionDirectory, await storedSessions);
+            if (sessionPath === undefined) return undefined;
+            const workspace = storedSessionIndex.get(targetId)?.workspace;
+            return {
+                sessionPath,
+                attachmentsPath: `${sessionPath}.attachments`,
+                ...(eventLogPathForId === undefined || workspace === undefined
+                    ? {} : { eventLogPath: eventLogPathForId(targetId, workspace) }),
+            };
+        });
+        if (stored === "trashed") {
+            storedSessionIndex.delete(targetId);
+            forgetRestartRecords(targetId);
+        }
+        return stored;
+    };
+    const renameSessionReserved = async (targetId: string, name: string | null): Promise<RenameSessionOutcome> => {
+        const resident = await registry.renameSession(targetId, name);
+        if (resident.status !== "not_found") return resident;
+        const sessionPath = await storedSessionPath(targetId, sessionDirectory, await storedSessions);
+        if (sessionPath === undefined) return { status: "not_found" };
+        const renamed = await renameStoredSession(sessionPath, name);
+        if (renamed.status === "renamed") await indexStoredSession(sessionPath, storedSessionIndex);
+        return renamed;
+    };
     const closeSession = async (targetId: string, reason?: SessionEndReason, transfer = false): Promise<CloseAgentOutcome> => {
         const outcome = transfer
             ? await registry.releaseAgentTree(targetId)
@@ -120,13 +178,10 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             : { status: "not_found" } as const;
     };
     return {
-        findAgent: (agentId) => findOrRestoreAgent(
-            registry,
-            agentId,
-            sessionDirectory,
-            storedSessions,
-            resumeSession,
-        ),
+        findAgent: (agentId) => findSession(agentId, resumeSession),
+        findAgentReserved: (agentId) => findSession(agentId, resumeSessionReserved),
+        storedSessionPath: async (agentId) =>
+            storedSessionPath(agentId, sessionDirectory, await storedSessions),
         readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
         handleExtensionRequest: (extensionId, name, payload, signal) =>
             extensions.handleRequest(extensionId, name, payload, signal),
@@ -189,72 +244,21 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         },
         createAgent: (createOptions) => registry.create(createOptions),
         resumeAgent: resumeSession,
+        resumeAgentReserved: resumeSessionReserved,
         branchAgent: (options) => registry.branch(options),
         discardBranch: async (agentId) => {
             await registry.trashSession(agentId);
         },
         commitBranch: (agentId) => registry.commitBranch(agentId),
         syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
-        trashSession: async (targetId) => {
-            const resident = await registry.trashSession(targetId);
-            if (resident === "trashed") {
-                storedSessionIndex.delete(targetId);
-                forgetRestartRecords(targetId);
-            }
-            if (resident !== "not_found") return resident;
-            const stored = await registry.trashStoredSession(
-                targetId,
-                async () => {
-                    const sessionPath = await storedSessionPath(
-                        targetId,
-                        sessionDirectory,
-                        await storedSessions,
-                    );
-                    if (sessionPath === undefined) return undefined;
-                    const workspace = storedSessionIndex.get(targetId)
-                        ?.workspace;
-                    return {
-                        sessionPath,
-                        attachmentsPath: `${sessionPath}.attachments`,
-                        ...(eventLogPathForId === undefined
-                            || workspace === undefined
-                            ? {}
-                            : {
-                                eventLogPath: eventLogPathForId(
-                                    targetId,
-                                    workspace,
-                                ),
-                            }),
-                    };
-                },
-            );
-            if (stored === "trashed") {
-                storedSessionIndex.delete(targetId);
-                forgetRestartRecords(targetId);
-            }
-            return stored;
-        },
+        trashSession: (targetId) => withTarget(targetId, () => trashSessionReserved(targetId)),
+        trashSessionReserved,
         closeAgent: (targetId, reason) => closeSession(targetId, reason),
         releaseAgent: (targetId) => closeSession(targetId, undefined, true),
         blockSession: (request) => sessionBlocks.block(request),
         unblockSession: (request) => sessionBlocks.unblock(request),
-        renameSession: async (targetId, name) => {
-            const resident = await registry.renameSession(targetId, name);
-            if (resident.status !== "not_found") return resident;
-            const sessionPath = await storedSessionPath(
-                targetId,
-                sessionDirectory,
-                await storedSessions,
-            );
-            if (sessionPath === undefined) {
-                return { status: "not_found" };
-            }
-            const renamed = await renameStoredSession(sessionPath, name);
-            if (renamed.status === "renamed") {
-                await indexStoredSession(sessionPath, storedSessionIndex);
-            }
-            return renamed;
-        },
+        renameSession: (targetId, name) => withTarget(targetId, () => renameSessionReserved(targetId, name)),
+        renameSessionReserved,
         importSession: (path) => {
             const run = importQueue.then(async () => {
                 await storedSessions;

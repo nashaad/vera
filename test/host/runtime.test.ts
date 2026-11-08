@@ -1280,12 +1280,15 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
             const attached = first.attach();
             expect(await attached.receive()).toEqual({
                 type: "history",
-                entries: [{
-                    id: expect.any(String),
-                    kind: "user",
-                    text: "stored prompt",
-                    recordedAt: expect.any(Number),
-                }],
+                entries: [
+                    {
+                        id: expect.any(String),
+                        kind: "user",
+                        text: "stored prompt",
+                        recordedAt: expect.any(Number),
+                    },
+                    { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
+                ],
                 usage: { rows: [] },
                 seq: 0,
             });

@@ -121,7 +121,11 @@ export function createWorkerBoundaryServer(
                 }
                 case "delivery.pending": {
                     const pending = await services.router?.hasPendingDeliveryTurn?.();
-                    const reply: DeliveryPendingReply = { pending: pending === true };
+                    const reply: DeliveryPendingReply = {
+                        pending: pending === true
+                            || options.store.pendingDeliveries().length > 0
+                            || options.store.hasUnansweredDeliveryTurn(),
+                    };
                     return reply;
                 }
                 case "approval.update": {

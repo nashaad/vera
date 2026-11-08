@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { HostRouter, type RoutedSession, type SessionEndpoint } from "../../src/host/master/router.ts";
+import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/master/router.ts";
 import { mergeRoster } from "../../src/host/master/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
@@ -95,6 +95,43 @@ test("a failed release leaves the old owner available for a retry", async () => 
     });
     await expect(router.resume(session.sessionPath)).rejects.toThrow("busy");
     expect(await router.locate(session.id)).toMatchObject({ type: "agent_location", socket_path: "/host.sock" });
+});
+
+test("a tree move reserves every member and preserves transfer resumes", async () => {
+    const parent = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
+    const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl" };
+    const masterSessions = new Map([[parent.id, parent], [child.id, child]]);
+    const workerSessions = new Map<string, RoutedSession>();
+    const master = endpoint(masterSessions);
+    const worker = endpoint(workerSessions);
+    const inspect = async (path: string) => ({ id: path === child.sessionPath ? child.id : parent.id, sessionPath: path });
+    master.inspect = inspect;
+    worker.inspect = inspect;
+    master.tree = async () => [parent.id, child.id];
+    master.release = async () => {
+        masterSessions.clear();
+        return [parent.id, child.id];
+    };
+    const resumed: Array<{ path: string; options?: SessionResumeOptions }> = [];
+    worker.resume = async (path, options) => {
+        resumed.push({ path, options });
+        const session = path === child.sessionPath ? child : parent;
+        workerSessions.set(session.id, session);
+        return session;
+    };
+    const router = new HostRouter({
+        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+    });
+
+    await expect(router.resume(parent.sessionPath, new Set([parent.sessionPath])))
+        .rejects.toBeInstanceOf(SessionTransferReservationsChanged);
+    expect([...masterSessions.keys()]).toEqual([parent.id, child.id]);
+    expect(resumed).toEqual([]);
+    expect(await router.resume(parent.sessionPath, new Set([parent.sessionPath, child.sessionPath]))).toEqual(parent);
+    expect(resumed).toEqual([
+        { path: parent.sessionPath, options: { reserved: true, ownershipTransfer: true } },
+        { path: child.sessionPath, options: { reserved: true, ownershipTransfer: true } },
+    ]);
 });
 
 test("a branch in progress prevents its source from moving", async () => {

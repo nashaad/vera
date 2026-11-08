@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
-    appendFileSync,
     chmodSync,
+    closeSync,
     existsSync,
+    fsyncSync,
     mkdirSync,
+    openSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
@@ -49,14 +51,16 @@ export function appendRestartRecord(
     const directory = dirname(path);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);
-    appendFileSync(
-        path,
-        `${JSON.stringify({
+    const file = openSync(path, "a", 0o600);
+    try {
+        writeFileSync(file, `${JSON.stringify({
             format_version: RESTART_RECORD_FORMAT_VERSION,
             ...record,
-        })}\n`,
-        { encoding: "utf8", mode: 0o600 },
-    );
+        })}\n`, "utf8");
+        fsyncSync(file);
+    } finally {
+        closeSync(file);
+    }
     trimToCap(path);
 }
 
@@ -99,7 +103,13 @@ function trimToCap(path: string): void {
 function rewrite(path: string, lines: readonly string[]): void {
     const temporaryPath = join(dirname(path), `.restarts.${randomUUID()}.tmp`);
     const serialized = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
-    writeFileSync(temporaryPath, serialized, { encoding: "utf8", mode: 0o600 });
+    const file = openSync(temporaryPath, "wx", 0o600);
+    try {
+        writeFileSync(file, serialized, "utf8");
+        fsyncSync(file);
+    } finally {
+        closeSync(file);
+    }
     renameSync(temporaryPath, path);
 }
 

@@ -275,6 +275,11 @@ test("each drop after a healthy reattach gets one automatic restart", async () =
         home: home(),
         dependencies: () => ({
             client: initial.client,
+            authStorage: {
+                getCredential: (id: string) => id === "openrouter" ? { type: "api_key", key: "fixture" } : undefined,
+                setCredential() {},
+                deleteCredential() {},
+            },
             reconnectSession: async () => clients[restarts++]!.client,
         }),
     });

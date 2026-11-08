@@ -2950,7 +2950,7 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
     }
 });
 
-test("a resumed registry retries a delivery turn interrupted before its reply", async () => {
+test("a resumed registry marks an interrupted delivery without retrying it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-delivery-retry-"));
     const sessionPath = join(root, "agent.jsonl");
     const eventLogPath = join(root, "events.jsonl");
@@ -2973,20 +2973,35 @@ test("a resumed registry retries a delivery turn interrupted before its reply", 
     });
     expect(store.pendingDeliveries()).toEqual([]);
     expect(store.hasUnansweredDeliveryTurn()).toBe(true);
-    const registry = createRegistry(() => [textResponse("Recovered reply")]);
+    let requests = 0;
+    const adapter = new FauxAdapter([textResponse("Ready for the next request")]);
+    const registry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests += 1;
+                return adapter.stream(request);
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
 
     try {
         const agent = await registry.resume({ sessionPath, eventLogPath });
         const attachment = agent.attach();
-        expect((await attachment.receive()).type).toBe("history");
-        expect(await attachment.receive()).toEqual({
-            type: "status",
-            state: "working",
-            seq: 1,
+        expect(await attachment.receive()).toMatchObject({
+            type: "history",
+            entries: expect.arrayContaining([
+                { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
+            ]),
         });
-        expect(await finishTurnText(attachment)).toBe("Recovered reply");
         expect((await SessionStore.open(sessionPath)).hasUnansweredDeliveryTurn())
             .toBe(false);
+        expect(agent.status).toBe("idle");
+        expect(requests).toBe(0);
+        attachment.send({ type: "prompt", content: "What next?" });
+        expect(await finishTurnText(attachment)).toBe("Ready for the next request");
+        expect(requests).toBe(1);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
