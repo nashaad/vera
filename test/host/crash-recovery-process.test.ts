@@ -37,7 +37,7 @@ async function startHost(root: string, home: string): Promise<StartedHost> {
     await rm(ready, { force: true });
     const child = Bun.spawn([process.execPath, "test/host/fixtures/crash-host.ts"], {
         cwd: process.cwd(),
-        env: { ...process.env, HOME: home, VERA_HOME: home, VERA_DEV_INSTANCE: "crash1 dev", VERA_WORKER_EXTENSIONS: "1", VERA_CRASH_TEST_ROOT: root },
+        env: { ...process.env, HOME: home, VERA_HOME: home, VERA_DEV_INSTANCE: "crash3 dev", VERA_WORKER_EXTENSIONS: "1", VERA_CRASH_TEST_ROOT: root },
         stdout: "ignore",
         stderr: "pipe",
     });
@@ -135,6 +135,14 @@ test("a killed host repairs a blocked call before the next provider request", as
         const sessionPath = join(root, "sessions", `${agent.id}.jsonl`);
         expect((await readSessionTurnState(sessionPath)).turnOpen).toBe(true);
 
+        await client.send({ type: "prompt", content: "Secure the sails." });
+        await client.send({ type: "prompt", content: "Check the compass." });
+        const queued = await SessionStore.open(sessionPath);
+        expect(queued.queuedPrompts().map((prompt) => prompt.content)).toEqual([
+            "Secure the sails.", "Check the compass.",
+        ]);
+        const requestsBeforeCrash = requests.length;
+
         first.process.kill("SIGKILL");
         await first.process.exited;
         client.close();
@@ -156,9 +164,21 @@ test("a killed host repairs a blocked call before the next provider request", as
         const saved = await readFile(sessionPath, "utf8");
         expect(saved).toContain(CRASH_CUT_MESSAGE);
         client = await attachAgent({ socketPath: socket, agentId: agent.id });
-        expect((await client.receive()).type).toBe("history");
+        let history = await client.receive(AbortSignal.timeout(20_000));
+        while (history.type !== "history" || history.unsentPrompts === undefined) {
+            history = await client.receive(AbortSignal.timeout(20_000));
+        }
+        expect(history).toMatchObject({
+            type: "history",
+            unsentPrompts: [{ content: "Secure the sails." }, { content: "Check the compass." }],
+        });
+        await Bun.sleep(200);
+        expect(requests).toHaveLength(requestsBeforeCrash);
         await client.send({ type: "prompt", content: "What is on the deck?" });
         while ((await client.receive(AbortSignal.timeout(20_000))).type !== "turn_finished") {}
+        let nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        while (nextHistory.type !== "history") nextHistory = await client.receive(AbortSignal.timeout(20_000));
+        expect(nextHistory.unsentPrompts).toBeUndefined();
         expect(requests.length).toBeGreaterThanOrEqual(2);
         const messages = requests.at(-1)!.messages as Array<Record<string, unknown>>;
         const calls = messages.flatMap((message) => (message.tool_calls as Array<{ id: string }> | undefined) ?? []);

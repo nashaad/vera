@@ -546,6 +546,7 @@ export async function runHeadlessLoop(
         },
         () => store.usageMessages(),
         () => store.deliveredMessages(),
+        () => store.unsentPrompts(),
     );
     if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({
@@ -575,6 +576,11 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        appendQueuedPrompt: (id, prompt) => store.appendQueuedPrompt(id, {
+            content: prompt.content,
+            ...(prompt.attachmentIds === undefined ? {} : { attachmentIds: prompt.attachmentIds }),
+        }),
+        removeQueuedPrompt: (id) => store.removeQueuedPrompt(id),
         appendHarnessMessage: async (text, tone) => {
             await store.appendHarnessMessage(text, tone);
             protocol.checkpoint(messages);
@@ -935,8 +941,17 @@ export async function runHeadlessLoop(
             }
         }
     } finally {
-        await state.toolRuntime.close();
-        if (ownsProcessRegistry) await processRegistry.close();
+        try {
+            await inbound.stopReceivingCommands();
+            try {
+                await inbound.discardQueuedPrompts();
+            } finally {
+                for (const queued of store.queuedPrompts()) await store.removeQueuedPrompt(queued.id);
+            }
+        } finally {
+            await state.toolRuntime.close();
+            if (ownsProcessRegistry) await processRegistry.close();
+        }
     }
 }
 
@@ -1008,6 +1023,11 @@ export async function runTurn(
     });
     let assistantMessage!: AssistantMessage;
     let turnThrew = false;
+    const claimedPrompts = new Map(
+        [turn.prompt, ...(turn.additionalPrompts ?? [])].flatMap((prompt) =>
+            prompt.queuedPromptId === undefined ? [] : [[prompt.queuedPromptId, prompt] as const]
+        ),
+    );
 
     try {
         const modelSettings = turn.modelSettings
@@ -1077,8 +1097,9 @@ export async function runTurn(
                 activeModel,
             )
         ) {
-            for (const message of userMessages) {
-                await commitMessage(state, message);
+            for (const [index, message] of userMessages.entries()) {
+                await commitMessage(state, message, turnPrompts[index]?.queuedPromptId);
+                if (turnPrompts[index]?.queuedPromptId !== undefined) claimedPrompts.delete(turnPrompts[index]!.queuedPromptId!);
                 state.events.emit({ type: "turn_started", message });
             }
             assistantMessage = attachmentErrorMessage(
@@ -1117,8 +1138,9 @@ export async function runTurn(
         if (userMessages.length === 0) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
-            for (const message of userMessages) {
-                await commitMessage(state, message);
+            for (const [index, message] of userMessages.entries()) {
+                await commitMessage(state, message, turnPrompts[index]?.queuedPromptId);
+                if (turnPrompts[index]?.queuedPromptId !== undefined) claimedPrompts.delete(turnPrompts[index]!.queuedPromptId!);
                 state.events.emit({ type: "turn_started", message });
             }
             for (const [promptIndex, prompt] of turnPrompts.entries()) {
@@ -1885,6 +1907,9 @@ export async function runTurn(
                     )
                 );
             for (const prompt of joined) {
+                if (prompt.queuedPromptId !== undefined) claimedPrompts.set(prompt.queuedPromptId, prompt);
+            }
+            for (const prompt of joined) {
                 const message: UserMessage = {
                     role: "user",
                     content: [
@@ -1896,7 +1921,8 @@ export async function runTurn(
                     ],
                     arrivedDuringTurn: true,
                 };
-                await commitMessage(state, message);
+                await commitMessage(state, message, prompt.queuedPromptId);
+                if (prompt.queuedPromptId !== undefined) claimedPrompts.delete(prompt.queuedPromptId);
                 state.events.emit({ type: "turn_started", message });
                 promptTexts.push(prompt.content);
             }
@@ -1964,6 +1990,11 @@ export async function runTurn(
                 : "completed";
         state.inbound.finishTurnTiming(turnClock);
         state.inbound.finishTurn(outcome);
+        if (turn.signal.aborted) {
+            for (const id of claimedPrompts.keys()) await state.store.removeQueuedPrompt?.(id);
+        } else {
+            state.inbound.restoreUnjoinedPrompts([...claimedPrompts.values()], turn.modelSettings);
+        }
     }
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
@@ -3173,8 +3204,9 @@ async function resolveToolInteraction(
 async function commitMessage(
     state: RunTurnState,
     message: ModelMessage,
+    queuedPromptId?: string,
 ): Promise<void> {
-    const entry = await state.store.appendMessage(message);
+    const entry = await state.store.appendMessage(message, queuedPromptId);
     state.messages.push(entry.message);
 }
 

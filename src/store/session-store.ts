@@ -108,7 +108,19 @@ export interface SessionMessageEntry {
     readonly parentId: string | null;
     readonly timestamp: string;
     readonly deliveryId?: string;
+    readonly queuedPromptId?: string;
     readonly message: ModelMessage;
+}
+
+export interface UnsentPrompt {
+    readonly content: string;
+    readonly attachmentIds?: readonly string[];
+}
+
+export interface SessionQueuedPromptEntry extends UnsentPrompt {
+    readonly type: "queued_prompt";
+    readonly id: string;
+    readonly timestamp: string;
 }
 
 export interface PendingDelivery {
@@ -169,6 +181,7 @@ export interface SessionHarnessMessageEntry {
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
     readonly crashCut?: true;
+    readonly unsentPrompts?: readonly UnsentPrompt[];
 }
 
 export interface SessionNameEntry {
@@ -338,7 +351,8 @@ export interface StoredMessage {
 }
 
 export interface SessionMessageStore {
-    appendMessage(message: ModelMessage): Promise<StoredMessage>;
+    appendMessage(message: ModelMessage, queuedPromptId?: string): Promise<StoredMessage>;
+    removeQueuedPrompt?(id: string): Promise<void>;
 }
 
 /** The stored record a message came from: its ID and when it was written, in epoch ms. */
@@ -517,6 +531,14 @@ export class SessionStore {
 
     messages(): readonly ModelMessage[] {
         return this.activeEntries().map((entry) => entry.message);
+    }
+
+    queuedPrompts(): readonly SessionQueuedPromptEntry[] {
+        return [...this.projection.queuedPrompts.values()].map((entry) => structuredClone(entry));
+    }
+
+    unsentPrompts(): readonly UnsentPrompt[] {
+        return structuredClone(this.projection.unsentPrompts);
     }
 
     usageMessages(): readonly AssistantMessage[] {
@@ -726,10 +748,10 @@ export class SessionStore {
             : { ...this.projection.agentFailure };
     }
 
-    appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
+    appendMessage(message: ModelMessage, queuedPromptId?: string): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitMessage(message);
+            return this.commitMessage(message, undefined, queuedPromptId);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -738,14 +760,78 @@ export class SessionStore {
         return result;
     }
 
+    appendQueuedPrompt(id: string, prompt: UnsentPrompt): Promise<void> {
+        const result = this.pendingAppend.then(async () => {
+            this.requireActive();
+            const snapshot = structuredClone(prompt);
+            if (!isUnsentPrompt(snapshot)) throw new Error("Cannot append an invalid queued prompt");
+            const entry: SessionQueuedPromptEntry = {
+                type: "queued_prompt",
+                id: nonEmpty(id, "queued prompt ID"),
+                timestamp: this.now().toISOString(),
+                content: snapshot.content,
+                ...(snapshot.attachmentIds === undefined ? {} : { attachmentIds: snapshot.attachmentIds }),
+            };
+            if (this.projection.knownQueuedPromptIds.has(entry.id)) {
+                throw new Error("Cannot append an invalid or duplicate queued prompt");
+            }
+            for (const attachmentId of entry.attachmentIds ?? []) {
+                if (!this.projection.knownAttachmentIds.has(attachmentId)) {
+                    throw new Error(`Image attachment ${attachmentId} is not in this session`);
+                }
+            }
+            await this.appendRecord(entry);
+            this.projection.queuedPrompts.set(entry.id, entry);
+            this.projection.knownQueuedPromptIds.add(entry.id);
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
+    removeQueuedPrompt(id: string): Promise<void> {
+        const result = this.pendingAppend.then(async () => {
+            this.requireActive();
+            if (!this.projection.queuedPrompts.has(id)) return;
+            await this.appendRecord({ type: "queued_prompt_removed", id, timestamp: this.now().toISOString() });
+            this.projection.queuedPrompts.delete(id);
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
     repairCrashedTurn(): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
             const active = this.activeEntries();
+            const turnOpen = turnOpenAtTail(active, this.projection.harnessMessageEntries);
             if (this.projection.agentFailure !== undefined
-                || !turnOpenAtTail(active, this.projection.harnessMessageEntries)) return false;
+                || (!turnOpen && this.projection.queuedPrompts.size === 0)) return false;
             this.requireActive();
+            const previousCut = this.projection.harnessMessageEntries.findLast((entry) => entry.crashCut === true);
+            const previousCutIndex = previousCut?.afterMessageId === undefined
+                ? -1
+                : active.findIndex((entry) => entry.id === previousCut.afterMessageId);
+            const lastAssistantIndex = active.findLastIndex((entry) => entry.message.role === "assistant");
+            const unansweredPrompts = active.slice(Math.max(previousCutIndex, lastAssistantIndex) + 1)
+                .flatMap((entry): UnsentPrompt[] => {
+                    const message = entry.message;
+                    if (message.role !== "user" || message.internal === true) return [];
+                    const attachmentIds = message.content.flatMap((part) =>
+                        part.type === "image_attachment" ? [part.attachmentId] : []
+                    );
+                    return [{
+                        content: message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""),
+                        ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+                    }];
+                });
+            const unsentPrompts = [
+                ...unansweredPrompts,
+                ...this.queuedPrompts().map(({ content, attachmentIds }) => ({
+                    content,
+                    ...(attachmentIds === undefined ? {} : { attachmentIds }),
+                })),
+            ];
             const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
-            if (active.at(-1)?.message.role !== "user") {
+            if (turnOpen && active.at(-1)?.message.role !== "user") {
                 const callIndex = active.findLastIndex((entry) =>
                     entry.message.role === "assistant"
                     && entry.message.content.some((part) => part.type === "tool_call")
@@ -770,7 +856,7 @@ export class SessionStore {
                     isError: true,
                 });
             }
-            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", true);
+            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", true, unsentPrompts);
             return true;
         });
         this.pendingAppend = result.then(() => undefined, () => undefined);
@@ -1087,6 +1173,7 @@ export class SessionStore {
     private async commitMessage(
         message: ModelMessage,
         deliveryId?: string,
+        queuedPromptId?: string,
     ): Promise<SessionMessageEntry> {
         const snapshot = structuredClone(message);
         if (!isModelMessage(snapshot)) {
@@ -1101,12 +1188,19 @@ export class SessionStore {
                 );
             }
         }
+        if (queuedPromptId !== undefined) {
+            const queued = this.projection.queuedPrompts.get(queuedPromptId);
+            if (queued === undefined || !messageMatchesQueuedPrompt(snapshot, queued)) {
+                throw new Error("The message does not match its queued prompt");
+            }
+        }
         const entry: SessionMessageEntry = {
             type: "message",
             id: nonEmpty(this.createId(), "message entry ID"),
             parentId: this.projection.leafId,
             timestamp: this.now().toISOString(),
             ...(deliveryId === undefined ? {} : { deliveryId }),
+            ...(queuedPromptId === undefined ? {} : { queuedPromptId }),
             message: snapshot,
         };
         if (this.projection.messageEntries.some((candidate) => candidate.id === entry.id)) {
@@ -1118,6 +1212,8 @@ export class SessionStore {
         this.projection.messageEntries.push(entry);
         this.projection.knownMessageIds.add(entry.id);
         this.projection.leafId = entry.id;
+        if (messageStartsTurn(entry)) this.projection.unsentPrompts = [];
+        if (queuedPromptId !== undefined) this.projection.queuedPrompts.delete(queuedPromptId);
         return entry;
     }
 
@@ -1212,6 +1308,7 @@ export class SessionStore {
         requestedText: string,
         tone: "primary" | "soft" | "error",
         crashCut?: true,
+        unsentPrompts?: readonly UnsentPrompt[],
     ): Promise<SessionHarnessMessageEntry> {
         const text = requestedText.trim();
         if (text.length === 0) {
@@ -1224,9 +1321,14 @@ export class SessionStore {
             text,
             tone,
             ...(crashCut === true ? { crashCut } : {}),
+            ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
         };
         await this.appendRecord(entry);
         this.projection.harnessMessageEntries.push(entry);
+        if (unsentPrompts !== undefined) {
+            this.projection.queuedPrompts.clear();
+            this.projection.unsentPrompts = structuredClone(unsentPrompts);
+        }
         return entry;
     }
 
@@ -1760,6 +1862,7 @@ function deliveredMessages(
 export interface SessionTurnState {
     readonly sessionId: string;
     readonly turnOpen: boolean;
+    readonly hasQueuedPrompts: boolean;
 }
 
 export async function openSessionForRecovery(path: string): Promise<SessionStore> {
@@ -1781,6 +1884,7 @@ export async function readSessionTurnState(
     return {
         sessionId: loaded.header.id,
         turnOpen: turnOpenAtTail(active, loaded.state.harnessMessageEntries),
+        hasQueuedPrompts: loaded.state.queuedPrompts.size > 0,
     };
 }
 
@@ -1790,6 +1894,13 @@ function turnOpenAtTail(
     harness: readonly SessionHarnessMessageEntry[],
 ): boolean {
     const last = entries.at(-1);
+    const cut = harness.findLast((entry) => entry.crashCut === true);
+    if (cut !== undefined) {
+        const index = entries.findIndex((entry) => entry.id === cut.afterMessageId);
+        if ((cut.afterMessageId === null || index >= 0) && entries.slice(index + 1).every((entry) =>
+            entry.message.role === "user" && entry.message.internal === true && entry.deliveryId === undefined
+        )) return false;
+    }
     if (last === undefined || harness.some((entry) =>
         entry.crashCut === true && entry.afterMessageId === last.id
     )) return false;
@@ -1905,6 +2016,9 @@ function completeSessionSource(path: string, source: string): string {
 
 export interface SessionProjectionState {
     readonly messageEntries: SessionMessageEntry[];
+    readonly queuedPrompts: Map<string, SessionQueuedPromptEntry>;
+    readonly knownQueuedPromptIds: Set<string>;
+    unsentPrompts: readonly UnsentPrompt[];
     readonly deliveryEntries: SessionDeliveryEntry[];
     readonly deliveryReceipts: Set<string>;
     readonly legacyDeliveryMessageIds: Map<string, string>;
@@ -1938,6 +2052,9 @@ export interface SessionProjectionState {
 export function createSessionProjectionState(): SessionProjectionState {
     return {
         messageEntries: [],
+        queuedPrompts: new Map(),
+        knownQueuedPromptIds: new Set(),
+        unsentPrompts: [],
         deliveryEntries: [],
         deliveryReceipts: new Set(),
         legacyDeliveryMessageIds: new Map(),
@@ -1971,6 +2088,9 @@ function copyProjectionState(
 ): SessionProjectionState {
     return {
         messageEntries: [...state.messageEntries],
+        queuedPrompts: new Map(state.queuedPrompts),
+        knownQueuedPromptIds: new Set(state.knownQueuedPromptIds),
+        unsentPrompts: state.unsentPrompts,
         deliveryEntries: [...state.deliveryEntries],
         deliveryReceipts: new Set(state.deliveryReceipts),
         legacyDeliveryMessageIds: new Map(state.legacyDeliveryMessageIds),
@@ -2104,9 +2224,37 @@ export function ingestSessionRecord(
                 );
             }
         }
+        if (entry.queuedPromptId !== undefined) {
+            const queued = state.queuedPrompts.get(entry.queuedPromptId);
+            if (queued === undefined || !messageMatchesQueuedPrompt(entry.message, queued)) {
+                throw invalidSession(path, `line ${lineNumber} has an invalid queued prompt join`);
+            }
+            state.queuedPrompts.delete(entry.queuedPromptId);
+        }
         knownMessageIds.add(entry.id);
         messageEntries.push(entry);
         state.leafId = entry.id;
+        if (messageStartsTurn(entry)) state.unsentPrompts = [];
+        return;
+    }
+    if (value.type === "queued_prompt") {
+        if (typeof value.id !== "string" || value.id.length === 0
+            || typeof value.timestamp !== "string" || !isUnsentPrompt(value)
+            || state.knownQueuedPromptIds.has(value.id)
+            || (value.attachmentIds ?? []).some((id) => !knownAttachmentIds.has(id))) {
+            throw invalidSession(path, `line ${lineNumber} is not a valid queued prompt`);
+        }
+        const entry = value as unknown as SessionQueuedPromptEntry;
+        state.queuedPrompts.set(entry.id, entry);
+        state.knownQueuedPromptIds.add(entry.id);
+        return;
+    }
+    if (value.type === "queued_prompt_removed") {
+        if (typeof value.id !== "string" || typeof value.timestamp !== "string"
+            || !state.queuedPrompts.has(value.id)) {
+            throw invalidSession(path, `line ${lineNumber} is not a valid queued prompt removal`);
+        }
+        state.queuedPrompts.delete(value.id);
         return;
     }
     if (value.type === "delivery") {
@@ -2177,6 +2325,10 @@ export function ingestSessionRecord(
             throw invalidSession(path, `line ${lineNumber} has an invalid crash cut position`);
         }
         harnessMessageEntries.push(entry);
+        if (entry.unsentPrompts !== undefined) {
+            state.queuedPrompts.clear();
+            state.unsentPrompts = entry.unsentPrompts;
+        }
         return;
     }
     if (value.type === "session_name") {
@@ -2667,6 +2819,8 @@ function parseHarnessMessageEntry(
             && value.tone !== "soft"
             && value.tone !== "error")
         || (value.crashCut !== undefined && value.crashCut !== true)
+        || (value.unsentPrompts !== undefined
+            && (!Array.isArray(value.unsentPrompts) || !value.unsentPrompts.every(isUnsentPrompt)))
     ) {
         throw invalidSession(
             path,
@@ -2931,6 +3085,8 @@ function parseMessageEntry(
                 || value.deliveryId.length === 0
             )
         )
+        || (value.queuedPromptId !== undefined
+            && (typeof value.queuedPromptId !== "string" || value.queuedPromptId.length === 0))
         || !isModelMessage(value.message)
     ) {
         throw invalidSession(
@@ -2939,6 +3095,29 @@ function parseMessageEntry(
         );
     }
     return value as unknown as SessionMessageEntry;
+}
+
+function isUnsentPrompt(value: unknown): value is UnsentPrompt {
+    return isRecord(value)
+        && typeof value.content === "string"
+        && (value.attachmentIds === undefined
+            || (Array.isArray(value.attachmentIds)
+                && value.attachmentIds.every((id) => typeof id === "string" && id.length > 0)));
+}
+
+function messageMatchesQueuedPrompt(message: ModelMessage, prompt: UnsentPrompt): boolean {
+    if (message.role !== "user" || message.internal === true) return false;
+    const text = message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("");
+    const attachments = message.content.flatMap((part) =>
+        part.type === "image_attachment" ? [part.attachmentId] : []
+    );
+    return text === prompt.content
+        && JSON.stringify(attachments) === JSON.stringify(prompt.attachmentIds ?? []);
+}
+
+function messageStartsTurn(entry: SessionMessageEntry): boolean {
+    return entry.message.role === "user"
+        && (entry.message.internal !== true || entry.deliveryId !== undefined);
 }
 
 function parseDeliveryEntry(

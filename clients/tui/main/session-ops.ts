@@ -34,6 +34,7 @@ export function switchToClient(rt: TuiRuntime,
 ): void {
     recordSessionSwitchOutcome(rt, "completed");
     const previous = rt.client;
+    if (options.preserveReconnectTranscript !== true) rt.composer.clearRecoveredPrompts();
     rt.clientGeneration += 1;
     rt.agentFailedThisAttachment = false;
     for (const pending of [...rt.pendingOneshots.values()]) {
