@@ -9,6 +9,7 @@ import {
     tuiTranscriptEvictableRows,
     tuiTranscriptNeedsEarlierEntries,
     tuiTranscriptPrependRange,
+    tuiTranscriptReusablePrefix,
     tuiTranscriptReusableTail,
     tuiTranscriptTailRange,
 } from "../../clients/tui/transcript-window.ts";
@@ -296,4 +297,48 @@ test("a rebuilt prompt still matches the echo the composer already showed", () =
         previousStart: 0,
         previousEnd: 2,
     })).toBe(2);
+});
+
+test("a window short of the tail reuses the entries that are unchanged at the same index", () => {
+    const previous: TuiTranscriptEntry[] = [
+        { kind: "user", text: "one" },
+        { kind: "assistant", text: "first answer" },
+        { kind: "user", text: "two" },
+        { kind: "assistant", text: "second answer" },
+    ];
+    const next: TuiTranscriptEntry[] = [
+        ...previous,
+        { kind: "user", text: "three" },
+        { kind: "assistant", text: "third answer" },
+    ];
+    const input = { previous, next, previousStart: 0, previousEnd: 4 };
+    expect(tuiTranscriptReusableTail(input)).toBe(0);
+    expect(tuiTranscriptReusablePrefix(input)).toBe(4);
+    expect(tuiTranscriptReusablePrefix({
+        ...input,
+        next: [previous[0]!, previous[1]!, { kind: "user", text: "changed" }, ...previous.slice(3)],
+    })).toBe(2);
+    expect(tuiTranscriptReusablePrefix({ ...input, next: previous.slice(0, 3) })).toBe(3);
+});
+
+test("a window that starts after the first entry compares from its own start", () => {
+    const entries: TuiTranscriptEntry[] = [
+        { kind: "user", text: "one" },
+        { kind: "assistant", text: "first answer" },
+        { kind: "user", text: "two" },
+        { kind: "assistant", text: "second answer" },
+    ];
+    const previous: (TuiTranscriptEntry | undefined)[] = [undefined, undefined, entries[2], entries[3]];
+    expect(tuiTranscriptReusablePrefix({
+        previous,
+        next: entries,
+        previousStart: 2,
+        previousEnd: 4,
+    })).toBe(2);
+    expect(tuiTranscriptReusablePrefix({
+        previous,
+        next: [entries[0]!, entries[1]!, { kind: "user", text: "other" }, entries[3]!],
+        previousStart: 2,
+        previousEnd: 4,
+    })).toBe(0);
 });

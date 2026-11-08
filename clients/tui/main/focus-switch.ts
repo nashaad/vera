@@ -447,6 +447,8 @@ export function beginHostReconnect(rt: TuiRuntime,
     if (options.clearComposer) {
         rt.composer.clearComposer();
     }
+    rt.hostReconnectProbeId = undefined;
+    rt.hostReconnectProbe = undefined;
     rt.sessionSwitchPending = true;
     // Connected: restart a healthy host so host-side changes (e.g. an extension) take effect.
     // Disconnected: attach to whatever answers instead of asking it to shut down.
@@ -470,7 +472,7 @@ export function beginHostReconnect(rt: TuiRuntime,
             discardSwitchTarget(rt, next);
             return;
         }
-        switchToClient(rt, next, draft);
+        switchToClient(rt, next, draft, { preserveReconnectTranscript: true });
     }).catch((error) => {
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;

@@ -150,6 +150,8 @@ export interface TuiRuntime {
     connectionFailure: string | undefined;
     hostBuildRefusal: { readonly hostBuildId: string | undefined } | undefined;
     hostReconnectAttempted: boolean;
+    hostReconnectProbeId?: string;
+    hostReconnectProbe?: { readonly client: TuiAgentClient };
     agentFailedThisAttachment: boolean;
     statusNotice: string | undefined;
     statusNoticeVersion: number;
@@ -409,6 +411,8 @@ export interface TuiRuntime {
     pendingTranscriptScrollAnchor: {
         readonly index: number;
         readonly offset: number;
+        readonly width: number;
+        readonly height: number;
     } | undefined;
     sidebarEntryNodes: (
         TextRenderable | MarkdownRenderable | BoxRenderable

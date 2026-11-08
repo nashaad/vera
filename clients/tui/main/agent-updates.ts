@@ -31,6 +31,15 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 return;
             }
             if (
+                !rt.sessionSwitchPending
+                && (update.type === "model_settings" || update.type === "model_settings_rejected")
+                && update.requestId === rt.hostReconnectProbeId
+            ) {
+                rt.hostReconnectAttempted = false;
+                rt.hostReconnectProbeId = undefined;
+                rt.hostReconnectProbe = undefined;
+            }
+            if (
                 rt.sessionSwitchPending
                 && rt.sessionSwitchOperation === "clear"
                 && rt.sessionSwitchClearingMain
@@ -608,7 +617,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             }
             if (update.type === "status" && update.state === "idle") {
                 finishStreamingAssistant(rt);
-                rt.hostReconnectAttempted = false;
                 rt.abortRequested = false;
             }
             if (update.type === "user_prompt") {
@@ -669,7 +677,12 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
         if (generation === rt.clientGeneration) {
             failPendingSkillInvocations(rt);
             rejectPendingExtensionSettingsFor(rt, rt.client, error);
-            reportConnectionError(rt, error);
+            reportConnectionError(
+                rt,
+                error instanceof DOMException && error.name === "TimeoutError"
+                    ? new Error("Lost the connection to the host.")
+                    : error,
+            );
         }
     }
 }

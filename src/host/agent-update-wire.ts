@@ -131,8 +131,8 @@ function parseKnownAgentUpdate(
         return undefined;
     }
     if (update.type === "history") {
-        return Array.isArray(update.entries)
-            && update.entries.every(isTranscriptEntry)
+        const entries = parseTranscriptEntries(update.entries);
+        return entries !== undefined
             && (update.context === undefined
                 || isContextMeasurement(update.context))
             && (update.usage === undefined || isSessionModelUsage(update.usage))
@@ -141,7 +141,7 @@ function parseKnownAgentUpdate(
                 || isPromptQueueState(update.promptQueue))
             && (update.status === undefined || isAgentStatus(update.status))
             && (update.page === undefined || isHistoryPageInfo(update.page))
-            ? value as AgentUpdate
+            ? { ...update, entries } as unknown as AgentUpdate
             : undefined;
     }
     if (update.type === "prompt_queue") {
@@ -960,6 +960,7 @@ export function parseHistoryPagePayload(
     value: unknown,
 ): ParsedHistoryPage | undefined {
     const response = asRecord(value);
+    const entries = parseTranscriptEntries(response?.entries);
     if (
         response === undefined
         || response.type !== "history_page"
@@ -967,17 +968,44 @@ export function parseHistoryPagePayload(
         || response.request_id.length === 0
         || typeof response.before !== "string"
         || response.before.length === 0
-        || !Array.isArray(response.entries)
-        || !response.entries.every(isTranscriptEntry)
+        || entries === undefined
         || !isHistoryPageInfo(response.page)
     ) {
         return undefined;
     }
     return {
         before: response.before,
-        entries: response.entries,
+        entries,
         page: response.page as HistoryPageInfo,
     };
+}
+
+const KNOWN_TRANSCRIPT_KINDS: Record<TranscriptEntry["kind"], true> = {
+    user: true,
+    assistant: true,
+    reasoning: true,
+    tool: true,
+    tool_result: true,
+    presentation: true,
+    model_substitution: true,
+    error: true,
+    empty: true,
+    harness: true,
+    hook_context: true,
+    delivery: true,
+};
+
+function parseTranscriptEntries(value: unknown): TranscriptEntry[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const entries: TranscriptEntry[] = [];
+    for (const item of value) {
+        const entry = asRecord(item);
+        if (entry === undefined || typeof entry.kind !== "string") return undefined;
+        if (!Object.hasOwn(KNOWN_TRANSCRIPT_KINDS, entry.kind)) continue;
+        if (!isTranscriptEntry(item)) return undefined;
+        entries.push(item);
+    }
+    return entries;
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {
@@ -1007,7 +1035,7 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return typeof entry.text === "string"
             && isOptionalAttachments(entry.attachments);
     }
-    if (entry?.kind === "assistant") {
+    if (entry?.kind === "assistant" || entry?.kind === "reasoning") {
         return typeof entry.text === "string";
     }
     if (entry?.kind === "error") {

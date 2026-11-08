@@ -372,15 +372,14 @@ updates, or `continue: false`.
 
 A hook in `config.json` that times out, exits non-zero, prints nothing under
 the `vera` protocol, or returns invalid JSON before a tool call blocks that
-call. The same failure from an extension
-command hook is ignored, and the call continues. A failure after a tool call
+call. An extension command hook ignores its own failure by default. A failure after a tool call
 leaves the result unchanged: when one hook in `config.json` fails there, the
 patches from earlier hooks are dropped too. A session-start failure is logged and the
 conversation continues. Hosted session-start failures are written to
 `runtime/logs/host.jsonl` with type `session_start_hook_failed`.
 
 A failed `pre_turn` hook in `config.json` blocks the message and ends the
-turn. The same failure from an extension command hook is ignored. A failed
+turn. An extension command hook ignores its own failure by default. A failed
 `turn_ending` hook in `config.json` lets the turn end, and later `turn_ending`
 hooks do not run for that reply. The same failure from an extension command
 hook is ignored. A failed
@@ -410,6 +409,41 @@ context. Under the `claude` protocol, stderr past 64 KiB is dropped.
 A workflow can run a different hook before one of its steps. That hook is
 part of the workflow, not this list. See
 [Control workflow steps](workflow-steps.md#run-a-hook-before-a-step).
+
+## Extension hook failure policy
+
+An extension can choose `onFailure: "deny"` for a `pre_tool_use` or `pre_turn`
+hook. If that hook throws, returns an invalid result, or times out, Vera blocks
+the tool call or prompt and names the extension, phase, and failure. The policy
+does not change a result the hook returns normally.
+
+```js
+vera.hooks.registerPreToolUse(checkTheChest, { onFailure: "deny" });
+vera.hooks.registerCommand({
+    phase: "pre_turn",
+    argv: ["/absolute/path/to/check-the-map"],
+    onFailure: "deny",
+});
+```
+
+An extension can declare `onFailure: "allow"` on any other hook except
+`model_request` and `model_middleware`. A hook without a policy keeps its
+existing behavior. Before the shared deadline, a throw or invalid result from
+an `allow` or undeclared `pre_tool_use` or `pre_turn` hook is ignored, and the
+next hook runs. Non-JSON data in an undeclared hook's result can instead fail
+engine validation and block the action with a generic error. A `deny` policy on
+a phase that cannot block is a registration error. The two model hooks accept
+no policy: a failure there stops the request.
+
+When the shared deadline expires, the running hook has timed out and later
+hooks have not run. If any of those hooks declares `deny`, the first such
+hook blocks the action. Otherwise, an undeclared hook keeps the existing
+generic deadline failure and blocks the action. Only when all those hooks
+declare `allow` does the action proceed. The deadline failure is still reported.
+
+For the included `vera.command-hooks` extension, `onFailure` can also be set
+on a hook entry in that extension's configuration. A home `hooks` entry is
+separate and keeps its existing failure behavior.
 
 ## Register from an extension
 

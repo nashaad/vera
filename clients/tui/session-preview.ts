@@ -127,13 +127,35 @@ export function sessionPreviewTurns(
 ): readonly TuiSessionPreviewTurn[] {
     const turns: TuiSessionPreviewTurn[] = [];
     for (const entry of entries) {
-        if (entry.kind !== "user" && entry.kind !== "assistant") continue;
-        turns.push({
-            speaker: entry.kind === "user" ? "You" : "Vera",
-            text: entry.text,
-        });
+        const turn = sessionPreviewTurn(entry);
+        if (turn !== undefined) turns.push(turn);
     }
     return turns.slice(-SESSION_PREVIEW_TURN_LIMIT);
+}
+
+function sessionPreviewTurn(entry: TranscriptEntry): TuiSessionPreviewTurn | undefined {
+    switch (entry.kind) {
+        case "user":
+            return { speaker: "You", text: entry.text };
+        case "assistant":
+            return { speaker: "Vera", text: entry.text };
+        case "reasoning":
+        case "tool":
+        case "tool_result":
+        case "presentation":
+        case "model_substitution":
+        case "error":
+        case "empty":
+        case "harness":
+        case "hook_context":
+        case "delivery":
+            return undefined;
+    }
+    return skipUnknown(entry);
+}
+
+function skipUnknown(_entry: never): undefined {
+    return undefined;
 }
 
 export function sessionPreviewLines(

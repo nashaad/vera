@@ -14,7 +14,7 @@ import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "../agent-
 import type { AgentSendEffect, ToolOutput } from "../../tools/types.ts";
 import type { BranchSyncOutcome } from "../agent-registry/context-sync.ts";
 import type { SessionImportOutcome, ImportableSessionListing } from "../session-import-service.ts";
-import type { SubagentAdmission, SubagentSessionServices } from "../agent-registry/subagent-services.ts";
+import type { ParentDeliveryOutcome, SubagentAdmission, SubagentSessionServices } from "../agent-registry/subagent-services.ts";
 import type { PendingDelivery } from "../../store/session-store.ts";
 import type { MessageSubagentEffect } from "../../tools/types.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
@@ -27,7 +27,9 @@ import { blockAcrossOwners, unblockAcrossOwners } from "./block.ts";
 import { searchAcrossOwners } from "./search.ts";
 import { trashAcrossOwners, type PreparedTrash } from "./trash.ts";
 import { closeAcrossOwners } from "./close.ts";
-export type { RoutedSession, SessionEndpoint, SessionSnapshot } from "./session-endpoint.ts";
+export type { RoutedSession, SessionEndpoint, SessionResumeOptions, SessionSnapshot } from "./session-endpoint.ts";
+
+export class SessionTransferReservationsChanged extends Error {}
 
 interface WaitForOperation {
     readonly wait: Promise<void>;
@@ -54,6 +56,7 @@ export interface HostRouterOptions {
     readonly masterSocket: string;
     readonly workerSocket: string;
     readonly buildId: string;
+    readonly reserveDelivery?: (id: string, run: () => Promise<ParentDeliveryOutcome>) => Promise<ParentDeliveryOutcome>;
 }
 
 export class HostRouter implements ExtensionSessionServices, PeerSessionServices, SubagentSessionServices, SubagentAdmission {
@@ -89,7 +92,13 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         });
     }
 
-    async resume(path: string): Promise<RoutedSession> {
+    assertResumeAvailable(id: string, parentId?: string): void {
+        if (this.trashing.has(id) || (parentId !== undefined && this.trashing.has(parentId))) {
+            throw new UserFacingError("This conversation is being moved to the trash.");
+        }
+    }
+
+    async resume(path: string, reservedPaths?: ReadonlySet<string>): Promise<RoutedSession> {
         while (true) {
             const result = await this.serial(async (): Promise<RoutedSession | WaitForOperation> => {
                 const canonical = await this.options.worker.canonicalPath(path);
@@ -97,10 +106,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (opening !== undefined) return { wait: this.operationCompletions.get(opening)!.promise };
                 const masterAtPath = await this.options.master.residentAt(canonical);
                 const inspected = await (masterAtPath === undefined ? this.options.worker : this.options.master).inspect(canonical);
-                if (this.masterOpening.has(inspected.id)) return { wait: this.operationCompletions.get(inspected.id)!.promise };
-                if (this.trashing.has(inspected.id) || (inspected.parentId !== undefined && this.trashing.has(inspected.parentId))) {
-                    throw new UserFacingError("This conversation is being moved to the trash.");
+                if (reservedPaths !== undefined && !reservedPaths.has(inspected.sessionPath)) {
+                    throw new SessionTransferReservationsChanged();
                 }
+                if (this.masterOpening.has(inspected.id)) return { wait: this.operationCompletions.get(inspected.id)!.promise };
+                this.assertResumeAvailable(inspected.id, inspected.parentId);
                 const [existing, master] = await Promise.all([
                     this.options.worker.resident(inspected.id),
                     this.options.master.resident(inspected.id),
@@ -130,6 +140,15 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                     }
                     const members = await Promise.all(tree.map((id) => this.options.master.resident(id)));
                     transferred = members.filter((member): member is RoutedSession => member !== undefined);
+                    if (reservedPaths !== undefined) {
+                        transferred = await Promise.all(transferred.map(async (member) => ({
+                            ...member,
+                            sessionPath: (await this.options.master.inspect(member.sessionPath)).sessionPath,
+                        })));
+                        if (transferred.some((member) => !reservedPaths.has(member.sessionPath))) {
+                            throw new SessionTransferReservationsChanged();
+                        }
+                    }
                     const released = await this.options.master.release(inspected.id);
                     if (released === undefined) {
                         this.owners.set(inspected.id, "host");
@@ -139,9 +158,17 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 }
                 this.owners.set(inspected.id, "w0");
                 try {
-                    const session = await this.options.worker.resume(inspected.sessionPath, master !== undefined);
+                    const session = await this.options.worker.resume(inspected.sessionPath, {
+                        reserved: reservedPaths !== undefined,
+                        ownershipTransfer: master !== undefined,
+                    });
                     for (const member of transferred) {
-                        if (member.id !== inspected.id) await this.options.worker.resume(member.sessionPath, true);
+                        if (member.id !== inspected.id) {
+                            await this.options.worker.resume(member.sessionPath, {
+                                reserved: reservedPaths !== undefined,
+                                ownershipTransfer: true,
+                            });
+                        }
                     }
                     return session;
                 } catch (error) {
@@ -154,11 +181,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         }
     }
 
-    locate(id: string): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+    locate(id: string, reserved = false): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
         return this.serial(async () => {
             try {
                 const owner = await this.resolvedOwner(id) ?? "w0";
-                const session = await this.endpoint(owner).find(id);
+                const session = await this.endpoint(owner).find(id, reserved);
                 if (session === undefined) {
                     return { type: "agent_location_failed", reason: "not_found", message: "No session with this id is on this host." };
                 }
@@ -180,12 +207,12 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         });
     }
 
-    find(owner: SessionOwner, id: string): Promise<boolean> {
+    find(owner: SessionOwner, id: string, reserved = false): Promise<boolean> {
         return this.serial(async () => {
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
             if (assigned === undefined && owner === "host") return false;
-            const session = await this.endpoint(owner).find(id);
+            const session = await this.endpoint(owner).find(id, reserved);
             if (session === undefined) return false;
             this.owners.set(id, owner);
             return true;
@@ -291,12 +318,13 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         return this.relatedOperation(delivery.sourceAgentId, parentId, (endpoint) => endpoint.notifyParent(parentId, delivery));
     }
 
-    deliverCompletion(parentId: string, delivery: PendingDelivery): Promise<import("../agent-registry/subagent-services.ts").ParentDeliveryOutcome> {
-        return this.relatedOperation(delivery.sourceAgentId, parentId, async (endpoint) => {
+    deliverCompletion(parentId: string, delivery: PendingDelivery): Promise<ParentDeliveryOutcome> {
+        const deliver = () => this.relatedOperation(delivery.sourceAgentId, parentId, async (endpoint) => {
             const resident = await endpoint.resident(parentId);
             const path = resident?.sessionPath ?? (await this.list()).find((row) => row.id === parentId)?.session_path;
             return endpoint.deliverCompletion(parentId, delivery, path);
         }, true);
+        return this.options.reserveDelivery?.(parentId, deliver) ?? deliver();
     }
 
     completionFailure(parentId: string, delivery: PendingDelivery): Promise<void> {
@@ -370,11 +398,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         this.finishOperation(id);
     }
 
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "w0").rename(id, name));
+    rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
+        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "w0").rename(id, name, reserved));
     }
 
-    async trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed"> {
+    async trash(id: string, reserved = false): Promise<"trashed" | "busy" | "not_found" | "failed"> {
         const prepared = await this.serial(async (): Promise<PreparedTrash | StoredTrash | "busy"> => {
             if (this.trashing.has(id)) return "busy";
             const residents = await this.allResidents();
@@ -423,7 +451,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         if (typeof prepared === "string") return prepared;
         if ("storedOwner" in prepared) {
             try {
-                const outcome = await this.endpoint(prepared.storedOwner).trash(id);
+                const outcome = await this.endpoint(prepared.storedOwner).trash(id, reserved);
                 if (outcome === "trashed") {
                     await Promise.all([this.options.master.forgetStored(id), this.options.worker.forgetStored(id)]);
                 }

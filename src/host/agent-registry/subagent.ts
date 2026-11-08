@@ -925,7 +925,7 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
         if (
             reg.suppressedCompletionDeliveries.has(childEntry)
             || (parent.store !== undefined && reg.closingCompletionRecipients.has(parent.store))
-            || await reg.subagentSessions?.parentClosing(parent.id) === true
+            || (reg.subagentSessions !== undefined && await reg.subagentSessions.parentClosing(parent.id))
         ) {
             childEntry.pendingAsyncTurns = 0;
             childEntry.pendingCompletionDeliveries = 0;

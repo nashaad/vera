@@ -5,7 +5,7 @@ import {
     appendRestartRecord,
     listRestartRecords,
 } from "../store/restart-records.ts";
-import { readSessionTurnState } from "../store/session-store.ts";
+import { openSessionForRecovery, readSessionTurnState } from "../store/session-store.ts";
 import { inspectHostLockFile } from "./lockfile.ts";
 import {
     checkRecordIdentity,
@@ -23,6 +23,7 @@ export interface RecoverCrashedTurnsOptions {
         readonly pid: number;
         readonly started_at: string;
     }) => RecordIdentity;
+    readonly withSession?: (path: string, run: () => Promise<void>) => Promise<void>;
 }
 
 export interface RecoverCrashedTurnsResult {
@@ -58,15 +59,25 @@ export async function recoverCrashedTurns(
     const files = await sessionFilesSince(options.sessionDirectory, since);
     const recorded: string[] = [];
     for (const path of files) {
-        const state = await readSessionTurnState(path).catch(() => undefined);
-        if (state === undefined || !state.turnOpen) continue;
-        if (alreadyRecorded.has(state.sessionId)) continue;
-        appendRestartRecord(
-            { session_id: state.sessionId, cause: "crash", at: now },
-            options.recordPath,
-        );
-        alreadyRecorded.add(state.sessionId);
-        recorded.push(state.sessionId);
+        const recover = async (): Promise<void> => {
+            const state = await readSessionTurnState(path).catch(() => undefined);
+            if (state === undefined || !state.turnOpen) return;
+            if (!alreadyRecorded.has(state.sessionId)) {
+                appendRestartRecord(
+                    { session_id: state.sessionId, cause: "crash", at: now },
+                    options.recordPath,
+                );
+                alreadyRecorded.add(state.sessionId);
+                recorded.push(state.sessionId);
+            }
+            await openSessionForRecovery(path);
+        };
+        try {
+            if (options.withSession === undefined) await recover();
+            else await options.withSession(path, recover);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
     }
     return { scanned: files.length, recorded };
 }
@@ -81,7 +92,7 @@ async function sessionFilesSince(
     } catch {
         return [];
     }
-    const candidates = names.filter((name) => name.endsWith(".jsonl"));
+    const candidates = names.filter((name) => name.endsWith(".jsonl")).sort();
     const modified = await Promise.all(candidates.map(async (name) => {
         const path = join(directory, name);
         try {

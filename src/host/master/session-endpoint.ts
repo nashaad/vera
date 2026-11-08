@@ -57,6 +57,11 @@ export interface CloseTicket {
     readonly token: string;
 }
 
+export interface SessionResumeOptions {
+    readonly reserved?: boolean;
+    readonly ownershipTransfer?: boolean;
+}
+
 export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionServices, SubagentSessionServices {
     canonicalPath(path: string): Promise<string>;
     inspect(path: string): Promise<InspectedSession>;
@@ -64,16 +69,16 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     resident(id: string): Promise<RoutedSession | undefined>;
     residents(): Promise<readonly RoutedSession[]>;
     tree(id: string): Promise<readonly string[]>;
-    find(id: string): Promise<RoutedSession | undefined>;
+    find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
         "id" | "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession>;
-    resume(path: string, ownershipTransfer?: boolean): Promise<RoutedSession>;
+    resume(path: string, options?: SessionResumeOptions): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[] | undefined>;
     list(): Promise<readonly RegisteredAgentSummary[]>;
     rememberStored(summary: RegisteredAgentSummary): Promise<void>;
     forgetStored(id: string): Promise<void>;
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome>;
-    trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed">;
+    rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     reserveTrash(ids: readonly string[], rootId: string, registeredIds: readonly string[], reservedIds: readonly string[]): Promise<TrashReservation>;
     quiesceClose(ids: readonly string[]): Promise<readonly CloseTicket[]>;
     waitClose(tickets: readonly CloseTicket[]): Promise<void>;

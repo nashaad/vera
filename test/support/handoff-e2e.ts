@@ -88,7 +88,7 @@ export function currentBuild(prefix: string): string {
     return readlinkSync(join(prefix, "share", "vera", "current")).split("/").pop() ?? "";
 }
 
-export function startStubProvider(): StubProvider {
+export function startStubProvider(options: { readonly reasoning?: string } = {}): StubProvider {
     let requestCount = 0;
     let open!: () => void;
     const gate = new Promise<void>((resolve) => { open = resolve; });
@@ -102,6 +102,15 @@ export function startStubProvider(): StubProvider {
             requestCount++;
             await gate;
             const body = [
+                ...(options.reasoning === undefined ? [] : [
+                    `data: ${JSON.stringify({
+                        id: "x",
+                        object: "chat.completion.chunk",
+                        model: "stub-model",
+                        choices: [{ index: 0, delta: { reasoning: options.reasoning }, finish_reason: null }],
+                    })}`,
+                    "",
+                ]),
                 `data: {"id":"x","object":"chat.completion.chunk","model":"stub-model","choices":[{"index":0,"delta":{"role":"assistant","content":"pirate crow"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
                 "",
                 "data: [DONE]",

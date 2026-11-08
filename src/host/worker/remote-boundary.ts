@@ -78,6 +78,7 @@ export function createRemoteHostBoundary(
         options.session.path,
         options.session.header,
     );
+    if (capabilities.hasPendingDeliveryTurn) store.useHostDeliveryState();
     store.watchDivergence(options.onReplicaDiverged);
     for (const [index, record] of options.session.records.entries()) {
         store.applyHostRecord(index + 2, record);
@@ -461,7 +462,7 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
         const reply = await pipe.request({
             method: "hook.preToolUse",
             payload,
-            options,
+            options: { timeoutMs: options.timeoutMs },
         }) as { readonly outcome: never };
         return reply.outcome;
     };
@@ -485,7 +486,7 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
         const reply = await pipe.request({
             method: "hook.preTurn",
             payload,
-            options,
+            options: { timeoutMs: options.timeoutMs },
         }) as { readonly outcome: never };
         return reply.outcome;
     };

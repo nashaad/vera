@@ -10,6 +10,7 @@ import type {
     PreToolUseHook,
     PreToolUseHookPayload,
     PreToolUseHookResult,
+    BlockHookResult,
     PreTurnHook,
     PreTurnHookPayload,
     PreTurnHookResult,
@@ -20,6 +21,7 @@ import type {
     TurnEndingHookResult,
 } from "../sdk/hooks.ts";
 import { isHookDisplay, MAX_HOOK_DISPLAY_CHARS } from "../model/types.ts";
+import { getHookDeadlinePolicy } from "./hook-deadline.ts";
 
 export const MAX_SESSION_START_CONTEXT_BYTES = 128 * 1024;
 export const MAX_HOOK_CONTEXT_BYTES = MAX_SESSION_START_CONTEXT_BYTES;
@@ -38,6 +40,10 @@ export interface SessionStartHookFailure {
 
 export interface HookCallOptions {
     readonly timeoutMs: number;
+}
+
+interface HookFailureCallOptions extends HookCallOptions {
+    readonly onFailure?: (error: string) => void;
 }
 
 export interface PreToolUseOutcome {
@@ -161,23 +167,36 @@ export class ToolHooks {
 
     async runPreToolUse(
         payload: PreToolUseHookPayload,
-        options: HookCallOptions,
+        options: HookFailureCallOptions,
     ): Promise<PreToolUseOutcome> {
         const deadline = hookDeadline(options.timeoutMs);
         let currentPayload = cloneHookData(payload);
         let currentResult: PreToolUseHookResult = { power: "observe" };
-        remainingTime(deadline, options.timeoutMs, payload.type);
-        for (const hook of this.preToolUse) {
-            const result = await callHook(
-                async () => cloneHookData(
-                    await hook(cloneHookData(currentPayload)),
-                ),
-                remainingTime(deadline, options.timeoutMs, payload.type),
-                options.timeoutMs,
-                payload.type,
-            );
-            assertPreToolUseHookResult(result);
-            remainingTime(deadline, options.timeoutMs, payload.type);
+        if (this.preToolUse.length === 0) remainingTime(deadline, options.timeoutMs, payload.type);
+        for (let index = 0; index < this.preToolUse.length; index += 1) {
+            const hook = this.preToolUse[index]!;
+            let started = false;
+            let result: PreToolUseHookResult;
+            try {
+                result = await callHook(
+                    async () => {
+                        started = true;
+                        return cloneHookData(await hook(cloneHookData(currentPayload)));
+                    },
+                    remainingTime(deadline, options.timeoutMs, payload.type),
+                    options.timeoutMs,
+                    payload.type,
+                );
+                assertPreToolUseHookResult(result);
+                remainingTime(deadline, options.timeoutMs, payload.type);
+            } catch (error) {
+                const remaining = this.preToolUse.slice(index);
+                const expired = deadlineFailure(error, deadline, options.timeoutMs, payload.type, remaining);
+                if (expired === undefined) throw error;
+                const block = resolveHookDeadline(remaining, started, options.timeoutMs, expired);
+                options.onFailure?.(expired.message);
+                return { toolCall: currentPayload.toolCall, result: block ?? currentResult };
+            }
             if (result.power === "mutate") {
                 currentPayload = {
                     ...currentPayload,
@@ -243,24 +262,38 @@ export class ToolHooks {
 
     async runPreTurn(
         payload: PreTurnHookPayload,
-        options: HookCallOptions,
+        options: HookFailureCallOptions,
     ): Promise<PreTurnOutcome> {
         const deadline = hookDeadline(options.timeoutMs);
         let currentPayload = cloneHookData(payload);
         let currentResult: PreTurnHookResult = { power: "observe" };
         const contexts: HookContext[] = [];
-        remainingTime(deadline, options.timeoutMs, payload.type);
-        for (const hook of [...this.preTurn]) {
-            const result = await callHook(
-                async () => cloneHookData(
-                    await hook.run(cloneHookData(currentPayload)),
-                ),
-                remainingTime(deadline, options.timeoutMs, payload.type),
-                options.timeoutMs,
-                payload.type,
-            );
-            assertPreTurnHookResult(result);
-            remainingTime(deadline, options.timeoutMs, payload.type);
+        const hooks = [...this.preTurn];
+        if (hooks.length === 0) remainingTime(deadline, options.timeoutMs, payload.type);
+        for (let index = 0; index < hooks.length; index += 1) {
+            const hook = hooks[index]!;
+            let started = false;
+            let result: PreTurnHookResult;
+            try {
+                result = await callHook(
+                    async () => {
+                        started = true;
+                        return cloneHookData(await hook.run(cloneHookData(currentPayload)));
+                    },
+                    remainingTime(deadline, options.timeoutMs, payload.type),
+                    options.timeoutMs,
+                    payload.type,
+                );
+                assertPreTurnHookResult(result);
+                remainingTime(deadline, options.timeoutMs, payload.type);
+            } catch (error) {
+                const remaining = hooks.slice(index).map((entry) => entry.run);
+                const expired = deadlineFailure(error, deadline, options.timeoutMs, payload.type, remaining);
+                if (expired === undefined) throw error;
+                const block = resolveHookDeadline(remaining, started, options.timeoutMs, expired);
+                options.onFailure?.(expired.message);
+                return { payload: currentPayload, result: block ?? currentResult, contexts: block ? [] : contexts };
+            }
             if (result.power === "mutate") {
                 if (result.context !== undefined && result.context.length > 0) {
                     contexts.push(hookContext(hook.source, result.context, result.display));
@@ -557,6 +590,37 @@ function removeHook<Hook>(hooks: Hook[], hook: Hook): void {
     }
 }
 
+class HookDeadlineError extends Error {}
+
+function deadlineFailure(
+    error: unknown,
+    deadline: number,
+    budgetMs: number,
+    phase: string,
+    hooks: readonly object[],
+): HookDeadlineError | undefined {
+    if (error instanceof HookDeadlineError) return error;
+    if (performance.now() < deadline || !hooks.some((hook) => getHookDeadlinePolicy(hook) !== undefined)) return undefined;
+    return new HookDeadlineError(`${phase} hooks timed out after ${budgetMs}ms`);
+}
+
+function resolveHookDeadline(
+    hooks: readonly object[],
+    started: boolean,
+    budgetMs: number,
+    error: HookDeadlineError,
+): BlockHookResult | undefined {
+    const denyIndex = hooks.findIndex((hook) => getHookDeadlinePolicy(hook)?.onFailure === "deny");
+    if (denyIndex !== -1) {
+        const failure = denyIndex === 0 && started
+            ? `timed out after ${budgetMs}ms`
+            : "did not run before the hook deadline";
+        return { power: "block", reason: getHookDeadlinePolicy(hooks[denyIndex]!)!.blockReason(failure) };
+    }
+    if (hooks.some((hook) => getHookDeadlinePolicy(hook) === undefined)) throw error;
+    return undefined;
+}
+
 async function callHook<Result>(
     call: () => Result | Promise<Result>,
     timeoutMs: number,
@@ -566,7 +630,7 @@ async function callHook<Result>(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
-            reject(new Error(`${type} hooks timed out after ${budgetMs}ms`));
+            reject(new HookDeadlineError(`${type} hooks timed out after ${budgetMs}ms`));
         }, timeoutMs);
     });
 
@@ -594,7 +658,7 @@ function remainingTime(
 ): number {
     const remaining = deadline - performance.now();
     if (remaining <= 0) {
-        throw new Error(`${type} hooks timed out after ${budgetMs}ms`);
+        throw new HookDeadlineError(`${type} hooks timed out after ${budgetMs}ms`);
     }
     return remaining;
 }

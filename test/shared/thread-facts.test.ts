@@ -17,6 +17,7 @@ test("a checkpoint becomes stored facts with ids, write times and turn length", 
         seq: 1,
         entries: [
             { kind: "user", text: "find the buried gold", id: "m1#0", recordedAt: 1_000 },
+            { kind: "reasoning", text: "follow the stars", id: "m2#r0", recordedAt: 2_000 },
             { kind: "tool", tool: "bash", args: { command: "dig --deep" }, id: "m2#0", recordedAt: 2_000 },
             { kind: "tool_result", tool: "bash", output: "a chest", isError: false, id: "m3#0", recordedAt: 3_000 },
             {

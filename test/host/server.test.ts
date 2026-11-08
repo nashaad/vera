@@ -1227,6 +1227,74 @@ function temporaryHostDirectory(): string {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an interactive attach includes roster changes made while its lease opens",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        const opened = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const listeners = new Set<() => void>();
+        let agents: RegisteredAgentSummary[] = [
+            summary({ id: "main", kind: "interactive", status: "idle" }),
+        ];
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            listAgents: () => agents,
+            onRosterChanged: (listener) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+            attachmentCoordinator: {
+                open: async () => {
+                    opened.resolve();
+                    await release.promise;
+                    return "lease";
+                },
+                detach: async () => [],
+                abandon: async () => {},
+                ready: async () => [],
+                release: async () => ({ remaining: 0, rootsToStop: [] }),
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "attach", agent_id: "main", attachment_kind: "interactive", client_id: "client-1",
+            });
+            await opened.promise;
+            agents = [
+                agents[0]!,
+                summary({ id: "child", parent_id: "main", title: "research", status: "working" }),
+            ];
+            for (const listener of listeners) listener();
+            release.resolve();
+            expect(await connection.receive()).toMatchObject({
+                type: "attached",
+                background_agents: { running: 1, children: ["research"], has_parent: false },
+            });
+            expect(await connection.receive()).toMatchObject({ type: "history" });
+            agents = [
+                agents[0]!,
+                summary({ id: "child", parent_id: "main", title: "research", status: "idle" }),
+            ];
+            for (const listener of listeners) listener();
+            expect(await connection.receive()).toEqual({
+                type: "background_agents", running: 0, children: [], has_parent: false,
+            });
+        } finally {
+            release.resolve();
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+    10_000,
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "the host pushes background work on attach and on every change",
     async () => {
         const directory = temporaryHostDirectory();

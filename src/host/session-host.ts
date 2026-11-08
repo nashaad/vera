@@ -227,6 +227,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         registry, extensions, extensionLoadFailures, sessionDirectory, blockedDirectory,
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         importRoots: options.importRoots,
+        restoringSessions: options.restoringSessions,
         forgetRestartRecords: options.forgetRestartRecords,
         recentScheduleRuns: options.recentScheduleRuns,
         onWorkChanged: options.onWorkChanged,

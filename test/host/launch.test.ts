@@ -22,7 +22,7 @@ interface DetachedHostResult {
     "the first client starts a detached host that survives and accepts attach",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-detached-host-"));
-        const veraDirectory = join(home, ".vera");
+        const veraDirectory = join(home, "vera");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         seedTestRelease(home);
@@ -42,7 +42,7 @@ interface DetachedHostResult {
                 env: {
                     ...process.env,
                     HOME: home,
-                    VERA_HOME: join(home, ".vera"),
+                    VERA_HOME: veraDirectory,
                     OPENROUTER_API_KEY: "test-only-key",
                 },
                 stdout: "pipe",
@@ -87,7 +87,7 @@ interface DetachedHostResult {
     "ten simultaneous first clients from ten directories share one host",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-ten-host-"));
-        const veraDirectory = join(home, ".vera");
+        const veraDirectory = join(home, "vera");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         seedTestRelease(home);

@@ -16,7 +16,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { renameSessionThroughHost } from "../../src/host/session-rename-client.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { CRASHED_TOOL_RESULT, CRASH_CUT_MESSAGE, SessionStore, readSessionTurnState } from "../../src/store/session-store.ts";
 import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { installTransferHooks, transferHookEvents, waitForTransferHooks } from "../support/transfer-hooks.ts";
@@ -297,6 +297,7 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         await waitForTransferHooks(log, 2);
         await waitUntil(() => entry.store.messages().some((message) => message.role === "user" && message.contextSource === "session_start"));
         const before = (await SessionStore.open(path)).messages();
+        const beforeFile = await readFile(path, "utf8");
         await writeFile(log, "");
         await writeFile(updates, "");
 
@@ -306,6 +307,7 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         expect(await transferHookEvents(log)).toEqual([]);
         expect(await readFile(updates, "utf8")).toBe("");
         expect((await SessionStore.open(path)).messages()).toEqual(before);
+        expect(await readFile(path, "utf8")).toBe(beforeFile);
         await client.send({ type: "prompt", content: "Where is the map?" });
         await finishTurn(client);
         expect(requests).toHaveLength(1);
@@ -334,6 +336,140 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         expect(resumed.every((event) => event.type === "session_start" && event.reason === "resume")).toBe(true);
     } finally {
         client?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("an ownership transfer moves a resident session tree without a crash cut", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const parentPath = join(home, "parent.jsonl");
+    const childPath = join(home, "child.jsonl");
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
+    });
+    let childClient: AttachedAgentClient | undefined;
+    try {
+        await host.registry.create({ id: "parent", workspace: home, sessionPath: parentPath });
+        await SessionStore.create(childPath, { sessionId: "child", cwd: home, parentId: "parent" });
+        await host.registry.resume({ sessionPath: childPath });
+        await waitUntil(() => host.registry.agents.get("parent")?.agent.idleForShutdown() === true
+            && host.registry.agents.get("child")?.agent.idleForShutdown() === true);
+        for (const id of ["parent", "child"]) {
+            await host.registry.agents.get(id)!.store.appendMessage({
+                role: "user", content: [{ type: "text", text: "Inspect the map" }],
+            });
+        }
+        expect((await readSessionTurnState(parentPath)).turnOpen).toBe(true);
+        expect((await readSessionTurnState(childPath)).turnOpen).toBe(true);
+        const before = await Promise.all([readFile(parentPath, "utf8"), readFile(childPath, "utf8")]);
+
+        await resumeAgentThroughHost(host.server.socketPath, parentPath);
+        expect(host.registry.agents.has("parent")).toBe(false);
+        expect(host.registry.agents.has("child")).toBe(false);
+        for (const id of ["parent", "child"]) {
+            expect(await locate(host.server.socketPath, id)).toMatchObject({ worker_id: "w0" });
+        }
+        childClient = await attachAgent({ socketPath: host.server.socketPath, agentId: "child" });
+        expect((await childClient.receive()).type).toBe("history");
+        expect(await Promise.all([readFile(parentPath, "utf8"), readFile(childPath, "utf8")])).toEqual(before);
+        expect((await readSessionTurnState(parentPath)).turnOpen).toBe(true);
+        expect((await readSessionTurnState(childPath)).turnOpen).toBe(true);
+    } finally {
+        childClient?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("a worker repairs an interrupted session when it opens without a crash scan", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const path = join(home, "crow.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+    await store.appendMessage({
+        role: "assistant", content: [{ type: "tool_call", id: "read-map", name: "read", input: { path: "map" } }],
+        source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "tool_use",
+    });
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
+    });
+    let client: AttachedAgentClient | undefined;
+    try {
+        expect((await resumeAgentThroughHost(host.server.socketPath, path)).id).toBe("crow");
+        expect(await locate(host.server.socketPath, "crow")).toMatchObject({ worker_id: "w0" });
+        expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+        expect((await SessionStore.open(path)).messages().at(-1)).toMatchObject({
+            role: "tool_result", toolCallId: "read-map", isError: true,
+            content: [{ type: "text", text: CRASHED_TOOL_RESULT }],
+        });
+        const repaired = await readFile(path, "utf8");
+        expect(repaired.split(CRASH_CUT_MESSAGE)).toHaveLength(2);
+        client = await attachAgent({ socketPath: host.server.socketPath, agentId: "crow" });
+        expect((await client.receive()).type).toBe("history");
+        await resumeAgentThroughHost(host.server.socketPath, path);
+        expect(await readFile(path, "utf8")).toBe(repaired);
+    } finally {
+        client?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("stored parent completions are serialized before recovery starts a delivery turn", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const path = join(home, "runtime", "sessions", "parent.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "parent", cwd: home });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true,
+        createAdapter: () => new FauxAdapter([textResponse("The crow has the map.")]),
+    });
+    const original = SessionStore.prototype.recordDelivery;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let calls = 0;
+    let first: Promise<unknown> | undefined;
+    let duplicate: Promise<unknown> | undefined;
+    try {
+        SessionStore.prototype.recordDelivery = async function (delivery) {
+            if (this.header.id === "parent") {
+                calls += 1;
+                if (calls === 1) {
+                    entered.resolve();
+                    await release.promise;
+                }
+            }
+            return await original.call(this, delivery);
+        };
+        const services = host.registry.subagentSessions!;
+        const delivery = { id: "completion:child", sourceAgentId: "child", content: "Found the map" };
+        first = services.deliverCompletion("parent", delivery);
+        await entered.promise;
+        duplicate = services.deliverCompletion("parent", delivery);
+        await Bun.sleep(20);
+        expect(calls).toBe(1);
+        release.resolve();
+        expect(await first).toBe("recorded");
+        expect(await duplicate).toBe("duplicate");
+        expect((await SessionStore.open(path)).pendingDeliveries()).toHaveLength(1);
+
+        await resumeAgentThroughHost(host.server.socketPath, path);
+        const deadline = Date.now() + 10_000;
+        let lines: string[] = [];
+        while (Date.now() < deadline) {
+            lines = (await readFile(path, "utf8")).trimEnd().split("\n");
+            if (lines.some((line) => line.includes('"deliveryId":"completion:child"'))) break;
+            await Bun.sleep(10);
+        }
+        const cutIndex = lines.findIndex((line) => line.includes(CRASH_CUT_MESSAGE));
+        const deliveryIndex = lines.findIndex((line) => line.includes('"deliveryId":"completion:child"'));
+        expect(cutIndex).toBeGreaterThanOrEqual(0);
+        expect(deliveryIndex).toBeGreaterThan(cutIndex);
+    } finally {
+        release.resolve();
+        await Promise.allSettled([first, duplicate].filter((promise) => promise !== undefined));
+        SessionStore.prototype.recordDelivery = original;
         await host.close();
         await rm(home, { recursive: true, force: true });
     }

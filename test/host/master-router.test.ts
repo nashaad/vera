@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { HostRouter, type RoutedSession, type SessionEndpoint } from "../../src/host/master/router.ts";
+import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/master/router.ts";
 import { mergeRoster } from "../../src/host/master/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
+import { CRASH_CUT_MESSAGE, SessionStore, openSessionForRecovery, readSessionTurnState } from "../../src/store/session-store.ts";
 
 function deferred() {
     let resolve!: () => void;
@@ -129,6 +134,60 @@ test("session facts for stored sessions go to the worker", async () => {
     expect(seen).toEqual(["worker:stored"]);
 });
 
+test("a stored parent completion waits for crash repair", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-delivery-reservation-"));
+    const path = join(root, "parent.jsonl");
+    const reservations: RestoringSessions = new Map();
+    const entered = deferred();
+    const release = deferred();
+    let scanning: Promise<void> | undefined;
+    let sending: Promise<unknown> | undefined;
+    try {
+        const store = await SessionStore.create(path, { sessionId: "parent", cwd: root });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+        const stored: RegisteredAgentSummary = {
+            id: "parent", live: false, workspace: root, session_path: path, kind: "interactive", status: "closed",
+        };
+        const master = endpoint(new Map());
+        const worker = endpoint(new Map());
+        worker.list = async () => [stored];
+        let delivered = false;
+        worker.deliverCompletion = async (_id, delivery, parentPath) => {
+            delivered = true;
+            expect(parentPath).toBe(path);
+            return await (await SessionStore.open(path)).recordDelivery(delivery) ? "recorded" : "duplicate";
+        };
+        const router = new HostRouter({
+            master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+            reserveDelivery: (_id, run) => withSessionReservation(path, reservations, run),
+        });
+        scanning = withSessionReservation(path, reservations, async () => {
+            entered.resolve();
+            await release.promise;
+            await openSessionForRecovery(path);
+        });
+        await entered.promise;
+        const delivery = { id: "completion:child", sourceAgentId: "child", content: "Found the map" };
+        sending = router.deliverCompletion("parent", delivery);
+        await Bun.sleep(20);
+        expect(delivered).toBe(false);
+        release.resolve();
+        expect(await sending).toBe("recorded");
+        await scanning;
+        expect((await readSessionTurnState(path)).turnOpen).toBe(false);
+        const repaired = await SessionStore.open(path);
+        expect(repaired.projectedHarnessMessages()).toEqual([
+            { afterMessage: 1, text: CRASH_CUT_MESSAGE, tone: "soft" },
+        ]);
+        expect(repaired.pendingDeliveries()).toContainEqual(expect.objectContaining(delivery));
+        expect(await router.deliverCompletion("parent", delivery)).toBe("duplicate");
+    } finally {
+        release.resolve();
+        await Promise.allSettled([scanning, sending].filter((promise) => promise !== undefined));
+        await rm(root, { recursive: true, force: true });
+    }
+}, 10_000);
+
 test("a move waits for an ongoing write and for the old host to release", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
     const masterSessions = new Map([[session.id, session]]);
@@ -188,6 +247,43 @@ test("a failed release leaves the old owner available for a retry", async () => 
     });
     await expect(router.resume(session.sessionPath)).rejects.toThrow("busy");
     expect(await router.locate(session.id)).toMatchObject({ type: "agent_location", socket_path: "/host.sock" });
+});
+
+test("a tree move reserves every member and preserves transfer resumes", async () => {
+    const parent = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
+    const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl" };
+    const masterSessions = new Map([[parent.id, parent], [child.id, child]]);
+    const workerSessions = new Map<string, RoutedSession>();
+    const master = endpoint(masterSessions);
+    const worker = endpoint(workerSessions);
+    const inspect = async (path: string) => ({ id: path === child.sessionPath ? child.id : parent.id, sessionPath: path });
+    master.inspect = inspect;
+    worker.inspect = inspect;
+    master.tree = async () => [parent.id, child.id];
+    master.release = async () => {
+        masterSessions.clear();
+        return [parent.id, child.id];
+    };
+    const resumed: Array<{ path: string; options?: SessionResumeOptions }> = [];
+    worker.resume = async (path, options) => {
+        resumed.push({ path, options });
+        const session = path === child.sessionPath ? child : parent;
+        workerSessions.set(session.id, session);
+        return session;
+    };
+    const router = new HostRouter({
+        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+    });
+
+    await expect(router.resume(parent.sessionPath, new Set([parent.sessionPath])))
+        .rejects.toBeInstanceOf(SessionTransferReservationsChanged);
+    expect([...masterSessions.keys()]).toEqual([parent.id, child.id]);
+    expect(resumed).toEqual([]);
+    expect(await router.resume(parent.sessionPath, new Set([parent.sessionPath, child.sessionPath]))).toEqual(parent);
+    expect(resumed).toEqual([
+        { path: parent.sessionPath, options: { reserved: true, ownershipTransfer: true } },
+        { path: child.sessionPath, options: { reserved: true, ownershipTransfer: true } },
+    ]);
 });
 
 test("a branch in progress keeps its source on the current host", async () => {

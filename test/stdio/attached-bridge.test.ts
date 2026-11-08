@@ -22,7 +22,7 @@ import {
 import { HISTORY_PAGE_MAX_ENTRIES } from "../../src/host/history-page.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import type {
@@ -133,7 +133,7 @@ test("stdio frames updates after its attached marker", async () => {
         },
         client,
     );
-    client.updates.push({ type: "history", entries: [], seq: 0 });
+    client.updates.push({ type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 });
 
     await historyWritten;
     input.push(null);
@@ -153,7 +153,7 @@ test("stdio frames updates after its attached marker", async () => {
             children: [],
             has_parent: false,
         },
-        { type: "history", entries: [], seq: 0 },
+        { type: "history", entries: [{ kind: "reasoning", text: "follow the stars" }], seq: 0 },
     ]);
 });
 
@@ -623,7 +623,10 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             type: "stdio_attached",
             workspace: process.cwd(),
         });
-        expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount);
+        expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount + 1);
+        expect(historyFrame(resumedFrames).entries).toContainEqual({
+            kind: "harness", text: CRASH_CUT_MESSAGE, tone: "soft",
+        });
         expect(historyFrame(resumedFrames).page).toBeUndefined();
         expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
         expect(resumedFrames.some((frame) => frame.type === "turn_finished"))
@@ -638,7 +641,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             "attach to the larger session",
         );
         // The resume process ran one prompt, adding its user and assistant messages.
-        expect(historyFrame(largeAttachFrames).entries).toHaveLength(entryCount + 2);
+        expect(historyFrame(largeAttachFrames).entries).toHaveLength(entryCount + 3);
         expect(historyFrame(largeAttachFrames).page).toBeUndefined();
         expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
     } finally {

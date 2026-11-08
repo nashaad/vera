@@ -1977,6 +1977,26 @@ function receiveConnection(
             return;
         }
         if (agent === undefined) {
+            if (routeRequest !== undefined && !isShutdownFenced()) {
+                const destination = await routeRequest(request);
+                if (isShutdownFenced()) {
+                    socket.destroy();
+                    return;
+                }
+                if (destination !== undefined) {
+                    attachmentClosed = operationOpened();
+                    try {
+                        forwarded = await forwardSessionConnection(socket, destination, line);
+                    } catch {
+                        attachmentClosed();
+                        attachmentClosed = undefined;
+                        finished = true;
+                        void send({ type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" })
+                            .then(() => socket.end(), () => socket.destroy());
+                    }
+                    return;
+                }
+            }
             finished = true;
             void send({
                 type: "attach_failed",
@@ -2042,7 +2062,6 @@ function receiveConnection(
         attachedWorkspace = agent.workspace;
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
-        sentBackgroundAgents = readBackgroundAgents(attachedId);
         attachedCapabilities = negotiated;
         if (request.attachment_kind === "interactive") {
             const lease = await interactiveAttachments.open(
@@ -2055,6 +2074,7 @@ function receiveConnection(
             }
             interactiveAttachment = lease;
         }
+        sentBackgroundAgents = readBackgroundAgents(attachedId);
         const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
         const wantsSessionTitle = negotiated.includes(
             HOST_CAPABILITY_SESSION_TITLE,

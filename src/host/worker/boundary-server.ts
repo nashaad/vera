@@ -60,6 +60,10 @@ export function createWorkerBoundaryServer(
         }
         pipe.notify({ method: "event.inject", event });
     });
+    const reportHookFailure = (event: EngineEvent): void => {
+        if (services.eventBus === undefined) pipe.notify({ method: "event.inject", event });
+        else services.eventBus.emit(event);
+    };
 
     const server: WorkerBoundaryServer = {
         async handleRequest(body: unknown): Promise<unknown> {
@@ -117,7 +121,11 @@ export function createWorkerBoundaryServer(
                 }
                 case "delivery.pending": {
                     const pending = await services.router?.hasPendingDeliveryTurn?.();
-                    const reply: DeliveryPendingReply = { pending: pending === true };
+                    const reply: DeliveryPendingReply = {
+                        pending: pending === true
+                            || options.store.pendingDeliveries().length > 0
+                            || options.store.hasUnansweredDeliveryTurn(),
+                    };
                     return reply;
                 }
                 case "approval.update": {
@@ -262,12 +270,20 @@ export function createWorkerBoundaryServer(
                 }
                 case "hook.preToolUse": {
                     const request = body as {
-                        readonly payload: never;
-                        readonly options: never;
+                        readonly payload: import("../../sdk/hooks.ts").PreToolUseHookPayload;
+                        readonly options: { readonly timeoutMs: number };
                     };
                     const outcome = await services.hooks?.runPreToolUse(
                         request.payload,
-                        request.options,
+                        {
+                            ...request.options,
+                            onFailure: (error) => reportHookFailure({
+                                type: "tool_hook_failed",
+                                phase: "pre_tool_use",
+                                toolCall: request.payload.toolCall,
+                                error,
+                            }),
+                        },
                     ) ?? { power: "observe" };
                     return { outcome };
                 }
@@ -295,12 +311,19 @@ export function createWorkerBoundaryServer(
                 }
                 case "hook.preTurn": {
                     const request = body as {
-                        readonly payload: never;
-                        readonly options: never;
+                        readonly payload: import("../../sdk/hooks.ts").PreTurnHookPayload;
+                        readonly options: { readonly timeoutMs: number };
                     };
                     const outcome = await services.hooks?.runPreTurn(
                         request.payload,
-                        request.options,
+                        {
+                            ...request.options,
+                            onFailure: (error) => reportHookFailure({
+                                type: "turn_hook_failed",
+                                phase: "pre_turn",
+                                error,
+                            }),
+                        },
                     ) ?? {
                         payload: request.payload,
                         result: { power: "observe" },

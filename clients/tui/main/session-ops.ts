@@ -30,7 +30,7 @@ import { requestPermissionsChange } from "./pool-admission.ts";
 export function switchToClient(rt: TuiRuntime, 
     next: TuiAgentClient,
     draft?: TuiDraft,
-    options: { readonly preserveSidebar?: boolean } = {},
+    options: { readonly preserveSidebar?: boolean; readonly preserveReconnectTranscript?: boolean } = {},
 ): void {
     recordSessionSwitchOutcome(rt, "completed");
     const previous = rt.client;
@@ -81,7 +81,13 @@ export function switchToClient(rt: TuiRuntime,
     rt.experimentalTuiHost.conversationChanged();
     rt.clientExtensionRegistry?.conversationChanged();
 
-    rt.state = createTuiState();
+    rt.state = options.preserveReconnectTranscript === true
+        ? {
+            ...createTuiState(),
+            transcriptStarted: true,
+            reopenedTurnFinishedAt: rt.state.reopenedTurnFinishedAt,
+        }
+        : createTuiState();
     // A hop the notice never landed in is over; it must not surface in whichever conversation rebuilds next.
     rt.pendingBackNotice = undefined;
     rt.pendingSessionSwitchNotice = undefined;

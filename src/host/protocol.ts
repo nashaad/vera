@@ -32,8 +32,8 @@ import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 // Bump this only when the base wire contract changes. Additive operations use
 // negotiated capabilities and keep the compatibility floor unchanged. Host
 // identity includes `build_id`; a client must not attach across builds.
-export const HOST_PROTOCOL_VERSION = 35;
-export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 35;
+export const HOST_PROTOCOL_VERSION = 36;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 36;
 
 export type HostRole = "host" | "worker";
 

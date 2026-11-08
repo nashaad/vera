@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 import type { SessionIdentity } from "../../sdk/extensions.ts";
 import { storedStartupProfile } from "../../startup-profile.ts";
 import { copySessionMessageAttachments, createSessionBranch } from "../../store/session-branch.ts";
-import { SessionStore, defaultSessionPath } from "../../store/session-store.ts";
+import { SessionStore, defaultSessionPath, openSessionForRecovery, readSessionHeader } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publishBranchAttachments, removePublishedBranchAttachments, type PublishedBranchAttachments } from "./helpers.ts";
 import { LIVE_IDLE_WINDOW_MS, entryIsLive, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type ClosedMember, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
@@ -307,41 +307,33 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
 
 export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentOptions): Promise<ResidentAgent> {
         const sessionPath = await realpath(options.sessionPath);
-        const store = await SessionStore.open(sessionPath);
-        const blocked = reg.blockRefusalFor(store.header.id);
-        if (blocked !== undefined) {
-            throw new UserFacingError(blocked);
-        }
-        const storedProvider = store.modelSettings()?.provider;
-        if (
-            store.header.delegation !== undefined
-            && store.modelSettings() !== undefined
-            && !delegationAllows(
-                store.header.delegation,
-                store.modelSettings()!,
-            )
-        ) {
-            throw new UserFacingError(
-                "This delegated session's stored model is outside its persisted boundary.",
-            );
-        }
-        if (
-            store.agentFailure() === undefined
-            && storedProvider !== undefined
-            && !(storedProvider === "unknown" && reg.defaultProvider === "unknown")
-            && !modelSelectionCleared(store.modelSettings())
-            && !reg.isKnownProvider(storedProvider)
-        ) {
-            throw new ProviderUnavailableError(storedProvider);
-        }
-        const parentId = store.header.delegation?.parentId
-            ?? store.header.parentId;
-        if (parentId !== undefined) {
-            requireNotTrashing(reg, parentId);
-        }
-        reg.reserveId(store.header.id);
+        const header = await readSessionHeader(sessionPath);
+        reg.reserveId(header.id);
         try {
             reg.requireOpen();
+            const store = await SessionStore.open(sessionPath);
+            const blocked = reg.blockRefusalFor(store.header.id);
+            if (blocked !== undefined) throw new UserFacingError(blocked);
+            const storedProvider = store.modelSettings()?.provider;
+            if (
+                store.header.delegation !== undefined
+                && store.modelSettings() !== undefined
+                && !delegationAllows(store.header.delegation, store.modelSettings()!)
+            ) {
+                throw new UserFacingError(
+                    "This delegated session's stored model is outside its persisted boundary.",
+                );
+            }
+            if (
+                store.agentFailure() === undefined
+                && storedProvider !== undefined
+                && !(storedProvider === "unknown" && reg.defaultProvider === "unknown")
+                && !modelSelectionCleared(store.modelSettings())
+                && !reg.isKnownProvider(storedProvider)
+            ) throw new ProviderUnavailableError(storedProvider);
+            const parentId = store.header.delegation?.parentId ?? store.header.parentId;
+            if (parentId !== undefined) requireNotTrashing(reg, parentId);
+            if (options.ownershipTransfer !== true) await store.repairCrashedTurn();
             return await reg.start(
                 store,
                 parentId === undefined ? "interactive" : "background",
@@ -355,10 +347,10 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
             );
         } catch (error) {
             // The session file is the user's conversation, so it stays.
-            await abandonStart(reg, store.header.id);
+            await abandonStart(reg, header.id);
             throw error;
         } finally {
-            reg.startingIds.delete(store.header.id);
+            reg.startingIds.delete(header.id);
         }
     }
 
@@ -707,7 +699,7 @@ function parentAcceptsRestart(
 
 async function restartClosedAgent(reg: AgentRegistry, plan: RestartPlan): Promise<boolean> {
         try {
-            const store = await SessionStore.open(plan.sessionPath);
+            const store = await openSessionForRecovery(plan.sessionPath);
             await reg.start(
                 store,
                 plan.kind,

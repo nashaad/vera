@@ -16,6 +16,7 @@ export class WorkerSessionStore extends SessionStore {
     private ownAppendsInFlight = 0;
     private divergence: Error | undefined;
     private onDiverged: (error: Error) => void = () => {};
+    private hostAnswersDelivery = false;
     private send: AppendRecordThroughHost = () => {
         throw new Error("The worker session store has no host to append to");
     };
@@ -43,6 +44,15 @@ export class WorkerSessionStore extends SessionStore {
 
     appliedThrough(): number {
         return this.lastLineNumber;
+    }
+
+    override hasUnansweredDeliveryTurn(): boolean {
+        // The host accounts for stored-only crash cuts in its delivery answer.
+        return this.hostAnswersDelivery ? false : super.hasUnansweredDeliveryTurn();
+    }
+
+    useHostDeliveryState(): void {
+        this.hostAnswersDelivery = true;
     }
 
     applyHostRecord(
