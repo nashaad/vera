@@ -67,10 +67,25 @@ export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient): vo
     if (target.viewOnly === true && !home) {
         return;
     }
+    const requestId = randomUUID();
+    const reconnectProbe = target === rt.client
+        && !home
+        && rt.hostReconnectAttempted
+        && !rt.sessionSwitchPending;
+    const startReconnectProbe = reconnectProbe && rt.hostReconnectProbe?.client !== target;
+    if (reconnectProbe) {
+        rt.hostReconnectProbeId = requestId;
+        if (startReconnectProbe) {
+            rt.hostReconnectProbe = { client: target };
+        }
+    }
     void target.send({
         type: "get_model_settings",
-        requestId: randomUUID(),
+        requestId,
     }).catch(((error: unknown) => reportConnectionError(rt, error)));
+    if (startReconnectProbe && rt.hostReconnectProbe !== undefined) {
+        retryHostReconnectProbe(rt, rt.hostReconnectProbe, 10);
+    }
     if (home) {
         return;
     }
@@ -78,6 +93,43 @@ export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient): vo
         type: "get_permissions",
         requestId: randomUUID(),
     }).catch(((error: unknown) => reportConnectionError(rt, error)));
+}
+
+function retryHostReconnectProbe(
+    rt: TuiRuntime,
+    probe: NonNullable<TuiRuntime["hostReconnectProbe"]>,
+    remaining: number,
+): void {
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => {
+        const requestId = rt.hostReconnectProbeId;
+        const target = probe.client;
+        if (
+            rt.shuttingDown
+            || rt.connectionFailed
+            || rt.client !== target
+            || rt.hostReconnectProbe !== probe
+            || requestId === undefined
+        ) {
+            return;
+        }
+        if (rt.sessionSwitchPending) {
+            retryHostReconnectProbe(rt, probe, remaining - 1);
+            return;
+        }
+        void target.send({ type: "get_model_settings", requestId }).then(() => {
+            retryHostReconnectProbe(rt, probe, remaining - 1);
+        }).catch((error: unknown) => {
+            if (rt.client === target && rt.hostReconnectProbe === probe) {
+                if (rt.sessionSwitchPending || rt.hostReconnectProbeId !== requestId) {
+                    retryHostReconnectProbe(rt, probe, remaining - 1);
+                } else {
+                    reportConnectionError(rt, error);
+                }
+            }
+        });
+    }, 500);
+    timer.unref();
 }
 
 export function retryMissingAgentSettings(rt: TuiRuntime, 
