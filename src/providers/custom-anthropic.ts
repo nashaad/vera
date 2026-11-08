@@ -5,6 +5,7 @@ import type {
 
 import type { ModelAdapter } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { buildModelRequest } from "../model/request-build.ts";
 import type { ImageSupportLookup } from "../model/image-support.ts";
 import {
     OpenAICompatibleAdapter,
@@ -65,11 +66,11 @@ export function createCustomAnthropicAdapter(
                         ? {}
                         : { [options.cache.affinity_header]: request.cacheKey }),
                 },
-                body: JSON.stringify(encodeRequest(
+                body: buildModelRequest(() => JSON.stringify(encodeRequest(
                     request,
                     options.defaultMaxTokens ?? 8_192,
                     cacheControl(request, options.cache),
-                )),
+                ))),
                 signal,
             });
             if (!response.ok) {

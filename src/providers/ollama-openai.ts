@@ -2,6 +2,7 @@ import type { ChatMessages, ChatStreamChunk } from "@openrouter/sdk/models";
 
 import type { ModelAdapter, ModelReasoningEffort } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { buildModelRequest } from "../model/request-build.ts";
 import {
     OpenRouterAdapter,
     type ChatProviderProfile,
@@ -57,7 +58,7 @@ export function createOllamaAdapter(
             const response = await fetchImplementation(endpoint, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify(encodeRequest(request, supportsThinking)),
+                body: buildModelRequest(() => JSON.stringify(encodeRequest(request, supportsThinking))),
                 signal,
             });
             if (!response.ok) {

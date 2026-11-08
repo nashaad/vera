@@ -157,6 +157,9 @@ conversation, so a reopened conversation shows it too. The provider's full
 response is in `/diagnostics`: open the **Vera** report and look under
 **MODEL FAILURES**.
 
+If Vera cannot build a request locally, it stops without retrying and the
+Vera report in `/diagnostics` contains the error.
+
 ## A change could not be saved
 
 Changing the permission mode or selecting an agent is saved to the session

@@ -16,6 +16,7 @@ import {
     type ProviderFailure,
 } from "../../src/model/provider-failure.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import { createCustomOpenAIAdapter } from "../../src/providers/custom-openai.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -493,6 +494,79 @@ test("engine recovery returns a non-retryable failure immediately", async () => 
 
     expect(result.stopReason).toBe("error");
     expect(events.map((event) => event.type)).toEqual(["start", "error"]);
+});
+
+test("a local build error ends once without retry, fallback, or capability changes", async () => {
+    let sent = 0;
+    let attempts = 0;
+    const provider = createCustomOpenAIAdapter({
+        provider: "stub",
+        baseUrl: "http://stub.invalid/v1",
+        fetch: async () => {
+            sent += 1;
+            return new Response(
+                'data: {"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}\n\n',
+            );
+        },
+    });
+    const adapter: ModelAdapter = {
+        stream(request) {
+            attempts += 1;
+            return provider.stream(request);
+        },
+    };
+    const toolCall: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "unsupported_reasoning_effort",
+            name: "read",
+            input: { path: "nest.txt" },
+        }],
+        source: { provider: "stub", api: "openai-chat-completions", model: "crow" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const events: ModelStreamEvent[] = [];
+    const options = {
+        onEvent: (event: ModelStreamEvent) => events.push(event),
+        onRetry: () => { throw new Error("unexpected retry"); },
+        onFallback: () => { throw new Error("unexpected fallback"); },
+        onCoarsened: () => { throw new Error("unexpected coarsening"); },
+        fallback: { model: "backup", afterFailures: 1 },
+        coarsening: {
+            pool: {
+                resolveEffort: () => { throw new Error("unexpected effort lookup"); },
+                resolveImageSupport: () => undefined,
+                recordLearned: () => { throw new Error("unexpected capability change"); },
+            },
+        },
+        wait: async () => { throw new Error("unexpected wait"); },
+    };
+    const failed = await requestModelWithRecovery(adapter, {
+        provider: "stub",
+        model: "crow",
+        reasoningEffort: "high",
+        messages: [toolCall, toolCall],
+    }, options);
+
+    expect(attempts).toBe(1);
+    expect(sent).toBe(0);
+    expect(failed.stopReason).toBe("error");
+    const error = events.find((event) => event.type === "error");
+    expect(error?.type === "error" && error.error).toBeInstanceOf(ProviderFailureError);
+    expect(error?.type === "error" && (error.error as ProviderFailureError).failure)
+        .toMatchObject({ kind: "request_build", resolution: "none" });
+
+    const next = await requestModelWithRecovery(adapter, {
+        provider: "stub",
+        model: "crow",
+        messages: [{ role: "user", content: [{ type: "text", text: "Ahoy" }] }],
+    }, options);
+    expect(next.stopReason).toBe("stop");
+    expect(next.content).toEqual([{ type: "text", text: "ready" }]);
+    expect(attempts).toBe(2);
+    expect(sent).toBe(1);
 });
 
 test("engine recovery never retries or falls back after content starts", async () => {

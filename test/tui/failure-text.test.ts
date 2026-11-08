@@ -118,3 +118,19 @@ test("a failed model request names the model, the provider's words and a fix", (
         fix: "send again. If it keeps failing, pick another model with /model.",
     });
 });
+
+test("local build failures identify Vera for model and classifier requests", () => {
+    expect(modelFailureText({ model: "stub/crow", kind: "request_build" })).toEqual({
+        message: "Vera could not build the request for stub/crow.",
+        fix: "open /diagnostics and check the Vera report.",
+    });
+    expect(classifierFailureText({
+        tool: "bash",
+        classifier: "stub/crow",
+        kind: "request_build",
+    })).toEqual({
+        headline: "bash did not run",
+        message: "Vera could not build the request for stub/crow.",
+        fix: MODEL_FIX,
+    });
+});
