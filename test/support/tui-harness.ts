@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -70,6 +71,7 @@ export interface TuiTestSessionOptions {
     readonly home: string;
     readonly width?: number;
     readonly height?: number;
+    readonly waitTimeoutMs?: number;
     readonly dependencies: (
         renderer: Awaited<ReturnType<typeof createTestRenderer>>["renderer"],
     ) => TuiDependencies | Promise<TuiDependencies>;
@@ -80,9 +82,58 @@ export interface TuiTestSessionOptions {
 const WAIT_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 20;
 
+type TestRenderer = Awaited<ReturnType<typeof createTestRenderer>>["renderer"];
+type FrameCallback = (deltaTime: number) => Promise<void>;
+
+function cancelFrameCallbacksOnClose(renderer: TestRenderer, signal: AbortSignal): void {
+    const setFrameCallback = renderer.setFrameCallback.bind(renderer);
+    const removeFrameCallback = renderer.removeFrameCallback.bind(renderer);
+    const clearFrameCallbacks = renderer.clearFrameCallbacks.bind(renderer);
+    const callbacks = new Map<FrameCallback, FrameCallback[]>();
+    renderer.setFrameCallback = (callback) => {
+        const wrapped: FrameCallback = async (deltaTime) => {
+            if (signal.aborted) return;
+            let stop = () => {};
+            const closed = new Promise<void>((resolve) => {
+                stop = resolve;
+                signal.addEventListener("abort", stop, { once: true });
+            });
+            try {
+                await Promise.race([callback(deltaTime), closed]);
+            } finally {
+                signal.removeEventListener("abort", stop);
+            }
+        };
+        const registered = callbacks.get(callback) ?? [];
+        registered.push(wrapped);
+        callbacks.set(callback, registered);
+        setFrameCallback(wrapped);
+    };
+    renderer.removeFrameCallback = (callback) => {
+        const registered = callbacks.get(callback);
+        if (registered === undefined) {
+            removeFrameCallback(callback);
+            return;
+        }
+        for (const wrapped of registered) {
+            removeFrameCallback(wrapped);
+        }
+        callbacks.delete(callback);
+    };
+    renderer.clearFrameCallbacks = () => {
+        callbacks.clear();
+        clearFrameCallbacks();
+    };
+}
+
 // VERA_HOME is process-global, so two live sessions would read and write
 // each other's homes. The suite runs sessions one at a time; hold that line.
 let activeSession = false;
+let activeSessionCleanup: (() => Promise<void>) | undefined;
+
+afterEach(async () => {
+    await activeSessionCleanup?.();
+}, WAIT_TIMEOUT_MS + 5_000);
 
 export async function startTuiTestSession(
     options: TuiTestSessionOptions,
@@ -94,31 +145,15 @@ export async function startTuiTestSession(
     }
     activeSession = true;
     const veraHome = join(options.home, ".vera");
-    mkdirSync(veraHome, { recursive: true });
     const previousVeraHome = process.env[VERA_HOME_ENV];
-    process.env[VERA_HOME_ENV] = veraHome;
-
-    const setup = await createTestRenderer({
-        width: options.width ?? 100,
-        height: options.height ?? 35,
-        // As in production: Vera decides what Ctrl+C does, not the renderer.
-        exitOnCtrlC: false,
-    });
+    let setup: Awaited<ReturnType<typeof createTestRenderer>> | undefined;
     let exited = false;
+    let started = false;
+    let closed = false;
+    let rendered = false;
     let exitError: unknown;
-    const exit = (async () => startTui({
-        ...await options.dependencies(setup.renderer),
-        createRenderer: async () => setup.renderer,
-    }))()
-        .catch((error) => {
-            exitError = error;
-            throw error;
-        })
-        .finally(() => {
-            exited = true;
-        });
-    // A rejection before the test awaits the exit must not take the run down.
-    exit.catch(() => undefined);
+    let closing: Promise<void> | undefined;
+    const frameCancellation = new AbortController();
 
     function restoreVeraHome(): void {
         if (previousVeraHome === undefined) {
@@ -128,22 +163,111 @@ export async function startTuiTestSession(
         }
     }
 
+    function close(): Promise<void> {
+        if (closing !== undefined) return closing;
+        closed = true;
+        frameCancellation.abort();
+        closing = (async () => {
+            try {
+                if (setup !== undefined) {
+                    const deadline = Date.now() + WAIT_TIMEOUT_MS;
+                    const startupDeadline = Math.min(deadline, Date.now() + 1_000);
+                    while (
+                        started
+                        && !exited
+                        && !rendered
+                        && Date.now() < startupDeadline
+                    ) {
+                        void setup.renderOnce().catch(() => undefined);
+                        await Bun.sleep(POLL_INTERVAL_MS);
+                        rendered = setup.captureCharFrame().trim().length > 0;
+                    }
+                    setup.renderer.destroy();
+                    while (started && !exited && Date.now() < deadline) {
+                        await Bun.sleep(POLL_INTERVAL_MS);
+                    }
+                }
+            } finally {
+                if (activeSessionCleanup === close) {
+                    restoreVeraHome();
+                    activeSession = false;
+                    activeSessionCleanup = undefined;
+                }
+                Bun.gc(true);
+            }
+            if (started && !exited) {
+                throw new Error("TUI did not exit within the close deadline");
+            }
+        })();
+        return closing;
+    }
+
+    activeSessionCleanup = close;
+    let rendererSetup: Awaited<ReturnType<typeof createTestRenderer>>;
+    try {
+        mkdirSync(veraHome, { recursive: true });
+        process.env[VERA_HOME_ENV] = veraHome;
+        rendererSetup = await createTestRenderer({
+            width: options.width ?? 100,
+            height: options.height ?? 35,
+            exitOnCtrlC: false,
+        });
+        setup = rendererSetup;
+        cancelFrameCallbacksOnClose(rendererSetup.renderer, frameCancellation.signal);
+        if (closed) {
+            rendererSetup.renderer.destroy();
+            throw new Error("TUI test session closed during setup");
+        }
+    } catch (error) {
+        await close();
+        throw error;
+    }
+
+    const exit = (async () => {
+        const dependencies = await options.dependencies(rendererSetup.renderer);
+        if (closed) throw new Error("TUI test session closed during setup");
+        started = true;
+        return startTui({
+            ...dependencies,
+            createRenderer: async () => rendererSetup.renderer,
+        });
+    })()
+        .catch((error) => {
+            exitError = error;
+            throw error;
+        })
+        .finally(() => {
+            exited = true;
+        });
+    exit.catch(() => undefined);
+
     function capture(): string {
         // tmux capture-pane trims trailing blanks; assertions on line widths
         // and toEndWith() depend on the same trim here.
-        return setup.captureCharFrame()
+        return rendererSetup.captureCharFrame()
             .split("\n")
             .map((line) => line.trimEnd())
             .join("\n");
+    }
+
+    async function renderBefore(deadline: number): Promise<boolean> {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        return Promise.race([
+            rendererSetup.renderOnce().then(() => true),
+            new Promise<false>((resolve) => {
+                timeout = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()));
+            }),
+        ]).finally(() => clearTimeout(timeout));
     }
 
     async function waitForVisiblePaneWhere(
         predicate: (pane: string) => boolean,
         description: string,
     ): Promise<string> {
-        const deadline = Date.now() + WAIT_TIMEOUT_MS;
+        const deadline = Date.now() + (options.waitTimeoutMs ?? WAIT_TIMEOUT_MS);
         let pane = "";
         while (Date.now() < deadline) {
+            if (closed) throw new Error("TUI test session is closed");
             if (exitError !== undefined) {
                 throw new Error(
                     `TUI failed while waiting for ${description}: ${String(
@@ -153,9 +277,11 @@ export async function startTuiTestSession(
                     )}`,
                 );
             }
-            await setup.renderOnce();
+            if (!await renderBefore(deadline)) break;
+            if (closed) throw new Error("TUI test session is closed");
             pane = capture();
             if (predicate(pane)) {
+                rendered = true;
                 return pane;
             }
             await Bun.sleep(POLL_INTERVAL_MS);
@@ -168,44 +294,47 @@ export async function startTuiTestSession(
     return {
         sendText(value) {
             for (const char of value) {
-                setup.mockInput.pressKey(char);
+                rendererSetup.mockInput.pressKey(char);
             }
         },
         sendPaste(value) {
-            return setup.mockInput.pasteBracketedText(value);
+            return rendererSetup.mockInput.pasteBracketedText(value);
         },
         sendKey(key) {
-            pressTmuxKey(setup.mockInput, key);
+            pressTmuxKey(rendererSetup.mockInput, key);
         },
         sendKeyWithModifiers(key, modifiers) {
             if (key === "home" || key === "end") {
-                setup.mockInput.pressKey(
+                rendererSetup.mockInput.pressKey(
                     key === "home" ? "HOME" : "END",
                     modifiers,
                 );
                 return;
             }
-            setup.mockInput.pressArrow(key, modifiers);
+            rendererSetup.mockInput.pressArrow(key, modifiers);
         },
         async sendMouseClick(x, y) {
-            await setup.mockMouse.click(x, y);
+            await rendererSetup.mockMouse.click(x, y);
         },
         async sendMouseWheel(direction, x, y, times = 1) {
             for (let index = 0; index < times; index += 1) {
-                await setup.mockMouse.scroll(x, y, direction);
+                await rendererSetup.mockMouse.scroll(x, y, direction);
             }
         },
         async sendMouseDrag(startX, startY, endX, endY) {
-            await setup.mockMouse.drag(startX, startY, endX, endY);
+            await rendererSetup.mockMouse.drag(startX, startY, endX, endY);
         },
         captureVisiblePane: capture,
-        captureSpans: () => setup.captureSpans(),
+        captureSpans: () => rendererSetup.captureSpans(),
         resize(width, height) {
-            setup.resize(width, height);
+            rendererSetup.resize(width, height);
         },
         async settle(ms = 100) {
             await Bun.sleep(ms);
-            await setup.renderOnce();
+            const deadline = Date.now() + (options.waitTimeoutMs ?? WAIT_TIMEOUT_MS);
+            if (!await renderBefore(deadline)) {
+                throw new Error("Timed out waiting for TUI render");
+            }
         },
         waitForVisiblePane(expected) {
             return waitForVisiblePaneWhere(
@@ -215,7 +344,7 @@ export async function startTuiTestSession(
         },
         waitForVisiblePaneWhere,
         async waitForSessionExit() {
-            const deadline = Date.now() + WAIT_TIMEOUT_MS;
+            const deadline = Date.now() + (options.waitTimeoutMs ?? WAIT_TIMEOUT_MS);
             while (Date.now() < deadline) {
                 if (exited) {
                     return exit;
@@ -224,30 +353,7 @@ export async function startTuiTestSession(
             }
             throw new Error("Timed out waiting for TUI to exit");
         },
-        async close() {
-            try {
-                if (!exited) {
-                    setup.renderer.destroy();
-                    const deadline = Date.now() + WAIT_TIMEOUT_MS;
-                    while (!exited && Date.now() < deadline) {
-                        await Bun.sleep(POLL_INTERVAL_MS);
-                    }
-                }
-            } finally {
-                restoreVeraHome();
-                activeSession = false;
-                // Yoga's WASM heap is fixed-size and shared by every renderer
-                // in the process; nodes freed by finalizers stay allocated
-                // until a collection actually runs. Collecting between
-                // sessions keeps a long test run inside the heap.
-                Bun.gc(true);
-            }
-            if (!exited) {
-                // A loop still running past this point would write into the
-                // restored home; fail loudly instead of letting it.
-                throw new Error("TUI did not exit within the close deadline");
-            }
-        },
+        close,
     };
 }
 

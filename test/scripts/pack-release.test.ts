@@ -44,6 +44,22 @@ import { packWebAssets } from "../../scripts/pack-web.ts";
 const packer = resolve(import.meta.dir, "..", "..", "scripts", "pack-release.ts");
 const repoRoot = resolve(import.meta.dir, "..", "..");
 
+function runFixtureProcess(command: string[], timeout = 5_000) {
+    return Bun.spawnSync(command, {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        timeout,
+        killSignal: "SIGKILL",
+    });
+}
+
+function exitedFixturePid(): number {
+    const child = runFixtureProcess(["true"]);
+    expect(child.exitCode).toBe(0);
+    return child.pid;
+}
+
 function git(cwd: string, args: readonly string[]): string {
     const result = Bun.spawnSync(["git", ...args], {
         cwd,
@@ -66,6 +82,17 @@ function initRepo(): string {
     git(directory, ["commit", "-q", "-m", "init"]);
     return directory;
 }
+
+test("a stalled fixture process is stopped at its deadline", () => {
+    const child = runFixtureProcess(["sleep", "30"], 100);
+    expect(child.success).toBe(false);
+    try {
+        process.kill(child.pid, 0);
+        throw new Error("fixture process is still running");
+    } catch (error) {
+        expect((error as NodeJS.ErrnoException).code).toBe("ESRCH");
+    }
+}, 5_000);
 
 test("pack-release writes a manifest with annex and the host protocol version", async () => {
     const output = mkdtempSync(join(tmpdir(), "vera-release-pack-"));
@@ -92,14 +119,8 @@ test("pack-release writes a manifest with annex and the host protocol version", 
         expect(existsSync(join(output, "host"))).toBe(false);
         expect(readFileSync(join(output, "worker"), "utf8"))
             .toContain("src/host/worker/entry.ts");
-        const spawned = Bun.spawn([join(output, "worker")], {
-            stdin: "pipe",
-            stdout: "pipe",
-            stderr: "pipe",
-        });
+        const spawned = runFixtureProcess([join(output, "worker")], 500);
         expect(spawned.pid).toBeGreaterThan(0);
-        spawned.kill();
-        await spawned.exited;
     } finally {
         rmSync(output, { recursive: true, force: true });
     }
@@ -162,6 +183,7 @@ function scaffoldReleaseSource(): string {
     const files = [
         "clients/cli/main.ts",
         "clients/host/main.ts",
+        "clients/host/session-worker.ts",
         "src/annex/main.ts",
         "docs/index.md",
         "index.ts",
@@ -305,12 +327,11 @@ test("a pack removes staging left by a pack that died, and keeps a live pack's",
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const target = releaseDirectory(releaseBuildId(repo), prefix);
-        const exited = Bun.spawn(["true"]);
-        await exited.exited;
+        const exited = exitedFixturePid();
         const releasesRoot = dirname(target);
         const dead = [
-            `.staging-${exited.pid}-vera-dead`,
-            `.retired-${exited.pid}-vera-dead`,
+            `.staging-${exited}-vera-dead`,
+            `.retired-${exited}-vera-dead`,
         ];
         const live = `.staging-${process.pid}-vera-live`;
         for (const name of [...dead, live]) {
@@ -369,11 +390,10 @@ test("a pack moves a finished release left in staging by a pack that died betwee
         const first = await packRunnableRelease(options);
         const target = first.releaseRoot;
         const buildId = first.manifest.build_id;
-        const exited = Bun.spawn(["true"]);
-        await exited.exited;
+        const exited = exitedFixturePid();
         const releasesRoot = dirname(target);
-        const staging = join(releasesRoot, `.staging-${exited.pid}-${buildId}`);
-        const retired = join(releasesRoot, `.retired-${exited.pid}-${buildId}`);
+        const staging = join(releasesRoot, `.staging-${exited}-${buildId}`);
+        const retired = join(releasesRoot, `.retired-${exited}-${buildId}`);
         renameSync(target, staging);
         writeFileSync(join(staging, "restore-marker"), "kept\n");
         mkdirSync(join(retired, "clients"), { recursive: true });
@@ -449,15 +469,14 @@ test("a pack into an output directory removes only its own staging left by a pac
     const parent = mkdtempSync(join(tmpdir(), "vera-pack-output-"));
     try {
         const output = join(parent, "release");
-        const exited = Bun.spawn(["true"]);
-        await exited.exited;
+        const exited = exitedFixturePid();
         const dead = [
-            `.staging-${exited.pid}-release`,
-            `.retired-${exited.pid}-release`,
+            `.staging-${exited}-release`,
+            `.retired-${exited}-release`,
         ];
         const live = `.staging-${process.pid}-other`;
         // Left by a dead pack, but named for a different directory in the same parent.
-        const deadOther = `.staging-${exited.pid}-other`;
+        const deadOther = `.staging-${exited}-other`;
         for (const name of [...dead, live, deadOther]) {
             mkdirSync(join(parent, name, "annex"), { recursive: true });
         }
@@ -540,7 +559,7 @@ test("a pack replaces a pack that died before its stamp, so every name a pack wr
         await packRelease(output, { cwd: repo });
         rmSync(releaseManifestPath(output));
         expect(readdirSync(output).sort())
-            .toEqual(["annex", "vera-annex", "vera-supervisor", "worker"]);
+            .toEqual(["annex", "session-worker", "vera-annex", "vera-supervisor", "worker"]);
 
         await packRelease(output, { cwd: repo });
 
