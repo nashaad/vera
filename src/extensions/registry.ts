@@ -4,6 +4,7 @@ import type { ModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
 import { MAX_HOOK_CONTEXT_BYTES } from "../engine/hooks.ts";
+import { setHookDeadlinePolicy } from "../engine/hook-deadline.ts";
 import { isHookDisplay } from "../model/types.ts";
 import {
     isToolPresentation,
@@ -41,6 +42,7 @@ import type {
     VeraSessionAskRequest,
 } from "../sdk/extensions.ts";
 import type {
+    HookFailureOptions,
     ModelRequestHook,
     PostToolUseHook,
     PostToolUseHookPayload,
@@ -64,6 +66,7 @@ import type {
     JsonValue,
 } from "../sdk/hooks.ts";
 import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./command-hook.ts";
+import { hookBlockReason, hookFailure, isHookJson, rejectModelFailurePolicy, validateHookFailureOptions } from "./hook-failure.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
@@ -845,7 +848,7 @@ async function activateExtension(
             },
         }),
         hooks: Object.freeze({
-            registerModelMiddleware(middleware: ModelMiddleware): VeraExtensionDisposer {
+            registerModelMiddleware(middleware: ModelMiddleware, options?: never): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Model middleware must be registered during activation");
                 }
@@ -853,10 +856,11 @@ async function activateExtension(
                     throw new Error("Extension did not declare hooks.model_middleware");
                 }
                 if (typeof middleware !== "function") throw new Error("Invalid model middleware");
+                rejectModelFailurePolicy(options, "model_middleware");
                 modelMiddleware.push(middleware);
                 return () => removeHook(modelMiddleware, middleware);
             },
-            registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer {
+            registerPreToolUse(hook: PreToolUseHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
                         "Extension hooks must be registered during activation",
@@ -870,11 +874,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid pre-tool hook registration");
                 }
-                const safe = safePreToolHook(hook);
+                const policy = validateHookFailureOptions(options, "pre_tool_use");
+                const safe = safePreToolHook(hook, loaded.manifest.id, policy);
                 preToolUseHooks.push(safe);
                 return () => removeHook(preToolUseHooks, safe);
             },
-            registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer {
+            registerPostToolUse(hook: PostToolUseHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
                         "Extension hooks must be registered during activation",
@@ -888,11 +893,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid post-tool hook registration");
                 }
+                validateHookFailureOptions(options, "post_tool_use");
                 const safe = safePostToolHook(hook);
                 postToolUseHooks.push(safe);
                 return () => removeHook(postToolUseHooks, safe);
             },
-            registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer {
+            registerSessionStart(hook: SessionStartHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -902,10 +908,11 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid session-start hook registration");
                 }
+                validateHookFailureOptions(options, "session_start");
                 sessionStartHooks.push(hook);
                 return () => removeHook(sessionStartHooks, hook);
             },
-            registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer {
+            registerPreTurn(hook: PreTurnHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
                         "Extension hooks must be registered during activation",
@@ -919,14 +926,15 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid pre-turn hook registration");
                 }
+                const policy = validateHookFailureOptions(options, "pre_turn");
                 const registered = {
                     extensionId: loaded.manifest.id,
-                    run: safePreTurnHook(hook),
+                    run: safePreTurnHook(hook, loaded.manifest.id, policy),
                 };
                 preTurnHooks.push(registered);
                 return () => removeHook(preTurnHooks, registered);
             },
-            registerTurnEnding(hook: TurnEndingHook): VeraExtensionDisposer {
+            registerTurnEnding(hook: TurnEndingHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
                         "Extension hooks must be registered during activation",
@@ -940,6 +948,7 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid turn-ending hook registration");
                 }
+                validateHookFailureOptions(options, "turn_ending");
                 const registered = {
                     extensionId: loaded.manifest.id,
                     run: safeTurnEndingHook(hook),
@@ -947,7 +956,7 @@ async function activateExtension(
                 turnEndingHooks.push(registered);
                 return () => removeHook(turnEndingHooks, registered);
             },
-            registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer {
+            registerTurnFinished(hook: TurnFinishedHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -957,11 +966,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid turn-finished hook registration");
                 }
+                validateHookFailureOptions(options, "turn_finished");
                 const registered = { extensionId: loaded.manifest.id, run: hook };
                 turnFinishedHooks.push(registered);
                 return () => removeHook(turnFinishedHooks, registered);
             },
-            registerSessionUpdated(hook: SessionUpdatedHook): VeraExtensionDisposer {
+            registerSessionUpdated(hook: SessionUpdatedHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -971,11 +981,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid session-updated hook registration");
                 }
+                validateHookFailureOptions(options, "session_updated");
                 const registered = { extensionId: loaded.manifest.id, run: hook };
                 sessionUpdatedHooks.push(registered);
                 return () => removeHook(sessionUpdatedHooks, registered);
             },
-            registerPreCompact(hook: PreCompactHook): VeraExtensionDisposer {
+            registerPreCompact(hook: PreCompactHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -985,11 +996,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid pre-compact hook registration");
                 }
+                validateHookFailureOptions(options, "pre_compact");
                 const registered = { extensionId: loaded.manifest.id, run: hook };
                 preCompactHooks.push(registered);
                 return () => removeHook(preCompactHooks, registered);
             },
-            registerSessionEnd(hook: SessionEndHook): VeraExtensionDisposer {
+            registerSessionEnd(hook: SessionEndHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -999,11 +1011,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid session-end hook registration");
                 }
+                validateHookFailureOptions(options, "session_end");
                 const registered = { extensionId: loaded.manifest.id, run: hook };
                 sessionEndHooks.push(registered);
                 return () => removeHook(sessionEndHooks, registered);
             },
-            registerSubagentFinished(hook: SubagentFinishedHook): VeraExtensionDisposer {
+            registerSubagentFinished(hook: SubagentFinishedHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
                 }
@@ -1013,6 +1026,7 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid subagent-finished hook registration");
                 }
+                validateHookFailureOptions(options, "subagent_finished");
                 const registered = { extensionId: loaded.manifest.id, run: hook };
                 subagentFinishedHooks.push(registered);
                 return () => removeHook(subagentFinishedHooks, registered);
@@ -1020,6 +1034,7 @@ async function activateExtension(
             registerModelRequest(
                 namespace: string,
                 hook: ModelRequestHook,
+                options?: never,
             ): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
@@ -1037,6 +1052,7 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid model request hook registration");
                 }
+                rejectModelFailurePolicy(options, "model_request");
                 if (modelRequestHooks.some((entry) => entry.namespace === namespace)) {
                     throw new Error(
                         `Duplicate model request namespace: ${namespace}`,
@@ -1056,16 +1072,21 @@ async function activateExtension(
                     throw new Error("Extension did not declare hooks.command");
                 }
                 const command = normalizeCommandHookSpec(spec);
+                const commandPhase = commandHookPhase(command.phase, command.protocol);
+                const policy = validateHookFailureOptions(
+                    command.onFailure === undefined ? undefined : { onFailure: command.onFailure },
+                    commandPhase,
+                );
                 const hook = createCommandHook(command);
                 const extensionId = loaded.manifest.id;
-                switch (commandHookPhase(command.phase, command.protocol)) {
+                switch (commandPhase) {
                     case "session_start": {
                         const startHook = hook as SessionStartHook;
                         sessionStartHooks.push(startHook);
                         return () => removeHook(sessionStartHooks, startHook);
                     }
                     case "pre_tool_use": {
-                        const safe = safePreToolHook(hook as PreToolUseHook);
+                        const safe = safePreToolHook(hook as PreToolUseHook, extensionId, policy, true);
                         preToolUseHooks.push(safe);
                         return () => removeHook(preToolUseHooks, safe);
                     }
@@ -1075,7 +1096,7 @@ async function activateExtension(
                         return () => removeHook(postToolUseHooks, safe);
                     }
                     case "pre_turn": {
-                        const registered = { extensionId, run: safePreTurnHook(hook as PreTurnHook) };
+                        const registered = { extensionId, run: safePreTurnHook(hook as PreTurnHook, extensionId, policy, true) };
                         preTurnHooks.push(registered);
                         return () => removeHook(preTurnHooks, registered);
                     }
@@ -1616,18 +1637,41 @@ function normalizeCommandHookSpec(
         argv: [...(spec.argv ?? [])],
         ...(spec.protocol === undefined ? {} : { protocol: spec.protocol }),
         ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
+        ...(spec.onFailure === undefined ? {} : { onFailure: spec.onFailure }),
     };
 }
 
-function safePreToolHook(hook: PreToolUseHook): PreToolUseHook {
-    return async (payload: PreToolUseHookPayload): Promise<PreToolUseHookResult> => {
+function safePreToolHook(
+    hook: PreToolUseHook,
+    extensionId: string,
+    policy: HookFailureOptions["onFailure"] | undefined,
+    command = false,
+): PreToolUseHook {
+    const failure = (detail: string): PreToolUseHookResult => policy === "deny"
+        ? { power: "block", reason: hookBlockReason(extensionId, "pre_tool_use", detail) }
+        : { power: "observe" };
+    const safe: PreToolUseHook = async (payload: PreToolUseHookPayload): Promise<PreToolUseHookResult> => {
+        let result: PreToolUseHookResult;
         try {
-            const result = await hook(structuredClone(payload));
-            return isPreToolUseResult(result) ? structuredClone(result) : { power: "observe" };
+            result = await hook(structuredClone(payload));
+        } catch (error) {
+            return policy === "deny" ? failure(hookFailure(error, command)) : { power: "observe" };
+        }
+        try {
+            if (!isPreToolUseResult(result)) return failure("returned an invalid result");
+            const cloned = structuredClone(result);
+            return policy === undefined || isHookJson(cloned) ? cloned : failure("returned an invalid result");
         } catch {
-            return { power: "observe" };
+            return failure("returned an invalid result");
         }
     };
+    if (policy !== undefined) {
+        setHookDeadlinePolicy(safe, {
+            onFailure: policy,
+            blockReason: (detail) => hookBlockReason(extensionId, "pre_tool_use", detail),
+        });
+    }
+    return safe;
 }
 
 function safePostToolHook(hook: PostToolUseHook): PostToolUseHook {
@@ -1641,15 +1685,37 @@ function safePostToolHook(hook: PostToolUseHook): PostToolUseHook {
     };
 }
 
-function safePreTurnHook(hook: PreTurnHook): PreTurnHook {
-    return async (payload: PreTurnHookPayload): Promise<PreTurnHookResult> => {
+function safePreTurnHook(
+    hook: PreTurnHook,
+    extensionId: string,
+    policy: HookFailureOptions["onFailure"] | undefined,
+    command = false,
+): PreTurnHook {
+    const failure = (detail: string): PreTurnHookResult => policy === "deny"
+        ? { power: "block", reason: hookBlockReason(extensionId, "pre_turn", detail) }
+        : { power: "observe" };
+    const safe: PreTurnHook = async (payload: PreTurnHookPayload): Promise<PreTurnHookResult> => {
+        let result: PreTurnHookResult;
         try {
-            const result = await hook(structuredClone(payload));
-            return isPreTurnResult(result) ? structuredClone(result) : { power: "observe" };
+            result = await hook(structuredClone(payload));
+        } catch (error) {
+            return policy === "deny" ? failure(hookFailure(error, command)) : { power: "observe" };
+        }
+        try {
+            if (!isPreTurnResult(result)) return failure("returned an invalid result");
+            const cloned = structuredClone(result);
+            return policy === undefined || isHookJson(cloned) ? cloned : failure("returned an invalid result");
         } catch {
-            return { power: "observe" };
+            return failure("returned an invalid result");
         }
     };
+    if (policy !== undefined) {
+        setHookDeadlinePolicy(safe, {
+            onFailure: policy,
+            blockReason: (detail) => hookBlockReason(extensionId, "pre_turn", detail),
+        });
+    }
+    return safe;
 }
 
 function safeTurnEndingHook(hook: TurnEndingHook): TurnEndingHook {

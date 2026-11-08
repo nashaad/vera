@@ -2016,6 +2016,26 @@ function receiveConnection(
             return;
         }
         if (agent === undefined) {
+            if (routeRequest !== undefined && !isShutdownFenced()) {
+                const destination = await routeRequest(request);
+                if (isShutdownFenced()) {
+                    socket.destroy();
+                    return;
+                }
+                if (destination !== undefined) {
+                    attachmentClosed = operationOpened();
+                    try {
+                        forwarded = await forwardSessionConnection(socket, destination, line);
+                    } catch {
+                        attachmentClosed();
+                        attachmentClosed = undefined;
+                        finished = true;
+                        void send({ type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" })
+                            .then(() => socket.end(), () => socket.destroy());
+                    }
+                    return;
+                }
+            }
             finished = true;
             void send({
                 type: "attach_failed",

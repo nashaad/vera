@@ -4,6 +4,7 @@ import {
     defineAgent,
     Vera,
     type AgentDefinition,
+    type HookFailureOptions,
     type TranscriptEntry,
 } from "../../index.ts";
 
@@ -24,4 +25,9 @@ test("the package root exports embedded definitions and runtime", () => {
     expect(definition.tools).toEqual(["read", "grep"]);
     expect(typeof Vera.create).toBe("function");
     expect(typeof Vera.run).toBe("function");
+});
+
+test("extension hook failure options are available from the package root", () => {
+    const options: HookFailureOptions = { onFailure: "deny" };
+    expect(options.onFailure).toBe("deny");
 });

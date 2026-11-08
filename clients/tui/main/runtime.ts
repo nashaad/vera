@@ -150,6 +150,8 @@ export interface TuiRuntime {
     connectionFailure: string | undefined;
     hostBuildRefusal: { readonly hostBuildId: string | undefined } | undefined;
     hostReconnectAttempted: boolean;
+    hostReconnectProbeId?: string;
+    hostReconnectProbe?: { readonly client: TuiAgentClient };
     agentFailedThisAttachment: boolean;
     statusNotice: string | undefined;
     statusNoticeVersion: number;

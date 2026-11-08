@@ -16,19 +16,26 @@ export interface RoutedSession {
     readonly sessionPath: string;
 }
 
+export interface SessionResumeOptions {
+    readonly reserved?: boolean;
+    readonly ownershipTransfer?: boolean;
+}
+
+export class SessionTransferReservationsChanged extends Error {}
+
 export interface SessionEndpoint extends ExtensionSessionServices {
     inspect(path: string): Promise<{ readonly id: string; readonly sessionPath: string }>;
     resident(id: string): Promise<RoutedSession | undefined>;
     residents(): Promise<readonly RoutedSession[]>;
     tree(id: string): Promise<readonly string[]>;
-    find(id: string): Promise<RoutedSession | undefined>;
+    find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
         "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession>;
-    resume(path: string, ownershipTransfer?: boolean): Promise<RoutedSession>;
+    resume(path: string, options?: SessionResumeOptions): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[]>;
     list(): Promise<readonly RegisteredAgentSummary[]>;
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome>;
-    trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed">;
+    rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     close(id: string, reason?: SessionEndReason): Promise<CloseAgentOutcome>;
     block(request: BlockSessionRequest): Promise<BlockSessionOutcome>;
     unblock(request: UnblockSessionRequest): Promise<UnblockSessionOutcome>;
@@ -69,9 +76,12 @@ export class HostRouter implements ExtensionSessionServices {
         });
     }
 
-    resume(path: string): Promise<RoutedSession> {
+    resume(path: string, reservedPaths?: ReadonlySet<string>): Promise<RoutedSession> {
         return this.serial(async () => {
             const inspected = await this.options.worker.inspect(path);
+            if (reservedPaths !== undefined && !reservedPaths.has(inspected.sessionPath)) {
+                throw new SessionTransferReservationsChanged();
+            }
             const [existing, master] = await Promise.all([
                 this.options.worker.resident(inspected.id),
                 this.options.master.resident(inspected.id),
@@ -103,14 +113,31 @@ export class HostRouter implements ExtensionSessionServices {
                 }
                 const members = await Promise.all(tree.map((id) => this.options.master.resident(id)));
                 transferred = members.filter((member): member is RoutedSession => member !== undefined);
+                if (reservedPaths !== undefined) {
+                    transferred = await Promise.all(transferred.map(async (member) => ({
+                        ...member,
+                        sessionPath: (await this.options.master.inspect(member.sessionPath)).sessionPath,
+                    })));
+                    if (transferred.some((member) => !reservedPaths.has(member.sessionPath))) {
+                        throw new SessionTransferReservationsChanged();
+                    }
+                }
                 const released = await this.options.master.release(inspected.id);
                 for (const id of released) this.owners.set(id, "w0");
             }
             this.owners.set(inspected.id, "w0");
             try {
-                const session = await this.options.worker.resume(inspected.sessionPath, master !== undefined);
+                const session = await this.options.worker.resume(inspected.sessionPath, {
+                    reserved: reservedPaths !== undefined,
+                    ownershipTransfer: master !== undefined,
+                });
                 for (const member of transferred) {
-                    if (member.id !== inspected.id) await this.options.worker.resume(member.sessionPath, true);
+                    if (member.id !== inspected.id) {
+                        await this.options.worker.resume(member.sessionPath, {
+                            reserved: reservedPaths !== undefined,
+                            ownershipTransfer: true,
+                        });
+                    }
                 }
                 return session;
             } catch (error) {
@@ -120,11 +147,11 @@ export class HostRouter implements ExtensionSessionServices {
         });
     }
 
-    locate(id: string): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+    locate(id: string, reserved = false): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
         return this.serial(async () => {
             try {
                 const owner = await this.resolvedOwner(id) ?? "host";
-                const session = await this.endpoint(owner).find(id);
+                const session = await this.endpoint(owner).find(id, reserved);
                 if (session === undefined) {
                     return { type: "agent_location_failed", reason: "not_found", message: "No session with this id is on this host." };
                 }
@@ -145,12 +172,12 @@ export class HostRouter implements ExtensionSessionServices {
         });
     }
 
-    find(owner: SessionOwner, id: string): Promise<boolean> {
+    find(owner: SessionOwner, id: string, reserved = false): Promise<boolean> {
         return this.serial(async () => {
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
             if (assigned === undefined && owner === "w0") return false;
-            const session = await this.endpoint(owner).find(id);
+            const session = await this.endpoint(owner).find(id, reserved);
             if (session === undefined) return false;
             this.owners.set(id, owner);
             return true;
@@ -195,12 +222,12 @@ export class HostRouter implements ExtensionSessionServices {
         return this.extensionOperation(call.sessionId, (endpoint) => endpoint.investigate(call, signal));
     }
 
-    rename(id: string, name: string | null): Promise<RenameSessionOutcome> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").rename(id, name));
+    rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
+        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").rename(id, name, reserved));
     }
 
-    trash(id: string): Promise<"trashed" | "busy" | "not_found" | "failed"> {
-        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").trash(id));
+    trash(id: string, reserved = false): Promise<"trashed" | "busy" | "not_found" | "failed"> {
+        return this.serial(async () => this.endpoint(await this.resolvedOwner(id) ?? "host").trash(id, reserved));
     }
 
     close(id: string, reason?: SessionEndReason): Promise<CloseAgentOutcome> {

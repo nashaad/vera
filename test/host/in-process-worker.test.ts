@@ -297,6 +297,7 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         await waitForTransferHooks(log, 2);
         await waitUntil(() => entry.store.messages().some((message) => message.role === "user" && message.contextSource === "session_start"));
         const before = (await SessionStore.open(path)).messages();
+        const beforeFile = await readFile(path, "utf8");
         await writeFile(log, "");
         await writeFile(updates, "");
 
@@ -306,6 +307,7 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         expect(await transferHookEvents(log)).toEqual([]);
         expect(await readFile(updates, "utf8")).toBe("");
         expect((await SessionStore.open(path)).messages()).toEqual(before);
+        expect(await readFile(path, "utf8")).toBe(beforeFile);
         await client.send({ type: "prompt", content: "Where is the map?" });
         await finishTurn(client);
         expect(requests).toHaveLength(1);
@@ -334,6 +336,38 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
         expect(resumed.every((event) => event.type === "session_start" && event.reason === "resume")).toBe(true);
     } finally {
         client?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("an ownership transfer moves a resident session tree without a crash cut", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const parentPath = join(home, "parent.jsonl");
+    const childPath = join(home, "child.jsonl");
+    const host = await startResidentHost({
+        home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
+    });
+    let childClient: AttachedAgentClient | undefined;
+    try {
+        await host.registry.create({ id: "parent", workspace: home, sessionPath: parentPath });
+        await SessionStore.create(childPath, { sessionId: "child", cwd: home, parentId: "parent" });
+        await host.registry.resume({ sessionPath: childPath });
+        await waitUntil(() => host.registry.agents.get("parent")?.agent.idleForShutdown() === true
+            && host.registry.agents.get("child")?.agent.idleForShutdown() === true);
+        const before = await Promise.all([readFile(parentPath, "utf8"), readFile(childPath, "utf8")]);
+
+        await resumeAgentThroughHost(host.server.socketPath, parentPath);
+        expect(host.registry.agents.has("parent")).toBe(false);
+        expect(host.registry.agents.has("child")).toBe(false);
+        for (const id of ["parent", "child"]) {
+            expect(await locate(host.server.socketPath, id)).toMatchObject({ worker_id: "w0" });
+        }
+        childClient = await attachAgent({ socketPath: host.server.socketPath, agentId: "child" });
+        expect((await childClient.receive()).type).toBe("history");
+        expect(await Promise.all([readFile(parentPath, "utf8"), readFile(childPath, "utf8")])).toEqual(before);
+    } finally {
+        childClient?.close();
         await host.close();
         await rm(home, { recursive: true, force: true });
     }

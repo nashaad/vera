@@ -2150,6 +2150,11 @@ async function applyPreTurnHook(
     try {
         outcome = await untilAborted(state.hooks.runPreTurn(payload, {
             timeoutMs: PRE_TURN_HOOK_TIMEOUT_MS,
+            onFailure: (error) => state.events.emit({
+                type: "turn_hook_failed",
+                phase: "pre_turn",
+                error,
+            }),
         }), signal);
     } catch (error) {
         const message = errorMessage(error);
@@ -2423,7 +2428,15 @@ async function prepareAssistantToolCalls(
                     ? {}
                     : { sessionId: state.sessionId }),
                 workspace: state.toolRuntime.workspace,
-            }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
+            }, {
+                timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS,
+                onFailure: (error) => state.events.emit({
+                    type: "tool_hook_failed",
+                    phase: "pre_tool_use",
+                    toolCall: original,
+                    error,
+                }),
+            });
         } catch (error) {
             const message = errorMessage(error);
             state.events.emit({

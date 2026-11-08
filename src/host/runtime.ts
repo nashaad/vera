@@ -128,7 +128,8 @@ import {
 } from "../session-import/discover.ts";
 import { rememberSkillSettings } from "../skills/sources.ts";
 import { defaultInboxPath, Inbox } from "../store/inbox.ts";
-import { defaultSessionDirectory } from "../store/session-store.ts";
+import { defaultSessionDirectory, readSessionHeader } from "../store/session-store.ts";
+import { withSessionReservation, type RestoringSessions } from "./session-host/storage.ts";
 import type { WatchSecretResolver } from "../watch/arc-connector.ts";
 import {
     startWatchRuntimeIfConfigured,
@@ -411,11 +412,12 @@ export async function startResidentHost(
         }
     };
     let sharedServices: SessionHostServices | undefined;
+    const restoringSessions: RestoringSessions = new Map();
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
-        sessionDirectory, sessionIdentityReservationRoot, blockedDirectory,
+        sessionDirectory, sessionIdentityReservationRoot, blockedDirectory, restoringSessions,
         modelFailureLedgerPath, authStorage, hostLog, startupLog, startupFindings, timed,
         permissionPreferencesPath: options.permissionPreferencesPath,
         eventLogDirectory,
@@ -767,6 +769,7 @@ export async function startResidentHost(
         return closing;
     };
     try {
+        sessionHost.startStorage();
         if (workerSocket !== undefined) {
             inProcessWorker = await prepareInProcessWorker({
                 master: sessionHost, sessionOptions, masterSocket: socketPath,
@@ -825,6 +828,20 @@ export async function startResidentHost(
                             lockPath,
                             sessionDirectory,
                             recordPath: restartRecordPath,
+                            withSession: async (path, recover) => {
+                                await withSessionReservation(path, restoringSessions, async () => {
+                                    const header = await readSessionHeader(path).catch(() => undefined);
+                                    if (header === undefined) return;
+                                    const { id } = header;
+                                    if (
+                                        registry.agents.has(id)
+                                        || registry.startingIds.has(id)
+                                        || registry.trashingIds.has(id)
+                                        || inProcessWorker?.hasSession(id) === true
+                                    ) return;
+                                    await recover();
+                                });
+                            },
                         });
                         if (scan.recorded.length > 0) {
                             hostLog({

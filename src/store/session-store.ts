@@ -68,6 +68,11 @@ import {
 
 export const SESSION_FORMAT_VERSION = 1;
 
+export const CRASHED_TOOL_RESULT = "The host stopped before this tool call finished, "
+    + "so its result was not recorded and its effect is unknown. "
+    + "Check the workspace before relying on it or running it again.";
+export const CRASH_CUT_MESSAGE = "Vera crashed before this turn finished.";
+
 export interface SessionHeader {
     readonly type: "session";
     readonly version: typeof SESSION_FORMAT_VERSION;
@@ -163,6 +168,7 @@ export interface SessionHarnessMessageEntry {
     readonly afterMessageId: string | null;
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
+    readonly crashCut?: true;
 }
 
 export interface SessionNameEntry {
@@ -454,6 +460,7 @@ export class SessionStore {
             try {
                 await file.chmod(0o600);
                 await file.writeFile(jsonLine(header), "utf8");
+                await file.sync();
             } finally {
                 await file.close();
             }
@@ -621,7 +628,7 @@ export class SessionStore {
     }
 
     hasUnansweredDeliveryTurn(): boolean {
-        return hasOpenDeliveryTurn(this.activeEntries());
+        return hasOpenDeliveryTurn(this.activeEntries(), this.projection.harnessMessageEntries);
     }
 
     modelSettings(): ModelTurnSettings | undefined {
@@ -728,6 +735,45 @@ export class SessionStore {
             () => undefined,
             () => undefined,
         );
+        return result;
+    }
+
+    repairCrashedTurn(): Promise<boolean> {
+        const result = this.pendingAppend.then(async () => {
+            const active = this.activeEntries();
+            if (this.projection.agentFailure !== undefined
+                || !turnOpenAtTail(active, this.projection.harnessMessageEntries)) return false;
+            this.requireActive();
+            const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
+            if (active.at(-1)?.message.role !== "user") {
+                const callIndex = active.findLastIndex((entry) =>
+                    entry.message.role === "assistant"
+                    && entry.message.content.some((part) => part.type === "tool_call")
+                );
+                for (const entry of active.slice(Math.max(callIndex, 0))) {
+                    const message = entry.message;
+                    if (message.role === "assistant") {
+                        for (const part of message.content) {
+                            if (part.type === "tool_call") unanswered.set(part.id, part);
+                        }
+                    } else if (message.role === "tool_result") {
+                        unanswered.delete(message.toolCallId);
+                    }
+                }
+            }
+            for (const call of unanswered.values()) {
+                await this.commitMessage({
+                    role: "tool_result",
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    content: [{ type: "text", text: CRASHED_TOOL_RESULT }],
+                    isError: true,
+                });
+            }
+            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", true);
+            return true;
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
         return result;
     }
 
@@ -1165,6 +1211,7 @@ export class SessionStore {
     private async commitHarnessMessage(
         requestedText: string,
         tone: "primary" | "soft" | "error",
+        crashCut?: true,
     ): Promise<SessionHarnessMessageEntry> {
         const text = requestedText.trim();
         if (text.length === 0) {
@@ -1176,6 +1223,7 @@ export class SessionStore {
             afterMessageId: this.projection.leafId,
             text,
             tone,
+            ...(crashCut === true ? { crashCut } : {}),
         };
         await this.appendRecord(entry);
         this.projection.harnessMessageEntries.push(entry);
@@ -1714,6 +1762,12 @@ export interface SessionTurnState {
     readonly turnOpen: boolean;
 }
 
+export async function openSessionForRecovery(path: string): Promise<SessionStore> {
+    const store = await SessionStore.open(path);
+    await store.repairCrashedTurn();
+    return store;
+}
+
 // Reads the file without repairing it. Only the active branch counts.
 export async function readSessionTurnState(
     path: string,
@@ -1726,23 +1780,36 @@ export async function readSessionTurnState(
     );
     return {
         sessionId: loaded.header.id,
-        turnOpen: turnOpenAtTail(active),
+        turnOpen: turnOpenAtTail(active, loaded.state.harnessMessageEntries),
     };
 }
 
 // A turn is open when the branch ends on something the model has not answered.
-function turnOpenAtTail(entries: readonly SessionMessageEntry[]): boolean {
-    const tail = entries.at(-1)?.message;
-    if (tail === undefined) return false;
+function turnOpenAtTail(
+    entries: readonly SessionMessageEntry[],
+    harness: readonly SessionHarnessMessageEntry[],
+): boolean {
+    const last = entries.at(-1);
+    if (last === undefined || harness.some((entry) =>
+        entry.crashCut === true && entry.afterMessageId === last.id
+    )) return false;
+    const tail = last.message;
     if (tail.role === "user" || tail.role === "tool_result") return true;
     return tail.role === "assistant" && tail.stopReason === "tool_use";
 }
 
-function hasOpenDeliveryTurn(entries: readonly SessionMessageEntry[]): boolean {
+function hasOpenDeliveryTurn(
+    entries: readonly SessionMessageEntry[],
+    harness: readonly SessionHarnessMessageEntry[],
+): boolean {
     const lastDeliveryIndex = entries.findLastIndex(
         (entry) => entry.deliveryId !== undefined,
     );
     if (lastDeliveryIndex === -1) return false;
+    if (harness.some((message) =>
+        message.crashCut === true
+        && entries.findIndex((entry) => entry.id === message.afterMessageId) >= lastDeliveryIndex
+    )) return false;
     return !entries.slice(lastDeliveryIndex + 1).some(
         (entry) =>
             entry.message.role === "assistant"
@@ -1789,6 +1856,8 @@ function projectHarnessMessages(
         if (
             afterMessage > 0
             && active[afterMessage - 1]?.message.internal === true
+            && entry.crashCut !== true
+            && !(entry.text === CRASH_CUT_MESSAGE && entry.tone === "soft")
         ) {
             const nextVisibleUser = active.findIndex((message, index) =>
                 index >= afterMessage
@@ -2103,9 +2172,11 @@ export function ingestSessionRecord(
         return;
     }
     if (value.type === "harness_message") {
-        harnessMessageEntries.push(
-            parseHarnessMessageEntry(path, lineNumber, value),
-        );
+        const entry = parseHarnessMessageEntry(path, lineNumber, value);
+        if (entry.crashCut === true && entry.afterMessageId !== state.leafId) {
+            throw invalidSession(path, `line ${lineNumber} has an invalid crash cut position`);
+        }
+        harnessMessageEntries.push(entry);
         return;
     }
     if (value.type === "session_name") {
@@ -2595,6 +2666,7 @@ function parseHarnessMessageEntry(
         || (value.tone !== "primary"
             && value.tone !== "soft"
             && value.tone !== "error")
+        || (value.crashCut !== undefined && value.crashCut !== true)
     ) {
         throw invalidSession(
             path,

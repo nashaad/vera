@@ -45,16 +45,20 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
             return session === undefined ? [] : [session];
         }),
         tree: async (id) => tree(id),
-        async find(id) {
-            const agent = await host.handlers.findAgent(id);
+        async find(id, reserved) {
+            const agent = reserved
+                ? await host.handlers.findAgentReserved(id)
+                : await host.handlers.findAgent(id);
             return agent === undefined || agent.closed ? undefined : describe(agent.id);
         },
         async create(options) {
             const agent = await host.handlers.createAgent(options);
             return describe(agent.id);
         },
-        async resume(path, ownershipTransfer) {
-            const agent = await host.handlers.resumeAgent(path, ownershipTransfer);
+        async resume(path, options) {
+            const agent = options?.reserved
+                ? await host.handlers.resumeAgentReserved(path, options.ownershipTransfer)
+                : await host.handlers.resumeAgent(path, options?.ownershipTransfer);
             return describe(agent.id);
         },
         async release(id) {
@@ -83,8 +87,12 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         async list() {
             return await host.handlers.listAgents();
         },
-        rename: (id, name) => host.handlers.renameSession(id, name),
-        trash: (id) => host.handlers.trashSession(id),
+        rename: (id, name, reserved) => reserved
+            ? host.handlers.renameSessionReserved(id, name)
+            : host.handlers.renameSession(id, name),
+        trash: (id, reserved) => reserved
+            ? host.handlers.trashSessionReserved(id)
+            : host.handlers.trashSession(id),
         close: (id, reason) => host.handlers.closeAgent(id, reason),
         block: (request) => host.handlers.blockSession(request),
         unblock: (request) => host.handlers.unblockSession(request),
