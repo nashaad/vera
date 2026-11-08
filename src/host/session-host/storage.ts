@@ -27,15 +27,30 @@ export async function withSessionReservation<T>(
     inFlight: RestoringSessions,
     run: (canonicalPath: string) => Promise<T>,
 ): Promise<T> {
-    const canonicalPath = await realpath(sessionPath);
-    const previous = inFlight.get(canonicalPath);
-    const result = (previous ?? Promise.resolve()).then(() => run(canonicalPath));
+    return await withSessionReservations([sessionPath], inFlight, async ([canonicalPath]) =>
+        await run(canonicalPath!)
+    );
+}
+
+export async function withSessionReservations<T>(
+    sessionPaths: readonly string[],
+    inFlight: RestoringSessions,
+    run: (canonicalPaths: readonly string[]) => Promise<T>,
+): Promise<T> {
+    const canonicalPaths = [...new Set(await Promise.all(sessionPaths.map((path) => realpath(path))))];
+    const previous = canonicalPaths.flatMap((path) => {
+        const pending = inFlight.get(path);
+        return pending === undefined ? [] : [pending];
+    });
+    const result = Promise.all(previous).then(() => run(canonicalPaths));
     const settled = result.then(() => undefined, () => undefined);
-    inFlight.set(canonicalPath, settled);
+    for (const path of canonicalPaths) inFlight.set(path, settled);
     try {
         return await result;
     } finally {
-        if (inFlight.get(canonicalPath) === settled) inFlight.delete(canonicalPath);
+        for (const path of canonicalPaths) {
+            if (inFlight.get(path) === settled) inFlight.delete(path);
+        }
     }
 }
 
@@ -43,13 +58,18 @@ export async function resumeOrFind(
     registry: AgentRegistry,
     sessionPath: string,
     inFlight: RestoringSessions = new Map(),
+    ownershipTransfer = false,
 ): Promise<ResidentAgent> {
     return await withSessionReservation(sessionPath, inFlight, async (canonicalPath) =>
-        await resumeReserved(registry, canonicalPath)
+        await resumeReserved(registry, canonicalPath, ownershipTransfer)
     );
 }
 
-export async function resumeReserved(registry: AgentRegistry, sessionPath: string): Promise<ResidentAgent> {
+export async function resumeReserved(
+    registry: AgentRegistry,
+    sessionPath: string,
+    ownershipTransfer = false,
+): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
     for (const summary of registry.list()) {
         let existingPath = summary.session_path;
@@ -61,7 +81,7 @@ export async function resumeReserved(registry: AgentRegistry, sessionPath: strin
             if (agent !== undefined) return agent;
         }
     }
-    return await registry.resume({ sessionPath: canonicalPath });
+    return await registry.resume({ sessionPath: canonicalPath, ownershipTransfer });
 }
 
 export async function findOrRestoreAgent(

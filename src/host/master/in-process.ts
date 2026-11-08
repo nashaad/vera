@@ -5,9 +5,9 @@ import type { HostIdentity, HostRequest } from "../protocol.ts";
 import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "../session-host.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
-import { withSessionReservation } from "../session-host/storage.ts";
+import { withSessionReservation, withSessionReservations } from "../session-host/storage.ts";
 import type { StopWaitTarget } from "../stop-when-idle.ts";
-import { HostRouter } from "./router.ts";
+import { HostRouter, SessionTransferReservationsChanged } from "./router.ts";
 import type { SessionOwner } from "./roster.ts";
 
 export function inProcessWorkerSocket(home: string): string {
@@ -42,7 +42,7 @@ export interface InProcessWorker {
 
 export async function prepareInProcessWorker(options: InProcessWorkerOptions): Promise<InProcessWorker> {
     const restoringSessions = options.sessionOptions.restoringSessions ?? new Map();
-    const worker = await startSessionHost({ ...options.sessionOptions, restoringSessions });
+    const worker = await startSessionHost({ ...options.sessionOptions, restoringSessions, sessionWorker: true });
     worker.startStorage();
     const masterEndpoint = sessionEndpoint(options.master);
     const workerEndpoint = sessionEndpoint(worker);
@@ -54,6 +54,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         buildId: options.buildId,
     });
     let workerReady = false;
+    options.master.setExtensionSessions(router);
     const stopMasterTracking = options.master.handlers.onRosterChanged(() => {
         void masterEndpoint.residents().then((sessions) => router.observe("host", sessions));
     });
@@ -80,6 +81,27 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
             throw error;
         }
     };
+    const resumeSession = async (path: string) => {
+        while (true) {
+            const inspected = await masterEndpoint.inspect(path);
+            const tree = await masterEndpoint.tree(inspected.id);
+            const members = await Promise.all(tree.map((id) => masterEndpoint.resident(id)));
+            const paths = [inspected.sessionPath, ...members.flatMap((member) =>
+                member === undefined ? [] : [member.sessionPath]
+            )];
+            try {
+                return await withSessionReservations(paths, restoringSessions, async (canonicalPaths) => {
+                    if (workerReady) return await router.resume(inspected.sessionPath, new Set(canonicalPaths));
+                    const session = await masterEndpoint.resume(inspected.sessionPath, { reserved: true });
+                    router.observe("host", [session]);
+                    return session;
+                });
+            } catch (error) {
+                if (error instanceof SessionTransferReservationsChanged) continue;
+                throw error;
+            }
+        }
+    };
     const common = {
         locateAgent: (id: string) => reserveAgent(id, (reserved) => router.locate(id, reserved)),
         createAgent: async (request: Parameters<HostRouter["create"]>[0]) => {
@@ -88,14 +110,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
             router.observe("host", [session]);
             return session;
         },
-        resumeAgent: (path: string) => withSessionReservation(path, restoringSessions, async (canonical) =>
-            workerReady
-                ? await router.resume(canonical, true)
-                : await masterEndpoint.resume(canonical, true).then((session) => {
-                    router.observe("host", [session]);
-                    return session;
-                })
-        ),
+        resumeAgent: resumeSession,
         listAgents: () => router.list(),
         onRosterChanged,
         renameSession: (id: string, name: string | null) => reserveAgent(id, (reserved) => router.rename(id, name, reserved)),
@@ -160,6 +175,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         async close() {
+            options.master.setExtensionSessions(options.master.localExtensionSessions);
             stopMasterTracking();
             stopWorkerTracking();
             try {

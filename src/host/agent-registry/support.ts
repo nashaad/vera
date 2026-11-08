@@ -472,6 +472,7 @@ export interface CreateRegisteredAgentOptions {
 export interface ResumeRegisteredAgentOptions {
     readonly sessionPath: string;
     readonly eventLogPath?: string;
+    readonly ownershipTransfer?: boolean;
 }
 
 export interface BranchRegisteredAgentOptions {

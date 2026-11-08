@@ -5,6 +5,9 @@ import { userFacingMessage } from "../../user-facing-error.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import type { SessionFactName } from "../../store/session-facts.ts";
 import type { SessionSearchQuery, SessionSearchResults } from "../../store/session-search.ts";
+import type { ExtensionSessionAskCall, ExtensionInvestigateCall } from "../../extensions/host-services.ts";
+import type { VeraInvestigateResult, VeraSessionAskResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
+import type { ExtensionSessionServices } from "../session-host/types.ts";
 import { mergeRoster, type SessionOwner } from "./roster.ts";
 
 export interface RoutedSession {
@@ -13,7 +16,14 @@ export interface RoutedSession {
     readonly sessionPath: string;
 }
 
-export interface SessionEndpoint {
+export interface SessionResumeOptions {
+    readonly reserved?: boolean;
+    readonly ownershipTransfer?: boolean;
+}
+
+export class SessionTransferReservationsChanged extends Error {}
+
+export interface SessionEndpoint extends ExtensionSessionServices {
     inspect(path: string): Promise<{ readonly id: string; readonly sessionPath: string }>;
     resident(id: string): Promise<RoutedSession | undefined>;
     residents(): Promise<readonly RoutedSession[]>;
@@ -21,7 +31,7 @@ export interface SessionEndpoint {
     find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
         "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession>;
-    resume(path: string, reserved?: boolean): Promise<RoutedSession>;
+    resume(path: string, options?: SessionResumeOptions): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[]>;
     list(): Promise<readonly RegisteredAgentSummary[]>;
     rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
@@ -42,9 +52,10 @@ export interface HostRouterOptions {
     readonly buildId: string;
 }
 
-export class HostRouter {
+export class HostRouter implements ExtensionSessionServices {
     private readonly owners = new Map<string, SessionOwner>();
     private readonly branches = new Map<string, number>();
+    private readonly extensionOperations = new Map<string, number>();
     private pending: Promise<void> = Promise.resolve();
 
     constructor(private readonly options: HostRouterOptions) {}
@@ -65,9 +76,12 @@ export class HostRouter {
         });
     }
 
-    resume(path: string, reserved = false): Promise<RoutedSession> {
+    resume(path: string, reservedPaths?: ReadonlySet<string>): Promise<RoutedSession> {
         return this.serial(async () => {
             const inspected = await this.options.worker.inspect(path);
+            if (reservedPaths !== undefined && !reservedPaths.has(inspected.sessionPath)) {
+                throw new SessionTransferReservationsChanged();
+            }
             const [existing, master] = await Promise.all([
                 this.options.worker.resident(inspected.id),
                 this.options.master.resident(inspected.id),
@@ -82,19 +96,50 @@ export class HostRouter {
                 this.owners.set(inspected.id, "w0");
                 return existing;
             }
+            if (this.extensionOperations.has(inspected.id)) {
+                throw new Error("Session cannot be moved while active");
+            }
+            let transferred: readonly RoutedSession[] = [];
             if (master !== undefined) {
-                if ((await this.options.master.tree(inspected.id)).some((id) => this.branches.has(id))) {
+                const tree = await this.options.master.tree(inspected.id);
+                if (tree.some((id) => this.branches.has(id))) {
                     throw new Error("Session cannot be moved while branching");
+                }
+                if (tree.some((id) => this.extensionOperations.has(id))) {
+                    throw new Error("Session cannot be moved while active");
                 }
                 if ((await this.options.master.inspect(master.sessionPath)).sessionPath !== inspected.sessionPath) {
                     throw new Error("Session id is already in use");
+                }
+                const members = await Promise.all(tree.map((id) => this.options.master.resident(id)));
+                transferred = members.filter((member): member is RoutedSession => member !== undefined);
+                if (reservedPaths !== undefined) {
+                    transferred = await Promise.all(transferred.map(async (member) => ({
+                        ...member,
+                        sessionPath: (await this.options.master.inspect(member.sessionPath)).sessionPath,
+                    })));
+                    if (transferred.some((member) => !reservedPaths.has(member.sessionPath))) {
+                        throw new SessionTransferReservationsChanged();
+                    }
                 }
                 const released = await this.options.master.release(inspected.id);
                 for (const id of released) this.owners.set(id, "w0");
             }
             this.owners.set(inspected.id, "w0");
             try {
-                return await this.options.worker.resume(inspected.sessionPath, reserved);
+                const session = await this.options.worker.resume(inspected.sessionPath, {
+                    reserved: reservedPaths !== undefined,
+                    ownershipTransfer: master !== undefined,
+                });
+                for (const member of transferred) {
+                    if (member.id !== inspected.id) {
+                        await this.options.worker.resume(member.sessionPath, {
+                            reserved: reservedPaths !== undefined,
+                            ownershipTransfer: true,
+                        });
+                    }
+                }
+                return session;
             } catch (error) {
                 this.owners.delete(inspected.id);
                 throw error;
@@ -159,6 +204,22 @@ export class HostRouter {
         const count = this.branches.get(id);
         if (count === undefined || count <= 1) this.branches.delete(id);
         else this.branches.set(id, count - 1);
+    }
+
+    setSessionTitle(id: string, title: string): Promise<VeraSessionTitleOutcome> {
+        return this.extensionOperation(id, (endpoint) => endpoint.setSessionTitle(id, title));
+    }
+
+    sendToSession(extensionId: string, id: string, text: string): Promise<VeraSessionSendOutcome> {
+        return this.extensionOperation(id, (endpoint) => endpoint.sendToSession(extensionId, id, text));
+    }
+
+    askSession(call: ExtensionSessionAskCall, signal: AbortSignal): Promise<VeraSessionAskResult> {
+        return this.extensionOperation(call.sessionId, (endpoint) => endpoint.askSession(call, signal));
+    }
+
+    investigate(call: ExtensionInvestigateCall, signal: AbortSignal): Promise<VeraInvestigateResult> {
+        return this.extensionOperation(call.sessionId, (endpoint) => endpoint.investigate(call, signal));
     }
 
     rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
@@ -244,6 +305,21 @@ export class HostRouter {
 
     private endpoint(owner: SessionOwner): SessionEndpoint {
         return owner === "host" ? this.options.master : this.options.worker;
+    }
+
+    private async extensionOperation<T>(id: string, run: (endpoint: SessionEndpoint) => Promise<T>): Promise<T> {
+        const owner = await this.serial(async () => {
+            const assigned = await this.resolvedOwner(id) ?? "host";
+            this.extensionOperations.set(id, (this.extensionOperations.get(id) ?? 0) + 1);
+            return assigned;
+        });
+        try {
+            return await run(this.endpoint(owner));
+        } finally {
+            const count = this.extensionOperations.get(id);
+            if (count === undefined || count <= 1) this.extensionOperations.delete(id);
+            else this.extensionOperations.set(id, count - 1);
+        }
     }
 
     private async owner(id: string): Promise<SessionOwner | undefined> {

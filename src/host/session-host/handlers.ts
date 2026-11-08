@@ -1,4 +1,5 @@
 import type { HostLog } from "../host-log.ts";
+import type { SessionEndReason } from "../../sdk/hooks.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -26,7 +27,7 @@ import {
 } from "../session-import-service.ts";
 import { buildWorkIndex, type WorkIndexSnapshot } from "../work-index.ts";
 
-import type { StartHostServerOptions } from "../server.ts";
+import type { CloseAgentOutcome, StartHostServerOptions } from "../server.ts";
 import {
     commandSessionPath,
     enrichSessionsWithFacts,
@@ -74,12 +75,13 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "onAgentStartFailure"
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
-    readonly resumeAgent: (sessionPath: string) => Promise<ResidentAgent>;
-    readonly resumeAgentReserved: (sessionPath: string) => Promise<ResidentAgent>;
+    readonly resumeAgent: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
+    readonly resumeAgentReserved: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
     readonly findAgentReserved: (agentId: string) => Promise<ResidentAgent | undefined>;
     readonly storedSessionPath: (agentId: string) => Promise<string | undefined>;
     readonly renameSessionReserved: (agentId: string, name: string | null) => Promise<RenameSessionOutcome>;
     readonly trashSessionReserved: (agentId: string) => Promise<"trashed" | "busy" | "not_found" | "failed">;
+    readonly releaseAgent: (id: string) => Promise<CloseAgentOutcome>;
 }
 
 interface SessionHandlerOptions {
@@ -105,8 +107,10 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         forgetRestartRecords, recentScheduleRuns, onWorkChanged, hostLog } = options;
     const restoringSessions = options.restoringSessions ?? new Map();
-    const resumeSession = (sessionPath: string) => resumeOrFind(registry, sessionPath, restoringSessions);
-    const resumeSessionReserved = (sessionPath: string) => resumeReserved(registry, sessionPath);
+    const resumeSession = (sessionPath: string, ownershipTransfer = false) =>
+        resumeOrFind(registry, sessionPath, restoringSessions, ownershipTransfer);
+    const resumeSessionReserved = (sessionPath: string, ownershipTransfer = false) =>
+        resumeReserved(registry, sessionPath, ownershipTransfer);
     const findSession = (agentId: string, resume: (path: string) => Promise<ResidentAgent>) =>
         findOrRestoreAgent(registry, agentId, sessionDirectory, storedSessions, resume);
     const importableSessions = new ImportableSessionScanner(options.importRoots ?? importRootsFrom(process.env));
@@ -157,6 +161,21 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         const renamed = await renameStoredSession(sessionPath, name);
         if (renamed.status === "renamed") await indexStoredSession(sessionPath, storedSessionIndex);
         return renamed;
+    };
+    const closeSession = async (targetId: string, reason?: SessionEndReason, transfer = false): Promise<CloseAgentOutcome> => {
+        const outcome = transfer
+            ? await registry.releaseAgentTree(targetId)
+            : await registry.closeAgentTree(targetId, reason);
+        if (outcome.status === "busy") return { status: "busy" } as const;
+        if (outcome.status === "closed" && outcome.sessionRetained) {
+            await indexClosedMembers(registry, outcome.closed, storedSessionIndex);
+        }
+        if (outcome.status === "closed") {
+            return { status: "closed", sessionRetained: outcome.sessionRetained } as const;
+        }
+        return await storedSessionExists(targetId, sessionDirectory, storedSessionIndex)
+            ? { status: "closed", sessionRetained: true } as const
+            : { status: "not_found" } as const;
     };
     return {
         findAgent: (agentId) => findSession(agentId, resumeSession),
@@ -234,32 +253,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
         trashSession: (targetId) => withTarget(targetId, () => trashSessionReserved(targetId)),
         trashSessionReserved,
-        closeAgent: async (targetId, reason) => {
-            const outcome = await registry.closeAgentTree(targetId, reason);
-            if (outcome.status === "busy") {
-                return { status: "busy" };
-            }
-            if (outcome.status === "closed" && outcome.sessionRetained) {
-                await indexClosedMembers(
-                    registry,
-                    outcome.closed,
-                    storedSessionIndex,
-                );
-            }
-            if (outcome.status === "closed") {
-                return {
-                    status: "closed",
-                    sessionRetained: outcome.sessionRetained,
-                };
-            }
-            return await storedSessionExists(
-                targetId,
-                sessionDirectory,
-                storedSessionIndex,
-            )
-                ? { status: "closed", sessionRetained: true }
-                : { status: "not_found" };
-        },
+        closeAgent: (targetId, reason) => closeSession(targetId, reason),
+        releaseAgent: (targetId) => closeSession(targetId, undefined, true),
         blockSession: (request) => sessionBlocks.block(request),
         unblockSession: (request) => sessionBlocks.unblock(request),
         renameSession: (targetId, name) => withTarget(targetId, () => renameSessionReserved(targetId, name)),

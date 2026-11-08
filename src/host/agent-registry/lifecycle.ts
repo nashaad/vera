@@ -51,8 +51,15 @@ export async function closeAgentTree(reg: AgentRegistry, id: string, reason: Ses
         return closeTree(reg, id, reason);
     }
 
+export async function releaseAgentTree(reg: AgentRegistry, id: string): Promise<CloseAgentTreeResult> {
+        if (reg.trashingIds.has(id)) {
+            return { status: "busy", sessionRetained: true, closed: [] };
+        }
+        return closeTree(reg, id, undefined);
+    }
+
 // Unguarded: a trash closes the tree it holds.
-async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason): Promise<CloseAgentTreeResult> {
+async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason | undefined): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
         const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
@@ -82,7 +89,7 @@ async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReaso
         }
         const closed: ClosedMember[] = [];
         for (const [memberId, entry] of quiesced) {
-            announceSessionEnd(reg, entry, reason);
+            if (reason !== undefined) announceSessionEnd(reg, entry, reason);
             await reg.reapClosedAgent(memberId, entry);
             if (!entry.ephemeral) {
                 closed.push({ id: memberId, sessionPath: entry.store.path });
@@ -325,7 +332,7 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
             ) throw new ProviderUnavailableError(storedProvider);
             const parentId = store.header.delegation?.parentId ?? store.header.parentId;
             if (parentId !== undefined) requireNotTrashing(reg, parentId);
-            await store.repairCrashedTurn();
+            if (options.ownershipTransfer !== true) await store.repairCrashedTurn();
             return await reg.start(
                 store,
                 parentId === undefined ? "interactive" : "background",
@@ -335,6 +342,7 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
                 false,
                 false,
                 "resume",
+                options.ownershipTransfer === true,
             );
         } catch (error) {
             // The session file is the user's conversation, so it stays.
