@@ -67,6 +67,7 @@ export function createConfiguredTuiAgentClients(
         buildId,
         interactive: true,
         clientId,
+        failOnDisconnect: true,
     });
     const pairedSocket = () => pairedHostSocket(socketPath(), buildId);
     return {

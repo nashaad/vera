@@ -142,6 +142,7 @@ export interface TuiRuntime {
     clientSurfaceReady: boolean;
     transcriptSeeded: boolean;
     pendingTranscriptReseed: boolean;
+    reconnectHistoryPending: boolean;
     deferredKeymapNotices: string[];
     pendingBackNotice: string | undefined;
     pendingSessionSwitchNotice: string | undefined;
