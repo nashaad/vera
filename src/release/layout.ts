@@ -13,6 +13,7 @@ export function userHome(): string {
 export const RELEASE_CLI_NAME = "vera";
 export const RELEASE_HOST_NAME = "host";
 export const RELEASE_WORKER_NAME = "worker";
+export const RELEASE_SESSION_WORKER_NAME = "session-worker";
 export const RELEASE_ANNEX_NAME = "vera-annex";
 export const RELEASE_SUPERVISOR_NAME = "vera-supervisor";
 export const RELEASE_BUN_NAME = "bun";

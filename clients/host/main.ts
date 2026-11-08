@@ -34,9 +34,17 @@ try {
     throw error;
 }
 
+const pool = process.argv.includes("--pool");
+const skipStartupDiscovery = process.argv.includes("--no-discovery");
+if ((pool || skipStartupDiscovery) && !processIsDevelopmentInstance()) {
+    throw new Error("Session worker flags require a development instance");
+}
+
 const start = (): ReturnType<typeof startResidentHost> =>
     startResidentHost({
         config,
+        ...(pool ? { processWorker: true } : {}),
+        ...(skipStartupDiscovery ? { skipStartupDiscovery: true } : {}),
     });
 
 let host;
@@ -61,6 +69,7 @@ try {
 }
 
 clearBootFailures();
+if (pool) process.stdout.write("Session worker ready\n");
 installLiveProcess("host");
 const developmentSource = noteDevelopmentInstance();
 const removeCrashGuard = installHostCrashGuard();

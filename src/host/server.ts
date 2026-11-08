@@ -260,8 +260,8 @@ export interface StartHostServerOptions {
         signal: AbortSignal,
         sessionId?: string,
     ) => Promise<unknown>;
-    readonly canShutdown?: () => boolean;
-    readonly canReplace?: () => boolean;
+    readonly canShutdown?: () => boolean | Promise<boolean>;
+    readonly canReplace?: () => boolean | Promise<boolean>;
     readonly onShutdownAccepted?: () => void | Promise<void>;
     readonly onAgentStartFailure?: (
         operation: "create" | "resume",
@@ -338,8 +338,10 @@ async function startListener(
         pid: identity.pid,
     });
     const sockets = new Set<Socket>();
+    const closeAgent = options.closeAgent ?? (() => Promise.resolve({ status: "not_found" as const }));
     const interactiveAttachments = options.attachmentCoordinator ?? new InteractiveAttachmentCoordinator(
         async () => options.readAgentTree ?? ((agentId) => [agentId]),
+        (id) => closeAgent(id, "detached"),
     );
     let shutdownFenced = false;
     let activeAttachments = 0;
@@ -354,9 +356,9 @@ async function startListener(
             activeServerOperations -= 1;
         };
     };
-    const requestShutdown = (
+    const requestShutdown = async (
         requested: HostIdentity & { readonly requester_protocol_version: number },
-    ): ShutdownIfIdleResponse => {
+    ): Promise<ShutdownIfIdleResponse> => {
         if (
             requested.pid !== identity.pid
             || requested.started_at !== identity.started_at
@@ -380,7 +382,8 @@ async function startListener(
         let idle = false;
         try {
             idle = activeAttachments === 0
-                && (options.canShutdown?.() ?? true);
+                && await (options.canShutdown?.() ?? true)
+                && activeAttachments === 0;
         } catch {
             idle = false;
         }
@@ -405,9 +408,9 @@ async function startListener(
             activeAttachments -= 1;
         };
     };
-    const requestReplacement = (
+    const requestReplacement = async (
         requested: HostIdentity & { readonly requester_protocol_version: number },
-    ): ShutdownForReplacementResponse => {
+    ): Promise<ShutdownForReplacementResponse> => {
         if (
             requested.pid !== identity.pid
             || requested.started_at !== identity.started_at
@@ -426,16 +429,17 @@ async function startListener(
         if (shutdownFenced || activeServerOperations > 0) {
             return { type: "shutdown_for_replacement_refused", reason: "busy" };
         }
+        shutdownFenced = true;
         let replaceable = false;
         try {
-            replaceable = options.canReplace?.() ?? false;
+            replaceable = await (options.canReplace?.() ?? false) && activeServerOperations === 0;
         } catch {
             replaceable = false;
         }
         if (!replaceable) {
+            shutdownFenced = false;
             return { type: "shutdown_for_replacement_refused", reason: "busy" };
         }
-        shutdownFenced = true;
         return {
             type: "shutdown_for_replacement_accepted",
             pid: identity.pid,
@@ -483,8 +487,7 @@ async function startListener(
                 turns: 0,
             })),
             options.trashSession ?? (() => Promise.resolve("not_found")),
-            options.closeAgent
-                ?? (() => Promise.resolve({ status: "not_found" as const })),
+            closeAgent,
             options.blockSession
                 ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
             options.unblockSession
@@ -702,10 +705,10 @@ function receiveConnection(
     isShutdownFenced: () => boolean,
     requestShutdown: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
-    ) => ShutdownIfIdleResponse,
+    ) => Promise<ShutdownIfIdleResponse>,
     requestReplacement: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
-    ) => ShutdownForReplacementResponse,
+    ) => Promise<ShutdownForReplacementResponse>,
     attachmentOpened: () => () => void,
     operationOpened: () => () => void,
     notifyShutdownAccepted: () => void,
@@ -836,11 +839,14 @@ function receiveConnection(
         }
     });
     socket.once("error", () => socket.destroy());
+    socket.once("end", () => {
+        if (attachment !== undefined || forwarded !== undefined) socket.destroy();
+    });
     function abandonInteractive(leaseId: string, agentId: string): void {
         void interactiveAttachments.abandon(leaseId, agentId).catch(() => undefined);
         const timer = setTimeout(() => {
             void interactiveAttachments.ready(agentId).then((roots) => {
-                for (const rootId of roots) void closeAgent(rootId, "detached").catch(() => undefined);
+                for (const rootId of roots) void interactiveAttachments.closeIfReady(rootId).catch(() => undefined);
             }).catch(() => undefined);
         }, limits.interactiveDisconnectGraceMs);
         timer.unref();
@@ -975,7 +981,7 @@ function receiveConnection(
             extensionRequests.clear();
             extensionRequestIds.clear();
             void deferredStops.catch(() => []).then((roots) => {
-                for (const rootId of roots) void closeAgent(rootId, "detached").catch(() => undefined);
+                for (const rootId of roots) void interactiveAttachments.closeIfReady(rootId).catch(() => undefined);
                 return send({ type: "detached" });
             }).then(
                 () => socket.end(),
@@ -1020,19 +1026,28 @@ function receiveConnection(
             extensionRequests.clear();
             extensionRequestIds.clear();
             void interactiveAttachments.release(releasedLease, releasedAgentId, releasedClientId, message.policy).then(
-                async ({ remaining, rootsToStop }) => {
+                async ({ remaining, rootsToStop, ignoredLeaseIds }) => {
                     if (rootsToStop.length === 0) {
                         return send({
                             type: "attachment_released", agent_id: releasedAgentId,
                             outcome: "detached", remaining_interactive_clients: remaining,
                         });
                     }
-                    const results = await Promise.all(rootsToStop.map((rootId) => closeAgent(rootId, "detached")));
+                    const results = await Promise.all(rootsToStop.map((rootId) =>
+                        interactiveAttachments.closeIfReady(rootId, message.policy === "force_stop", ignoredLeaseIds)
+                    ));
+                    const attached = results.find((result) => result.status === "attached");
+                    if (attached?.status === "attached") {
+                        return send({
+                            type: "attachment_released", agent_id: releasedAgentId,
+                            outcome: "detached", remaining_interactive_clients: attached.remaining,
+                        });
+                    }
                     return results.every((result) => result.status === "closed")
                         ? send({
                             type: "attachment_released", agent_id: releasedAgentId, outcome: "stopped",
                             remaining_interactive_clients: remaining,
-                            session_retained: results.every((result) => result.sessionRetained !== false),
+                            session_retained: results.every((result) => result.status === "closed" && result.sessionRetained !== false),
                         })
                         : send({
                             type: "attachment_release_rejected", agent_id: releasedAgentId,
@@ -1332,37 +1347,37 @@ function receiveConnection(
         if (request?.type === "shutdown_if_idle") {
             clearDeadline();
             finished = true;
-            const response = requestShutdown({
+            void requestShutdown({
                 pid: request.pid,
                 started_at: request.started_at,
                 protocol_version: HOST_PROTOCOL_VERSION,
                 requester_protocol_version:
                     request.requester_protocol_version,
-            });
-            void send(response).then(() => {
+            }).then(async (response) => {
+                await send(response);
                 if (response.type === "shutdown_if_idle_accepted") {
                     socket.once("close", notifyShutdownAccepted);
                 }
                 socket.end();
-            }, () => socket.destroy());
+            }).catch(() => socket.destroy());
             return;
         }
         if (request?.type === "shutdown_for_replacement") {
             clearDeadline();
             finished = true;
-            const response = requestReplacement({
+            void requestReplacement({
                 pid: request.pid,
                 started_at: request.started_at,
                 protocol_version: HOST_PROTOCOL_VERSION,
                 requester_protocol_version:
                     request.requester_protocol_version,
-            });
-            void send(response).then(() => {
+            }).then(async (response) => {
+                await send(response);
                 if (response.type === "shutdown_for_replacement_accepted") {
                     socket.once("close", notifyShutdownAccepted);
                 }
                 socket.end();
-            }, () => socket.destroy());
+            }).catch(() => socket.destroy());
             return;
         }
         if (request?.type === "restart_records") {
@@ -2015,6 +2030,7 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (socket.destroyed || socket.readableEnded) return;
         if (request.after_seq !== undefined
             && (!request.requested_capabilities?.includes(
                 HOST_CAPABILITY_AGENT_ATTACH_RESUME,
@@ -2040,6 +2056,28 @@ function receiveConnection(
         const paging = negotiated.includes(
             HOST_CAPABILITY_AGENT_HISTORY_PAGING,
         );
+        let lease: string | undefined;
+        if (request.attachment_kind === "interactive") {
+            try {
+                lease = await interactiveAttachments.open(agent.id, request.client_id!);
+            } catch {
+                finished = true;
+                void send({ type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" })
+                    .then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            if (socket.destroyed || finished || agent.closed) {
+                void interactiveAttachments.detach(lease, agent.id).then((roots) => {
+                    for (const rootId of roots) void interactiveAttachments.closeIfReady(rootId).catch(() => undefined);
+                }).catch(() => undefined);
+                if (!socket.destroyed && !finished) {
+                    finished = true;
+                    void send({ type: "attach_failed", agent_id: request.agent_id, reason: "unavailable" })
+                        .then(() => socket.end(), () => socket.destroy());
+                }
+                return;
+            }
+        }
         let attached: AgentAttachment;
         try {
             attached = agent.attach(request.after_seq, {
@@ -2047,6 +2085,11 @@ function receiveConnection(
                 forceCheckpoint: paging,
             });
         } catch {
+            if (lease !== undefined) {
+                void interactiveAttachments.detach(lease, agent.id).then((roots) => {
+                    for (const rootId of roots) void interactiveAttachments.closeIfReady(rootId).catch(() => undefined);
+                }).catch(() => undefined);
+            }
             finished = true;
             void send({
                 type: "attach_failed",
@@ -2063,17 +2106,7 @@ function receiveConnection(
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
         attachedCapabilities = negotiated;
-        if (request.attachment_kind === "interactive") {
-            const lease = await interactiveAttachments.open(
-                agent.id,
-                request.client_id!,
-            );
-            if (socket.destroyed || finished || attachment === undefined) {
-                abandonInteractive(lease, agent.id);
-                return;
-            }
-            interactiveAttachment = lease;
-        }
+        interactiveAttachment = lease;
         sentBackgroundAgents = readBackgroundAgents(attachedId);
         const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
         const wantsSessionTitle = negotiated.includes(

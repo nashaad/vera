@@ -14,13 +14,18 @@ export function forwardSessionConnection(
             if (!connected) fail(new Error("Client disconnected"));
         };
         client.once("close", clientClosed);
+        client.once("end", clientClosed);
         upstream.once("error", fail);
         upstream.once("connect", () => {
             connected = true;
             clearTimeout(timer);
             upstream.off("error", fail);
             upstream.on("error", () => client.destroy());
-            upstream.once("close", () => client.removeListener("close", clientClosed));
+            upstream.once("close", () => {
+                client.removeListener("close", clientClosed);
+                client.removeListener("end", clientClosed);
+                if (!upstream.readableEnded) client.destroy();
+            });
             upstream.pipe(client);
             upstream.write(`${firstLine}\n`);
             resolve(upstream);
@@ -28,6 +33,7 @@ export function forwardSessionConnection(
         function fail(error: Error): void {
             clearTimeout(timer);
             client.removeListener("close", clientClosed);
+            client.removeListener("end", clientClosed);
             upstream.destroy();
             reject(error);
         }

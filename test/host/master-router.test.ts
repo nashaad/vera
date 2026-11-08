@@ -120,6 +120,108 @@ test("closing a cross-owner tree quiesces it before ordered lifecycle events", a
     expect(events.slice(4)).toEqual(["idle parent", "idle grandchild", "idle child"]);
 });
 
+test("blocking aborts a session that becomes resident during the block", async () => {
+    const root = { id: "root", workspace: "/work", sessionPath: "/sessions/root.jsonl" };
+    const late = { id: "late", workspace: "/work", sessionPath: "/sessions/late.jsonl", parentId: root.id };
+    const master = endpoint(new Map([[root.id, root]]));
+    const workerSessions = new Map<string, RoutedSession>();
+    const worker = endpoint(workerSessions);
+    const writing = deferred();
+    const resume = deferred();
+    let aborted = false;
+    master.blockHasSession = async () => true;
+    master.blockWrite = async () => {
+        writing.resolve();
+        await resume.promise;
+        return true;
+    };
+    worker.blockAbort = async (ids) => {
+        if (ids.includes(late.id) && workerSessions.has(late.id)) aborted = true;
+    };
+    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const blocking = router.block({ type: "block_session", target_agent_id: root.id, session_ids: [late.id], reason: null });
+    try {
+        await writing.promise;
+        workerSessions.set(late.id, late);
+        resume.resolve();
+        expect(await blocking).toEqual({ status: "blocked", sessionIds: [root.id, late.id] });
+        expect(aborted).toBe(true);
+    } finally {
+        resume.resolve();
+        await blocking.catch(() => {});
+    }
+});
+
+for (const childOwner of ["host", "worker"] as const) {
+    test(`blocking includes late descendants on the ${childOwner}`, async () => {
+        const root = { id: "root", workspace: "/work", sessionPath: "/sessions/root.jsonl" };
+        const child = { id: "late", workspace: "/work", sessionPath: "/sessions/late.jsonl", parentId: root.id };
+        const grandchild = { id: "later", workspace: "/work", sessionPath: "/sessions/later.jsonl", parentId: child.id };
+        const hostSessions = new Map<string, RoutedSession>([[root.id, root]]);
+        const workerSessions = new Map<string, RoutedSession>();
+        const master = endpoint(hostSessions);
+        const worker = endpoint(workerSessions);
+        const rootWritten = deferred();
+        const writes: string[][] = [];
+        const aborted = new Set<string>();
+        master.blockHasSession = async () => true;
+        master.blockWrite = async (_request, ids) => {
+            writes.push([...ids]);
+            if (writes.length === 1) rootWritten.resolve();
+            if (ids.includes(child.id)) {
+                (childOwner === "host" ? workerSessions : hostSessions).set(grandchild.id, grandchild);
+            }
+            return true;
+        };
+        for (const [target, owned] of [[master, hostSessions], [worker, workerSessions]] as const) {
+            target.blockAbort = async (ids) => {
+                for (const id of ids) if (owned.has(id)) aborted.add(id);
+            };
+        }
+        const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+        expect(await router.reserveSubagentStart(root.id, 1)).toBe(true);
+        const blocking = router.block({ type: "block_session", target_agent_id: root.id, session_ids: [], reason: null });
+        try {
+            await rootWritten.promise;
+            expect(await Promise.race([blocking.then(() => "finished"), Bun.sleep(20).then(() => "waiting")])).toBe("waiting");
+            (childOwner === "host" ? hostSessions : workerSessions).set(child.id, child);
+            await router.releaseSubagentStart(root.id);
+            expect(await blocking).toEqual({ status: "blocked", sessionIds: [root.id, child.id, grandchild.id] });
+            expect(writes).toEqual([[root.id], [child.id], [grandchild.id]]);
+            expect([...aborted].sort()).toEqual([root.id, child.id, grandchild.id].sort());
+        } finally {
+            await router.releaseSubagentStart(root.id);
+            await blocking.catch(() => {});
+        }
+    });
+}
+
+test("trash records closed members when another owner cannot quiesce", async () => {
+    const root = { id: "root", workspace: "/work", sessionPath: "/sessions/root.jsonl" };
+    const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl", parentId: root.id };
+    const hostSessions = new Map([[root.id, root]]);
+    const master = endpoint(hostSessions);
+    const worker = endpoint(new Map([[child.id, child]]));
+    const recorded: string[] = [];
+    for (const target of [master, worker]) {
+        target.reserveTrash = async () => ({ status: "reserved", plans: [] });
+    }
+    master.quiesceClose = async () => [{ id: root.id, token: "root-ticket" }];
+    worker.quiesceClose = async () => { throw new Error("worker unavailable"); };
+    master.finishCloseMember = async () => {
+        hostSessions.delete(root.id);
+        return { id: root.id, sessionPath: root.sessionPath };
+    };
+    master.recordTrashOutcome = async (_id, closed, trashed) => {
+        expect(trashed).toBe(false);
+        recorded.push(...closed.map((member) => member.id));
+    };
+    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    await expect(router.trash(root.id)).rejects.toThrow("worker unavailable");
+    expect(recorded).toEqual([root.id]);
+    expect(hostSessions.has(root.id)).toBe(false);
+});
+
 test("session facts for stored sessions go to the worker", async () => {
     const master = endpoint(new Map());
     const worker = endpoint(new Map());

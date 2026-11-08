@@ -20,7 +20,9 @@ import {
 } from "../agent-registry.ts";
 import type { ResidentAgent } from "../resident-agent.ts";
 
-export type RestoringSessions = Map<string, Promise<void>>;
+export type RestoringSessions = Map<string, Promise<void>> & {
+    withReservations?: <T>(paths: readonly string[], run: () => Promise<T>) => Promise<T>;
+};
 
 export async function withSessionReservation<T>(
     sessionPath: string,
@@ -38,6 +40,9 @@ export async function withSessionReservations<T>(
     run: (canonicalPaths: readonly string[]) => Promise<T>,
 ): Promise<T> {
     const canonicalPaths = [...new Set(await Promise.all(sessionPaths.map((path) => realpath(path))))];
+    if (inFlight.withReservations !== undefined) {
+        return await inFlight.withReservations(canonicalPaths, () => run(canonicalPaths));
+    }
     const previous = canonicalPaths.flatMap((path) => {
         const pending = inFlight.get(path);
         return pending === undefined ? [] : [pending];
