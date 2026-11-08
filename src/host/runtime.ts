@@ -1,72 +1,27 @@
-import { forgetProviderConnection } from "../providers/forget-provider.ts";
-import { defaultTrustNoticePath, TrustNoticeStore } from "./trust-notice.ts";
-import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
-import { readModelCatalog } from "../providers/read-model-catalog.ts";
-import { effectiveCatalog } from "../model/catalog.ts";
-import { applyModelOperation } from "../model/model-operations.ts";
+import { join, resolve } from "node:path";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { derivedModelName } from "../config/model-catalog.ts";
-import { configuredTurnPolicy } from "../turn-policy.ts";
-import { readdir, realpath, stat } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { basename, join, resolve } from "node:path";
+import { effectiveCatalog } from "../model/catalog.ts";
+import { applyModelOperation } from "../model/model-operations.ts";
+import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
+import { forgetProviderConnection } from "../providers/forget-provider.ts";
+import { readModelCatalog } from "../providers/read-model-catalog.ts";
 
 import {
-    configuredModelFallback,
-    configuredReviewer,
-    configuredSubagentModel,
-    configuredCompaction,
-    configuredCompactionModels,
-    configuredCompactionOverrides,
-    configuredOverrides,
-    overridePatchDefaults,
-    configuredReviewers,
-    configuredToolResults,
     createLiveVeraConfigReader,
     defaultVeraConfigPath,
-    eventLogEnabled,
-    loadVeraConfig,
+    overridePatchDefaults,
     updateVeraConfigDefaults,
-    type VeraProviderId,
     type VeraConfig,
+    type VeraProviderId,
 } from "../config.ts";
-import {
-    adapterCacheFingerprint,
-    applyModelRequestOptions,
-    createRequestOptionsSnapshotAdapter,
-    mergeModelRequestBody,
-} from "../providers/routing.ts";
-import { createWorkerAdapterOptions } from "./worker/adapter.ts";
-import { hostExtensionConfigs, workerExtensionConfigs } from "../extensions/host-set.ts";
-import { reserveSessionIdentity } from "./session-identity-reservation.ts";
-import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirectoryIn } from "../profile-paths.ts";
-import type { ModelAdapter } from "../model/types.ts";
-import { isRefreshableProvider } from "../model/refreshable-providers.ts";
+import { eventLogRoot } from "../engine/events.ts";
 import { availableModels } from "../engine/model-settings.ts";
-import { defaultEventLogPath, eventLogRoot } from "../engine/events.ts";
-import {
-    defaultModelFailureLedgerPath,
-    ModelFailureLedger,
-    readModelFailures,
-} from "../store/model-failures.ts";
-import {
-    latestFailureBySession,
-    readSessionFacts,
-    type SessionFactName,
-    type SessionFacts,
-} from "../store/session-facts.ts";
-import { contextWindowForModel } from "../engine/model-settings.ts";
 import {
     cachedProviderModels,
     readCachedWindowIndex,
     withCachedWindows,
 } from "../model/cached-windows.ts";
-import type { SuggestedModel } from "../model/supported-models.ts";
-import { pooledModels } from "../model/catalog-view.ts";
-import { refreshWebDevArena, readWebDevArenaSnapshot } from "../model/webdev-arena.ts";
-import type {
-    CatalogModel,
-} from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
     providerCatalogCacheDir,
@@ -75,9 +30,18 @@ import {
     writeProviderCatalogSnapshot,
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
-import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
-import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
-import { recoverCrashedTurns } from "./restart-scan.ts";
+import type {
+    CatalogModel,
+} from "../model/catalog-shape.ts";
+import { pooledModels } from "../model/catalog-view.ts";
+import { isRefreshableProvider } from "../model/refreshable-providers.ts";
+import type { SuggestedModel } from "../model/supported-models.ts";
+import type { ModelAdapter } from "../model/types.ts";
+import { readWebDevArenaSnapshot, refreshWebDevArena } from "../model/webdev-arena.ts";
+import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirectoryIn } from "../profile-paths.ts";
+import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
+import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
 import {
     appendRestartRecord,
     clearRestartRecordsForSession,
@@ -86,172 +50,111 @@ import {
     type RestartRecord,
 } from "../store/restart-records.ts";
 import {
+    HOST_CAPABILITIES,
+} from "./capabilities.ts";
+import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
+import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
     openSidecarLogPaths,
     pruneLogs,
 } from "./log-retention.ts";
-import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
-import {
-    HOST_CAPABILITIES,
-} from "./capabilities.ts";
+import { recoverCrashedTurns } from "./restart-scan.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
-import { thisProcessBuildId } from "../release/stamp.ts";
 
 import {
-    addPoolModel,
-    recordLearned,
-    movePoolModel,
-    namePoolModel,
-    readUserPoolFile,
-    setPoolMembership,
-    PoolFileWriteRefusedError,
-} from "../model/pool-file-store.ts";
-import { loadPoolFile } from "../model/pool-file-loader.ts";
+    type ExtensionRegistry,
+    type ExtensionRegistryFailure,
+} from "../extensions/registry.ts";
 import { poolReachability } from "../model/assignment-reachability.ts";
-import { poolNameRefusal } from "../model/pool-names.ts";
-import { admitToPool } from "../model/pool-admission.ts";
-import { createFeedRowReader } from "../model/feed-cache.ts";
-import { curatedCachePath, startCuratedRefresh } from "../model/curated-models.ts";
-import {
-    refreshDeepSeekCatalog,
-} from "../model/deepseek-catalog.ts";
-import { migrateConfigPool } from "../model/pool-migration.ts";
-import { createPoolEffortPool } from "../model/effort-pool.ts";
 import {
     CodexCatalogError,
     fetchCodexCatalog,
     readCodexCatalog,
 } from "../model/codex-catalog.ts";
-import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-codex-oauth.ts";
+import { curatedCachePath, startCuratedRefresh } from "../model/curated-models.ts";
 import {
-    normalizeOpenRouterModels,
-    refreshOpenRouterCatalog,
-    type OpenRouterCatalogRefreshOptions,
-} from "../model/openrouter-catalog.ts";
-import {
-    apiKey,
-    createAuthStorage,
-    defaultAuthStoragePath,
-    credentialFingerprint,
-    type AuthStorage,
-} from "../providers/auth-storage.ts";
-import { createConfiguredModelAdapter } from "../providers/configured.ts";
-import {
-    configuredProviders,
-    type ProviderDescriptor,
-} from "../providers/registry.ts";
+    refreshDeepSeekCatalog,
+} from "../model/deepseek-catalog.ts";
+import { createPoolEffortPool } from "../model/effort-pool.ts";
+import { createFeedRowReader } from "../model/feed-cache.ts";
 import {
     refreshOpenAIProviderCatalog,
     type ProviderCatalogFailure,
     type ProviderCatalogRefreshResult,
 } from "../model/openai-discovery.ts";
-import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
+import {
+    normalizeOpenRouterModels,
+    refreshOpenRouterCatalog,
+    type OpenRouterCatalogRefreshOptions,
+} from "../model/openrouter-catalog.ts";
+import { admitToPool } from "../model/pool-admission.ts";
+import { loadPoolFile } from "../model/pool-file-loader.ts";
+import {
+    movePoolModel,
+    namePoolModel,
+    PoolFileWriteRefusedError,
+    readUserPoolFile,
+    setPoolMembership,
+} from "../model/pool-file-store.ts";
+import { migrateConfigPool } from "../model/pool-migration.ts";
+import { poolNameRefusal } from "../model/pool-names.ts";
+import {
+    apiKey,
+    createAuthStorage,
+    defaultAuthStoragePath,
+    type AuthStorage,
+} from "../providers/auth-storage.ts";
 import { providerEndpointUrl } from "../providers/endpoint-url.ts";
-import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { normalizeOllamaHost } from "../providers/ollama-openai.ts";
+import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-codex-oauth.ts";
 import {
-    defaultPermissionPreferencesPath,
-    PermissionPreferenceStore,
-} from "../engine/permission-preferences.ts";
-import {
-    defaultSessionDirectory,
-    readSessionIndexMetadata,
-} from "../store/session-store.ts";
-import { ToolHooks } from "../engine/hooks.ts";
-import { loadSkillContribution } from "../skills/contribution.ts";
-import { rememberSkillSettings } from "../skills/sources.ts";
-import {
-    loadStandingNudges,
-    type StandingNudgeCadence,
-    standingNudgeContribution,
-} from "../standing-nudges.ts";
-import {
-    literalSecretDetail,
-    StartupFindings,
-} from "./startup-findings.ts";
-import { skillScriptTool } from "../skills/script.ts";
-import { defaultInboxPath, Inbox } from "../store/inbox.ts";
-import { createConsumerRegistry } from "./consumers.ts";
-import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
-import { InboxAdmissionPolicy } from "./inbox-admission.ts";
-import { readArcNodeId, readArcToken } from "./arc-identity.ts";
-import {
-    startWatchRuntimeIfConfigured,
-    type WatchRuntime,
-} from "../watch/runtime.ts";
-import type { WatchSecretResolver } from "../watch/arc-connector.ts";
-import {
-    startSidecarRuntimeIfNeeded,
-    type SidecarRuntime,
-} from "./sidecar-runtime.ts";
-import type { WatchConnector } from "../watch/source.ts";
-import type { SpawnSessionFn } from "./inbox-spawn.ts";
-import {
-    AgentRegistry,
-    importedSessionSummary,
-    renameStoredSession,
-    type ClosedMember,
-    type RegisteredAgentSummary,
-} from "./agent-registry.ts";
-import type { SessionArtifacts } from "./session-trash.ts";
-import { subagentPoolPolicy } from "./subagent-policy.ts";
-import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
-import { SessionImportNotes } from "./session-import-note.ts";
-import {
-    ImportableSessionScanner,
-    importRootsFrom,
-    type ImportRoots,
-} from "../session-import/discover.ts";
-import {
-    importSessionFile,
-    markImportedSessions,
-} from "./session-import-service.ts";
-import {
-    commandHookPhase,
-    createCommandHook,
-    type CommandHookFunction,
-    type CommandHookPhase,
-} from "../extensions/command-hook.ts";
-import { notifyObservers, notifyTurnFinished } from "../extensions/host-services.ts";
-import { createExtensionHostServices } from "./extension-host-services.ts";
-import type {
-    PostToolUseHook,
-    PreCompactHook,
-    PreToolUseHook,
-    PreTurnHook,
-    SessionEndHook,
-    SessionStartHook,
-    SubagentFinishedHook,
-    SubagentFinishedHookPayload,
-    TurnEndingHook,
-} from "../sdk/hooks.ts";
-import type { ResidentAgent } from "./resident-agent.ts";
-import { startHostServer, type HostServer } from "./server.ts";
-import { createSessionBlockService } from "./session-block-service.ts";
-import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+    configuredProviders,
+    type ProviderDescriptor,
+} from "../providers/registry.ts";
 import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
-import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
-import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
-import {
-    startExtensionRegistry,
-    type ExtensionRegistry,
-    type ExtensionRegistryFailure,
-} from "../extensions/registry.ts";
-import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
-import {
-    NO_SEARCH_RESULTS,
-    searchSessions,
-} from "../store/session-search.ts";
-import { defaultSchedulePath, ScheduleStore } from "../scheduler/store.ts";
 import {
     startSchedulerRuntime,
     type SchedulerRuntime,
 } from "../scheduler/runtime.ts";
+import { defaultSchedulePath, ScheduleStore } from "../scheduler/store.ts";
 import {
     SCHEDULER_SOURCE,
     type EmittedScheduleRun,
 } from "../scheduler/types.ts";
+import {
+    type ImportRoots,
+} from "../session-import/discover.ts";
+import { rememberSkillSettings } from "../skills/sources.ts";
+import { defaultInboxPath, Inbox } from "../store/inbox.ts";
+import { defaultSessionDirectory } from "../store/session-store.ts";
+import type { WatchSecretResolver } from "../watch/arc-connector.ts";
+import {
+    startWatchRuntimeIfConfigured,
+    type WatchRuntime,
+} from "../watch/runtime.ts";
+import type { WatchConnector } from "../watch/source.ts";
+import { AgentRegistry } from "./agent-registry.ts";
+import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
+import { readArcNodeId, readArcToken } from "./arc-identity.ts";
+import { createConsumerRegistry } from "./consumers.ts";
+import { InboxAdmissionPolicy } from "./inbox-admission.ts";
+import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
+import type { SpawnSessionFn } from "./inbox-spawn.ts";
+import type { CatalogRefreshOutcome } from "./protocol.ts";
+import { startHostServer, type HostServer } from "./server.ts";
+import type { SessionArtifacts } from "./session-trash.ts";
+import {
+    startSidecarRuntimeIfNeeded,
+    type SidecarRuntime,
+} from "./sidecar-runtime.ts";
+import { StartupFindings } from "./startup-findings.ts";
+import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+import { subagentPoolPolicy } from "./subagent-policy.ts";
+
+import { startSessionHost, type SessionHost } from "./session-host.ts";
+export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
 
@@ -330,9 +233,6 @@ export async function startResidentHost(
     const home = selectedVeraHome(options.home);
     const logDirectory = eventLogRoot(home);
     const hostLog = createHostLogger({ path: defaultHostLogPath(home) });
-    const reviewLog = createReviewLogger({
-        path: defaultReviewLogPath(home),
-    });
     const startupLog = options.startupLog ?? hostLog;
     const timed = async <T>(
         phase: string,
@@ -450,110 +350,13 @@ export async function startResidentHost(
                 webDevArenaRefresh = undefined;
             });
     };
-    const permissionPreferences = await timed("permission_preferences", () =>
-        PermissionPreferenceStore.open(
-            options.permissionPreferencesPath
-                ?? defaultPermissionPreferencesPath(home),
-        )
-    );
     const startupFindings = options.startupFindings ?? new StartupFindings();
-    const extensionLoadFailures: ExtensionLoadFailure[] = [];
-    const hostExtensionSet = hostExtensionConfigs(options.config);
-    const extensions = await timed(
-        "extension_registry",
-        () => startExtensionRegistry({
-            extensions: hostExtensionSet,
-            storageRoots: {
-                profile: home,
-                machine: veraMachineDirectoryIn(home),
-            },
-            onFailure: (failure) => {
-                startupLog({
-                    type: "host_startup_extension_failed",
-                    extension_id: failure.extensionId ?? failure.path,
-                    message: failure.message,
-                });
-                startupFindings.record({
-                    extensionId: failure.extensionId ?? failure.path,
-                    detail: `did not load: ${failure.message}`,
-                });
-                extensionLoadFailures.push({
-                    extension_id: failure.extensionId ?? failure.path,
-                    message: failure.message,
-                });
-                options.onExtensionFailure?.(failure);
-            },
-            onLiteralSecret: (finding) => {
-                startupFindings.record({
-                    extensionId: finding.extensionId,
-                    detail: literalSecretDetail(
-                        finding.configPath,
-                        finding.prefix,
-                    ),
-                });
-            },
-            onActivationTiming: (timing) => startupLog({
-                type: "host_startup_extension",
-                extension_id: timing.extensionId,
-                outcome: timing.outcome,
-                duration_ms: timing.durationMs,
-            }),
-        }),
-    );
-    const sessionIdentity = extensions.sessionIdentity();
-    if (sessionIdentity === undefined) {
-        await extensions.close();
-        throw new Error(
-            "Resident host requires one sessions.identity provider",
-        );
-    }
-    const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
-    const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
-    const standingNudgeCadenceBySession = new Map<
-        string,
-        StandingNudgeCadence
-    >();
-    const importableSessions = new ImportableSessionScanner(
-        options.importRoots ?? importRootsFrom(process.env),
-    );
-    const sessionImportNotes = new SessionImportNotes(
-        (sessionId) => join(sessionDirectory, `${sessionId}.jsonl`),
-    );
-    const createAdapter = options.createAdapter
-        ?? ((
-            provider?: string,
-            projectRoot?: string,
-            captureFailedRequest?: FailedRequestCapture,
-        ) => {
-            const config = currentConfig();
-            return createConfiguredModelAdapter({
-                ...config,
-                provider: (provider ?? config.provider) as
-                    VeraConfig["provider"],
-            }, {
-                authStorage,
-                log: hostLog,
-                openRouterAllowanceGuard,
-                ...scoped(projectRoot),
-                ...(captureFailedRequest === undefined
-                    ? {}
-                    : { captureFailedRequest }),
-            });
-        });
-    const inbox = Inbox.open(
-        options.inboxPath ?? defaultInboxPath(home),
-    );
-    const consumers = createConsumerRegistry(inbox);
-    const inboxDelivery = new InboxDeliveryCoordinator(consumers, {
-        admissionFor: (projectRoot) => projectRoot === undefined
-            ? undefined
-            : InboxAdmissionPolicy.fromConfig(
-                options.config,
-                projectRoot,
-                options.inboxUserConfigPath ?? configPath,
-            ),
-    });
-    let workIndexThisTurn: WorkIndexSnapshot | undefined;
+    const blockedDirectory = options.blockedDirectory ?? veraBlockedDirectory(home);
+    let inbox!: Inbox;
+    let consumers: ReturnType<typeof createConsumerRegistry>;
+    let inboxDelivery: InboxDeliveryCoordinator;
+    let scheduleStore: ScheduleStore;
+    let curatedRefresh: ReturnType<typeof startCuratedRefresh>;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
         for (const listener of [...workChangeListeners]) {
@@ -563,9 +366,6 @@ export async function startResidentHost(
             }
         }
     };
-    const scheduleStore = ScheduleStore.open(
-        options.schedulePath ?? defaultSchedulePath(home),
-    );
     let watches: WatchRuntime | null = null;
     let scheduler: SchedulerRuntime | null = null;
     let sidecars: SidecarRuntime | null = null;
@@ -582,52 +382,6 @@ export async function startResidentHost(
         inboxDelivery.close();
         inbox.close();
     };
-    const curatedRefresh = startCuratedRefresh({
-        path: curatedCachePath(home),
-        ...(options.config.curated_models_url === undefined
-            ? {}
-            : { url: options.config.curated_models_url }),
-    });
-    const readFeedRow = createFeedRowReader(
-        options.config.model_feed_url === undefined
-            ? {}
-            : { url: options.config.model_feed_url },
-    );
-    const eventLogPathForId = eventLogEnabled(currentConfig())
-        ? (agentId: string, cwd: string) =>
-            eventLogDirectory === undefined
-                ? defaultEventLogPath(agentId, cwd, logDirectory)
-                : join(eventLogDirectory, `${agentId}.jsonl`)
-        : undefined;
-    // Config commands run before extension hooks, as they do in every other phase.
-    const notifyHookObservers = <Payload>(
-        configured: readonly ObserverEntry<Payload>[],
-        registered: readonly ObserverEntry<Payload>[],
-        payload: Payload,
-        type: string,
-    ): void => {
-        notifyObservers(configured, payload, (command, message) => hostLog({
-            type,
-            level: "warn",
-            command,
-            message,
-        }));
-        notifyObservers(registered, payload, (extensionId, message) => hostLog({
-            type,
-            level: "warn",
-            extensionId,
-            message,
-        }));
-    };
-    const notifySubagentFinished = (payload: SubagentFinishedHookPayload): void => notifyHookObservers(
-        configuredObservers<SubagentFinishedHook>(currentConfig(), "subagent_finished"),
-        extensions.subagentFinishedHooks(),
-        payload,
-        "subagent_finished_hook_failed",
-    );
-    const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
-    const blockedDirectory = options.blockedDirectory
-        ?? veraBlockedDirectory(home);
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
         waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
         onStopped: () => closeHost(),
@@ -636,486 +390,310 @@ export async function startResidentHost(
         cutSession: (sessionId, reason) => registry.cutSessionForStop(sessionId, reason),
         recordCut: recordStopCut,
     });
-    const registry: AgentRegistry = new AgentRegistry({
-        sessionBlockDirectory: blockedDirectory,
-        turnsHeld: (): boolean => stopWhenIdle.holdsTurns,
-        credentialFingerprint: (provider) => adapterCacheFingerprint(
-            currentConfig(),
-            credentialFingerprint(authStorage, provider),
-            provider,
-        ),
-        createAdapter,
-        modelMiddleware: extensions.modelMiddleware(),
-        ...(options.createAdapter !== undefined || hasModelRequestHooks
-                || (!workerExtensionsEnabled()
-                    && extensions.modelMiddleware().length > 0)
-            ? {}
-            : {
-                workerAdapterSpec: (context: {
-                    readonly provider: string;
-                    readonly projectRoot: string;
-                    readonly sessionId: string;
-                }) => ({
-                    module: WORKER_ADAPTER_MODULE,
-                    export: "createWorkerAdapter",
-                    options: createWorkerAdapterOptions(
-                        currentConfig(),
-                        configPath,
-                        context,
+    const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
+        try {
+            return scheduleStore.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS);
+        } catch {
+            return [];
+        }
+    };
+    const sessionHost = await startSessionHost({
+        sessions: "all",
+        config: options.config,
+        home, configPath, cacheDirectory, currentConfig, currentReachability,
+        sessionDirectory, sessionIdentityReservationRoot, blockedDirectory,
+        modelFailureLedgerPath, authStorage, hostLog, startupLog, startupFindings, timed,
+        permissionPreferencesPath: options.permissionPreferencesPath,
+        eventLogDirectory,
+        importRoots: options.importRoots,
+        createAdapter: options.createAdapter,
+        onExtensionFailure: options.onExtensionFailure,
+        trashSessionArtifacts: options.trashSessionArtifacts,
+        turnsHeld: () => stopWhenIdle.holdsTurns,
+        inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
+        annexUrl: () => annexUrl,
+        forgetRestartRecords,
+        recentScheduleRuns,
+        onWorkChanged: (listener) => {
+            workChangeListeners.add(listener);
+            return () => { workChangeListeners.delete(listener); };
+        },
+        createServices: (createAdapter) => {
+            inbox = Inbox.open(
+                options.inboxPath ?? defaultInboxPath(home),
+            );
+            consumers = createConsumerRegistry(inbox);
+            inboxDelivery = new InboxDeliveryCoordinator(consumers, {
+                admissionFor: (projectRoot) => projectRoot === undefined
+                    ? undefined
+                    : InboxAdmissionPolicy.fromConfig(
+                        options.config,
+                        projectRoot,
+                        options.inboxUserConfigPath ?? configPath,
                     ),
-                }),
-            }),
-        provider: options.config.provider,
-        customProviderIds: () => Object.keys(currentConfig().providers ?? {}),
-        model: options.config.model,
-        approvalMode: options.config.approval_mode,
-        availableModels: models,
-        cacheDir: cacheDirectory,
-        home,
-        refreshAvailableModels: options.createAdapter === undefined
-            ? () => {
-                models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, {
-                    authStorage,
-                    cacheDir: cacheDirectory,
-                }), currentConfig());
-                return models;
-            }
-            : undefined,
-        providerCatalogs: () => connectedProviderCatalogs(currentConfig(), { authStorage }),
-        refreshableProviders: () => {
-            const config = currentConfig();
-            return connectedProviderCatalogs(config, { authStorage })
-                .filter((provider) => isRefreshableProvider(provider.id, config)
-                    || (provider.id === OPENAI_CODEX_PROVIDER_ID && hasCodexCredential(authStorage))
-                    || configuredProviders(config).find((row) => row.id === provider.id)?.protocol === "anthropic-messages")
-                .map((provider) => provider.id);
-        },
-        refreshCatalog: (provider) => {
-            const refreshed = catalogRefreshes.then(async () => {
-                const config = currentConfig();
-                try {
-
-                    const descriptor = configuredProviders(config)
-                        .find((entry) => entry.id === provider);
-                    if (descriptor !== undefined && descriptor.baseUrl !== undefined && descriptor.protocol !== undefined
-                        && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
-                        const stored = authStorage.getCredential(provider);
-                        const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
-                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key,
-                            ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {}) })
-                            .catch(() => undefined);
-                        if (catalog === undefined) return undefined;
-                        writeProviderCatalogSnapshot(catalog, {
-                            cacheDir: cacheDirectory,
-                        });
-                        models = modelsFromConnectedCatalogs(config, models, {
-                            authStorage,
-                            cacheDir: cacheDirectory,
-                        });
-                        return models;
-                    }
-                    if (provider === OPENAI_CODEX_PROVIDER_ID) {
-                        if (!hasCodexCredential(authStorage)) return undefined;
-                        const outcome = await refreshCodexCatalog(authStorage, {
-                            log: hostLog,
-                            cacheDir: cacheDirectory,
-                            ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
-                        });
-                        if (outcome?.failure !== undefined) return undefined;
-                        const rows = discoveredCodexModels(config, {
-                            authStorage,
-                            cacheDir: cacheDirectory,
-                        });
-                        models = withProviderRefreshability(
-                            replaceProviderRows(models, provider, rows),
-                            config,
-                        );
-                        return models;
-                    }
-                    if (!isRefreshableProvider(provider, config)) return undefined;
-                    if (descriptor?.behaviorId === "ollama") {
-                        const discovered = await discoverOllamaModelCatalog({
-                            log: hostLog,
-                            ...(config.provider_endpoints?.ollama === undefined
-                                ? {}
-                                : { host: config.provider_endpoints.ollama }),
-                        });
-                        if (!discovered.available) {
-                            return undefined;
+            });
+            scheduleStore = ScheduleStore.open(
+                options.schedulePath ?? defaultSchedulePath(home),
+            );
+            curatedRefresh = startCuratedRefresh({
+                path: curatedCachePath(home),
+                ...(options.config.curated_models_url === undefined
+                    ? {}
+                    : { url: options.config.curated_models_url }),
+            });
+            const readFeedRow = createFeedRowReader(
+                options.config.model_feed_url === undefined
+                    ? {}
+                    : { url: options.config.model_feed_url },
+            );
+            return {
+                inboxDelivery,
+                models: {
+                    availableModels: models,
+                    refreshAvailableModels: options.createAdapter === undefined
+                        ? () => {
+                            models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, {
+                                authStorage,
+                                cacheDir: cacheDirectory,
+                            }), currentConfig());
+                            return models;
                         }
-                        models = replaceProviderRows(
-                            models,
-                            provider,
-                            discovered.models,
-                            config.provider === provider
-                                ? {
-                                    provider,
-                                    model: config.model,
-                                    label: config.model,
-                                    description: "configured model",
+                        : undefined,
+                    providerCatalogs: () => connectedProviderCatalogs(currentConfig(), { authStorage }),
+                    refreshableProviders: () => {
+                        const config = currentConfig();
+                        return connectedProviderCatalogs(config, { authStorage })
+                            .filter((provider) => isRefreshableProvider(provider.id, config)
+                                || (provider.id === OPENAI_CODEX_PROVIDER_ID && hasCodexCredential(authStorage))
+                                || configuredProviders(config).find((row) => row.id === provider.id)?.protocol === "anthropic-messages")
+                            .map((provider) => provider.id);
+                    },
+                    refreshCatalog: (provider) => {
+                        const refreshed = catalogRefreshes.then(async () => {
+                            const config = currentConfig();
+                            try {
+
+                                const descriptor = configuredProviders(config)
+                                    .find((entry) => entry.id === provider);
+                                if (descriptor !== undefined && descriptor.baseUrl !== undefined && descriptor.protocol !== undefined
+                                    && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
+                                    const stored = authStorage.getCredential(provider);
+                                    const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
+                                    const catalog = await readModelCatalog({
+                                        provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key,
+                                        ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {})
+                                    })
+                                        .catch(() => undefined);
+                                    if (catalog === undefined) return undefined;
+                                    writeProviderCatalogSnapshot(catalog, {
+                                        cacheDir: cacheDirectory,
+                                    });
+                                    models = modelsFromConnectedCatalogs(config, models, {
+                                        authStorage,
+                                        cacheDir: cacheDirectory,
+                                    });
+                                    return models;
                                 }
-                                : undefined,
-                        );
-                        return models;
-                    }
-                    const before = readProviderCatalogSnapshot(provider).fetched_at;
-                    const standard = descriptor?.behaviorId === "openrouter"
-                        ? undefined
-                        : await standardProviderModels(
-                            descriptor,
-                            config,
-                            authStorage,
-                            { maxAgeMs: 0 },
-                        );
-                    const rows = standard === undefined
-                        ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
-                        : standard.models;
-                    if (
-                        standard?.failure !== undefined
-                        ||
-                        readProviderCatalogSnapshot(provider).fetched_at === before
-                    ) {
-                        return undefined;
-                    }
-                    models = withProviderRefreshability(
-                        descriptor?.behaviorId === "openrouter"
-                            ? withProviderRows(models, provider, rows)
-                            : replaceProviderRows(
-                                models,
-                                provider,
-                                rows,
-                                config.provider === provider
-                                    ? {
-                                        provider,
-                                        model: config.model,
-                                        label: config.model,
-                                        description: "configured model",
+                                if (provider === OPENAI_CODEX_PROVIDER_ID) {
+                                    if (!hasCodexCredential(authStorage)) return undefined;
+                                    const outcome = await refreshCodexCatalog(authStorage, {
+                                        log: hostLog,
+                                        cacheDir: cacheDirectory,
+                                        ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
+                                    });
+                                    if (outcome?.failure !== undefined) return undefined;
+                                    const rows = discoveredCodexModels(config, {
+                                        authStorage,
+                                        cacheDir: cacheDirectory,
+                                    });
+                                    models = withProviderRefreshability(
+                                        replaceProviderRows(models, provider, rows),
+                                        config,
+                                    );
+                                    return models;
+                                }
+                                if (!isRefreshableProvider(provider, config)) return undefined;
+                                if (descriptor?.behaviorId === "ollama") {
+                                    const discovered = await discoverOllamaModelCatalog({
+                                        log: hostLog,
+                                        ...(config.provider_endpoints?.ollama === undefined
+                                            ? {}
+                                            : { host: config.provider_endpoints.ollama }),
+                                    });
+                                    if (!discovered.available) {
+                                        return undefined;
                                     }
-                                    : undefined,
-                            ),
-                        config,
-                    );
-                    return models;
-                } finally {
-                    refreshWebDevArenaInBackground(0);
-                }
-            });
-            // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
-            catalogRefreshes = refreshed.then(() => undefined, () => undefined);
-            return refreshed;
-        },
-        readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
-        createEffortPool: (projectRoot) =>
-            createPoolEffortPool({
-                ...scoped(projectRoot),
-                onWriteRefused: (error) =>
-                    hostLog({ type: "pool_write_refused", message: error.message }),
-            }),
-        readPolicy: (projectRoot) => ({
-            ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig() }),
-            candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }),
-        }),
-        admitToPool: (entry, onStep, admissionOptions) => {
-            const config = currentConfig();
-            return admitToPool(entry, onStep, {
-                ...admissionOptions,
-                createAdapter: (provider) => createRequestOptionsSnapshotAdapter(
-                    (selected) => createAdapter(selected),
-                    provider,
-                    config,
-                ),
-                readFeedRow,
-                onWriteRefused: (error) =>
-                    hostLog({ type: "pool_write_refused", message: error.message }),
-            });
-        },
-        removeFromPool: (entry) => {
-            refusedPoolWrite(() => {
-                setPoolMembership([`${entry.provider}/${entry.model}`], false);
-            }, hostLog);
-        },
-        namePoolEntry: (entry, name, projectRoot) => {
-            const id = `${entry.provider}/${entry.model}`;
-            const merged = loadPoolFile({ projectRoot }).merged;
-            if (
-                name !== null
-                && poolNameRefusal(merged, id, name) !== undefined
-            ) {
-                return false;
-            }
-            let named = false;
-            const refused = refusedPoolWrite(() => {
-                const file = namePoolModel(id, name ?? undefined);
-                named = file.models[id] !== undefined
-                    && file.models[id]?.name === (name ?? undefined);
-            }, hostLog);
-            return refused === undefined && named;
-        },
-        movePoolEntry: (entry, delta) => {
-            const id = `${entry.provider}/${entry.model}`;
-            let held = false;
-            const refused = refusedPoolWrite(() => {
-                held = Object.hasOwn(readUserPoolFile().models, id);
-                if (held) movePoolModel(id, delta);
-            }, hostLog);
-            return refused === undefined && held;
-        },
-        updateModelDefaults: (settings) => {
-            updateVeraConfigDefaults({
-                provider: settings.provider as VeraConfig["provider"],
-                model: settings.model,
-                // Explicitly null rather than omitted: settings that carry no effort mean the accepted model has none, so a stored default from an earlier model must not survive into the next.
-                reasoning_effort: settings.reasoningEffort ?? null,
-            });
-        },
-        contextLimit: () => currentConfig().context_limit,
-        updateContextLimit: (limit) => {
-            updateVeraConfigDefaults({ context_limit: limit });
-        },
-        updateApprovalDefault: (mode) => {
-            updateVeraConfigDefaults({ approval_mode: mode });
-        },
-        ...(options.config.reasoning_effort === undefined
-            ? {}
-            : { reasoningEffort: options.config.reasoning_effort }),
-        get modelFallback() {
-            return configuredModelFallback(currentConfig());
-        },
-        readReviewer: () => configuredReviewer(
-            currentConfig(),
-            currentReachability(),
-        ),
-        get subagentModel() {
-            return configuredSubagentModel(currentConfig());
-        },
-        get reviewers() {
-            return configuredReviewers(currentConfig(), currentReachability());
-        },
-        reviewLog,
-        writeReviewer: (settings) => {
-            if (settings === null || settings.models.length === 0) {
-                updateVeraConfigDefaults({
-                    model_assignment: { assignment: "reviewer", binding: null },
-                });
-                return;
-            }
-            const defaultProvider = currentConfig().provider;
-            updateVeraConfigDefaults({
-                model_assignment: {
-                    assignment: "reviewer",
-                    binding: {
-                        models: settings.models.slice(0, 2).map((model) => {
-                            const provider = (model.provider ?? defaultProvider) as VeraProviderId;
-                            return {
-                                name: derivedModelName(provider, model.model),
-                                provider,
-                                model: model.model,
-                                ...(model.reasoningEffort === undefined
-                                    ? {}
-                                    : { reasoning_effort: model.reasoningEffort }),
-                            };
+                                    models = replaceProviderRows(
+                                        models,
+                                        provider,
+                                        discovered.models,
+                                        config.provider === provider
+                                            ? {
+                                                provider,
+                                                model: config.model,
+                                                label: config.model,
+                                                description: "configured model",
+                                            }
+                                            : undefined,
+                                    );
+                                    return models;
+                                }
+                                const before = readProviderCatalogSnapshot(provider).fetched_at;
+                                const standard = descriptor?.behaviorId === "openrouter"
+                                    ? undefined
+                                    : await standardProviderModels(
+                                        descriptor,
+                                        config,
+                                        authStorage,
+                                        { maxAgeMs: 0 },
+                                    );
+                                const rows = standard === undefined
+                                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                                    : standard.models;
+                                if (
+                                    standard?.failure !== undefined
+                                    ||
+                                    readProviderCatalogSnapshot(provider).fetched_at === before
+                                ) {
+                                    return undefined;
+                                }
+                                models = withProviderRefreshability(
+                                    descriptor?.behaviorId === "openrouter"
+                                        ? withProviderRows(models, provider, rows)
+                                        : replaceProviderRows(
+                                            models,
+                                            provider,
+                                            rows,
+                                            config.provider === provider
+                                                ? {
+                                                    provider,
+                                                    model: config.model,
+                                                    label: config.model,
+                                                    description: "configured model",
+                                                }
+                                                : undefined,
+                                        ),
+                                    config,
+                                );
+                                return models;
+                            } finally {
+                                refreshWebDevArenaInBackground(0);
+                            }
+                        });
+                        // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
+                        catalogRefreshes = refreshed.then(() => undefined, () => undefined);
+                        return refreshed;
+                    },
+                    readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
+                    createEffortPool: (projectRoot) =>
+                        createPoolEffortPool({
+                            ...scoped(projectRoot),
+                            onWriteRefused: (error) =>
+                                hostLog({ type: "pool_write_refused", message: error.message }),
                         }),
+                    readPolicy: (projectRoot) => ({
+                        ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig() }),
+                        candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }),
+                    }),
+                    admitToPool: (entry, onStep, admissionOptions) => {
+                        const config = currentConfig();
+                        return admitToPool(entry, onStep, {
+                            ...admissionOptions,
+                            createAdapter: (provider) => createRequestOptionsSnapshotAdapter(
+                                (selected) => createAdapter(selected),
+                                provider,
+                                config,
+                            ),
+                            readFeedRow,
+                            onWriteRefused: (error) =>
+                                hostLog({ type: "pool_write_refused", message: error.message }),
+                        });
+                    },
+                    removeFromPool: (entry) => {
+                        refusedPoolWrite(() => {
+                            setPoolMembership([`${entry.provider}/${entry.model}`], false);
+                        }, hostLog);
+                    },
+                    namePoolEntry: (entry, name, projectRoot) => {
+                        const id = `${entry.provider}/${entry.model}`;
+                        const merged = loadPoolFile({ projectRoot }).merged;
+                        if (
+                            name !== null
+                            && poolNameRefusal(merged, id, name) !== undefined
+                        ) {
+                            return false;
+                        }
+                        let named = false;
+                        const refused = refusedPoolWrite(() => {
+                            const file = namePoolModel(id, name ?? undefined);
+                            named = file.models[id] !== undefined
+                                && file.models[id]?.name === (name ?? undefined);
+                        }, hostLog);
+                        return refused === undefined && named;
+                    },
+                    movePoolEntry: (entry, delta) => {
+                        const id = `${entry.provider}/${entry.model}`;
+                        let held = false;
+                        const refused = refusedPoolWrite(() => {
+                            held = Object.hasOwn(readUserPoolFile().models, id);
+                            if (held) movePoolModel(id, delta);
+                        }, hostLog);
+                        return refused === undefined && held;
+                    },
+                    updateModelDefaults: (settings) => {
+                        updateVeraConfigDefaults({
+                            provider: settings.provider as VeraConfig["provider"],
+                            model: settings.model,
+                            // Explicitly null rather than omitted: settings that carry no effort mean the accepted model has none, so a stored default from an earlier model must not survive into the next.
+                            reasoning_effort: settings.reasoningEffort ?? null,
+                        });
+                    },
+                    contextLimit: () => currentConfig().context_limit,
+                    updateContextLimit: (limit) => {
+                        updateVeraConfigDefaults({ context_limit: limit });
+                    },
+                    updateApprovalDefault: (mode) => {
+                        updateVeraConfigDefaults({ approval_mode: mode });
+                    },
+                    writeReviewer: (settings) => {
+                        if (settings === null || settings.models.length === 0) {
+                            updateVeraConfigDefaults({
+                                model_assignment: { assignment: "reviewer", binding: null },
+                            });
+                            return;
+                        }
+                        const defaultProvider = currentConfig().provider;
+                        updateVeraConfigDefaults({
+                            model_assignment: {
+                                assignment: "reviewer",
+                                binding: {
+                                    models: settings.models.slice(0, 2).map((model) => {
+                                        const provider = (model.provider ?? defaultProvider) as VeraProviderId;
+                                        return {
+                                            name: derivedModelName(provider, model.model),
+                                            provider,
+                                            model: model.model,
+                                            ...(model.reasoningEffort === undefined
+                                                ? {}
+                                                : { reasoning_effort: model.reasoningEffort }),
+                                        };
+                                    }),
+                                },
+                            },
+                        });
+                    },
+                    updateOverrides: (patch) => {
+                        updateVeraConfigDefaults(overridePatchDefaults(patch));
                     },
                 },
-            });
+            };
         },
-        get compaction() {
-            return configuredCompaction(currentConfig());
-        },
-        configuredOverrides: () => configuredOverrides(currentConfig()),
-        updateOverrides: (patch) => {
-            updateVeraConfigDefaults(overridePatchDefaults(patch));
-        },
-        get compactionOverrides() {
-            return configuredCompactionOverrides(currentConfig());
-        },
-        get toolResults() {
-            return configuredToolResults(currentConfig());
-        },
-        get compactionModels() {
-            return configuredCompactionModels(
-                currentConfig(),
-                currentReachability(),
-            );
-        },
-        get permissionModes() {
-            return currentConfig().permission_modes;
-        },
-        permissionPreferences,
-        extensionTools: [...extensions.tools(), skillScriptTool],
-        trustNotices: {
-            tools: extensions.installedUnreviewedTools(),
-            store: new TrustNoticeStore(defaultTrustNoticePath(home)),
-        },
-        workerExtensions: () => workerExtensionConfigs(currentConfig()),
-        registeredAgents: extensions.agents(),
-        sessionIdentity,
-        reserveSessionIdentity: (sessionId, key) =>
-            reserveSessionIdentity(sessionIdentityReservationRoot, sessionId, key),
-        loadContextualContributions: async (
-            instructionRoot,
-            allowedSkills,
-            context,
-        ) => {
-            let cadence: StandingNudgeCadence | undefined;
-            if (context?.sessionId !== undefined) {
-                cadence = standingNudgeCadenceBySession.get(context.sessionId);
-                if (cadence === undefined) {
-                    cadence = { matchingTurns: new Map<string, number>() };
-                    standingNudgeCadenceBySession.set(
-                        context.sessionId,
-                        cadence,
-                    );
-                }
-            }
-            const standing = context === undefined || context.turn === "delivery"
-                ? undefined
-                : standingNudgeContribution(
-                    loadStandingNudges(home),
-                    context,
-                    cadence,
-                );
-            return [
-                ...await loadSkillContribution(
-                    context?.workspace ?? instructionRoot.path,
-                    allowedSkills,
-                ),
-                ...startupFindings.contributions(),
-                ...(standing === undefined ? [] : [standing]),
-                ...await sessionImportNotes.contributions(context?.sessionId),
-            ];
-        },
-        createToolHooks: () => {
-            const hooks = new ToolHooks((failure) => hostLog({
-                type: "session_start_hook_failed",
-                level: "warn",
-                ...failure,
-            }));
-            registerConfiguredHooks(hooks, currentConfig());
-            for (const hook of extensions.preToolUseHooks()) {
-                hooks.registerPreToolUse(hook);
-            }
-            for (const hook of extensions.postToolUseHooks()) {
-                hooks.registerPostToolUse(hook);
-            }
-            for (const hook of extensions.sessionStartHooks()) {
-                hooks.registerSessionStart(hook);
-            }
-            for (const hook of extensions.preTurnHooks()) {
-                hooks.registerPreTurn(hook.run, hook.extensionId);
-            }
-            for (const hook of extensions.turnEndingHooks()) {
-                hooks.registerTurnEnding(hook.run, hook.extensionId);
-            }
-            hooks.registerSubagentFinished(notifySubagentFinished);
-            return hooks;
-        },
-        prepareModelRequest: ({ sessionId, workspace }) => async (request, provider) => {
-            const body: Record<string, import("../sdk/hooks.ts").JsonValue> = {};
-            for (const hook of extensions.modelRequestHooks()) {
-                const value = await hook.run({
-                    type: "model_request",
-                    provider,
-                    model: request.model,
-                    sessionId,
-                    workspace,
-                    ...(request.signal === undefined
-                        ? {}
-                        : { signal: request.signal }),
-                });
-                if (value === undefined) continue;
-                const cloned = structuredClone(value);
-                const serialized = JSON.stringify(cloned);
-                if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) {
-                    throw new Error(
-                        `Model request contribution ${hook.namespace} exceeded 65536 bytes`,
-                    );
-                }
-                body[hook.namespace] = cloned;
-            }
-            const contributed = Object.keys(body).length === 0
-                ? request
-                : mergeModelRequestBody(
-                    request,
-                    body,
-                    "model request hooks",
-                );
-            return applyModelRequestOptions(
-                contributed,
-                currentConfig(),
-                provider,
-            );
-        },
-        get disabledPromptContributions() {
-            return currentConfig().disabled_prompt_contributions;
-        },
-        get promptContributionOrder() {
-            return currentConfig().prompt_contribution_order;
-        },
-        readConfiguredTurnPolicy: () => configuredTurnPolicy(currentConfig()),
-        inboxDelivery,
-        inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
-        sessionPathForId: (agentId) =>
-            join(sessionDirectory, `${agentId}.jsonl`),
-        modelFailureLedger: new ModelFailureLedger(
-            modelFailureLedgerPath,
-        ),
-        ...(eventLogPathForId === undefined ? {} : { eventLogPathForId }),
-        ...(options.trashSessionArtifacts === undefined
-            ? {}
-            : { trashSessionArtifacts: options.trashSessionArtifacts }),
-        onTurnFinished: (payload) => notifyTurnFinished(
-            extensions.turnFinishedHooks(),
-            payload,
-            (extensionId, message) => hostLog({
-                type: "turn_finished_hook_failed",
-                level: "warn",
-                extensionId,
-                message,
-            }),
-        ),
-        onSessionUpdated: (payload) => notifyObservers(
-            extensions.sessionUpdatedHooks(),
-            payload,
-            (extensionId, message) => hostLog({
-                type: "session_updated_hook_failed",
-                level: "warn",
-                extensionId,
-                message,
-            }),
-        ),
-        onPreCompact: (payload) => notifyHookObservers(
-            configuredObservers<PreCompactHook>(currentConfig(), "pre_compact"),
-            extensions.preCompactHooks(),
-            payload,
-            "pre_compact_hook_failed",
-        ),
-        onSessionEnd: (payload) => notifyHookObservers(
-            configuredObservers<SessionEndHook>(currentConfig(), "session_end"),
-            extensions.sessionEndHooks(),
-            payload,
-            "session_end_hook_failed",
-        ),
-        onSubagentFinished: notifySubagentFinished,
-        onSessionsClosed: (members): Promise<void> =>
-            indexClosedMembers(registry, members, storedSessionIndex),
     });
-    const sessionBlocks = createSessionBlockService({
-        registry,
-        sessionDirectory,
-        blockedDirectory,
-    });
+    const { registry, extensions, createAdapter } = sessionHost;
     // Scores fill in after startup; discovery never waits for the arena download.
     if (discoversModelsAtStartup) {
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
     }
-    extensions.bindHost(createExtensionHostServices({
-        registry,
-        currentConfig,
-        reachability: currentReachability,
-        createAdapter: () => createAdapter(),
-        annexUrl: () => annexUrl,
-    }));
 
     let server: HostServer;
     let annex: AnnexProcess | undefined;
@@ -1137,31 +715,14 @@ export async function startResidentHost(
         annexHealth.annex = "ok";
         delete annexHealth.annexReason;
     };
-    const restoringSessions = new Map<string, Promise<ResidentAgent>>();
-    let publishStoredSessions: (
-        sessions: ReadonlyMap<string, RegisteredAgentSummary>,
-    ) => void = () => {};
-    // Imports run one at a time so two requests for one file cannot both write.
-    let importQueue: Promise<void> = Promise.resolve();
-    const storedSessions = new Promise<
-        ReadonlyMap<string, RegisteredAgentSummary>
-    >(
-        (resolve) => publishStoredSessions = resolve,
-    );
-    const resumeSession = (sessionPath: string) =>
-        resumeOrFind(registry, sessionPath, restoringSessions);
     let closing: Promise<void> | undefined;
-    let parkIdleTimer: ReturnType<typeof setInterval> | undefined;
     let logPruneTimer: ReturnType<typeof setInterval> | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
     });
     const closeHost = (): Promise<void> => {
-        if (parkIdleTimer !== undefined) {
-            clearInterval(parkIdleTimer);
-            parkIdleTimer = undefined;
-        }
+        sessionHost.stopMaintenance();
         if (logPruneTimer !== undefined) {
             clearInterval(logPruneTimer);
             logPruneTimer = undefined;
@@ -1174,8 +735,7 @@ export async function startResidentHost(
                 } finally {
                     await closeResidentHost(
                         server,
-                        registry,
-                        extensions,
+                        sessionHost,
                         closeInbox,
                         closeSidecars,
                     );
@@ -1210,17 +770,11 @@ export async function startResidentHost(
                 }),
             })
         );
-        const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
-            try {
-                return scheduleStore.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS);
-            } catch {
-                return [];
-            }
-        };
         const providerGenerations = new Map<string, number>();
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
+                ...sessionHost.handlers,
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
@@ -1259,282 +813,71 @@ export async function startResidentHost(
                     dismiss: (sessionId) =>
                         clearRestartRecordsForSession(sessionId, restartRecordPath),
                 },
-            findAgent: (agentId) => findOrRestoreAgent(
-                registry,
-                agentId,
-                sessionDirectory,
-                storedSessions,
-                resumeSession,
-            ),
-            readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
-            stopWhenIdle,
-            forgetProvider: async (provider, workspace) => {
-                forgetProviderConnection(provider, authStorage);
-                providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
-                for (const entry of registry.agents.values()) {
-                    if (entry.modelSettings.provider !== provider) continue;
-                    const settings = { ...entry.modelSettings, selectionCleared: true };
-                    await entry.store.appendModelSettings(settings, registry.originFor(entry, settings));
-                    entry.modelSettings = settings;
-                    registry.pushWorkerState(entry.agent.id);
-                    registry.announceSessionUpdated(entry);
-                }
-                return registry.readHostModelSettings(workspace);
-            },
-            operateModels: async (request, onResult, onStep) => {
-                const generations = new Map(request.models.map(({ provider }) =>
-                    [provider, providerGenerations.get(provider) ?? 0]));
-                await applyModelOperation(request, {
-                    isCurrent: ({ provider }) => generations.get(provider) === (providerGenerations.get(provider) ?? 0),
-                    discovered: registry.modelsForClient(),
-                    assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
-                    createAdapter: (provider) => createAdapter(provider),
-                    catalog: (provider, model) =>
-                        effectiveCatalog(provider, { cacheDir: cacheDirectory })
-                            .models.find((row) => row.id === model),
-                    onResult,
-                    onStep,
-                });
-                return registry.readHostModelSettings(request.workspace);
-            },
-            handleExtensionRequest: (extensionId, name, payload, signal) =>
-                extensions.handleRequest(extensionId, name, payload, signal),
-            readModelSettings: (workspace) =>
-                registry.readHostModelSettings(workspace),
-            refreshCatalog: async (provider, workspace) => {
-                const refreshed = await registry.refreshHostCatalog(provider);
-                if (refreshed === undefined) return undefined;
-                return registry.readHostModelSettings(workspace);
-            },
-            refreshCatalogs: () => {
-                const refreshed = catalogRefreshes.then(async () => {
-                    const config = currentConfig();
-                    refreshWebDevArenaInBackground(0);
-                    const outcomes = await refreshProviderCatalogs(config, {
-                        authStorage,
-                        cacheDir: cacheDirectory,
+
+                stopWhenIdle,
+                forgetProvider: async (provider, workspace) => {
+                    forgetProviderConnection(provider, authStorage);
+                    providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
+                    await sessionHost.clearProviderSelection(provider);
+                    return registry.readHostModelSettings(workspace);
+                },
+                operateModels: async (request, onResult, onStep) => {
+                    const generations = new Map(request.models.map(({ provider }) =>
+                        [provider, providerGenerations.get(provider) ?? 0]));
+                    await applyModelOperation(request, {
+                        isCurrent: ({ provider }) => generations.get(provider) === (providerGenerations.get(provider) ?? 0),
+                        discovered: registry.modelsForClient(),
+                        assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
+                        createAdapter: (provider) => createAdapter(provider),
+                        catalog: (provider, model) =>
+                            effectiveCatalog(provider, { cacheDir: cacheDirectory })
+                                .models.find((row) => row.id === model),
+                        onResult,
+                        onStep,
                     });
-                    models = await discoverAvailableModels(
-                        config,
-                        authStorage,
-                        hostLog,
-                        cacheDirectory,
-                    );
-                    registry.availableModels = models;
-                    return outcomes;
-                });
-                catalogRefreshes = refreshed.then(() => undefined, () => undefined);
-                return refreshed;
-            },
-            readExtensionLoadFailures: () => extensionLoadFailures,
-            readAnnex: () => annexUrl === undefined
-                ? {
-                    unavailable: annexUnavailable
-                        ?? "The annex is not running. Restart the host to bring it back.",
-                }
-                : { url: annexUrl },
-            listAgents: async () => mergeStoredAndResidentAgents(
-                await storedSessions,
-                registry.list(),
-            ),
-            readSessionFacts: (sessions, include) =>
-                enrichSessionsWithFacts(
-                    sessions,
-                    include,
-                    modelFailureLedgerPath,
-                ),
-            listBackgroundAgents: () => registry.list(),
-            readWorkIndex: () => {
-                if (workIndexThisTurn !== undefined) {
-                    return workIndexThisTurn;
-                }
-                const agents = registry.workFacts();
-                workIndexThisTurn = buildWorkIndex(
-                    agents,
-                    registry.scheduleWorkFacts(recentScheduleRuns(), agents),
-                );
-                queueMicrotask(() => {
-                    workIndexThisTurn = undefined;
-                });
-                return workIndexThisTurn;
-            },
-            searchSessions: async (query) => {
-                if (query.session_id === undefined) {
-                    return searchSessions(sessionDirectory, query);
-                }
-                const resident = registry.list().find(
-                    (session) => session.id === query.session_id,
-                );
-                const stored = resident === undefined
-                    ? (await storedSessions).get(query.session_id)
-                    : undefined;
-                const sessionPath = resident?.session_path ?? stored?.session_path;
-                return sessionPath === undefined
-                    ? NO_SEARCH_RESULTS
-                    : searchSessions(sessionDirectory, query, { sessionPath });
-            },
-            ...(scheduler === null ? {} : {
-                runScheduleOperation: (operation) => scheduler!.execute(operation),
-            }),
-            onRosterChanged: (listener) => {
-                const stopRoster = registry.onRosterChanged(listener);
-                workChangeListeners.add(listener);
-                return (): void => {
-                    stopRoster();
-                    workChangeListeners.delete(listener);
-                };
-            },
-            createAgent: (createOptions) => registry.create(createOptions),
-            resumeAgent: resumeSession,
-            branchAgent: (options) => registry.branch(options),
-            discardBranch: async (agentId) => {
-                await registry.trashSession(agentId);
-            },
-            commitBranch: (agentId) => registry.commitBranch(agentId),
-            syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
-            trashSession: async (targetId) => {
-                const resident = await registry.trashSession(targetId);
-                if (resident === "trashed") {
-                    storedSessionIndex.delete(targetId);
-                    forgetRestartRecords(targetId);
-                }
-                if (resident !== "not_found") return resident;
-                const stored = await registry.trashStoredSession(
-                    targetId,
-                    async () => {
-                        const sessionPath = await storedSessionPath(
-                            targetId,
-                            sessionDirectory,
-                            await storedSessions,
+                    return registry.readHostModelSettings(request.workspace);
+                },
+
+                refreshCatalogs: () => {
+                    const refreshed = catalogRefreshes.then(async () => {
+                        const config = currentConfig();
+                        refreshWebDevArenaInBackground(0);
+                        const outcomes = await refreshProviderCatalogs(config, {
+                            authStorage,
+                            cacheDir: cacheDirectory,
+                        });
+                        models = await discoverAvailableModels(
+                            config,
+                            authStorage,
+                            hostLog,
+                            cacheDirectory,
                         );
-                        if (sessionPath === undefined) return undefined;
-                        const workspace = storedSessionIndex.get(targetId)
-                            ?.workspace;
-                        return {
-                            sessionPath,
-                            attachmentsPath: `${sessionPath}.attachments`,
-                            ...(eventLogPathForId === undefined
-                                    || workspace === undefined
-                                ? {}
-                                : {
-                                    eventLogPath: eventLogPathForId(
-                                        targetId,
-                                        workspace,
-                                    ),
-                                }),
-                        };
-                    },
-                );
-                if (stored === "trashed") {
-                    storedSessionIndex.delete(targetId);
-                    forgetRestartRecords(targetId);
-                }
-                return stored;
-            },
-            closeAgent: async (targetId, reason) => {
-                const outcome = await registry.closeAgentTree(targetId, reason);
-                if (outcome.status === "busy") {
-                    return { status: "busy" };
-                }
-                if (outcome.status === "closed" && outcome.sessionRetained) {
-                    await indexClosedMembers(
-                        registry,
-                        outcome.closed,
-                        storedSessionIndex,
-                    );
-                }
-                if (outcome.status === "closed") {
-                    return {
-                        status: "closed",
-                        sessionRetained: outcome.sessionRetained,
-                    };
-                }
-                return await storedSessionExists(
-                    targetId,
-                    sessionDirectory,
-                    storedSessionIndex,
-                )
-                    ? { status: "closed", sessionRetained: true }
-                    : { status: "not_found" };
-            },
-            blockSession: (request) => sessionBlocks.block(request),
-            unblockSession: (request) => sessionBlocks.unblock(request),
-            renameSession: async (targetId, name) => {
-                const resident = await registry.renameSession(targetId, name);
-                if (resident.status !== "not_found") return resident;
-                const sessionPath = await storedSessionPath(
-                    targetId,
-                    sessionDirectory,
-                    await storedSessions,
-                );
-                if (sessionPath === undefined) {
-                    return { status: "not_found" };
-                }
-                const renamed = await renameStoredSession(sessionPath, name);
-                if (renamed.status === "renamed") {
-                    await indexStoredSession(sessionPath, storedSessionIndex);
-                }
-                return renamed;
-            },
-            importSession: (path) => {
-                const run = importQueue.then(async () => {
-                    await storedSessions;
-                    const outcome = await importSessionFile(path, {
-                        sessionDirectory,
-                        indexed: storedSessionIndex.values(),
+                        registry.availableModels = models;
+                        return outcomes;
                     });
-                    if (outcome.status === "imported" && !outcome.existing) {
-                        await indexStoredSession(
-                            outcome.sessionPath,
-                            storedSessionIndex,
-                        );
+                    catalogRefreshes = refreshed.then(() => undefined, () => undefined);
+                    return refreshed;
+                },
+
+                readAnnex: () => annexUrl === undefined
+                    ? {
+                        unavailable: annexUnavailable
+                            ?? "The annex is not running. Restart the host to bring it back.",
                     }
-                    return outcome;
-                });
-                importQueue = run.then(() => undefined, () => undefined);
-                return run;
-            },
-            listImportableSessions: async (workspace) => {
-                const listed = await importableSessions.list(workspace);
-                await storedSessions;
-                return markImportedSessions(listed, storedSessionIndex.values());
-            },
-            readExtensionState: (sessionId) => extensions.sessionState(sessionId),
-            listExtensionCommands: () => extensions.commands(),
-            runExtensionCommand: (
-                name,
-                argumentsText,
-                workspace,
-                signal,
-                sessionId,
-            ) => extensions.invokeCommand(
-                name,
-                argumentsText,
-                workspace,
-                signal,
-                sessionId,
-                sessionId === undefined
-                    ? undefined
-                    : commandSessionPath(
-                        registry,
-                        sessionId,
-                        sessionDirectory,
-                        storedSessionIndex,
-                    ),
-            ),
-            checkpointStores: async (destination) => checkpointOpenStores({
-                destination,
-                inbox,
-                schedules: scheduleStore,
-            }),
-            canShutdown: () => registry.idleForShutdown(),
-            canReplace: () => registry.idleForReplacement(),
-            onShutdownAccepted: closeHost,
-            onAgentStartFailure: (operation, error) => hostLog({
-                type: "agent_start_failed",
-                operation,
-                ...hostErrorFields(error),
-            }),
+                    : { url: annexUrl },
+
+                ...(scheduler === null ? {} : {
+                    runScheduleOperation: (operation) => scheduler!.execute(operation),
+                }),
+
+                checkpointStores: async (destination) => checkpointOpenStores({
+                    destination,
+                    inbox,
+                    schedules: scheduleStore,
+                }),
+
+                onShutdownAccepted: closeHost,
+
             }),
         );
         try {
@@ -1595,33 +938,18 @@ export async function startResidentHost(
                     : { message: status.lastError }),
             }),
         });
-        void indexStoredSessions(
-            sessionDirectory,
-            storedSessionIndex,
-            hostLog,
-        ).then(publishStoredSessions);
+        sessionHost.startStorage();
     } catch (error) {
         try {
             await closeSidecars();
         } catch {
         }
-        try {
-            await extensions.close();
-        } catch {
-        }
-        await registry.close();
+        await sessionHost.closeAfterStartupFailure();
         await closeInbox();
         throw error;
     }
 
     const buildId = thisProcessBuildId();
-    parkIdleTimer = setInterval(() => {
-        void registry.parkExpiredIdle()
-            .then((closed) =>
-                indexClosedMembers(registry, closed, storedSessionIndex)
-            )
-            .catch(() => {});
-    }, 30_000);
     const pruneOldLogs = () => {
         void pruneLogs(logDirectory, {
             maxAgeMs: logMaxAgeMs(currentConfig()),
@@ -2671,306 +1999,31 @@ export async function discoveredOpenRouterModels(
     }));
 }
 
-async function resumeOrFind(
-    registry: AgentRegistry,
-    sessionPath: string,
-    inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
-): Promise<ResidentAgent> {
-    const canonicalPath = await realpath(sessionPath);
-    for (const summary of registry.list()) {
-        let existingPath = summary.session_path;
-        if (existingPath !== canonicalPath) {
-            existingPath = await realpath(existingPath).catch(() => existingPath);
-        }
-        if (existingPath === canonicalPath) {
-            const agent = registry.find(summary.id);
-            if (agent !== undefined) {
-                return agent;
-            }
-        }
-    }
-    const restoring = inFlight.get(canonicalPath);
-    if (restoring !== undefined) return restoring;
-    const resumed = registry.resume({ sessionPath: canonicalPath });
-    inFlight.set(canonicalPath, resumed);
-    try {
-        return await resumed;
-    } finally {
-        inFlight.delete(canonicalPath);
-    }
-}
-
-async function findOrRestoreAgent(
-    registry: AgentRegistry,
-    agentId: string,
-    sessionDirectory: string,
-    storedSessions: Promise<ReadonlyMap<string, RegisteredAgentSummary>>,
-    resume: (sessionPath: string) => Promise<ResidentAgent>,
-): Promise<ResidentAgent | undefined> {
-    const existing = registry.find(agentId);
-    if (existing !== undefined) return existing;
-    if (!/^[A-Za-z0-9_-]+$/.test(agentId)) return undefined;
-    const conventionalPath = join(sessionDirectory, `${agentId}.jsonl`);
-    try {
-        return await resume(conventionalPath);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const indexed = (await storedSessions).get(agentId);
-    return indexed === undefined ? undefined : resume(indexed.session_path);
-}
-
-// A member that restarted is resident and listed as such.
-async function indexClosedMembers(
-    registry: AgentRegistry,
-    members: readonly ClosedMember[],
-    index: Map<string, RegisteredAgentSummary>,
-): Promise<void> {
-    for (const member of members) {
-        if (!registry.agents.has(member.id)) {
-            await indexStoredSession(member.sessionPath, index);
-        }
-    }
-}
-
-// A resident agent's file need not sit in sessionDirectory.
-function commandSessionPath(
-    registry: AgentRegistry,
-    sessionId: string,
-    sessionDirectory: string,
-    index: ReadonlyMap<string, RegisteredAgentSummary>,
-): string {
-    return registry.agents.get(sessionId)?.store.path
-        ?? index.get(sessionId)?.session_path
-        ?? join(sessionDirectory, `${sessionId}.jsonl`);
-}
-
-async function storedSessionExists(
-    agentId: string,
-    sessionDirectory: string,
-    index: ReadonlyMap<string, RegisteredAgentSummary>,
-): Promise<boolean> {
-    return (await storedSessionPath(agentId, sessionDirectory, index))
-        !== undefined;
-}
-
-async function storedSessionPath(
-    agentId: string,
-    sessionDirectory: string,
-    index: ReadonlyMap<string, RegisteredAgentSummary>,
-): Promise<string | undefined> {
-    const indexed = index.get(agentId)?.session_path;
-    if (indexed !== undefined) return indexed;
-    if (!/^[A-Za-z0-9_-]+$/.test(agentId)) {
-        return undefined;
-    }
-    const conventional = join(sessionDirectory, `${agentId}.jsonl`);
-    try {
-        return (await stat(conventional)).isFile() ? conventional : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-async function indexStoredSessions(
-    sessionDirectory: string,
-    sessions = new Map<string, RegisteredAgentSummary>(),
-    log: HostLog = () => {},
-): Promise<ReadonlyMap<string, RegisteredAgentSummary>> {
-    let names: readonly string[];
-    try {
-        names = await readdir(sessionDirectory);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            log({
-                type: "session_index_failed",
-                message: error instanceof Error ? error.message : String(error),
-            });
-        }
-        return sessions;
-    }
-    for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
-        await indexStoredSession(join(sessionDirectory, name), sessions);
-    }
-    return sessions;
-}
-
-export async function indexStoredSession(
-    path: string,
-    sessions: Map<string, RegisteredAgentSummary>,
-): Promise<void> {
-    try {
-        const metadata = await readSessionIndexMetadata(path);
-        const header = metadata.header;
-        const fileStat = await stat(path).catch(() => undefined);
-        const size = fileStat?.size;
-        sessions.set(header.id, {
-            id: header.id,
-            workspace: header.cwd,
-            session_path: path,
-            kind: header.delegation?.kind === "subagent"
-                ? "background"
-                : "interactive",
-            status: "completed",
-            live: false,
-            updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
-            created_at: header.timestamp,
-            ...(metadata.title === undefined
-                ? {}
-                : { title: metadata.title.slice(0, 80) }),
-            has_user_content: metadata.hasUserContent,
-            ...(header.origin === undefined
-                ? {}
-                : { forked_from: header.origin.sessionId }),
-            ...importedSessionSummary(header),
-            ...(header.delegation?.parentId === undefined
-                    && header.parentId === undefined
-                ? {}
-                : {
-                    parent_id: header.delegation?.parentId ?? header.parentId,
-                }),
-            ...(size === undefined ? {} : { size_bytes: size }),
-        });
-    } catch {
-        // A corrupt unopened session cannot block healthy lazy resumes.
-    }
-}
-
-async function enrichSessionsWithFacts(
-    sessions: readonly RegisteredAgentSummary[],
-    include: readonly SessionFactName[],
-    ledgerPath: string,
-): Promise<readonly RegisteredAgentSummary[]> {
-    const failures = include.includes("failure")
-        ? latestFailureBySession(readModelFailures(ledgerPath))
-        : undefined;
-    return await Promise.all(sessions.map(async (session) => {
-        const facts = await readSessionFacts(session.session_path, {
-            include,
-            capacity: (provider, model) =>
-                contextWindowForModel(provider, model),
-        });
-        const failure = failures?.get(session.id);
-        const merged: SessionFacts = {
-            ...facts,
-            ...(failure === undefined ? {} : { failure }),
-        };
-        return Object.keys(merged).length === 0
-            ? session
-            : { ...session, facts: merged };
-    }));
-}
-
-function mergeStoredAndResidentAgents(
-    stored: ReadonlyMap<string, RegisteredAgentSummary>,
-    resident: readonly RegisteredAgentSummary[],
-): RegisteredAgentSummary[] {
-    const merged = new Map(stored);
-    for (const agent of resident) merged.set(agent.id, agent);
-    return [...merged.values()].sort((left, right) =>
-        left.id.localeCompare(right.id)
-    );
-}
-
 async function closeResidentHost(
     server: HostServer,
-    registry: AgentRegistry,
-    extensions: ExtensionRegistry,
+    sessionHost: SessionHost,
     closeInbox: () => void | Promise<void> = () => {},
     closeSidecars: () => void | Promise<void> = () => {},
 ): Promise<void> {
     try {
         await closeSidecars();
     } finally {
-        await closeServerAndRest(server, registry, extensions, closeInbox);
+        await closeServerAndRest(server, sessionHost, closeInbox);
     }
 }
 
 async function closeServerAndRest(
     server: HostServer,
-    registry: AgentRegistry,
-    extensions: ExtensionRegistry,
+    sessionHost: SessionHost,
     closeInbox: () => void | Promise<void>,
 ): Promise<void> {
     try {
         await server.close();
     } finally {
-        // Sessions close first so their session_end hooks still have extensions to reach.
         try {
-            await registry.close();
+            await sessionHost.close();
         } finally {
-            try {
-                await extensions.close();
-            } finally {
-                await closeInbox();
-            }
+            await closeInbox();
         }
     }
 }
-
-interface ConfiguredCommand {
-    readonly phase: CommandHookPhase;
-    /** The script's file name, shown on transcript rows and in failure logs. */
-    readonly name: string;
-    readonly run: CommandHookFunction;
-}
-
-interface ObserverEntry<Payload> {
-    readonly extensionId: string;
-    readonly run: (payload: Payload) => void | Promise<void>;
-}
-
-function configuredCommands(config: VeraConfig): readonly ConfiguredCommand[] {
-    return (config.hooks ?? []).map((spec) => ({
-        phase: commandHookPhase(spec.phase, spec.protocol),
-        name: basename(spec.argv[0]!),
-        run: createCommandHook({
-            phase: spec.phase,
-            argv: spec.argv,
-            ...(spec.protocol === undefined ? {} : { protocol: spec.protocol }),
-            ...(spec.timeout_ms === undefined
-                ? {}
-                : { timeoutMs: spec.timeout_ms }),
-        }),
-    }));
-}
-
-function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
-    for (const command of configuredCommands(config)) {
-        switch (command.phase) {
-            case "session_start":
-                hooks.registerSessionStart(command.run as SessionStartHook);
-                break;
-            case "pre_tool_use":
-                hooks.registerPreToolUse(command.run as PreToolUseHook);
-                break;
-            case "post_tool_use":
-                hooks.registerPostToolUse(command.run as PostToolUseHook);
-                break;
-            case "pre_turn":
-                hooks.registerPreTurn(command.run as PreTurnHook, command.name);
-                break;
-            case "turn_ending":
-                hooks.registerTurnEnding(command.run as TurnEndingHook, command.name);
-                break;
-            // Observers are not per session; the registry's notify callbacks run them.
-            case "pre_compact":
-            case "session_end":
-            case "subagent_finished":
-                break;
-        }
-    }
-}
-
-function configuredObservers<Hook>(
-    config: VeraConfig,
-    phase: "pre_compact" | "session_end" | "subagent_finished",
-): readonly { readonly extensionId: string; readonly run: Hook }[] {
-    return configuredCommands(config)
-        .filter((command) => command.phase === phase)
-        .map((command) => ({ extensionId: command.name, run: command.run as Hook }));
-}
-
-const WORKER_ADAPTER_MODULE = fileURLToPath(
-    new URL("./worker/adapter.ts", import.meta.url),
-);

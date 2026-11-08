@@ -15,8 +15,8 @@ const START_ONLY = new Set([
 ]);
 
 /** The body of the registry options literal, brace-matched from its opening. */
-function registryOptions(source: string): string {
-    const start = source.indexOf("new AgentRegistry({");
+function optionsLiteral(source: string, marker: string): string {
+    const start = source.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
     let depth = 0;
     for (let at = source.indexOf("{", start); at < source.length; at += 1) {
@@ -35,11 +35,17 @@ function registryOptions(source: string): string {
 // added here is live by construction rather than by someone remembering.
 test("no setting the registry is handed is captured at host start", () => {
     const source = readFileSync(
+        join(import.meta.dir, "..", "..", "src", "host", "session-host.ts"),
+        "utf8",
+    );
+    const runtime = readFileSync(
         join(import.meta.dir, "..", "..", "src", "host", "runtime.ts"),
         "utf8",
     );
+    const options = optionsLiteral(source, "new AgentRegistry({")
+        + optionsLiteral(runtime, "models: {");
     const captured = [
-        ...registryOptions(source).matchAll(/options\.config\.?(\w*)/g),
+        ...options.matchAll(/options\.config\.?(\w*)/g),
     ]
         .map((match) => match[1] ?? "")
         .filter((key) => !START_ONLY.has(key));

@@ -5,7 +5,9 @@ const ROOT = new URL("../../", import.meta.url);
 test("the SDK reviewer remains a direct CLI-only example", async () => {
     const workflow = await source("examples/sdk-reviewer/review.ts");
     const executable = await source("examples/sdk-reviewer/main.ts");
-    const hostRuntime = await source("src/host/runtime.ts");
+    const hostRuntime = await source("src/host/runtime.ts")
+        + await source("src/host/session-host.ts")
+        + await source("src/host/session-host/extensions.ts");
     const cliMain = await source("clients/cli/main.ts");
     const cliHelp = await source("clients/cli/help.ts");
 
