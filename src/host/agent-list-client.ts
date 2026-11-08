@@ -13,6 +13,7 @@ export interface ListedAgentsPage {
     readonly agents: readonly RegisteredAgentSummary[];
     readonly nextCursor?: string;
     readonly total?: number;
+    readonly unavailableWorkers?: readonly string[];
 }
 
 export async function listAgentsThroughHost(
@@ -45,11 +46,17 @@ export async function listAgentPageThroughHost(
             response?.type !== "agent_list"
             || !Array.isArray(response.agents)
             || !response.agents.every(isAgentSummary)
+            || (response.unavailable_workers !== undefined
+                && (!Array.isArray(response.unavailable_workers)
+                    || !response.unavailable_workers.every((value) => typeof value === "string" && value.length > 0)))
         ) {
             throw new Error("Host returned an invalid agent list");
         }
         return {
             agents: response.agents,
+            ...(Array.isArray(response.unavailable_workers)
+                ? { unavailableWorkers: response.unavailable_workers as string[] }
+                : {}),
             ...(typeof response.next_cursor === "string"
                     && response.next_cursor.length > 0
                 ? { nextCursor: response.next_cursor }

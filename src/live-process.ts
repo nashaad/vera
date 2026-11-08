@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { signalVerifiedProcessGroup, type ProcessGroupMember } from "./process-group.ts";
 import {
     checkRecordIdentity,
     processCommandLine,
@@ -192,6 +193,7 @@ export interface LiveProcessReads {
     readonly isAlive?: (pid: number) => boolean;
     readonly readStartedAt?: (pid: number) => number | undefined;
     readonly readCommand?: (pid: number) => string | undefined;
+    readonly readProcessGroupSnapshot?: (pid: number) => readonly ProcessGroupMember[] | undefined;
     readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
 }
 
@@ -214,6 +216,8 @@ export type ListedProcessState = "same" | "gone" | "replaced" | "unverified";
 export type SignalResult =
     | "sent"
     | "not_delivered"
+    | "not_group_leader"
+    | "group_unverified"
     | Exclude<ListedProcessState, "same">;
 
 export type ListedStopResult =
@@ -258,11 +262,17 @@ export function signalListedProcess(
     options: { readonly group?: boolean; readonly reads?: LiveProcessReads } = {},
 ): SignalResult {
     const reads = options.reads ?? {};
+    if (options.group === true) {
+        return signalVerifiedProcessGroup(listed.record, signal, {
+            reads,
+            checkIdentity: () => checkListedProcess(listed, reads),
+        });
+    }
     const state = checkListedProcess(listed, reads);
     if (state !== "same") return state;
     const pid = listed.record.pid;
     try {
-        (reads.kill ?? defaultKill)(options.group === true ? -pid : pid, signal);
+        (reads.kill ?? defaultKill)(pid, signal);
         return "sent";
     } catch {
         return "not_delivered";

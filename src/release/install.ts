@@ -11,8 +11,11 @@ import {
     assertPrefixMayManageHost,
     defaultEnsureHost,
     recoverInterruptedUpgrade,
+    stopLeftoverPoolWorkers,
     type StartHost,
 } from "./upgrade.ts";
+import { readRecordedWorkers } from "../host/master/worker-records.ts";
+import { veraHomeDirectory } from "../profile-paths.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";
 import type { HostLockRecord } from "../host/lockfile.ts";
@@ -57,6 +60,10 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
     const buildId = packed.manifest.build_id;
     const live = await readLiveHost();
     if (live === undefined || live.build_id === buildId) {
+        if (live === undefined && (await readRecordedWorkers(veraHomeDirectory())).length > 0) {
+            assertPrefixMayManageHost(prefix, "install");
+            await stopLeftoverPoolWorkers(veraHomeDirectory());
+        }
         activateRelease(packed.releaseRoot, prefix);
         return {
             kind: "activated",

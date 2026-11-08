@@ -9,6 +9,7 @@ export class RoutedSnapshots {
     private pending: Promise<void> = Promise.resolve();
     private summaries: readonly RegisteredAgentSummary[] = [];
     private index: WorkIndexSnapshot = EMPTY_WORK_INDEX;
+    private readonly lastWorkers = new Map<SessionOwner, SessionSnapshot>();
 
     constructor(
         private readonly master: SessionEndpoint,
@@ -30,17 +31,36 @@ export class RoutedSnapshots {
         this.pending = this.pending.then(async () => {
             const result = await snapshots;
             if ("error" in result) throw result.error;
-            const current = owners.flatMap(([owner], index) =>
+            const current: Array<{ owner: SessionOwner; snapshot: SessionSnapshot; cached?: true }> = owners.flatMap(([owner], index) =>
                 owner === "host" || this.workers.some((worker) => worker.id === owner && worker.ready()
                     && worker.generation() === generations.get(worker.id))
                     ? [{ owner, snapshot: result.value[index]! }] : []
             );
+            for (const entry of current) {
+                if (entry.owner === "host") continue;
+                const pid = this.workers.find((worker) => worker.id === entry.owner)?.pid?.();
+                if (pid !== undefined) {
+                    entry.snapshot = {
+                        ...entry.snapshot,
+                        summaries: entry.snapshot.summaries.map((summary) => ({
+                            ...summary,
+                            worker_pid: pid,
+                        })),
+                    };
+                }
+                this.lastWorkers.set(entry.owner, entry.snapshot);
+            }
+            for (const worker of this.workers) {
+                if (worker.ready()) continue;
+                const snapshot = this.lastWorkers.get(worker.id);
+                if (snapshot !== undefined) current.push({ owner: worker.id, snapshot, cached: true });
+            }
             const residentOwners = new Map<string, SessionOwner>();
             const unread = new Set<string>();
-            const agents = current.flatMap(({ owner, snapshot }) => {
+            const agents = current.flatMap(({ owner, snapshot, cached }) => {
                 for (const session of snapshot.residents) residentOwners.set(session.id, owner);
                 for (const id of snapshot.unreadSources) unread.add(id);
-                this.observe(owner, snapshot, revision);
+                if (!cached) this.observe(owner, snapshot, revision);
                 return snapshot.work;
             }).map((fact) => unread.has(fact.id) ? { ...fact, unread_result: true } : fact);
             const schedules = await this.master.workSchedules(agents);

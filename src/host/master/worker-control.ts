@@ -19,6 +19,8 @@ import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts"
 import { WorkerInboxBridge } from "./inbox.ts";
 import { indexStoredSession, withSessionReservation } from "../session-host/storage.ts";
 import { SessionStore } from "../../store/session-store.ts";
+import type { StopWaitEvent } from "../stop-when-idle.ts";
+import { StopWaitRelay } from "./stop-wait-relay.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -34,6 +36,7 @@ export interface WorkerBootstrap {
     readonly capabilities: readonly string[];
     readonly extensionCatalog: ExtensionCatalog;
     readonly heartbeatIntervalMs?: number;
+    readonly turnsHeld?: boolean;
 }
 
 export interface WorkerHello {
@@ -71,6 +74,8 @@ export async function startControlledWorker(
         bootstrap.options.configPath ?? defaultVeraConfigPath(home),
         bootstrap.options.permissionPreferencesPath ?? defaultPermissionPreferencesPath(home));
     const pendingChanges: GlobalChange[] = [];
+    const stopWait = new StopWaitRelay();
+    let turnsHeld = bootstrap.turnsHeld === true;
     peer.setEventHandler((event, value) => {
         if (event === "shutdown") onShutdown();
         else if (event === "config_changed" && isGlobalChange(value)) pendingChanges.push(value);
@@ -79,7 +84,7 @@ export async function startControlledWorker(
     const reservations = remoteReservations(peer);
     const runtime = await startSessionWorkerRuntime(bootstrap.options, reservations, {
         index: hello.index, count: hello.count,
-    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog));
+    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog), () => turnsHeld);
     const host = runtime.sessionHost;
     const currentConfig = createLiveVeraConfigReader(bootstrap.options.config, {
         path: bootstrap.options.configPath ?? defaultVeraConfigPath(home),
@@ -136,6 +141,14 @@ export async function startControlledWorker(
         }
         if (method === "worker.canShutdown") return host.handlers.canShutdown();
         if (method === "worker.canReplace") return host.handlers.canReplace();
+        if (method === "worker.setTurnsHeld" && typeof args[0] === "boolean") {
+            turnsHeld = args[0];
+            return;
+        }
+        if (method === "worker.stopWaitEvent") {
+            await stopWait.publish(args[0] as StopWaitEvent);
+            return;
+        }
         if (method === "worker.hasSession") {
             const id = args[0];
             return typeof id === "string" && (host.registry.agents.has(id)
@@ -209,7 +222,17 @@ export async function startControlledWorker(
         if (typeof snapshot.workIndex === "object" && snapshot.workIndex !== null) workIndex = snapshot.workIndex as WorkIndexSnapshot;
         for (const listener of listeners) listener();
     });
-    const heartbeat = setInterval(() => { void peer.event("heartbeat").catch(() => {}); }, bootstrap.heartbeatIntervalMs ?? 1_000);
+    const heartbeatIntervalMs = bootstrap.heartbeatIntervalMs ?? 1_000;
+    let previousHeartbeat = performance.now();
+    const heartbeat = setInterval(() => {
+        const now = performance.now();
+        const eventLoopLagMs = Math.max(0, now - previousHeartbeat - heartbeatIntervalMs);
+        previousHeartbeat = now;
+        void peer.event("heartbeat", {
+            rss_bytes: process.memoryUsage().rss,
+            event_loop_lag_ms: eventLoopLagMs,
+        }).catch(() => {});
+    }, heartbeatIntervalMs);
     heartbeat.unref();
     for (const kind of pendingChanges) applyChange(kind);
     let rosterTimer: ReturnType<typeof setTimeout> | undefined;
@@ -242,6 +265,7 @@ export async function startControlledWorker(
             startedAt: hello.started_at,
             attachmentCoordinator: attachments,
             forwardMasterRequest: publicForwarder.forward,
+            stopWaitObserver: stopWait,
             onRosterChanged: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
             listBackgroundAgents: () => summaries,
             readWorkIndex: () => workIndex,

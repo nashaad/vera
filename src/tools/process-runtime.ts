@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../process-group.ts";
 import { captureMarker } from "./bounded-capture.ts";
 
 export const DEFAULT_BASH_YIELD_MS = 10_000;
@@ -63,7 +64,7 @@ export interface ManagedProcessRegistryOptions {
     readonly groupPollMs?: number;
     readonly signalProcessTree?: (pid: number) => string | undefined;
     readonly processGroupAlive?: (pid: number) => boolean;
-    readonly onProcessStarted?: (pid: number) => void;
+    readonly onProcessStarted?: (pid: number, startedAt: string) => void;
     readonly onProcessSettled?: (pid: number) => void;
 }
 
@@ -84,6 +85,7 @@ interface ManagedProcessRecord {
     readonly ownerId: string;
     readonly command: string;
     readonly startedAt: number;
+    readonly identityStartedAt: string;
     readonly subprocess: SpawnedProcess;
     readonly output: ProcessOutputBuffer;
     readonly captures: readonly StreamCapture[];
@@ -116,9 +118,9 @@ export class ManagedProcessRegistry {
     private readonly nextId: () => string;
     private readonly stopWaitMs: number;
     private readonly groupPollMs: number;
-    private readonly signalTree: (pid: number) => string | undefined;
+    private readonly signalTree: ((pid: number) => string | undefined) | undefined;
     private readonly groupAlive: (pid: number) => boolean;
-    private readonly onProcessStarted: (pid: number) => void;
+    private readonly onProcessStarted: (pid: number, startedAt: string) => void;
     private readonly onProcessSettled: (pid: number) => void;
     private idSequence = 0;
     private closed = false;
@@ -154,7 +156,7 @@ export class ManagedProcessRegistry {
         }
         this.nextId = options.id
             ?? (() => `p-${generation}-${(++this.idSequence).toString(36)}`);
-        this.signalTree = options.signalProcessTree ?? stopProcessTree;
+        this.signalTree = options.signalProcessTree;
         this.groupAlive = options.processGroupAlive ?? processGroupAlive;
         this.onProcessStarted = options.onProcessStarted ?? (() => {});
         this.onProcessSettled = options.onProcessSettled ?? (() => {});
@@ -176,7 +178,10 @@ export class ManagedProcessRegistry {
         if (this.closed) return;
         this.closed = true;
         const records = [...this.records.values()];
-        await Promise.all(records.map((record) => this.stopAndWait(record)));
+        const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        for (const [index, record] of records.entries()) {
+            if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
+        }
         for (const record of records) this.remove(record);
     }
 
@@ -207,6 +212,7 @@ export class ManagedProcessRegistry {
 
         // Allocate before spawn: an allocator failure must not leave an unregistered child that no caller can address.
         const processId = this.uniqueId();
+        const identityStartedAt = new Date().toISOString();
         const subprocess = Bun.spawn(["bash", "-lc", options.command], {
             cwd: options.cwd,
             stdin: "ignore",
@@ -226,6 +232,7 @@ export class ManagedProcessRegistry {
             ownerId,
             command: options.command,
             startedAt: this.clock(),
+            identityStartedAt,
             subprocess,
             output,
             captures,
@@ -237,7 +244,7 @@ export class ManagedProcessRegistry {
             capturesDrained: false,
         };
         this.records.set(record.processId, record);
-        this.onProcessStarted(record.subprocess.pid);
+        this.onProcessStarted(record.subprocess.pid, record.identityStartedAt);
         void Promise.all(captures.map((stream) => stream.completion)).then(() => {
             record.capturesDrained = true;
             this.finishIfSettled(record);
@@ -337,7 +344,10 @@ export class ManagedProcessRegistry {
     async closeOwner(ownerId: string): Promise<void> {
         const records = this.ownerRecords(ownerId);
         for (const record of records) record.visible = true;
-        await Promise.all(records.map((record) => this.stopAndWait(record)));
+        const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        for (const [index, record] of records.entries()) {
+            if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
+        }
         for (const record of records) {
             if (record.finishedAt !== undefined) this.remove(record);
         }
@@ -431,7 +441,9 @@ export class ManagedProcessRegistry {
     private beginStop(record: ManagedProcessRecord): void {
         if (record.finishedAt !== undefined) return;
         try {
-            record.terminationError = this.signalTree(record.subprocess.pid);
+            record.terminationError = this.signalTree === undefined
+                ? stopProcessTree(record.subprocess.pid, record.identityStartedAt)
+                : this.signalTree(record.subprocess.pid);
         } catch (error) {
             record.terminationError = errorMessage(error);
         }
@@ -715,7 +727,7 @@ function decode(bytes: Uint8Array): string {
         .replace(/�+$/, "");
 }
 
-function stopProcessTree(pid: number): string | undefined {
+function stopProcessTree(pid: number, startedAt: string): string | undefined {
     try {
         if (process.platform === "win32") {
             const result = Bun.spawnSync(
@@ -729,8 +741,15 @@ function stopProcessTree(pid: number): string | undefined {
                 ? undefined
                 : `taskkill exited with code ${result.exitCode}`;
         }
-        process.kill(-pid, "SIGKILL");
-        return undefined;
+        const record = { pid, started_at: startedAt };
+        const group = signalVerifiedProcessGroup(record, "SIGKILL");
+        if (group === "sent") return undefined;
+        const direct = signalVerifiedProcess(record, "SIGKILL");
+        if (direct === "sent") return undefined;
+        if (direct === "gone") return `PID ${pid} had already exited.`;
+        if (direct === "replaced") return `PID ${pid} is no longer the process that was listed; left it alone.`;
+        if (direct === "not_delivered") return `Could not signal PID ${pid}; left it running.`;
+        return `Could not confirm PID ${pid} is still the process that was listed; left it running.`;
     } catch (error) {
         if (isMissingProcess(error)) return undefined;
         return errorMessage(error);
@@ -739,12 +758,9 @@ function stopProcessTree(pid: number): string | undefined {
 
 function processGroupAlive(pid: number): boolean {
     if (process.platform === "win32") return false;
-    try {
-        process.kill(-pid, 0);
-        return true;
-    } catch (error) {
-        return !isMissingProcess(error);
-    }
+    const result = Bun.spawnSync(["ps", "-axo", "pgid="], { stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString().trim() || "ps failed");
+    return result.stdout.toString().split("\n").some((line) => Number(line.trim()) === pid);
 }
 
 function wait(ms: number): { readonly promise: Promise<void>; cancel(): void } {

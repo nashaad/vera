@@ -19,6 +19,9 @@ import type { createCredentialBroker } from "./credentials.ts";
 import { createMasterGlobals, type GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
 import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
+import { stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
+import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
+import type { StopWaitEvent } from "../stop-when-idle.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
@@ -44,10 +47,14 @@ interface WorkerSlot {
     starting: boolean;
     closed: boolean;
     lastHeartbeat: number;
+    rssBytes?: number;
+    eventLoopLagMs?: number;
     failures: number[];
     recoverySessions: readonly WorkerRecoverySession[];
     reason?: string;
     spawnPid?: number;
+    spawnIdentity?: WorkerStopIdentity;
+    spawnStop?: Promise<void>;
     stopping?: Promise<void>;
     restarting?: Promise<void>;
 }
@@ -61,6 +68,9 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let control: WorkerControlServer | undefined;
     let closing = false;
     let initializing = true;
+    let turnsHeld = false;
+    let stopWaitVersion = 0;
+    let stopWaitState: Extract<StopWaitEvent, { type: "wait" | "wait_cleared" }> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     const deadline = options.hostOptions.processWorkerHeartbeatDeadlineMs ?? 10_000;
     if (!Number.isFinite(deadline) || deadline <= 0) throw new Error("Invalid worker heartbeat deadline");
@@ -102,6 +112,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const workerOptions = (slot: WorkerSlot) => ({
         id: slot.id, endpoint: slot.endpoint, socket: slot.socket,
         generation: () => slot.generation, ready: () => slot.ready,
+        pid: () => slot.supervisor?.pid ?? slot.spawnPid,
         canShutdown: async () => slot.ready && await requestWorker<boolean>(slot, "worker.canShutdown"),
         canReplace: async () => slot.ready && await requestWorker<boolean>(slot, "worker.canReplace"),
     });
@@ -111,6 +122,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         workerSocket: first.socket, buildId: options.buildId, reservations,
         workerGeneration: () => first.generation,
         workerReady: () => first.ready,
+        workerPid: () => first.supervisor?.pid ?? first.spawnPid,
         workerStarting: () => slots.some((slot) => slot.starting),
         waitForWorkerStart: () => Promise.all(slots.map((slot) => slot.started.promise)).then(() => undefined),
         workerCanShutdown: () => workerOptions(first).canShutdown(),
@@ -147,6 +159,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         buildId: options.buildId, capabilities: options.capabilities,
         extensionCatalog: buildExtensionCatalog(options.master.extensions),
         heartbeatIntervalMs: Math.max(1, Math.min(1_000, Math.floor(deadline / 3))),
+        get turnsHeld() { return turnsHeld; },
     };
     const startSlot = async (slot: WorkerSlot): Promise<void> => {
         const generation = generations.next(slot.id);
@@ -157,11 +170,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 home: options.sessionOptions.home, socket: slot.socket, bootstrap,
                 control,
                 index: slot.index, count: slots.length, generation: slot.generation,
-                onSpawn(pid) {
+                onSpawn(pid, startedAt) {
                     slot.spawnPid = pid;
+                    slot.spawnIdentity = { pid, started_at: startedAt ?? new Date().toISOString() };
                     if (closing) {
-                        try { process.kill(pid, "SIGKILL"); }
-                        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                        slot.spawnStop = stopWorkerProcess(slot.spawnIdentity);
+                        void slot.spawnStop.catch(() => {});
                     }
                 },
                 onConnected(peer) {
@@ -169,9 +183,19 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     slot.connected.resolve(peer);
                     void peer.closed.then(() => slotLost(slot, generation, "control_closed"));
                 },
-                onEvent(event) {
+                onEvent(event, value) {
                     if (slot.generation !== generation) return;
-                    if (event === "heartbeat") slot.lastHeartbeat = performance.now();
+                    if (event === "heartbeat") {
+                        slot.lastHeartbeat = performance.now();
+                        if (typeof value === "object" && value !== null) {
+                            const metrics = value as Record<string, unknown>;
+                            if (typeof metrics.rss_bytes === "number" && Number.isFinite(metrics.rss_bytes) && metrics.rss_bytes >= 0) {
+                                slot.rssBytes = metrics.rss_bytes;
+                            }
+                            if (typeof metrics.event_loop_lag_ms === "number" && Number.isFinite(metrics.event_loop_lag_ms)
+                                && metrics.event_loop_lag_ms >= 0) slot.eventLoopLagMs = metrics.event_loop_lag_ms;
+                        }
+                    }
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
@@ -245,6 +269,14 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 if (slot.closed) throw new Error("Session worker closed during recovery");
             }
             slot.recoverySessions = [];
+            await slot.supervisor.peer.request("worker.setTurnsHeld", [turnsHeld], AbortSignal.timeout(5_000));
+            if (slot.closed) throw new Error("Session process closed during recovery");
+            while (true) {
+                const version = stopWaitVersion;
+                const state = stopWaitState;
+                if (state !== undefined) await requestWorker(slot, "worker.stopWaitEvent", [state]);
+                if (version === stopWaitVersion) break;
+            }
             slot.ready = true;
             slot.lastHeartbeat = performance.now();
             routed.router.observe(slot.id, slot.supervisor.snapshot.residents);
@@ -275,6 +307,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         slot.peer = undefined;
         slot.supervisor = undefined;
         slot.spawnPid = undefined;
+        slot.spawnIdentity = undefined;
+        slot.spawnStop = undefined;
+        slot.rssBytes = undefined;
+        slot.eventLoopLagMs = undefined;
         slot.ready = false;
         slot.starting = true;
         slot.closed = false;
@@ -362,7 +398,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (!slot.ready || now - slot.lastHeartbeat < deadline) continue;
                     const supervisor = slot.supervisor;
                     slotLost(slot, slot.generation, "heartbeat_timeout");
-                    supervisor?.kill();
+                    try { supervisor?.kill(); } catch {}
                 }
             }, Math.max(1, Math.min(250, Math.floor(deadline / 4))));
             heartbeatTimer.unref();
@@ -375,11 +411,56 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             state: slot.ready ? slot.reason === undefined ? "ready" as const : "replaced" as const
                 : slot.starting ? "starting" as const : "unavailable" as const,
             ...(slot.reason === undefined ? {} : { reason: slot.reason }),
+            ...(slot.rssBytes === undefined ? {} : { rss_bytes: slot.rssBytes }),
+            ...(slot.eventLoopLagMs === undefined ? {} : { event_loop_lag_ms: slot.eventLoopLagMs }),
         })),
+        stopPids: () => slots.flatMap((slot) => {
+            const identity = slot.spawnIdentity;
+            if (identity === undefined || !processIsAlive(identity.pid)) return [];
+            return checkRecordIdentity(identity) === "mismatch" ? [] : [identity.pid];
+        }),
         stopMaintenance() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.stopMaintenance").catch(() => {});
         },
-        waitingOn: () => routed.router.stopWaitTargets(),
+        async setTurnsHeld(held) {
+            turnsHeld = held;
+            await Promise.all(slots.map(async (slot) => {
+                if (slot.starting && !slot.closed) await slot.started.promise;
+                if (slot.ready && !slot.closed) await requestWorker(slot, "worker.setTurnsHeld", [held]);
+            }));
+        },
+        async publishStopWait(event) {
+            if (event.type === "wait" || event.type === "wait_cleared") {
+                stopWaitState = event;
+                stopWaitVersion += 1;
+            }
+            await Promise.all(slots.map(async (slot) => {
+                if (!slot.ready || slot.closed) return;
+                const peer = slot.peer;
+                try {
+                    await requestWorker(slot, "worker.stopWaitEvent", [event]);
+                } catch (error) {
+                    if (!slot.closed && slot.peer === peer) throw error;
+                }
+            }));
+        },
+        async waitingOn() {
+            const workers = await Promise.all(slots.map(async (slot) => {
+                const exited = slot.exited.promise;
+                if (!slot.ready) {
+                    if (slot.closed) await exited;
+                    return [];
+                }
+                try {
+                    return await slot.endpoint.stopWaitTargets();
+                } catch (error) {
+                    if (!slot.closed) throw error;
+                    await exited;
+                    return [];
+                }
+            }));
+            return [...options.master.registry.stopWaitTargets(), ...workers.flat()];
+        },
         async hasSession(id) {
             return (await Promise.all(slots.map(async (slot) => {
                 if (slot.ready) {
@@ -430,14 +511,15 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
             for (const slot of slots) {
                 slot.ready = false;
-                if (slot.starting && slot.supervisor === undefined && slot.spawnPid !== undefined) {
-                    try { process.kill(slot.spawnPid, "SIGKILL"); }
-                    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                if (slot.starting && slot.supervisor === undefined && slot.spawnIdentity !== undefined) {
+                    slot.spawnStop ??= stopWorkerProcess(slot.spawnIdentity);
+                    void slot.spawnStop.catch(() => {});
                 }
             }
             stopSnapshots();
             routed.close();
             const results = await Promise.allSettled(slots.map(async (slot) => {
+                await slot.spawnStop;
                 if (slot.supervisor === undefined && slot.starting) await slot.started.promise;
                 if (slot.supervisor !== undefined) await slot.supervisor.close();
                 else slot.connected.reject(new Error("Session worker was not started"));

@@ -71,6 +71,21 @@ test("process parsing finds orphaned workers and test fixtures", () => {
     ]);
 });
 
+test("doctor reports a session process fault separately from the host", async () => {
+    const sample = here(processSample(200, "host", 1));
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({ currentHostPid: 200 }),
+        sampleProcesses: async () => [sample],
+        wait: async () => {},
+        doctorPid: 999,
+        inspectPool: async () => ({ hostFault: false, unavailableSessionProcesses: ["w1"] }),
+    });
+    const output = renderVeraDoctor(report);
+    expect(report.healthy).toBe(false);
+    expect(output).toContain("Session process w1 is unavailable.");
+    expect(output).not.toContain("Resident host did not answer its identity check.");
+});
+
 test("process parsing derives the start from etime and reads only the C-locale lstart layout", () => {
     const sampledAt = Date.UTC(2026, 7, 14, 12, 5, 0);
     const [sample] = parseVeraProcessList(
@@ -694,6 +709,31 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
     }
 });
 
+test("stopStrayVeraProcesses rechecks the process group before signalling it", async () => {
+    const child = Bun.spawn(
+        [process.execPath, "-e", "console.log('ready'); await Bun.sleep(300000)"],
+        { stdin: "ignore", stdout: "pipe", stderr: "ignore" },
+    );
+    try {
+        await child.stdout.getReader().read();
+        const group = Bun.spawnSync(["ps", "-p", String(child.pid), "-o", "pgid="], { stdout: "pipe" });
+        expect(Number(group.stdout.toString().trim())).not.toBe(child.pid);
+        const signals: string[] = [];
+        stopStrayVeraProcesses([runningStray(child.pid, child.pid)], {
+            reads: {
+                kill: (pid, signal) => {
+                    signals.push(`${signal}:${pid}`);
+                    if (pid > 0) process.kill(pid, signal);
+                },
+            },
+        });
+        expect(signals).not.toContain(`SIGKILL:-${child.pid}`);
+    } finally {
+        child.kill("SIGKILL");
+        await child.exited;
+    }
+});
+
 test("stopStrayVeraProcesses leaves a process that started after the stray was listed", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-stray-reuse-"));
     const reused = spawnVeraLookingProcess(directory);
@@ -758,6 +798,8 @@ function strayReads(
         isAlive: () => true,
         readStartedAt: () => strayStartedAtMs,
         readCommand: () => `bun src/host/worker/entry.ts`,
+        readProcessGroupSnapshot: (pid) => overrides.isAlive?.(pid) === false
+            ? [] : [{ pid, group: pid, state: "S", startedAt: strayStartedAtMs }],
         kill: (pid, signal) => {
             signals.push(`${signal}:${pid}`);
         },
@@ -908,6 +950,7 @@ test("a stray listed in the repeated fall-back hour is still the process at stop
                 isAlive: () => true,
                 readStartedAt: () => Date.UTC(2026, 10, 1, 6, 30, 0),
                 readCommand: () => "bun src/host/worker/entry.ts",
+                readProcessGroupSnapshot: (pid) => [{ pid, group: pid, state: "S", startedAt: Date.UTC(2026, 10, 1, 6, 30, 0) }],
                 kill: (pid, signal) => { signals.push(signal + ":" + pid); },
             } },
         );

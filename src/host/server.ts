@@ -187,6 +187,7 @@ export interface StartHostServerOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly buildId?: string;
+    readonly poolWorkerCount?: number;
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
     readonly onListening?: (identity: HostIdentity) => Promise<void>;
@@ -196,6 +197,7 @@ export interface StartHostServerOptions {
     readonly locateAgent?: (agentId: string) => Promise<AgentLocationResponse | AgentLocationFailedResponse>;
     readonly readyLocation?: (agentId: string) => Promise<AgentLocationResponse | undefined>;
     readonly readWorkersReady?: () => number;
+    readonly readUnavailableWorkers?: () => readonly string[];
     readonly forwardMasterRequest?: (
         request: HostRequest,
         send: (message: object) => Promise<void>,
@@ -227,6 +229,7 @@ export interface StartHostServerOptions {
     readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly stopWhenIdle?: StopWhenIdleControl;
+    readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
     readonly restartRecords?: RestartRecordsPort;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void, onStep: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
@@ -371,7 +374,10 @@ async function startListener(
         started_at: options.startedAt ?? currentProcessStartedAt(),
         protocol_version: HOST_PROTOCOL_VERSION,
         build_id: buildId,
-        ...(worker === undefined ? {} : {
+        ...(worker === undefined ? options.poolWorkerCount === undefined ? {} : {
+            role: "host" as const,
+            worker_count: options.poolWorkerCount,
+        } : {
             role: "worker" as const,
             worker_id: worker.id,
             worker_generation: worker.generation,
@@ -511,6 +517,7 @@ async function startListener(
             options.locateAgent,
             options.readyLocation,
             options.readWorkersReady,
+            options.readUnavailableWorkers,
             options.forwardMasterRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
@@ -576,6 +583,7 @@ async function startListener(
             options.checkpointStores,
             options.handleExtensionRequest,
             options.stopWhenIdle,
+            options.stopWaitObserver ?? options.stopWhenIdle,
             options.restartRecords ?? { list: () => [], dismiss: () => 0 },
             resolveHostLimits(options.limits),
         );
@@ -598,6 +606,10 @@ async function startListener(
             pid: identity.pid,
             startedAt: identity.started_at,
             buildId,
+            ...(options.poolWorkerCount === undefined ? {} : {
+                role: "host" as const,
+                workerCount: options.poolWorkerCount,
+            }),
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
@@ -695,6 +707,7 @@ function receiveConnection(
     locateAgent: StartHostServerOptions["locateAgent"],
     readyLocation: StartHostServerOptions["readyLocation"],
     readWorkersReady: StartHostServerOptions["readWorkersReady"],
+    readUnavailableWorkers: StartHostServerOptions["readUnavailableWorkers"],
     forwardMasterRequest: StartHostServerOptions["forwardMasterRequest"],
     routeRequest: StartHostServerOptions["routeRequest"],
     listAgents: () =>
@@ -796,6 +809,7 @@ function receiveConnection(
     }>) | undefined,
     handleExtensionRequest: ExtensionRequestHandler | undefined,
     stopWhenIdle: StopWhenIdleControl | undefined,
+    stopWaitObserver: Pick<StopWhenIdleControl, "observe"> | undefined,
     restartRecords: RestartRecordsPort,
     limits: HostLimits,
 ): void {
@@ -1679,6 +1693,7 @@ function receiveConnection(
                 const rows = listRequest.include === undefined
                     ? page.agents
                     : await readSessionFacts(page.agents, listRequest.include);
+                const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
                     agents: rows,
@@ -1686,6 +1701,7 @@ function receiveConnection(
                         ? {}
                         : { next_cursor: page.next_cursor }),
                     total: page.total,
+                    ...(unavailableWorkers.length === 0 ? {} : { unavailable_workers: unavailableWorkers }),
                 });
             }).then(() => socket.end(), () => socket.destroy());
             return;
@@ -2222,8 +2238,8 @@ function receiveConnection(
             () => {
                 if (wantsWorkIndex) sendWorkIndex();
                 if (wantsSessionTitle) sendSessionTitle(attachedId);
-                if (wantsStopWait && stopWhenIdle !== undefined) {
-                    stopWatchingStopWait = stopWhenIdle.observe(sendStopWaitEvent);
+                if (wantsStopWait && stopWaitObserver !== undefined) {
+                    stopWatchingStopWait = stopWaitObserver.observe(sendStopWaitEvent);
                 }
                 return forwardAgentUpdates(agent, attached);
             },
@@ -2306,12 +2322,12 @@ function receiveConnection(
             .catch(() => socket.destroy());
     }
 
-    function sendStopWaitEvent(event: StopWaitEvent): void {
+    function sendStopWaitEvent(event: StopWaitEvent): Promise<void> | undefined {
         if (finished || attachment === undefined) {
             return;
         }
-        void send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
-            .catch(() => socket.destroy());
+        return send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
+            .catch(() => { socket.destroy(); });
     }
 
     function sendSessionTitle(attachedAgentId: string): void {

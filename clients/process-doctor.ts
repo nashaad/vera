@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import { listAgentPageThroughHost } from "../src/host/agent-list-client.ts";
+import { requestHostIdentity } from "../src/host/protocol.ts";
 import {
     createHostLockfile,
     HostLockUnreadableError,
@@ -64,6 +65,13 @@ export interface VeraDoctorReport {
     readonly currentHostMissing: boolean;
     readonly processes: readonly DiagnosedVeraProcess[];
     readonly highCpuPercent: number;
+    readonly poolHostFault?: boolean;
+    readonly unavailableSessionProcesses?: readonly string[];
+}
+
+export interface PoolDoctorStatus {
+    readonly hostFault: boolean;
+    readonly unavailableSessionProcesses: readonly string[];
 }
 
 export interface VeraDoctorOptions {
@@ -75,6 +83,7 @@ export interface VeraDoctorOptions {
     readonly doctorPid?: number;
     readonly runtimeDir?: string;
     readonly listWorkerSessions?: () => Promise<readonly VeraWorkerSession[]>;
+    readonly inspectPool?: () => Promise<PoolDoctorStatus | undefined>;
 }
 
 export interface VeraWorkerSession {
@@ -105,6 +114,8 @@ export async function diagnoseVeraProcesses(
         ?? (options.sampleProcesses === undefined
             ? listCurrentHostWorkerSessions
             : async () => []);
+    const inspectPool = options.inspectPool
+        ?? (options.sampleProcesses === undefined ? () => inspectPoolHealth(runtimeDir) : async () => undefined);
 
     const firstSample = await sampleProcesses();
     await wait(interval);
@@ -167,16 +178,22 @@ export async function diagnoseVeraProcesses(
         sample.kind === "host"
         && !sample.currentHost
     );
+    const pool = await inspectPool();
     return {
         healthy: !currentHostMissing
             && damagedLockPath === undefined
             && unrecognizedHosts.length === 0
+            && pool?.hostFault !== true
+            && (pool?.unavailableSessionProcesses.length ?? 0) === 0
             && !processes.some((sample) => sample.stray),
         ...(currentHostPid === undefined ? {} : { currentHostPid }),
         ...(damagedLockPath === undefined ? {} : { damagedLockPath }),
         currentHostMissing,
         processes,
         highCpuPercent,
+        ...(pool?.hostFault === true ? { poolHostFault: true } : {}),
+        ...(pool === undefined || pool.unavailableSessionProcesses.length === 0
+            ? {} : { unavailableSessionProcesses: pool.unavailableSessionProcesses }),
     };
 }
 
@@ -226,6 +243,10 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
                 `  Resident host PID ${report.currentHostPid} is unknown.`,
             );
         }
+        if (report.poolHostFault === true) lines.push("  Resident host did not answer its identity check.");
+        for (const id of report.unavailableSessionProcesses ?? []) {
+            lines.push(`  Session process ${id} is unavailable.`);
+        }
         renderProcessRows(lines, shownIssues);
     }
     const nonHostStrays = strays.filter((process) => process.kind !== "host");
@@ -271,6 +292,23 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
             : "No stray processes found.",
     );
     return `${lines.join("\n")}\n`;
+}
+
+export async function inspectPoolHealth(runtimeDir: string): Promise<PoolDoctorStatus | undefined> {
+    const lock = await inspectHostLockFile(join(runtimeDir, "host.json"));
+    if (lock.state !== "valid" || lock.record.worker_count === undefined) return undefined;
+    const host = await requestHostIdentity(lock.record.socket_path);
+    if (host === undefined || host.role === "worker" || host.pid !== lock.record.pid
+        || host.started_at !== lock.record.started_at) {
+        return { hostFault: true, unavailableSessionProcesses: [] };
+    }
+    const workers = await Promise.all(Array.from({ length: lock.record.worker_count }, async (_, index) => {
+        const identity = await requestHostIdentity(join(runtimeDir, `w${index}.sock`));
+        return identity?.role === "worker" && identity.worker_index === index
+            && identity.worker_count === lock.record.worker_count && identity.build_id === host.build_id
+            ? undefined : `w${index}`;
+    }));
+    return { hostFault: false, unavailableSessionProcesses: workers.filter((id): id is string => id !== undefined) };
 }
 
 export interface StrayStopReport {

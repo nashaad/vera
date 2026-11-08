@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../../src/process-group.ts";
 import {
     ManagedProcessRegistry,
     type ManagedProcessRunResult,
@@ -268,6 +269,7 @@ test("a failed kill returns within its bound and remains truthful", async () => 
         signalProcessTree: () => "simulated signal failure",
     });
     const scope = registry.scope("session-a");
+    const startedAt = new Date().toISOString();
     let pid: number | undefined;
     try {
         const running = expectRunning(await scope.run({
@@ -289,11 +291,8 @@ test("a failed kill returns within its bound and remains truthful", async () => 
         expect(scope.read(running.processId)?.status).toBe("running");
     } finally {
         if (pid !== undefined) {
-            try {
-                process.kill(-pid, "SIGKILL");
-            } catch {
-                // It may have exited between the assertion and cleanup.
-            }
+            const record = { pid, started_at: startedAt };
+            if (signalVerifiedProcessGroup(record, "SIGKILL") !== "sent") signalVerifiedProcess(record, "SIGKILL");
         }
         await registry.close();
     }

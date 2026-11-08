@@ -16,6 +16,7 @@ export interface ResidentHostProcessOptions {
     readonly exit?: (code: number) => void;
     readonly stopAbsorbingFaults?: () => void;
     readonly closeDeadlineMs?: number;
+    readonly poolWorkerPids?: () => readonly number[];
     readonly log?: HostLog;
     // Runs after a failed or clean close and before exit. A timed-out close skips it, since that host may still serve.
     readonly afterClose?: () => Promise<void>;
@@ -61,9 +62,12 @@ export async function runResidentHostProcess(
             );
             exitCode = 1;
         } else if (outcome.kind === "timed_out") {
-            // A stuck turn or extension must not keep a host alive that was told to stop.
-            const message = `Resident Vera host did not finish closing within ${deadlineMs} ms; exiting anyway.`;
+            const pids = options.poolWorkerPids?.();
+            const message = pids === undefined || pids.length === 0
+                ? `Resident Vera host did not finish closing within ${deadlineMs} ms; exiting anyway.`
+                : pids.map((pid) => `Could not confirm session process PID ${pid} stopped.`).join(" ");
             process.stderr.write(`${message}\n`);
+            if (pids !== undefined) exitCode = 1;
             (options.log ?? createHostLogger())({
                 type: "host_close_timed_out",
                 deadline_ms: deadlineMs,
@@ -71,7 +75,9 @@ export async function runResidentHostProcess(
             });
         }
         // A failed close has already stopped the socket, so the hand-off cannot start a second host on it.
-        if (outcome.kind !== "timed_out" && options.afterClose !== undefined) {
+        if (outcome.kind !== "timed_out"
+            && (outcome.kind !== "failed" || options.poolWorkerPids === undefined)
+            && options.afterClose !== undefined) {
             try {
                 await options.afterClose();
             } catch (error) {

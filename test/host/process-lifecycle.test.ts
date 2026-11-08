@@ -150,6 +150,55 @@ test("a host whose close never finishes still exits after its deadline", async (
     ]);
 });
 
+test("a pool that cannot finish closing exits unsuccessfully and names its workers", async () => {
+    const signal = Promise.withResolvers<void>();
+    const exits: number[] = [];
+    const logged: HostLogEntry[] = [];
+    let handedOff = false;
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: () => new Promise<void>(() => {}),
+    }, {
+        waitForSignal: () => ({ promise: signal.promise, dispose: () => {} }),
+        exit: (code) => exits.push(code),
+        closeDeadlineMs: 20,
+        poolWorkerPids: () => [177, 178],
+        afterClose: async () => { handedOff = true; },
+        log: (entry) => logged.push(entry),
+    });
+
+    signal.resolve();
+    await running;
+
+    expect(exits).toEqual([1]);
+    expect(handedOff).toBe(false);
+    expect(logged).toMatchObject([{
+        type: "host_close_timed_out",
+        error: "Could not confirm session process PID 177 stopped. Could not confirm session process PID 178 stopped.",
+    }]);
+});
+
+test("a failed pool close does not start the pending hand-off", async () => {
+    const signal = Promise.withResolvers<void>();
+    const exits: number[] = [];
+    let handedOff = false;
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: async () => { throw new Error("Session process PID 177 is still running."); },
+    }, {
+        waitForSignal: () => ({ promise: signal.promise, dispose: () => {} }),
+        exit: (code) => exits.push(code),
+        poolWorkerPids: () => [177],
+        afterClose: async () => { handedOff = true; },
+    });
+
+    signal.resolve();
+    await running;
+
+    expect(exits).toEqual([1]);
+    expect(handedOff).toBe(false);
+});
+
 test("a failed close still runs the pending hand-off and exits 1", async () => {
     const signal = Promise.withResolvers<void>();
     const order: string[] = [];

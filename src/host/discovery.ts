@@ -11,6 +11,7 @@ import {
     forceStopHostProcess,
     unverifiedHostMessage,
 } from "./force-stop.ts";
+import { checkRecordIdentity } from "./process-identity.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownForReplacement,
@@ -277,7 +278,9 @@ export async function ensureResidentHost(
             }
             if (sameHostStillRunning) {
                 await beforeDeadline(
-                    () => (options.terminateHost ?? terminateHost)(error.pid),
+                    () => options.terminateHost === undefined
+                        ? terminateHost({ pid: error.pid, started_at: startedAt })
+                        : options.terminateHost(error.pid),
                     "Resident host replacement exceeded its deadline",
                 );
             }
@@ -374,8 +377,11 @@ export async function ensureResidentHost(
     }
 }
 
-function terminateHost(pid: number): void {
-    process.kill(pid, "SIGTERM");
+function terminateHost(record: Pick<HostLockRecord, "pid" | "started_at">): void {
+    if (checkRecordIdentity(record) !== "match") {
+        throw new Error(unverifiedHostMessage(record));
+    }
+    process.kill(record.pid, "SIGTERM");
 }
 
 async function terminateWedgedHost(record: HostLockRecord): Promise<void> {

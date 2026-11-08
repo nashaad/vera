@@ -86,6 +86,9 @@ export function classifyVeraProcess(command: string): VeraProcessKind | undefine
     if (/(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)) {
         return "worker";
     }
+    if (/(?:^|\s)(?:\S*\/)?clients\/host\/session-worker\.ts(?:\s|$)/.test(command)) {
+        return "worker";
+    }
     if (
         /(?:^|\s)(?:\S*\/)?test\/support\/\S+-(?:child|resident-host)\.ts(?:\s|$)/
             .test(command)

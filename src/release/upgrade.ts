@@ -1,13 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
     mkdirSync,
-    readlinkSync,
-    realpathSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
-import { basename, dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, join } from "node:path";
+
+import { canonicalPath } from "../canonical-path.ts";
 
 import { activateRelease } from "./activate.ts";
 import {
@@ -25,6 +25,7 @@ import { readStampedRelease } from "./stamp.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     defaultHostLockPath,
+    defaultHostSocketPath,
     HOST_STARTUP_RACE_EXIT_CODE,
     HostLockUnreadableError,
     inspectHostLockFile,
@@ -42,6 +43,9 @@ import {
 } from "../host/force-stop.ts";
 import { checkRecordIdentity } from "../host/process-identity.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";
+import { stopRecordedWorkers } from "../host/master/stop-worker.ts";
+import { readRecordedWorkers } from "../host/master/worker-records.ts";
+import { acquireStopStartupClaim } from "../host/stop-claim.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
@@ -287,6 +291,7 @@ export interface EnsureHostOptions {
     readonly operation?: UpgradeOperation;
     readonly stopStartedHost?: (child: ChildProcess, graceMs: number) => Promise<boolean>;
     readonly recorder?: HostLaunchRecorder;
+    readonly pool?: boolean;
 }
 
 // Thrown when the host this command started cannot be stopped. Rolling back must
@@ -309,30 +314,6 @@ export class HostStartRefusedError extends Error {
 
 const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 const UNPUBLISHED_HOST_EXIT_MS = 3_000;
-
-const MAX_LINK_HOPS = 40;
-
-// A VERA_HOME or prefix that is a symlink to the daily path must compare equal
-// to it, even when the link dangles or the path does not exist yet.
-function canonicalPath(path: string, hops = 0): string {
-    const absolute = resolvePath(path);
-    try {
-        return realpathSync(absolute);
-    } catch {
-        // A missing or dangling component: resolve the parent, then follow a link.
-    }
-    const parent = dirname(absolute);
-    if (parent === absolute) return absolute;
-    const candidate = join(canonicalPath(parent, hops), basename(absolute));
-    if (hops >= MAX_LINK_HOPS) return candidate;
-    let target: string;
-    try {
-        target = readlinkSync(candidate);
-    } catch {
-        return candidate;
-    }
-    return canonicalPath(resolvePath(dirname(candidate), target), hops + 1);
-}
 
 // The daily prefix goes with the default home, and a test prefix with a private one.
 export function assertPrefixMayManageHost(
@@ -417,6 +398,22 @@ async function stopUnpublishedHost(child: ChildProcess, graceMs: number): Promis
     return waitForExit(child, graceMs);
 }
 
+export async function stopLeftoverPoolWorkers(home: string): Promise<void> {
+    if ((await readRecordedWorkers(home)).length === 0) return;
+    const lockPath = defaultHostLockPath(home);
+    const claim = await acquireStopStartupClaim(`${defaultHostSocketPath(home)}.starting`);
+    try {
+        refuseDamagedHostLock(await inspectHostLockFile(lockPath));
+        const live = await liveHostRecord(lockPath);
+        if (live !== undefined) {
+            throw new HostStartRefusedError(`Resident Vera host PID ${live.pid} is still running.`);
+        }
+        await stopRecordedWorkers(home);
+    } finally {
+        await claim.release();
+    }
+}
+
 export async function defaultEnsureHost(
     releaseRoot: string,
     options: EnsureHostOptions = {},
@@ -440,7 +437,10 @@ export async function defaultEnsureHost(
                 + `${retry} again.`,
         );
     }
-    const child = spawn(join(releaseRoot, RELEASE_HOST_NAME), [], {
+    const previous = await readHostLockRecordFile(lockPath);
+    const pool = options.pool ?? previous?.worker_count !== undefined;
+    await stopLeftoverPoolWorkers(veraHomeDirectory());
+    const child = spawn(join(releaseRoot, RELEASE_HOST_NAME), pool ? ["--pool"] : [], {
         argv0: "vera-host",
         detached: true,
         stdio: "ignore",

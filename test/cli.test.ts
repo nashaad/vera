@@ -335,6 +335,23 @@ test("vera ls shows only this workspace until asked for all of them", async () =
     expect(all).toContain("/work/beta");
 });
 
+test("vera ls keeps the last rows and names unavailable session processes", async () => {
+    let output = "";
+    const result = await runCli(["ls"], {
+        listAgentPage: async () => ({
+            agents: [{
+                id: "crow", workspace: process.cwd(), session_path: "/sessions/crow.jsonl",
+                kind: "interactive", status: "working", live: true,
+            }],
+            unavailableWorkers: ["w1"],
+        }),
+        stdout: { write: (text) => output += text },
+    });
+    expect(result).toBe(0);
+    expect(output).toContain("crow");
+    expect(output).toEndWith("Unavailable session processes: w1.\n");
+});
+
 test("an empty scoped list points at the flag that widens it", async () => {
     let output = "";
 
@@ -641,6 +658,7 @@ async function pruneWithReads(
             liveProcessReads: {
                 isAlive: () => true,
                 readCommand: () => "bun /work/vera/src/worker.ts",
+                readProcessGroupSnapshot: (pid) => [{ pid, group: pid, state: "S", startedAt: prunedStart }],
                 kill: (pid, signal) => { signals.push(`${signal}:${pid}`); },
                 ...reads(state),
             },
@@ -847,6 +865,16 @@ test("vera abort requests cancellation through a resident agent", async () => {
     expect(exitCode).toBe(0);
     expect(aborted).toEqual(["agent-1"]);
     expect(output).toBe("Abort requested for agent-1.\n");
+});
+
+test("vera abort reports when no turn is running", async () => {
+    let output = "";
+    const exitCode = await runCli(["abort", "crow"], {
+        abortAgent: async () => "no_turn",
+        stdout: { write: (text) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe("No turn is running for crow.\n");
 });
 
 test("vera close ends a live agent and names how to get the session back", async () => {

@@ -22,7 +22,7 @@ export type StopWaitEvent =
     | { readonly type: "wait_cleared"; readonly reason: "abandoned" | "stopped"; readonly message?: string }
     | { readonly type: "restarting"; readonly build_id: string };
 
-export type StopWaitObserver = (event: StopWaitEvent) => void;
+export type StopWaitObserver = (event: StopWaitEvent) => void | Promise<void>;
 
 export type StopWhenIdleEvent =
     | { readonly type: "waiting"; readonly waiting_on: readonly StopWaitTarget[] }
@@ -73,6 +73,7 @@ export interface StopWhenIdleControl {
 export interface StopWhenIdleOptions {
     readonly waitingOn: () => readonly StopWaitTarget[];
     readonly waitingOnAsync?: () => Promise<readonly StopWaitTarget[]>;
+    readonly setTurnsHeld?: (held: boolean) => Promise<void>;
     readonly onStopped: () => void | Promise<void>;
     readonly pollIntervalMs?: number;
     // Checked when a request names a build. A message refuses the request.
@@ -106,6 +107,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
     // One record per session per wait; a repeat cut in the same wait still halts the session.
     private readonly recordedThisWait = new Set<string>();
     private checks: Promise<void> = Promise.resolve();
+    private holdChange: Promise<void> = Promise.resolve();
 
     constructor(private readonly options: StopWhenIdleOptions) {}
 
@@ -135,8 +137,12 @@ export class StopWhenIdle implements StopWhenIdleControl {
                 return { accepted: false, reason: "target_unavailable", message: problem };
             }
         }
+        const newWait = this.pending === undefined;
         this.pending = buildId;
         this.held = true;
+        if (newWait && this.options.setTurnsHeld !== undefined) {
+            this.holdChange = Promise.resolve().then(() => this.options.setTurnsHeld!(true));
+        }
         this.listeners.add(listener);
         if (this.options.waitingOnAsync !== undefined) {
             this.ensureTimer();
@@ -172,6 +178,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
             };
         }
         const cause: StopCause = this.pending === null ? "stop" : "update";
+        await this.holdChange;
         const reason = this.pending === null
             ? "Vera is stopping"
             : `Vera is updating to ${this.pending}`;
@@ -265,6 +272,8 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private enqueueCheck(listener?: StopWhenIdleListener, cutFirst = false): void {
         this.checks = this.checks.then(async () => {
             if (this.finished || this.pending === undefined) return;
+            await this.holdChange;
+            if (this.finished || this.pending === undefined) return;
             const waiting = await this.options.waitingOnAsync!();
             if (this.finished || this.pending === undefined) return;
             if (waiting.length === 0) {
@@ -329,10 +338,14 @@ export class StopWhenIdle implements StopWhenIdleControl {
     // Turns resume and the next request starts a new stop.
     private async abandon(message: string): Promise<void> {
         this.recordedThisWait.clear();
+        this.clearTimer();
+        try {
+            await this.options.setTurnsHeld?.(false);
+        } catch {
+        }
         this.held = false;
         this.pending = undefined;
         this.lastKey = undefined;
-        this.clearTimer();
         if (this.announced !== undefined) {
             this.announced = undefined;
             this.emit({ type: "wait_cleared", reason: "abandoned", message });
@@ -371,7 +384,7 @@ function deliver(
 
 function safelyObserve(observer: StopWaitObserver, event: StopWaitEvent): void {
     try {
-        observer(event);
+        void Promise.resolve(observer(event)).catch(() => {});
     } catch {
         // An observer that throws must not hold up the stop.
     }

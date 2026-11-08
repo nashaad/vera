@@ -13,7 +13,7 @@ import {
 } from "../../src/config.ts";
 import { shippedProviderIds } from "../../src/providers/definitions.ts";
 import { resolveAgentIdentifier } from "./agent-id.ts";
-import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
+import { abortAgentThroughHost, abortPoolAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import {
     closeAgentThroughHost,
     type CloseAgentResult,
@@ -29,7 +29,7 @@ import {
     type SessionBlockCommandDependencies,
 } from "./session-block-command.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
-import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { listAgentPageThroughHost, listAgentsThroughHost, type ListedAgentsPage } from "../../src/host/agent-list-client.ts";
 import {
     describeImportRejection,
     importSessionThroughHost,
@@ -58,6 +58,8 @@ import {
     type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
 import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
+import { forceStopPool, ForcePoolStartupInProgressError } from "../../src/host/master/force-stop-pool.ts";
+import { HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 import {
     type SupervisionReport,
     superviseHost,
@@ -261,10 +263,11 @@ type RollbackInstallResult =
     | Pick<FinishedInterruptedSwitch, "kind" | "activeBuildId">;
 
 export interface CliDependencies {
-    readonly abortAgent?: (agentId: string) => Promise<void>;
+    readonly abortAgent?: (agentId: string) => Promise<void | "no_turn">;
     readonly sessionBlock?: Partial<SessionBlockCommandDependencies>;
     readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly listAgentPage?: () => Promise<ListedAgentsPage>;
     readonly scheduleOperation?: (
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
@@ -549,7 +552,12 @@ export async function runCli(
         && (args.length === 1 || (args.length === 2 && args[1] === "--all"))
     ) {
         const all = args.length === 2;
-        const agents = await (dependencies.listAgents ?? listLiveAgents)();
+        const listing = dependencies.listAgentPage !== undefined
+            ? await dependencies.listAgentPage()
+            : dependencies.listAgents === undefined
+                ? await listLiveAgentPage()
+                : { agents: await dependencies.listAgents() };
+        const agents = listing.agents;
         const here = workspaceKey(process.cwd());
         output.write(renderAgentList(
             all
@@ -559,6 +567,10 @@ export async function runCli(
                 ),
             { all },
         ));
+        if ("unavailableWorkers" in listing && listing.unavailableWorkers !== undefined
+            && listing.unavailableWorkers.length > 0) {
+            output.write(`Unavailable session processes: ${listing.unavailableWorkers.join(", ")}.\n`);
+        }
         return 0;
     }
 
@@ -640,8 +652,10 @@ export async function runCli(
         && typeof args[1] === "string"
         && args[1].length > 0
     ) {
-        await (dependencies.abortAgent ?? abortLiveAgent)(args[1]);
-        output.write(`Abort requested for ${args[1]}.\n`);
+        const result = await (dependencies.abortAgent ?? abortLiveAgent)(args[1]);
+        output.write(result === "no_turn"
+            ? `No turn is running for ${args[1]}.\n`
+            : `Abort requested for ${args[1]}.\n`);
         return 0;
     }
 
@@ -925,6 +939,21 @@ export async function runCli(
                 }
             };
             if (force) {
+                if (dependencies.stopHost === undefined && dependencies.forceStopHost === undefined) {
+                    const pool = await forceStopPool(veraHomeDirectory());
+                    if (pool !== undefined) {
+                        if (pool.masterPid !== undefined) {
+                            output.write(`Stopped resident Vera host PID ${pool.masterPid}.\n`);
+                        }
+                        for (const pid of pool.workerPids) {
+                            output.write(`Stopped session process PID ${pid}.\n`);
+                        }
+                        if (pool.masterPid === undefined && pool.workerPids.length === 0) {
+                            output.write("No resident Vera host is recorded.\n");
+                        }
+                        return 0;
+                    }
+                }
                 const cut = await (
                     dependencies.stopHost ?? stopResidentHostWhenIdle
                 )({ onWaiting, force: true });
@@ -965,7 +994,15 @@ export async function runCli(
             output.write(rendered.text);
             return rendered.exitCode;
         } catch (error) {
-            if (error instanceof HostLockUnreadableError) {
+            if (error instanceof ForcePoolStartupInProgressError) {
+                if (error.stoppedMasterPid !== undefined) {
+                    output.write(`Stopped resident Vera host PID ${error.stoppedMasterPid}.\n`);
+                }
+                for (const pid of error.stoppedWorkerPids) {
+                    output.write(`Stopped session process PID ${pid}.\n`);
+                }
+            }
+            if (error instanceof HostLockUnreadableError || error instanceof HostStartupInProgressError) {
                 errorOutput.write(`${error.message}\n`);
                 return 1;
             }
@@ -1498,11 +1535,17 @@ async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
         : listAgentsThroughHost(host.socket_path);
 }
 
-async function abortLiveAgent(agentId: string): Promise<void> {
+async function listLiveAgentPage(): Promise<ListedAgentsPage> {
+    const host = await readPairedLiveHost();
+    return host === undefined ? { agents: [] } : await listAgentPageThroughHost(host.socket_path);
+}
+
+async function abortLiveAgent(agentId: string): Promise<void | "no_turn"> {
     const host = await readPairedLiveHost();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
+    if (host.worker_count !== undefined) return await abortPoolAgentThroughHost(host.socket_path, agentId);
     await abortAgentThroughHost(host.socket_path, agentId);
 }
 

@@ -47,6 +47,8 @@ import { releaseBuildId } from "../src/release/build-id.ts";
 import { requestHostIdentity } from "../src/host/protocol.ts";
 import { controlSocketPath } from "../src/host/master/supervisor.ts";
 import { inProcessWorkerSocket } from "../src/host/master/in-process.ts";
+import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/master/force-stop-pool.ts";
+import { HostStartupInProgressError } from "../src/host/startup-claim.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
 
 const CLI_ENTRYPOINT = fileURLToPath(
@@ -195,7 +197,9 @@ export interface DevTuiDependencies extends EvictHomeOptions {
 }
 
 export interface EvictHomeOptions {
-    readonly processesUsingHome?: (home: string) => readonly number[];
+    readonly processesUsingHome?: (home: string) => readonly HomeProcess[];
+    readonly processStartTime?: (pid: number) => string | undefined;
+    readonly isProcessAlive?: (pid: number) => boolean;
     readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
     readonly sigtermGraceMs?: number;
     readonly sigkillGraceMs?: number;
@@ -548,15 +552,30 @@ async function stopCandidate(
     stderr: { write(text: string): unknown },
 ): Promise<number> {
     const lockPath = join(destinationHome, "runtime", "host.json");
-    if (!existsSync(lockPath)) {
-        stderr.write("No development instance host is running.\n");
-        return 0;
+    const reported = new Set<number>();
+    const reportWorker = (pid: number): void => {
+        if (reported.has(pid)) return;
+        reported.add(pid);
+        stderr.write(`Stopped session process PID ${pid}.\n`);
+    };
+    try {
+        const pool = await forceStopPool(destinationHome, { onWorkerStopped: reportWorker });
+        if (pool !== undefined) {
+            for (const pid of pool.workerPids) reportWorker(pid);
+            return 0;
+        }
+    } catch (error) {
+        if (error instanceof ForcePoolStartupInProgressError) {
+            for (const pid of error.stoppedWorkerPids) reportWorker(pid);
+        }
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 1;
     }
     let outcome: Awaited<ReturnType<typeof forceStopResidentHost>>;
     try {
-        outcome = await forceStopResidentHost({ lockPath });
+        outcome = await forceStopResidentHost({ lockPath, home: destinationHome });
     } catch (error) {
-        if (!(error instanceof HostLockUnreadableError)) throw error;
+        if (!(error instanceof HostLockUnreadableError) && !(error instanceof HostStartupInProgressError)) throw error;
         stderr.write(`${error.message}\n`);
         return 1;
     }
@@ -586,23 +605,43 @@ const EVICTION_SIGKILL_GRACE_MS = 2_000;
 
 const EVICTION_POLL_MS = 50;
 
+export interface HomeProcess {
+    readonly pid: number;
+    readonly startedAt?: string;
+}
+
+function normalizeStartTime(value: string): string {
+    return value.trim().replace(/\s+/g, " ");
+}
+
 /** Every live process holding this home, found by the home it was given rather than by a lockfile one of them has since overwritten. */
-export function processesUsingHome(home: string): readonly number[] {
-    const listed = spawnSync("ps", ["axeww", "-o", "pid=,command="], {
+export function processesUsingHome(home: string): readonly HomeProcess[] {
+    const listed = spawnSync("ps", ["axeww", "-o", "pid=,lstart=,command="], {
         encoding: "utf8",
         // Every process is listed with its whole environment, which on a
         // developer's machine runs to megabytes.
         maxBuffer: 64 * 1024 * 1024,
     });
-    if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
+    if (listed.status !== 0 || typeof listed.stdout !== "string") {
+        throw new Error("Could not list development processes");
+    }
     const holds = new RegExp(
         `VERA_HOME=${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`,
     );
     return listed.stdout.split("\n").flatMap((line) => {
         if (!holds.test(line)) return [];
         const pid = Number.parseInt(line.trimStart().split(/\s/)[0] ?? "", 10);
-        return Number.isInteger(pid) && pid !== process.pid ? [pid] : [];
+        if (!Number.isInteger(pid) || pid === process.pid) return [];
+        const match = /^\s*\d+\s+(\S+\s+\S+\s+\d{1,2}\s+\S+\s+\d{4})\s/.exec(line);
+        return [{ pid, ...(match === null ? {} : { startedAt: normalizeStartTime(match[1]!) }) }];
     });
+}
+
+function processStartTime(pid: number): string | undefined {
+    const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+    if (result.status !== 0 || typeof result.stdout !== "string") return undefined;
+    const value = normalizeStartTime(result.stdout);
+    return value.length === 0 ? undefined : value;
 }
 
 function signalProcess(pid: number, signal: NodeJS.Signals): void {
@@ -616,7 +655,7 @@ function signalProcess(pid: number, signal: NodeJS.Signals): void {
 async function noneLeft(
     home: string,
     graceMs: number,
-    list: (home: string) => readonly number[],
+    list: (home: string) => readonly HomeProcess[],
 ): Promise<boolean> {
     const deadline = Date.now() + graceMs;
     while (list(home).length > 0) {
@@ -636,30 +675,69 @@ export async function evictHome(
     stderr: { write(text: string): unknown },
     options: EvictHomeOptions = {},
 ): Promise<number> {
-    const list = options.processesUsingHome ?? processesUsingHome;
+    const listProcesses = options.processesUsingHome ?? processesUsingHome;
     const signal = options.signalProcess ?? signalProcess;
-    const holding = list(home);
-    if (holding.length === 0) return 0;
-    for (const pid of holding) signal(pid, "SIGTERM");
-    const polite = options.sigtermGraceMs ?? EVICTION_SIGTERM_GRACE_MS;
-    if (!await noneLeft(home, polite, list)) {
-        for (const pid of list(home)) signal(pid, "SIGKILL");
-        await noneLeft(home, options.sigkillGraceMs ?? EVICTION_SIGKILL_GRACE_MS, list);
-    }
-    const survivors = list(home);
-    if (survivors.length > 0) {
+    const readStartTime = options.processStartTime ?? processStartTime;
+    const isAlive = options.isProcessAlive ?? processIsAlive;
+    const list = (path: string): readonly HomeProcess[] => {
+        try {
+            return listProcesses(path);
+        } catch {
+            throw new HomeProcessListError();
+        }
+    };
+    const known = new Map<number, HomeProcess>();
+    const signalVerified = (record: HomeProcess, name: NodeJS.Signals): void => {
+        const previous = known.get(record.pid);
+        const actual = readStartTime(record.pid);
+        if (actual === undefined && !isAlive(record.pid)) return;
+        if (record.startedAt === undefined || actual !== record.startedAt
+            || (previous !== undefined && previous.startedAt !== record.startedAt)) {
+            throw new HomeProcessIdentityError(record.pid);
+        }
+        known.set(record.pid, record);
+        signal(record.pid, name);
+    };
+    try {
+        const holding = list(home);
+        if (holding.length === 0) return 0;
+        for (const record of holding) signalVerified(record, "SIGTERM");
+        const polite = options.sigtermGraceMs ?? EVICTION_SIGTERM_GRACE_MS;
+        if (!await noneLeft(home, polite, list)) {
+            for (const record of list(home)) signalVerified(record, "SIGKILL");
+            await noneLeft(home, options.sigkillGraceMs ?? EVICTION_SIGKILL_GRACE_MS, list);
+        }
+        const survivors = list(home);
+        if (survivors.length > 0) {
+            stderr.write(
+                `Could not stop ${survivors.length} process(es) still using `
+                    + `${home}: ${survivors.map((record) => record.pid).join(", ")}.\n`,
+            );
+            return 1;
+        }
         stderr.write(
-            `Could not stop ${survivors.length} process(es) still using `
-                + `${home}: ${survivors.join(", ")}.\n`,
+            `Stopped ${holding.length} process(es) from the previous `
+                + "development instance.\n",
         );
-        return 1;
+        return 0;
+    } catch (error) {
+        if (error instanceof HomeProcessIdentityError) {
+            stderr.write(`Could not verify PID ${error.pid} is a process using ${home}; the development instance was kept.\n`);
+            return 1;
+        }
+        if (error instanceof HomeProcessListError) {
+            stderr.write(`Could not list processes using ${home}; the development instance was kept.\n`);
+            return 1;
+        }
+        throw error;
     }
-    stderr.write(
-        `Stopped ${holding.length} process(es) from the previous `
-            + "development instance.\n",
-    );
-    return 0;
 }
+
+class HomeProcessIdentityError extends Error {
+    constructor(readonly pid: number) { super(); }
+}
+
+class HomeProcessListError extends Error {}
 
 async function confirmDiscard(question: string): Promise<boolean> {
     const rl = createInterface({ input: process.stdin, output: process.stderr });

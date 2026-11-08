@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+import { signalVerifiedProcessGroup } from "../../process-group.ts";
 import {
     childReleaseRoot,
     RELEASE_WORKER_NAME,
@@ -162,6 +163,7 @@ export async function startWorker(
 ): Promise<WorkerHandle> {
     const command = options.command ?? residentWorkerSpawnCommand();
     const [executable, ...args] = command;
+    const startedAt = new Date().toISOString();
     const child: ChildProcess = spawn(executable as string, args, {
         argv0: "vera-worker",
         stdio: ["pipe", "pipe", "inherit"],
@@ -223,7 +225,7 @@ export async function startWorker(
         onWorkerFinished: (error?: string): void => {
             reported = error ?? undefined;
         },
-        onProcessStarted: (pid) => supervisor?.watchProcessGroup(pid),
+        onProcessStarted: (pid, processStartedAt) => supervisor?.watchProcessGroup(pid, processStartedAt),
         onProcessSettled: (pid) => supervisor?.forgetProcessGroup(pid),
         onBlockAck: (ack) => settleBlockAck(ack),
     });
@@ -249,6 +251,7 @@ export async function startWorker(
 
     supervisor = superviseWorker({
         pid,
+        startedAt,
         deadlineMs: options.deadlineMs ?? NO_DEADLINE,
         processGroup: true,
     });
@@ -308,11 +311,10 @@ export async function startWorker(
         cutWait: (reason: string, timeoutMs: number) => askCut(reason, timeoutMs),
         kill(): void {
             supervisor?.killNow();
-            try {
-                process.kill(-pid, "SIGKILL");
-            } catch {
+            const result = signalVerifiedProcessGroup({ pid, started_at: startedAt }, "SIGKILL");
+            if (result !== "sent") {
                 try {
-                    process.kill(pid, "SIGKILL");
+                    child.kill("SIGKILL");
                 } catch {
                 }
             }

@@ -6,6 +6,7 @@ import type { SessionSnapshot } from "./session-endpoint.ts";
 import type { WorkerBootstrap } from "./worker-control.ts";
 import { sessionWorkerSpawnSpec } from "./worker-launch.ts";
 import { publishWorkerRecord, type WorkerRecordHandle } from "./worker-record.ts";
+import { killWorkerProcess, stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
 
 export { controlSocketPath } from "./control-server.ts";
 
@@ -36,7 +37,7 @@ export interface SessionWorkerSupervisorOptions {
     readonly handler: ControlHandler;
     readonly onEvent: ControlEventHandler;
     readonly onConnected: (peer: ControlPeer) => void;
-    readonly onSpawn?: (pid: number) => void;
+    readonly onSpawn?: (pid: number, startedAt?: string) => void;
     readonly spawnSpec?: WorkerSpawnSpec;
     readonly startupTimeoutMs?: number;
 }
@@ -65,6 +66,7 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     let peer: ControlPeer | undefined;
     let stderr = "";
     let record: Promise<WorkerRecordHandle> | undefined;
+    let childIdentity: WorkerStopIdentity | undefined;
     const ready = Promise.withResolvers<SessionSnapshot>();
     const unregister = control.register(`w${index}`, async (candidate, hello) => {
         if (peer !== undefined || hello.id !== `w${index}` || hello.index !== index || hello.count !== count
@@ -93,10 +95,14 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     });
     const spec = options.spawnSpec ?? sessionWorkerSpawnSpec();
     const args = [...spec.args, "--worker-index", String(index), "--worker-count", String(count), "--worker-generation", String(options.generation), "--control", control.path, "--socket", options.socket];
+    const spawnedAt = new Date().toISOString();
     child = spawn(spec.command, args, {
         cwd: process.cwd(), env: { ...process.env, VERA_HOME: options.home }, stdio: ["ignore", "ignore", "pipe"],
     });
-    if (child.pid !== undefined) options.onSpawn?.(child.pid);
+    if (child.pid !== undefined) {
+        childIdentity = { pid: child.pid, started_at: spawnedAt };
+        options.onSpawn?.(child.pid, spawnedAt);
+    }
     child.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16_384); });
     const exited = new Promise<number | null>((resolve) => child!.once("close", (code) => resolve(code))).then(async (code) => {
         const published = await record?.catch(() => undefined);
@@ -115,12 +121,14 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
                 peer.close();
                 await peer.closed;
             }
-            if (child?.exitCode === null && child.signalCode === null) {
-                if (!await finishesWithin(exited, 1_500)) child.kill("SIGTERM");
-                if (!await finishesWithin(exited, 1_500)) child.kill("SIGKILL");
+            try {
+                if (child?.exitCode === null && child.signalCode === null && childIdentity !== undefined) {
+                    await stopWorkerProcess(childIdentity);
+                }
+                await exited;
+            } finally {
+                await ownedControl?.close();
             }
-            await exited;
-            await ownedControl?.close();
         })();
         return closed;
     };
@@ -134,23 +142,13 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
             }),
         ]);
         if (peer === undefined || child.pid === undefined) throw new Error("Session worker did not connect");
-        return { pid: child.pid, peer, snapshot, exited, kill: () => { child?.kill("SIGKILL"); }, close };
+        return { pid: child.pid, peer, snapshot, exited, kill: () => {
+            if (childIdentity !== undefined) killWorkerProcess(childIdentity);
+        }, close };
     } catch (error) {
         await close();
         if (stderr.split(/\r?\n/).some((line) => line.trim() === "worker_socket_busy")) throw new Error("worker_socket_busy");
         throw error;
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
-}
-
-async function finishesWithin(exited: Promise<number | null>, timeoutMs: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            exited.then(() => true),
-            new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
-        ]);
     } finally {
         if (timer !== undefined) clearTimeout(timer);
     }

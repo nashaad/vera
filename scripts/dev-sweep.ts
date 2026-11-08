@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { join } from "node:path";
+
 import {
     homeIsDefault,
     listDevInstances,
@@ -16,6 +18,7 @@ import {
     type LiveProcessRecord,
 } from "../src/live-process.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
+import { readRecordedWorkers } from "../src/host/master/worker-records.ts";
 
 const DEFAULT_MAX_AGE_DAYS = 2;
 const SIGTERM_GRACE_MS = 3_000;
@@ -63,6 +66,7 @@ function formatAge(milliseconds: number): string {
 interface SweepSeams {
     readonly reads?: LiveProcessReads;
     readonly graceMs?: number;
+    readonly readProcessGroupSnapshot?: LiveProcessReads["readProcessGroupSnapshot"];
 }
 
 type StopOutcome =
@@ -95,7 +99,10 @@ async function stopProcess(
     seams: SweepSeams,
 ): Promise<StopOutcome> {
     const pid = listed.record.pid;
-    const reads = seams.reads ?? {};
+    const reads: LiveProcessReads = {
+        ...seams.reads,
+        ...(seams.readProcessGroupSnapshot === undefined ? {} : { readProcessGroupSnapshot: seams.readProcessGroupSnapshot }),
+    };
     const isAlive = reads.isAlive ?? processIsAlive;
     const first = signalListedProcess(listed, "SIGTERM", { reads });
     if (first === "gone") return { kind: "gone" };
@@ -160,11 +167,19 @@ export async function sweepDevInstances(
     }[] = [];
     for (const instance of instances) {
         const live = listLiveProcessesIn(instance.home);
+        const workers = await readRecordedWorkers(instance.home);
+        const known = new Set(live.map((record) => record.pid));
+        const combined: LiveProcessRecord[] = [...live, ...workers.filter((worker) => !known.has(worker.pid)).map((worker) => ({
+            schema_version: 1 as const, pid: worker.pid, kind: "worker" as const,
+            started_at: worker.started_at, runtime_dir: join(instance.home, "runtime"),
+        }))];
+        const staleMasters = new Set(live.filter((record) => record.kind === "host"
+            && ageMs(record, now) >= request.maxAgeMs).map((record) => record.pid));
         // At the boundary the process goes, so --days 0 means everything.
-        const stale = live.filter((record) =>
-            ageMs(record, now) >= request.maxAgeMs
-        );
-        kept += live.length - stale.length;
+        const stale = combined.filter((record) => ageMs(record, now) >= request.maxAgeMs
+            || workers.some((worker) => worker.pid === record.pid && worker.masterPid !== undefined
+                && staleMasters.has(worker.masterPid)));
+        kept += combined.length - stale.length;
         if (stale.length === 0) continue;
         batches.push({
             instance,

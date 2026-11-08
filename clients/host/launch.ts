@@ -22,6 +22,7 @@ import {
 } from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
+    selectedVeraHome,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
@@ -38,21 +39,48 @@ export type FindOrStartHostOptions = Omit<
     "startHost"
 >;
 
+const pooledHomes = new Set<string>();
+
 export async function findOrStartResidentHost(
     options: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
-    const lockfile = options.lockfile ?? createHostLockfile();
+    const home = selectedVeraHome();
+    const baseLockfile = options.lockfile ?? createHostLockfile();
+    let pool = pooledHomes.has(home);
+    const remember = (record: HostLockRecord | undefined): void => {
+        if (record === undefined) return;
+        pool = record.worker_count !== undefined;
+        if (pool) pooledHomes.add(home);
+        else pooledHomes.delete(home);
+    };
+    const lockfile = {
+        publish: () => baseLockfile.publish(),
+        read: async () => {
+            const record = await baseLockfile.read();
+            remember(record);
+            return record;
+        },
+        ...(baseLockfile.diagnose === undefined ? {} : {
+            diagnose: async () => {
+                const diagnosis = await baseLockfile.diagnose!();
+                remember(diagnosis.record);
+                return diagnosis;
+            },
+        }),
+    };
     const dispatched = await dispatchToHostRelease({
         inspectHost: async () => (await lockfile.read())?.build_id,
     });
     if (dispatched !== undefined) {
         process.exit(dispatched);
     }
-    return ensureResidentHost({
+    const host = await ensureResidentHost({
         ...options,
         lockfile,
-        startHost: spawnDetachedResidentHost,
+        startHost: () => spawnDetachedResidentHost(pool),
     });
+    remember(host);
+    return host;
 }
 
 export function residentHostEntrypoint(): string {
@@ -61,14 +89,15 @@ export function residentHostEntrypoint(): string {
 
 export function residentHostSpawnSpec(
     releaseRoot: string | undefined = childReleaseRoot(),
+    pool = false,
 ): { readonly command: string; readonly args: readonly string[] } {
     if (releaseRoot !== undefined) {
         const packed = releaseBinaryPath(RELEASE_HOST_NAME, releaseRoot);
         if (existsSync(packed)) {
-            return { command: packed, args: [] };
+            return { command: packed, args: pool ? ["--pool"] : [] };
         }
     }
-    return { command: process.execPath, args: [residentHostEntrypoint()] };
+    return { command: process.execPath, args: [residentHostEntrypoint(), ...(pool ? ["--pool"] : [])] };
 }
 
 export function worktreeRuntimeNotice(
@@ -161,13 +190,13 @@ export function clearBootFailures(): void {
     }
 }
 
-function spawnDetachedResidentHost(): Promise<void> {
+function spawnDetachedResidentHost(pool = false): Promise<void> {
     const failures = recentBootFailures(Date.now());
     if (failures.length >= BOOT_FAILURE_LIMIT) {
         return Promise.reject(new HostBootLoopError(failures.length));
     }
     const spawnedAt = Date.now();
-    const spec = residentHostSpawnSpec();
+    const spec = residentHostSpawnSpec(undefined, pool);
     const child = spawn(spec.command, [...spec.args], {
         argv0: "vera-host",
         detached: true,

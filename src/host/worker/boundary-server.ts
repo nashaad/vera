@@ -23,7 +23,7 @@ export interface WorkerBoundaryServerOptions {
     readonly toolRuntime?: ToolRuntime;
     readonly onClientUpdate?: (update: AgentUpdate, ownerId?: string) => void;
     readonly onWorkerFinished?: (error?: string) => void;
-    readonly onProcessStarted?: (pid: number) => void;
+    readonly onProcessStarted?: (pid: number, startedAt: string) => void;
     readonly onProcessSettled?: (pid: number) => void;
     readonly onBlockAck?: (ack: SessionBlockAck) => void;
 }
@@ -450,8 +450,8 @@ export function createWorkerBoundaryServer(
                 return;
             }
             if (message.method === "process.started") {
-                const { pid } = body as { readonly pid: number };
-                options.onProcessStarted?.(pid);
+                const { pid, started_at } = body as { readonly pid: number; readonly started_at: string };
+                options.onProcessStarted?.(pid, started_at);
                 return;
             }
             if (

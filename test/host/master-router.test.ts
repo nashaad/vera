@@ -158,6 +158,31 @@ test("a delayed roster from a lost worker cannot replace its successor's snapsho
     expect(observed).toEqual(["new"]);
 });
 
+test("a lost session process keeps its last roster without restoring its lease", async () => {
+    const master = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const summary: RegisteredAgentSummary = {
+        id: "crow", live: true, workspace: "/work", session_path: "/sessions/crow.jsonl",
+        kind: "interactive", status: "working",
+    };
+    worker.snapshot = async () => ({ residents: [], summaries: [summary], work: [], unreadSources: [] });
+    let ready = true;
+    const observed: string[] = [];
+    const snapshots = new RoutedSnapshots(master, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1,
+        ready: () => ready, pid: () => 123,
+    }], () => 0, (owner) => observed.push(owner));
+
+    snapshots.refresh();
+    await snapshots.wait();
+    ready = false;
+    snapshots.refresh();
+    await snapshots.wait();
+
+    expect(snapshots.list()).toEqual([{ ...summary, worker_pid: 123 }]);
+    expect(observed.filter((owner) => owner === "w0")).toHaveLength(1);
+});
+
 test("a lost create reply must not let another worker open the same session", async () => {
     const id = "00000000-0000-4000-8000-000000000001";
     const path = `/sessions/${id}.jsonl`;

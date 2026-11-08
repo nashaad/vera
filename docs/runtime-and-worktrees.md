@@ -120,6 +120,16 @@ asks the host to cut the running turns and drop their queued prompts, then stop.
 The dropped prompts are recorded as not started. If the host does not answer the cut,
 or has not stopped within 10 seconds, the command sends SIGTERM, then SIGKILL
 if the host ignores it, and says which of these happened.
+
+In pool mode, an ordinary stop waits for running turns on every session
+process, then stops all session processes before removing the host lock. A
+forced stop stops the master first, then stops each verified session process.
+If a session process is unavailable, `vera ls` keeps its last known session
+summaries and names the unavailable process after the table. Reconnect host
+and automatic restart keep pool mode when they replace a pooled host.
+If a host is starting before its lock is published, stop reports the startup
+in progress instead of reporting that no host is running.
+
 Neither command signals a process whose start time the system cannot report.
 They print that the PID could not be confirmed as the host, keep its lockfile,
 and exit with status 1; run the command again. `bun run dev:tui --stop`

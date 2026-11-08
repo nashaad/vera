@@ -57,6 +57,7 @@ import {
 } from "./capabilities.ts";
 import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
 import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { removeStoppedPoolLock } from "./master/worker-records.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -235,6 +236,7 @@ export interface ResidentHost {
     readonly health: HostHealth;
     readonly annexPid?: number;
     readonly buildId: string;
+    readonly workerStopPids?: () => readonly number[];
     close(): Promise<void>;
 }
 
@@ -254,14 +256,16 @@ export async function startSessionWorkerRuntime(
     options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
+    externalTurnsHeld?: () => boolean,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions, externalTurnsHeld) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
     options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
+    externalTurnsHeld?: () => boolean,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     const selectedHome = options.home
@@ -492,12 +496,18 @@ async function startHostRuntime(
         await inboxDelivery.drainRemote();
         inbox.close();
     };
+    let stopWaitNotifications = Promise.resolve();
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
         waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        ...(options.processWorker === true ? {
+            setTurnsHeld: (held: boolean) => inProcessWorker?.setTurnsHeld?.(held) ?? Promise.resolve(),
+        } : {}),
         ...(workerSocket === undefined ? {} : {
             waitingOnAsync: () => inProcessWorker?.waitingOn() ?? Promise.resolve(registry.stopWaitTargets()),
         }),
-        onStopped: () => closeHost(),
+        onStopped: options.processWorker === true
+            ? async () => { await stopWaitNotifications; await closeHost(); }
+            : () => closeHost(),
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
         cutSession: (sessionId, reason) => inProcessWorker === undefined
@@ -505,6 +515,14 @@ async function startHostRuntime(
             : inProcessWorker.cutSession(sessionId, reason),
         recordCut: recordStopCut,
     });
+    if (options.processWorker === true) {
+        stopWhenIdle.observe((event) => {
+            stopWaitNotifications = stopWaitNotifications.then(async () => {
+                await inProcessWorker?.publishStopWait?.(event);
+            });
+            void stopWaitNotifications.catch(() => {});
+        });
+    }
     const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
         try {
             return scheduleStore.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS);
@@ -535,7 +553,7 @@ async function startHostRuntime(
         createAdapter: options.createAdapter,
         onExtensionFailure: options.onExtensionFailure,
         trashSessionArtifacts: options.trashSessionArtifacts,
-        turnsHeld: () => stopWhenIdle.holdsTurns,
+        turnsHeld: () => stopWhenIdle.holdsTurns || externalTurnsHeld?.() === true,
         inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
         annexUrl: () => annexUrl,
         forgetRestartRecords,
@@ -986,6 +1004,9 @@ async function startHostRuntime(
                         await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
                     }
                 }
+                if (options.processWorker === true) {
+                    await removeStoppedPoolLock(home, lockPath, server.identity);
+                }
             })();
         }
         return closing;
@@ -1047,6 +1068,7 @@ async function startHostRuntime(
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
+                ...(options.processWorker === true ? { poolWorkerCount: workerCount } : {}),
                 ...(options.pid === undefined ? {} : { pid: options.pid }),
                 ...(options.startedAt === undefined
                     ? {}
@@ -1295,6 +1317,9 @@ async function startHostRuntime(
             get workers() { return inProcessWorker?.workerHealth?.(); },
         } : annexHealth,
         ...(annex === undefined ? {} : { annexPid: annex.pid }),
+        ...(options.processWorker === true
+            ? { workerStopPids: () => inProcessWorker?.stopPids?.() ?? [] }
+            : {}),
         buildId,
         close: closeHost,
     };
