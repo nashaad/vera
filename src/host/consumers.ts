@@ -25,6 +25,7 @@ export interface ConsumerHelloRequest {
     readonly label: string;
     readonly selfEcho?: SelfEcho;
     readonly wake?: Partial<WakePolicy>;
+    readonly initialOffset?: number;
 }
 
 export interface ConsumerReadOptions {
@@ -60,6 +61,7 @@ export class ConsumerHandle {
 
     private readonly inbox: Inbox;
     private readonly registry: ConsumerRegistry;
+    private readonly initialOffset: number | undefined;
     private lastWakeMs: number | null = null;
     private released = false;
 
@@ -69,12 +71,14 @@ export class ConsumerHandle {
         id: ConsumerId,
         wake: WakePolicy,
         selfEcho: SelfEcho,
+        initialOffset?: number,
     ) {
         this.registry = registry;
         this.inbox = inbox;
         this.id = id;
         this.wake = wake;
         this.selfEcho = selfEcho;
+        this.initialOffset = initialOffset;
     }
 
     get label(): string {
@@ -93,6 +97,7 @@ export class ConsumerHandle {
     offset(): number {
         const seq = this.inbox.offsetOf(this.id);
         if (seq === null) {
+            if (this.initialOffset !== undefined) return this.initialOffset;
             throw new Error(`unknown inbox consumer ${this.toString()}`);
         }
         return seq;
@@ -108,7 +113,7 @@ export class ConsumerHandle {
 
     read(options: ConsumerReadOptions): InboxEntry[] {
         this.assertLive();
-        return this.inbox.read(this.id, {
+        return this.inbox.readAfter(this.offset(), {
             limit: options.limit,
             ...(options.afterSeq === undefined ? {} : { afterSeq: options.afterSeq }),
             ...(options.addresses === undefined
@@ -128,7 +133,7 @@ export class ConsumerHandle {
         nowMs: number = Date.now(),
     ): ConsumerUnreadStatus {
         this.assertLive();
-        const stats = this.inbox.unreadStats(this.id, {
+        const stats = this.inbox.unreadStatsAfter(this.offset(), {
             limit: options.limit,
             ...(options.addresses === undefined
                 ? {}
@@ -203,7 +208,7 @@ export class ConsumerRegistry {
     private readonly inbox: Inbox;
     private readonly live = new Map<string, ConsumerHandle>();
 
-    constructor(inbox: Inbox, nodeId: string = defaultNodeId()) {
+    constructor(inbox: Inbox, nodeId: string = defaultNodeId(), private readonly readOnly = false) {
         this.inbox = inbox;
         this.nodeId = nodeId;
     }
@@ -211,7 +216,10 @@ export class ConsumerRegistry {
     hello(request: ConsumerHelloRequest): ConsumerHandle {
         const label = this.availableLabel(request.label);
         const id: ConsumerId = { nodeId: this.nodeId, label };
-        this.inbox.registerConsumer(id);
+        const initialOffset = this.readOnly
+            ? this.inbox.offsetOf(id) ?? this.inbox.tail()
+            : undefined;
+        if (!this.readOnly) this.inbox.registerConsumer(id, request.initialOffset);
         const handle = new ConsumerHandle(
             this,
             this.inbox,
@@ -226,6 +234,7 @@ export class ConsumerRegistry {
                 actor: request.selfEcho?.actor ?? null,
                 session: request.selfEcho?.session ?? null,
             },
+            initialOffset,
         );
         this.live.set(label, handle);
         return handle;
@@ -301,8 +310,9 @@ export class ConsumerRegistry {
 export function createConsumerRegistry(
     inbox: Inbox,
     nodeId: string = defaultNodeId(),
+    readOnly = false,
 ): ConsumerRegistry {
-    return new ConsumerRegistry(inbox, nodeId);
+    return new ConsumerRegistry(inbox, nodeId, readOnly);
 }
 
 export function defaultNodeId(): string {

@@ -9,6 +9,7 @@ import { sessionEndpoint } from "../session-host/endpoint.ts";
 import type { StopWaitTarget } from "../stop-when-idle.ts";
 import { prepareRoutedHost } from "./routing.ts";
 import { ForwardedShutdowns, forwardLocalRequest } from "./public-forward.ts";
+import { MasterInboxBridge, WorkerInboxBridge } from "./inbox.ts";
 
 export function inProcessWorkerSocket(home: string, index = 0): string {
     if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid session worker index");
@@ -40,6 +41,7 @@ export interface InProcessWorker {
     notifyModelCatalogChanged(): void;
     notifyAnnexChanged(url: string | undefined): Promise<void>;
     flushStores(): Promise<void>;
+    knowsSession(id: string): Promise<boolean>;
     waitForForwardedShutdowns(): Promise<void>;
     close(): Promise<void>;
 }
@@ -65,6 +67,11 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         onWorkerChanged: (listener) => worker.handlers.onRosterChanged(listener),
     });
     const { router } = routed;
+    const masterInbox: MasterInboxBridge = new MasterInboxBridge(options.master.inboxDelivery, (method, args, signal): Promise<unknown> =>
+        workerInbox.handle(method, args, signal ?? new AbortController().signal), (id) => router.inboxOwner(id) === "w0");
+    const workerInbox: WorkerInboxBridge = new WorkerInboxBridge((method, args, signal): Promise<unknown> =>
+        masterInbox.handle(method, args, signal));
+    worker.inboxDelivery.setSessionBridge(workerInbox);
     worker.setExtensionSessions(router);
     worker.registry.peerSessions = router;
     worker.registry.subagentSessions = router;
@@ -130,6 +137,13 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         notifyAnnexChanged: async () => {},
         flushStores: () => router.flush(),
+        async knowsSession(id) {
+            if (workerStarting) await started.promise;
+            if (!workerReady) return false;
+            const owner = router.inboxOwner(id);
+            const sessions = owner === "host" ? await options.master.handlers.listAgents() : await worker.handlers.listAgents();
+            return sessions.some((session) => session.id === id);
+        },
         waitForForwardedShutdowns: () => forwardedShutdowns.wait(),
         async close() {
             workerReady = false;
@@ -143,7 +157,13 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
             worker.inboxDelivery.setExternalPump(undefined);
             worker.handlers.setImportedSourceHash(undefined);
             try { await server?.close(); }
-            finally { await worker.close(); }
+            finally {
+                try { await worker.close(); }
+                finally {
+                    await workerInbox.drain();
+                    masterInbox.close();
+                }
+            }
         },
     };
 }

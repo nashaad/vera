@@ -1206,8 +1206,8 @@ export class AgentRegistry {
             if (entry.inbox === undefined) {
                 throw new Error("inbox consumer closed before acknowledgement");
             }
-            entry.inbox.consumer.acknowledge(seq as number);
-            entry.inbox.acknowledgeDelivered();
+            const acknowledged = entry.inbox.acknowledge(seq as number);
+            if (acknowledged !== undefined) await acknowledged;
         };
         // The loop reads the access mode once, so a resumed session's narrowing must land first.
         await reconciled;

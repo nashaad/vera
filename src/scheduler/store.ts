@@ -46,8 +46,12 @@ interface PendingRunRow extends RunRow {
 export class ScheduleStore {
     private readonly database: Database;
 
-    private constructor(database: Database) {
+    private constructor(database: Database, readOnly = false) {
         this.database = database;
+        if (readOnly) {
+            this.database.exec("PRAGMA busy_timeout = 5000");
+            return;
+        }
         this.database.exec("PRAGMA journal_mode = WAL");
         this.database.exec("PRAGMA foreign_keys = ON");
         this.database.exec("PRAGMA busy_timeout = 5000");
@@ -63,6 +67,10 @@ export class ScheduleStore {
             database.close();
             throw error;
         }
+    }
+
+    static openReadOnly(path: string): ScheduleStore {
+        return new ScheduleStore(new Database(path, { readonly: true }), true);
     }
 
     close(): void {

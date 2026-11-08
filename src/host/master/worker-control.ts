@@ -11,10 +11,12 @@ import { serveSessionEndpoint } from "./remote-endpoint.ts";
 import { sessionTarget } from "./routing.ts";
 import { createPublicForwarder } from "./public-forward.ts";
 import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
+import { WorkerInboxBridge } from "./inbox.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
     | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots"
+    | "inboxPath" | "inboxUserConfigPath" | "schedulePath" | "arcConfigPath"
 >;
 
 export interface WorkerBootstrap {
@@ -63,6 +65,7 @@ export async function startControlledWorker(
     const router = remoteRouter(peer);
     const attachments = remoteAttachments(peer);
     const publicForwarder = createPublicForwarder(peer);
+    const inbox = new WorkerInboxBridge((method, args, signal) => peer.request(`inbox.${method}`, args, signal));
     const listeners = new Set<() => void>();
     let summaries: readonly RegisteredAgentSummary[] = [];
     let workIndex: WorkIndexSnapshot = EMPTY_WORK_INDEX;
@@ -71,6 +74,7 @@ export async function startControlledWorker(
     host.registry.peerSessions = router;
     host.registry.subagentSessions = router;
     host.registry.subagentAdmission = router;
+    host.inboxDelivery.setSessionBridge(inbox);
     const opening = new Set<string>();
     host.registry.openGuard = {
         async beginCreate(id, path, parentId) {
@@ -91,6 +95,7 @@ export async function startControlledWorker(
     host.inboxDelivery.setExternalPump((seq) => router.pumpInbox(hello.id as `w${number}`, seq));
     host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     peer.setHandler(async (method, args, signal) => {
+        if (method.startsWith("inbox.")) return await inbox.handle(method.slice(6), args, signal);
         if (method === "public.frame") return await publicForwarder.receiveFrame(args);
         if (method.startsWith("session.")) return await serveSessionEndpoint(endpoint, method.slice(8), args, signal);
         if (method === "worker.canShutdown") return host.handlers.canShutdown();
