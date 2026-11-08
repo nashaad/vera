@@ -159,6 +159,7 @@ export interface TuiSettingsPickerOption {
     readonly label: string;
     readonly description: string;
     readonly note?: string;
+    readonly caution?: boolean;
     readonly detailTitle?: string;
     readonly detailFacts?: readonly (readonly [string, string])[];
     readonly searchText?: string;

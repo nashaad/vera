@@ -1,3 +1,4 @@
+import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "../../src/engine/tool-result-history.ts";
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,6 +66,7 @@ test("a long child turn compacts mid-turn and still returns its answer", async (
         sessionId: "child-compaction",
         sessionPath,
         contextLimit: 40_000,
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         compaction: compactionOptions(() => {
             summarized += 1;
         }),

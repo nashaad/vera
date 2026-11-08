@@ -158,6 +158,12 @@ test("clearing a lever clears the rule it was one side of", () => {
         .toBeUndefined();
 });
 
+test("a ceiling alone is allowed above the flat total default", () => {
+    expect(overrideConflict(overrideRows({}, 8_192), {
+        toolResultCeilingBytes: 262_144,
+    })).toBeUndefined();
+});
+
 test("the unset ceiling is the share a small window can afford", () => {
     expect(rowFor("toolResultCeilingBytes", {}, 33_000).value).toBe(19_800);
     expect(rowFor("toolResultCeilingBytes", {}, 200_000).value).toBe(65_536);

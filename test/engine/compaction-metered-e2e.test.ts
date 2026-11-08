@@ -1,3 +1,4 @@
+import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "../../src/engine/tool-result-history.ts";
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -114,6 +115,7 @@ test("a new model starts from its own estimate, not the last model's correction"
         eventBus: events,
         compaction: compactionOptions(),
         readModelSettings: () => ({ model: current, contextWindow: WINDOW }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: { updateModelSettings: async () => undefined },
@@ -191,6 +193,7 @@ async function runMeteredTurn(provider: Provider): Promise<void> {
         eventBus: events,
         compaction: compactionOptions(),
         readModelSettings: () => ({ model: "luna", contextWindow: WINDOW }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: { updateModelSettings: async () => undefined },

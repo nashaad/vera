@@ -118,7 +118,7 @@ test("missing subagent settings are configured and confirmed through the real TU
                 provider: "faux",
                 model: "test",
                 approvalMode: "auto",
-                availableModels,
+                readAvailableModels: () => availableModels,
                 readPool: () => pooledModels(availableModels, {
                     userPath: poolPath,
                 }),
@@ -314,7 +314,7 @@ test("assigning a model outside the pool adds it to favorites and the subagent r
                 provider: "faux",
                 model: "test",
                 approvalMode: "auto",
-                availableModels,
+                readAvailableModels: () => availableModels,
                 readPool: () => pooledModels(availableModels, { userPath: poolPath }),
                 readPolicy: () => subagentPoolPolicy({ userPath: poolPath, configPath }),
                 sessionPathForId: (id) => join(sessionDirectory, `${id}.jsonl`),
@@ -458,7 +458,7 @@ test("assigning eco a model outside the pool lets explorer run on it", async () 
                 provider: "faux",
                 model: "test",
                 approvalMode: "auto",
-                availableModels,
+                readAvailableModels: () => availableModels,
                 registeredAgents: extensions.agents(),
                 readPool: () => pooledModels(availableModels, { userPath: poolPath }),
                 readPolicy: () => ({

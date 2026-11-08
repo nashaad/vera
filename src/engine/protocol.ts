@@ -2304,7 +2304,10 @@ export function createProtocolEncoder(
                 event.message,
                 event.message.source.model === measuredModel
                     ? measuredCapacity
-                    : undefined,
+                    : replayContextCapacity(
+                        event.message.source.provider,
+                        event.message.source.model,
+                    ),
             );
             if (reportedRequest !== undefined) {
                 // Provider usage covers the request before this assistant

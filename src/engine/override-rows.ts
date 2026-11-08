@@ -8,8 +8,8 @@ import {
 import { MAX_SUMMARY_WORDS } from "./compaction-full-summary.ts";
 import {
     TOOL_RESULT_AGING_LEVELS,
-    TOOL_RESULT_TOTAL_BUDGET_BYTES,
     toolResultAgingLevel,
+    toolResultTotalBudgetBytes,
     type ToolResultAgingLevel,
 } from "./tool-result-history.ts";
 import {
@@ -158,7 +158,7 @@ export function overrideRows(
         row(
             "toolResultTotalBudgetBytes",
             configured.toolResultTotalBudgetBytes,
-            TOOL_RESULT_TOTAL_BUDGET_BYTES,
+            toolResultTotalBudgetBytes(capacity),
         ),
         row(
             "toolResultStubAfterTurns",
@@ -223,9 +223,8 @@ export function overrideConflict(
     const configured = configuredAfter(rows, patch);
     const ceiling = numberAt(configured.toolResultCeilingBytes)
         ?? TOOL_RESULT_CEILING_BYTES;
-    const total = numberAt(configured.toolResultTotalBudgetBytes)
-        ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
-    if (ceiling > total) {
+    const total = numberAt(configured.toolResultTotalBudgetBytes);
+    if (total !== undefined && ceiling > total) {
         return `A ${asBytes(total)} total budget is under the`
             + ` ${asBytes(ceiling)} one-result ceiling.`;
     }

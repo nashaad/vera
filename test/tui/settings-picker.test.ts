@@ -1,4 +1,5 @@
 import type { PooledModel } from "../../src/model/catalog-view.ts";
+import { overrideRows } from "../../src/engine/override-rows.ts";
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { parseColor, TextareaRenderable, type StyledText } from "@opentui/core";
@@ -4305,6 +4306,49 @@ test("a row reads without colour: value, source and whether it fires", () => {
             option.value === "override_compactionTargetTokens"
         )?.description,
     ).toBe("the window is known, so the target is a share of it");
+});
+
+test("tool-result rows show when the total holds down the ceiling", async () => {
+    const overrides = {
+        rows: overrideRows({ toolResultCeilingBytes: 65_536 }, 8_192),
+    };
+    const pane = startTuiOverridesMenu(overrides);
+    const caution = "The 65,536-byte ceiling is held to 32,768 total bytes.";
+    for (const key of ["override_toolResultCeilingBytes", "override_toolResultTotalBudgetBytes"]) {
+        const option = pane.options.find((row) => row.value === key);
+        expect(option?.label).toEndWith("caution");
+        expect(option?.detailFacts).toContainEqual(["Now", "32k"]);
+        expect(option?.description).toBe(caution);
+        expect(option?.note).toStartWith(caution);
+        const frame = await pickerFrame({
+            ...pane,
+            selectedIndex: pane.options.findIndex((row) => row.value === key),
+        }, 160, 40);
+        expect(frame).toContain("Now: 32k");
+        expect(frame).toContain("65,536-byte");
+        expect(frame).toContain("32,768 total bytes.");
+    }
+    const narrow = await pickerFrame({
+        ...pane,
+        selectedIndex: pane.options.findIndex((row) => row.value === "override_toolResultCeilingBytes"),
+    }, 80, 40);
+    expect(narrow).toContain("caution");
+    expect(narrow).toContain("65,536-byte");
+    expect(narrow).toContain("32,768 total bytes.");
+    expect(narrow).toMatch(/total bytes\.\s*\n\s*\n/);
+    const picker = startTuiOverrideValuePicker("override_toolResultCeilingBytes", overrides);
+    expect(picker?.options[picker.selectedIndex]?.value).toBe("65536");
+
+    const equal = startTuiOverridesMenu({
+        rows: overrideRows({ toolResultCeilingBytes: 32_768 }, 8_192),
+    });
+    expect(equal.options.find((row) => row.value === "override_toolResultCeilingBytes")?.label)
+        .toEndWith("live");
+    const unknown = startTuiOverridesMenu({
+        rows: overrideRows({ toolResultCeilingBytes: 262_144 }, undefined),
+    });
+    expect(unknown.options.find((row) => row.value === "override_toolResultCeilingBytes")?.note)
+        .toBe("The 262,144-byte ceiling is held to 131,072 total bytes.");
 });
 
 test("reset asks the host to clear every lever, and the pane stays put", () => {

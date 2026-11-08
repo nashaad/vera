@@ -360,7 +360,7 @@ export interface AgentRegistryOptions {
     readonly compactionOverrides?: CompactionOverrides;
     readonly toolResults?: ToolResultLimits;
     readonly permissionPreferences?: PermissionPreferenceStore;
-    readonly availableModels?: readonly SuggestedModel[];
+    readonly readAvailableModels?: () => readonly SuggestedModel[];
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     readonly refreshableProviders?: () => readonly string[];
     readonly providerCatalogs?: () => readonly ProviderCatalogState[];

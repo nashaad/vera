@@ -8,7 +8,11 @@ import {
     TOOL_RESULT_STUB_AFTER_TURNS,
     toolResultAgingLevel,
     TOOL_RESULT_TOTAL_BUDGET_BYTES,
+    TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES,
+    TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES,
+    toolResultTotalBudgetBytes,
 } from "../../src/engine/tool-result-history.ts";
+import { toolResultCeilingBytes } from "../../src/tools/tool-result-limit.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
 test("old built-in results get mechanical digests at assembly time", async () => {
@@ -593,3 +597,19 @@ function call(
         },
     };
 }
+
+test("the total tool-result budget follows the window and keeps the flat value when unknown", () => {
+    expect(toolResultTotalBudgetBytes(undefined)).toBe(TOOL_RESULT_TOTAL_BUDGET_BYTES);
+    expect(toolResultTotalBudgetBytes(0)).toBe(TOOL_RESULT_TOTAL_BUDGET_BYTES);
+    expect(toolResultTotalBudgetBytes(131_072)).toBe(128 * 1024);
+    expect(toolResultTotalBudgetBytes(8_192)).toBe(TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES);
+    expect(toolResultTotalBudgetBytes(262_144)).toBe(256 * 1024);
+    expect(toolResultTotalBudgetBytes(10_000_000)).toBe(TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES);
+});
+
+test("the per-result ceiling never exceeds the scaled budget by default", () => {
+    for (const capacity of [4_096, 8_192, 32_768, 65_536, 131_072, 400_000, 1_000_000]) {
+        expect(toolResultCeilingBytes(capacity))
+            .toBeLessThanOrEqual(toolResultTotalBudgetBytes(capacity));
+    }
+});

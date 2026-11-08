@@ -1,3 +1,4 @@
+import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "../../src/engine/tool-result-history.ts";
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +96,7 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
         // wide enough that the post-compaction target clears the fixed request
         // overhead of a real system prompt and tool set.
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -198,6 +200,7 @@ test("an unavailable automatic compaction is not retried at every tool boundary"
         eventBus: events,
         compaction: unavailableCompactionOptions({ tokens: 20_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -238,6 +241,7 @@ test("a pre-turn no-boundary result gets one retry after the prompt is durable",
         eventBus: events,
         compaction: compactionOptions({ tokens: 1 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -311,6 +315,7 @@ test("aged tool results below the trigger do not trigger compaction from their d
             eventBus: events,
             compaction: compactionOptions(),
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: {
@@ -457,6 +462,7 @@ test("a running session uses the compaction assignment as it stands now", async 
                 return bound;
             },
             readModelSettings: () => ({ model: "test", contextWindow: 200_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -558,6 +564,7 @@ test("a failed compaction over the window is not retried at every tool step", as
         eventBus: events,
         compaction: unavailableCompactionOptions(),
         readModelSettings: () => ({ model: "test", contextWindow: 9_500 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: { updateModelSettings: async () => undefined },
@@ -650,6 +657,7 @@ test("a new compaction assignment reopens a latched automatic compaction", async
                 return bound;
             },
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -713,6 +721,7 @@ test("an abort during an automatic compaction stops the compaction, not the turn
         eventBus: events,
         compaction,
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -795,6 +804,7 @@ test("an abort with no compaction running still stops the turn", async () => {
         eventBus: events,
         compaction: compactionOptions({ tokens: 20_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -876,6 +886,7 @@ test("a provider refusing the request for size reopens a latched compaction", as
         eventBus: events,
         compaction: unavailableCompactionOptions({ tokens: 2_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -957,6 +968,7 @@ test("a refusal under the trigger compacts anyway, and buys exactly one attempt"
         // never fires and every compaction here is the refusal's doing.
         compaction: compactionOptions({ tokens: 5_000_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 8_000_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: {
@@ -1074,6 +1086,7 @@ test("a successful /compact reopens a latched automatic compaction", async () =>
                 trigger: { tokens: 2_000 },
             },
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -1137,6 +1150,7 @@ test("a large pasted prompt compacts once, not again a few tool steps later", as
             eventBus: events,
             compaction: compactionOptions(),
             readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -1241,6 +1255,7 @@ test("a reply cut off by the length limit is checked for compaction before it co
             eventBus: events,
             compaction: compactionOptions(),
             readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -1391,6 +1406,7 @@ function startOverheadLoop(
             eventBus: events,
             compaction: compactionOptions(),
             readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: { updateModelSettings: async () => undefined },
@@ -1443,6 +1459,7 @@ async function latchSession(sessionId: string): Promise<{
             eventBus: events,
             compaction: unavailableCompactionOptions({ tokens: 2_000 }),
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: {

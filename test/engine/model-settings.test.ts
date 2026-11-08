@@ -8,6 +8,7 @@ import {
     availableReasoningEfforts,
     effectiveContextWindow,
     budgetContextWindow,
+    contextWindowForModel,
     isModelTurnSettings,
     reasoningEffortForModel,
 } from "../../src/engine/model-settings.ts";
@@ -288,4 +289,31 @@ test("a verified catalog entry still wins over the provider rule", () => {
 
     expect(verified.length).toBeGreaterThan(0);
     expect(verified).not.toEqual(EVERY_EFFORT);
+});
+
+test("a window found in the catalog resolves for a model no built-in list names", () => {
+    const catalog = [{
+        provider: "outrider_t1",
+        model: "gemma-local",
+        contextWindow: 32_768,
+    }];
+    expect(contextWindowForModel("outrider_t1", "gemma-local", catalog))
+        .toBe(32_768);
+});
+
+test("a model missing from every catalog resolves to unknown", () => {
+    const catalog = [{ provider: "outrider_t1", model: "gemma-local", contextWindow: 32_768 }];
+    expect(contextWindowForModel("outrider_t1", "other-model", catalog))
+        .toBeUndefined();
+    expect(contextWindowForModel("outrider_t1", "gemma-local", [])).toBeUndefined();
+});
+
+test("a configured context limit below the catalog window wins", () => {
+    const window = contextWindowForModel("outrider_t1", "gemma-local", [{
+        provider: "outrider_t1",
+        model: "gemma-local",
+        contextWindow: 32_768,
+    }]);
+    expect(budgetContextWindow(window, 8_192)).toBe(8_192);
+    expect(budgetContextWindow(window, undefined)).toBe(32_768);
 });

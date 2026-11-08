@@ -208,6 +208,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         reachability: currentReachability,
         createAdapter: () => createAdapter(),
         annexUrl: options.annexUrl,
+        availableModels: () => registry.availableModels,
     }));
 
     let publishStoredSessions: (sessions: ReadonlyMap<string, RegisteredAgentSummary>) => void = () => { };

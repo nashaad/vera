@@ -775,10 +775,15 @@ const OVERRIDE_LABEL_WIDTH = 26;
 const OVERRIDE_VALUE_WIDTH = 10;
 const OVERRIDE_SOURCE_WIDTH = 9;
 
-function overrideColumns(row: OverrideValueRow, fact: OverrideRow | undefined): string {
-    const value = fact?.value === undefined ? "none" : row.format(fact.value);
+function overrideColumns(
+    row: OverrideValueRow,
+    fact: OverrideRow | undefined,
+    displayedValue: number | string | undefined,
+    caution: string | undefined,
+): string {
+    const value = displayedValue === undefined ? "none" : row.format(displayedValue);
     const source = fact?.source === "configured" ? "set" : "default";
-    const reads = fact?.inert === undefined ? "live" : "inert";
+    const reads = fact?.inert !== undefined ? "inert" : caution === undefined ? "live" : "caution";
     return row.label.padEnd(OVERRIDE_LABEL_WIDTH)
         + value.padEnd(OVERRIDE_VALUE_WIDTH)
         + source.padEnd(OVERRIDE_SOURCE_WIDTH)
@@ -796,6 +801,8 @@ function overrideColumns(row: OverrideValueRow, fact: OverrideRow | undefined): 
 function overrideDetail(
     row: OverrideValueRow,
     fact: OverrideRow | undefined,
+    displayedValue: number | string | undefined,
+    caution: string | undefined,
 ): {
     readonly detailTitle: string;
     readonly detailFacts: readonly (readonly [string, string])[];
@@ -804,13 +811,13 @@ function overrideDetail(
     return {
         detailTitle: row.label,
         detailFacts: [
-            ["Now", fact?.value === undefined ? "not set" : row.format(fact.value)],
+            ["Now", displayedValue === undefined ? "not set" : row.format(displayedValue)],
             ["Source", fact?.source === "configured" ? "you set this" : "shipped default"],
             ["Engine", fact?.inert === undefined ? "reads it" : "does not read it"],
         ],
-        note: fact?.inert === undefined
+        note: caution ?? (fact?.inert === undefined
             ? row.detail
-            : `${row.detail} Not here: ${fact.inert}.`,
+            : `${row.detail} Not here: ${fact.inert}.`),
     };
 }
 
@@ -823,14 +830,26 @@ export function startTuiOverridesMenu(
     const configured = (overrides?.rows ?? []).filter((fact) =>
         fact.source === "configured"
     ).length;
+    const ceiling = facts.get("toolResultCeilingBytes")?.value;
+    const total = facts.get("toolResultTotalBudgetBytes")?.value;
+    const budgetCaution = typeof ceiling === "number" && typeof total === "number" && ceiling > total
+        ? `The ${ceiling.toLocaleString("en-US")}-byte ceiling is held to ${total.toLocaleString("en-US")} total bytes.`
+        : undefined;
     const options: TuiSettingsPickerOption[] = OVERRIDE_VALUE_ROWS.map((row) => {
         const fact = facts.get(row.key);
+        const caution = row.key === "toolResultCeilingBytes" || row.key === "toolResultTotalBudgetBytes"
+            ? budgetCaution
+            : undefined;
+        const displayedValue = caution !== undefined && row.key === "toolResultCeilingBytes"
+            ? total
+            : fact?.value;
         return {
             value: row.target,
-            label: overrideColumns(row, fact),
-            description: fact?.inert ?? row.means,
+            label: overrideColumns(row, fact, displayedValue, caution),
+            description: caution ?? fact?.inert ?? row.means,
+            ...(caution === undefined ? {} : { caution: true }),
             searchText: `${row.label} ${row.key}`,
-            ...overrideDetail(row, fact),
+            ...overrideDetail(row, fact, displayedValue, caution),
         };
     });
     options.push({

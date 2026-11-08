@@ -134,6 +134,7 @@ async function openVoyage(
         registry,
         currentConfig: () => ({}) as VeraConfig,
         reachability: () => () => true,
+        availableModels: () => registry.availableModels,
         createAdapter: () => new FauxAdapter([]),
     });
     return {

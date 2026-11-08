@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { listAgentPageThroughHost } from "../../src/host/agent-list-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { ModelFailureLedger } from "../../src/store/model-failures.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
@@ -138,6 +139,71 @@ import type { ModelMessage } from "../../src/model/types.ts";
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "session facts use the cached window resolved by the host catalog",
+    async () => {
+        const home = await mkdtemp(join(tmpdir(), "vera-host-facts-cache-"));
+        const sessionDirectory = join(home, "sessions");
+        const cacheDir = join(home, "runtime", "cache");
+        const socketPath = join(home, "host.sock");
+        try {
+            for (const [provider, contextWindow] of [["port", 16_384], ["starboard", 32_768]] as const) {
+                writeProviderCatalogSnapshot({
+                    schema_version: 2,
+                    provider,
+                    models: [{ id: "crow-mini", label: "crow-mini", context_window: contextWindow, levels: [] }],
+                }, { cacheDir });
+            }
+            const store = await SessionStore.create(join(sessionDirectory, "crow.jsonl"), {
+                sessionId: "crow",
+                cwd: await realpath(home),
+            });
+            await store.appendMessage({
+                role: "assistant",
+                content: [{ type: "text", text: "The course is set." }],
+                source: { provider: "openrouter", api: "scripted", model: "mariner/crow-mini" },
+                usage: {
+                    inputTokens: 1_000,
+                    outputTokens: 10,
+                    cachedInputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_010,
+                },
+                stopReason: "stop",
+            });
+            const host = await startResidentHost({
+                home,
+                config: {
+                    schema_version: 1,
+                    provider: "openrouter",
+                    model: "mariner/crow-mini",
+                    approval_mode: "auto",
+                },
+                createAdapter: () => new FauxAdapter([]),
+                socketPath,
+                lockPath: join(home, "host.json"),
+                sessionDirectory,
+            });
+            try {
+                const model = host.registry.availableModels.find((entry) =>
+                    entry.provider === "openrouter" && entry.model === "mariner/crow-mini"
+                );
+                expect(model?.contextWindow).toBe(16_384);
+                const page = await listAgentPageThroughHost(socketPath, { include: ["context"] });
+                expect(page.agents).toHaveLength(1);
+                expect(page.agents[0]?.facts?.context).toMatchObject({
+                    tokens: 1_000,
+                    capacity: 16_384,
+                });
+            } finally {
+                await host.close();
+            }
+        } finally {
+            await rm(home, { recursive: true, force: true });
         }
     },
 );

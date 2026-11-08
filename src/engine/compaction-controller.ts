@@ -22,6 +22,7 @@ import type { HistoryLineage } from "./prompt-history-drift.ts";
 import type { LoopCompactionState } from "./host-protocol.ts";
 import type { InboundCommandRouter } from "./inbound-command-router.ts";
 import {
+    availableModels,
     budgetContextWindow,
     contextWindowForModel,
     type ModelTurnSettings,
@@ -34,6 +35,7 @@ import type {
 } from "./run-turn.ts";
 import {
     assembleAgedToolResults,
+    toolResultTotalBudgetBytes,
     type ToolResultAgingPolicy,
     type ToolResultLimits,
 } from "./tool-result-history.ts";
@@ -93,6 +95,8 @@ export function createCompactionController(
             ?? contextWindowForModel(
                 settings?.provider,
                 settings?.model ?? model,
+                settings?.availableModels,
+                availableModels(),
             );
         return budgetContextWindow(declared, settings?.contextLimit);
     };
@@ -123,9 +127,8 @@ export function createCompactionController(
             ...(limits?.stubAfterTurns === undefined
                 ? {}
                 : { ageAfterTurns: limits.stubAfterTurns }),
-            ...(limits?.totalBudgetBytes === undefined
-                ? {}
-                : { budgetBytes: limits.totalBudgetBytes }),
+            budgetBytes: limits?.totalBudgetBytes
+                ?? toolResultTotalBudgetBytes(capacity),
         };
     };
     let lastRawEstimate = 0;

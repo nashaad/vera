@@ -4,7 +4,7 @@ import {
     type ReachabilityCheck,
 } from "../config/model-assignments.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
-import { contextWindowForModel } from "../engine/model-settings.ts";
+import { availableModels, contextWindowForModel, type ModelWindowEntry } from "../engine/model-settings.ts";
 import type { ExtensionHostServices } from "../extensions/host-services.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
@@ -16,6 +16,7 @@ export interface ExtensionHostServiceOptions {
     readonly reachability: () => ReachabilityCheck;
     readonly createAdapter: () => ModelAdapter;
     readonly annexUrl?: () => string | undefined;
+    readonly availableModels: () => readonly ModelWindowEntry[];
 }
 
 export function createExtensionHostServices(
@@ -43,6 +44,7 @@ export function createExtensionHostServices(
                     `No reachable model is assigned to ${call.assignment}`,
                 );
             }
+            const windows = options.availableModels();
             const complete = createRoutedCompletionService(
                 options.createAdapter(),
                 {
@@ -50,6 +52,8 @@ export function createExtensionHostServices(
                         const window = contextWindowForModel(
                             model.provider,
                             model.model,
+                            windows,
+                            availableModels(),
                         );
                         return {
                             provider: model.provider,

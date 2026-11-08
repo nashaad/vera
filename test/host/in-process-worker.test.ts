@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, realpath, rm, unlink } from "node:fs/promises";
+import { mkdtemp, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { loadVeraConfig } from "../../src/config.ts";
 import { branchAgentThroughHost, createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { listAgentPageThroughHost, listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { refreshCatalogsThroughHost } from "../../src/host/catalog-refresh-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
 import { HOST_PROTOCOL_VERSION, requestHostIdentity, requestHostShutdownIfIdle } from "../../src/host/protocol.ts";
@@ -40,6 +42,89 @@ async function locate(socketPath: string, id: string): Promise<unknown> {
 async function finishTurn(client: AttachedAgentClient): Promise<void> {
     while ((await client.receive()).type !== "turn_finished") {}
 }
+
+async function sessionModelSettings(client: AttachedAgentClient, requestId: string) {
+    await client.send({ type: "get_model_settings", requestId });
+    while (true) {
+        const update = await client.receive(AbortSignal.timeout(5_000));
+        if (update.type === "model_settings" && update.requestId === requestId) {
+            return update.settings;
+        }
+    }
+}
+
+socketTest("a master catalog refresh reaches an existing worker session", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const server = Bun.serve({
+        port: 0,
+        fetch(request) {
+            const path = new URL(request.url).pathname;
+            if (path === "/gateway/v1/models") {
+                return Response.json({
+                    data: [{ id: "pirate/crow", context_window: 50_000 }],
+                });
+            }
+            if (path === "/ollama/api/tags") return Response.json({ models: [] });
+            return Response.json({ data: [] });
+        },
+    });
+    const endpoint = `http://127.0.0.1:${server.port}`;
+    let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
+    let client: AttachedAgentClient | undefined;
+    try {
+        const configPath = join(home, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            provider: "test_gateway",
+            model: "faux/test",
+            approval_mode: "auto",
+            providers: {
+                test_gateway: {
+                    protocol: "openai-chat",
+                    base_url: `${endpoint}/gateway/v1`,
+                    credential: "none",
+                },
+            },
+            provider_endpoints: {
+                ollama: `${endpoint}/ollama`,
+                omlx: `${endpoint}/omlx/v1`,
+                outrider: `${endpoint}/outrider/v1`,
+            },
+        }));
+        host = await startResidentHost({
+            home,
+            configPath,
+            config: loadVeraConfig({ path: configPath }),
+            inProcessWorker: true,
+            createAdapter: () => new FauxAdapter([]),
+        });
+        const worker = await createAgentThroughHost(host.server.socketPath, home);
+        expect(await locate(host.server.socketPath, worker.id)).toMatchObject({
+            socket_path: inProcessWorkerSocket(home), worker_id: "w0",
+        });
+        client = await attachAgent({ socketPath: host.server.socketPath, agentId: worker.id });
+        expect((await client.receive()).type).toBe("history");
+        const before = await sessionModelSettings(client, "before-refresh");
+        expect(before.availableModels?.some((model) =>
+            model.provider === "test_gateway" && model.model === "pirate/crow"
+        )).toBe(false);
+
+        const outcomes = await refreshCatalogsThroughHost(host.server.socketPath);
+        expect(outcomes).toContainEqual(expect.objectContaining({ provider: "test_gateway", models: 1 }));
+        const after = await sessionModelSettings(client, "after-refresh");
+        expect(after.availableModels).toContainEqual(expect.objectContaining({
+            provider: "test_gateway", model: "pirate/crow", contextWindow: 50_000,
+        }));
+    } finally {
+        client?.close();
+        try {
+            await host?.close();
+        } finally {
+            server.stop(true);
+            await rm(home, { recursive: true, force: true });
+        }
+    }
+}, 20_000);
 
 socketTest("create routes to the worker, two clients attach, and the master merges both rosters", async () => {
     const home = await mkdtemp("/private/tmp/vhs-");

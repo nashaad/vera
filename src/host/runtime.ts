@@ -464,7 +464,7 @@ export async function startResidentHost(
             return sharedServices = {
                 inboxDelivery,
                 models: {
-                    availableModels: models,
+                    readAvailableModels: () => models,
                     refreshAvailableModels: options.createAdapter === undefined
                         ? () => {
                             models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, {
@@ -884,8 +884,6 @@ export async function startResidentHost(
                             hostLog,
                             cacheDirectory,
                         );
-                        registry.availableModels = models;
-                        inProcessWorker?.setAvailableModels(models);
                         return outcomes;
                     });
                     catalogRefreshes = refreshed.then(() => undefined, () => undefined);

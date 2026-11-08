@@ -177,12 +177,14 @@ export async function boundToolResult(
     output: ToolOutput,
     spill?: ToolResultSpill,
     ceilingBytes?: number,
+    maxRenderedBytes?: number,
 ): Promise<BoundToolResult> {
     const originalBytes = Buffer.byteLength(output.output, "utf8");
     const limited = await limitToolResult(output.output, {
         toolName: toolCall.name,
         ...(spill === undefined ? {} : { spill }),
         ...(ceilingBytes === undefined ? {} : { ceilingBytes }),
+        ...(maxRenderedBytes === undefined ? {} : { maxRenderedBytes }),
     });
     let spillPath = limited.truncation?.spillPath;
     if (

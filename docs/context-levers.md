@@ -31,6 +31,12 @@ the context by itself. The cap is a share of the model's window, which means a
 small window gets a smaller cap. What was cut is saved to a file the result
 points at.
 
+The tool results kept in one request are also capped in total. That total is
+about a quarter of the model's window, with a floor of 32 KiB and a ceiling
+of 1 MiB. A model whose window is unknown gets 128 KiB. If a configured
+one-result ceiling is higher than the current total, Vera uses the total as
+the ceiling and marks both settings with a caution.
+
 A subagent's conversation compacts the same way, with the same settings.
 
 Here is the same raid twice, first without compaction, then with it. Sizes
@@ -86,6 +92,7 @@ Compaction trigger tokens none      default  inert
 | default | Vera is using its default value. |
 | live | The setting applies in this conversation. |
 | inert | The setting does not apply with the current context-window configuration. |
+| caution | The one-result ceiling is held to the total tool-result budget. |
 
 The explanation beside an inert setting says why it is unused.
 
@@ -100,10 +107,11 @@ Both sets stay visible so you can tell which values currently apply.
 
 ## Resolve conflicting values
 
-The limit for one tool result must not exceed the total tool-result budget.
+An explicitly set total tool-result budget must cover the configured
+one-result ceiling, or the default 64 KiB ceiling when none is configured.
 Vera refuses a conflicting choice before saving it. The value screen shows
-**Not set** with the two values involved. Adjust the other limit or choose
-a compatible value.
+**Not set** with the two values involved. A one-result ceiling can be set
+without setting a total budget.
 
 A summary target at or above the compaction trigger is allowed, which helps
 when you want compaction to happen early, for example while testing it.

@@ -19,10 +19,7 @@ import {
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
-import {
-    TOOL_RESULT_TOTAL_BUDGET_BYTES,
-    type ToolResultLimits,
-} from "./engine/tool-result-history.ts";
+import type { ToolResultLimits } from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { CompactionOverrides } from "./engine/compaction-binding.ts";
 import { validatePromptContributionOrder } from "./engine/prompt-contributions.ts";
@@ -1867,16 +1864,11 @@ function parseToolResultsConfig(
         }
         parsed.aging_level = raw.aging_level;
     }
-    // One result may not be allowed more than every result together, which
-    // would let a single tool call spend a budget meant for the whole turn.
-    // Setting one alone is the case that needs the defaults: lowering the
-    // budget under the standing ceiling is the same contradiction written
-    // with one key instead of two.
+    // An explicit total must cover the configured ceiling or its default.
     const ceiling = (parsed.ceiling_bytes as number | undefined)
         ?? TOOL_RESULT_CEILING_BYTES;
-    const total = (parsed.total_budget_bytes as number | undefined)
-        ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
-    if (ceiling > total) {
+    const total = parsed.total_budget_bytes as number | undefined;
+    if (total !== undefined && ceiling > total) {
         return undefined;
     }
     return parsed as VeraToolResultsConfig;

@@ -1867,9 +1867,6 @@ test("Vera config rejects unusable tool result limits", () => {
         { ceiling_bytes: 262_144, total_budget_bytes: 131_072 },
         { ceiling_bytes: Number.MAX_SAFE_INTEGER + 1 },
         { stub_after_turns: Number.MAX_SAFE_INTEGER + 1 },
-        // Each alone contradicts the other's standing value: the ceiling is
-        // 64 KiB and the budget for all results together is 128 KiB.
-        { ceiling_bytes: 200_000 },
         { total_budget_bytes: 32_768 },
     ];
 
@@ -1883,6 +1880,18 @@ test("Vera config rejects unusable tool result limits", () => {
 
         expect(() => loadVeraConfig({ path })).toThrow();
     }
+});
+
+test("a tool result ceiling alone may exceed the flat total default", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { ceiling_bytes: 262_144 },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ ceiling_bytes: 262_144 });
 });
 
 test("a ceiling equal to the whole budget is allowed", () => {

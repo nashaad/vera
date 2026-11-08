@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { contextWindowForModel } from "../../engine/model-settings.ts";
+import { availableModels, contextWindowForModel, type ModelWindowEntry } from "../../engine/model-settings.ts";
 import { readModelFailures } from "../../store/model-failures.ts";
 import {
     latestFailureBySession,
@@ -189,6 +189,7 @@ export async function enrichSessionsWithFacts(
     sessions: readonly RegisteredAgentSummary[],
     include: readonly SessionFactName[],
     ledgerPath: string,
+    windows: readonly ModelWindowEntry[],
 ): Promise<readonly RegisteredAgentSummary[]> {
     const failures = include.includes("failure")
         ? latestFailureBySession(readModelFailures(ledgerPath))
@@ -197,7 +198,7 @@ export async function enrichSessionsWithFacts(
         const facts = await readSessionFacts(session.session_path, {
             include,
             capacity: (provider, model) =>
-                contextWindowForModel(provider, model),
+                contextWindowForModel(provider, model, windows, availableModels()),
         });
         const failure = failures?.get(session.id);
         const merged: SessionFacts = {

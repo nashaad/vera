@@ -11,8 +11,25 @@ import { measureMessages } from "./context-measurement.ts";
 
 export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
 
-/** Several legal per-result outputs must not compose one enormous request. */
+/** Several legal per-result outputs must not compose one enormous request. Used when the window is unknown. */
 export const TOOL_RESULT_TOTAL_BUDGET_BYTES = 128 * 1024;
+
+export const TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES = 32 * 1024;
+export const TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES = 1024 * 1024;
+
+/**
+ * A quarter of the window, measured at four bytes a token: one byte per window
+ * token. A 128K-token window gets exactly the flat budget.
+ */
+export function toolResultTotalBudgetBytes(capacity: number | undefined): number {
+    if (capacity === undefined || !Number.isFinite(capacity) || capacity <= 0) {
+        return TOOL_RESULT_TOTAL_BUDGET_BYTES;
+    }
+    return Math.min(
+        TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES,
+        Math.max(TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES, Math.floor(capacity)),
+    );
+}
 
 export type ToolResultAgingLevel = "relaxed" | "normal" | "tight";
 

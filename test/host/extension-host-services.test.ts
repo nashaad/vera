@@ -10,6 +10,8 @@ import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { removeSessionBlock, writeSessionBlock } from "../../src/host/session-block.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { createExtensionHostServices } from "../../src/host/extension-host-services.ts";
+import { configuredCatalog } from "../../src/host/runtime.ts";
+import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { readModelRequestSnapshot } from "../../src/model-request-inspector.ts";
 import {
     emptyUsage,
@@ -41,6 +43,7 @@ test("a oneshot answers from the slot's first reachable model", async () => {
         registry: unusedRegistry,
         currentConfig: () => config,
         reachability: () => (model) => model.model !== "parrot-1",
+        availableModels: () => [],
         createAdapter: () => recording(
             new FauxAdapter([reply("Raid on the button factory")]),
             requests,
@@ -68,12 +71,67 @@ test("a oneshot answers from the slot's first reachable model", async () => {
     });
 });
 
+test("a oneshot uses the current host catalog's cached window", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vera-oneshot-window-"));
+    const cacheDir = join(home, "runtime", "cache");
+    const windowConfig = {
+        ...config,
+        schema_version: 1,
+        provider: "rookery",
+        model: "crow-mini",
+        approval_mode: "auto",
+    } as VeraConfig;
+    const writeWindow = (provider: string, contextWindow: number): void => {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider,
+            models: [{ id: "crow-mini", label: "crow-mini", context_window: contextWindow, levels: [] }],
+        }, { cacheDir });
+    };
+    try {
+        writeWindow("port", 2_000);
+        writeWindow("starboard", 40_000);
+        let models = configuredCatalog(windowConfig, cacheDir);
+        expect(models.find((model) => model.provider === "rookery" && model.model === "crow-mini")
+            ?.contextWindow).toBe(2_000);
+
+        const requests: ModelRequest[] = [];
+        const services = createExtensionHostServices({
+            registry: unusedRegistry,
+            currentConfig: () => windowConfig,
+            reachability: () => (model) => model.model === "crow-mini",
+            availableModels: () => models,
+            createAdapter: () => recording(new FauxAdapter([reply("Course set.")]), requests),
+        });
+        const call = {
+            assignment: "snappy" as const,
+            systemPrompt: "",
+            messages: [{ role: "user" as const, text: "x".repeat(12_000) }],
+            maxTokens: 32,
+        };
+        const signal = new AbortController().signal;
+        await expect(services.oneshot(call, signal)).rejects.toThrow("window is 2000");
+        expect(requests).toHaveLength(0);
+
+        writeWindow("port", 48_000);
+        await expect(services.oneshot(call, signal)).rejects.toThrow("window is 2000");
+        models = configuredCatalog(windowConfig, cacheDir);
+        expect(models.find((model) => model.provider === "rookery" && model.model === "crow-mini")
+            ?.contextWindow).toBe(40_000);
+        expect((await services.oneshot(call, signal)).text).toBe("Course set.");
+        expect(requests).toHaveLength(1);
+    } finally {
+        await rm(home, { recursive: true, force: true });
+    }
+});
+
 test("a oneshot refuses an empty slot instead of using a session model", async () => {
     let adapters = 0;
     const services = createExtensionHostServices({
         registry: unusedRegistry,
         currentConfig: () => config,
         reachability: () => () => true,
+        availableModels: () => [],
         createAdapter: () => {
             adapters += 1;
             return new FauxAdapter([]);
@@ -95,6 +153,7 @@ test("a cancelled oneshot rejects and the next one still answers", async () => {
         registry: unusedRegistry,
         currentConfig: () => config,
         reachability: () => () => true,
+        availableModels: () => [],
         createAdapter: () => new FauxAdapter([reply("Sails trimmed.")], { delayMs: 50 }),
     });
     const message = { role: "user" as const, text: "trim the sails" };
@@ -369,6 +428,7 @@ async function openVoyage(script: ScriptedReply[], onBuild: () => void = () => {
         registry,
         currentConfig: () => config,
         reachability: () => () => true,
+        availableModels: () => registry.availableModels,
         createAdapter: () => new FauxAdapter([]),
     });
     return {

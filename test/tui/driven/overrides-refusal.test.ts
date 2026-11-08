@@ -45,6 +45,41 @@ test("a lever that contradicts another is refused in the pane", async () => {
     }
 }, 15_000);
 
+test("the tool-result caution remains readable in a narrow pane", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-overrides-caution-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 35,
+        dependencies: () => createTuiSettingsDependencies({
+            contextWindow: 8_192,
+            configured: { toolResultCeilingBytes: 65_536 },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/settings");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Overrides");
+        session.sendText("Overrides");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Tool result ceiling");
+        session.sendText("Tool result");
+        let pane = await session.waitForVisiblePane("65,536-byte ceiling");
+        expect(pane).toContain("32,768 total bytes.");
+        expect(pane).toContain("caution");
+
+        session.resize(80, 35);
+        pane = await session.waitForVisiblePane("65,536-byte ceiling");
+        expect(pane).toContain("32,768 total bytes.");
+        session.sendKey("Down");
+        pane = await session.waitForVisiblePane("65,536-byte ceiling");
+        expect(pane).toContain("32,768 total bytes.");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("a trigger under the summary target is saved only after the user agrees", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-overrides-"));
     const session = await startTuiTestSession({
