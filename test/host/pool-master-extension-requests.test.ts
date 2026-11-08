@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { addComment, writeArtifact } from "../../extensions/artifacts/artifact-store.ts";
@@ -21,6 +21,7 @@ interface PoolFixture {
 
 async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>): Promise<void> {
     const home = await mkdtemp("/private/tmp/vera-dev/h7br-");
+    const webRoot = join(home, "web");
     const requests: string[] = [];
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
@@ -47,8 +48,14 @@ async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>):
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let workerPids: readonly number[] = [];
     try {
+        await mkdir(webRoot);
+        await Promise.all([
+            writeFile(join(webRoot, "index.html"), "<!doctype html><title>Vera</title>"),
+            writeFile(join(webRoot, "main.js"), ""),
+            writeFile(join(webRoot, "styles.css"), ""),
+        ]);
         host = await startResidentHost({
-            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
+            home, webRoot, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "ask", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
@@ -63,9 +70,13 @@ async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>):
         await host?.close();
         stub.stop(true);
         const started = [...workerPids, ...(annexPid === undefined ? [] : [annexPid])];
-        console.log(JSON.stringify({ stopped: started.filter((pid) => !running(pid)), stillLive: started.filter(running) }));
-        expect(started.filter(running)).toEqual([]);
+        const stopped = started.filter((pid) => !running(pid));
+        const stillLive = started.filter(running);
+        console.log(JSON.stringify({ stopped, stillLive }));
         await rm(home, { recursive: true, force: true });
+        expect(annexPid).toBeDefined();
+        expect(stopped).toContain(annexPid!);
+        expect(stillLive).toEqual([]);
     }
 }
 
