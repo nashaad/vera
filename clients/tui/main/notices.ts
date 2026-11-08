@@ -10,6 +10,7 @@ import { renderTuiQuote, tuiQuoteMarker } from "../quote.ts";
 import { clippedToWidth, verificationConsoleLines } from "../settings-picker.ts";
 import { TUI_ACCENT, TUI_MUTED, type TuiState } from "../state.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, bg, fg } from "@opentui/core";
 
@@ -372,6 +373,7 @@ export function renderJumpToBottom(rt: TuiRuntime, resumeFollow = true): void {
     );
     // OpenTUI's wheel handler marks every wheel event as manual after it updates scrollTop, including the event that reaches the bottom.
     if (following && resumeFollow) {
+        clearTranscriptAnchorPadding(rt);
         rt.transcript.scrollTo(rt.transcript.scrollHeight);
     }
     const visible = !following && !anyOverlayOpen(rt);

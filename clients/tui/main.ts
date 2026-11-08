@@ -328,7 +328,7 @@ import { leaveJsonlCommandMode, refuseJsonlCommand, availableCommandSuggestions,
 import { receiveAgentUpdates } from "./main/agent-updates.ts";
 import { sendCommand, requestExtensionModelSettingsUpdate, settleExtensionModelSettings, rejectPendingExtensionSettingsFor, notifyExtensionSettings, requireSidebarOwner, resolvePooledModel, requestExtensionOneshot, requestExtensionPicker, loadExtensionCommands, supportsSkillCommands, requestSkillCommands, receiveSkillCatalog, receiveSkillInvocation, failPendingSkillInvocations } from "./main/extension-bridge.ts";
 import { activeOverlayFocus, focusActiveSurface, activeFlightSurface, applyTimelineTransition, withSessionSwitchDeadline, recordSessionSwitchOutcome, discardSwitchTarget, leaveSwitchSource, stopClientForShutdown, discardCreatedSwitchTarget, beginFork, beginHostReconnect, settleLostHost, reportConnectionError } from "./main/focus-switch.ts";
-import { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail } from "./main/transcript-nodes.ts";
+import { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, clearTranscriptAnchorPadding, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail } from "./main/transcript-nodes.ts";
 import { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfaces, anyOverlayOpen, shiftTranscriptEntrySlots, reseedTranscriptNodes, clearTranscriptNodes } from "./main/render-state.ts";
 import { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, openModelPicker, modelRequestOptionsFacts, modelPickerActionOptions, isModelShortlisted, refreshableProvidersOf, catalogSizeOf, currentModelAssignmentRows, openModelAssignmentPicker, bindModelAssignmentFromPicker, configureDisplayPath, configureFiles, openConfigurePicker, openConfigureEditor, modelLevelFacts, currentModelLevels, openReasoningPicker, openPermissionsPicker, openThemePicker, openPreferencesList, openStandingNudges, providerHasCredential, openProviderEditForm, openProviderPicker, connectProvider, homeNeedsProvider, onboardingInput } from "./main/model-pickers.ts";
 import { requestExtensionSecret, forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest } from "./main/provider-forms.ts";
@@ -1475,17 +1475,34 @@ export async function startTui(
             paddingLeft: rt.appearance.transcriptPaddingLeft,
         },
     });
+    rt.transcriptAnchorPadding = 0;
+    rt.pendingTranscriptAnchorPaddingClear = false;
+    rt.transcriptResizeAnchor = undefined;
+    rt.transcript.onMouseScroll = (event) => {
+        if (!event.modifiers.shift && (event.scroll?.direction === "up" || event.scroll?.direction === "down")) {
+            rt.transcriptResizeAnchor = undefined;
+            if (event.scroll.direction === "down") clearTranscriptAnchorPadding(rt);
+        }
+    };
+    rt.transcript.verticalScrollBar.onMouseDown = () => { rt.transcriptResizeAnchor = undefined; };
+    rt.transcript.verticalScrollBar.onMouseDrag = () => { rt.transcriptResizeAnchor = undefined; };
     rt.appendTranscriptRenderable = (node) => {
+        rt.transcriptResizeAnchor = undefined;
         const container = new BoxRenderable(rt.renderer, {
             id: `extension-transcript-${randomUUID()}`,
             width: "100%",
         });
         container.add(node);
         let active = true;
-        rt.transcript.add(container);
+        if (rt.transcriptAnchorSpacer === undefined) {
+            rt.transcript.add(container);
+        } else {
+            rt.transcript.insertBefore(container, rt.transcriptAnchorSpacer);
+        }
         return async () => {
             if (!active) return;
             active = false;
+            rt.transcriptResizeAnchor = undefined;
             rt.transcript.remove(container.id);
             container.remove(node.id);
             container.destroy();
@@ -1511,6 +1528,8 @@ export async function startTui(
         zIndex: 4,
         visible: false,
         onMouseDown: () => {
+            rt.transcriptResizeAnchor = undefined;
+            clearTranscriptAnchorPadding(rt);
             rt.transcript.scrollTo(rt.transcript.scrollHeight);
             renderJumpToBottom(rt);
         },
@@ -1582,6 +1601,14 @@ export async function startTui(
         visible: false,
     });
     rt.transcript.add(rt.transcriptWorking);
+    rt.transcriptAnchorSpacer = new BoxRenderable(rt.renderer, {
+        id: "transcript-anchor-spacer",
+        width: "100%",
+        height: 0,
+        visible: false,
+        flexShrink: 0,
+    });
+    rt.transcript.add(rt.transcriptAnchorSpacer);
 
     // Parallel sparse arrays keyed by reduced transcript index; assign or delete node and kind together.
     rt.entryNodes = [];
@@ -2518,6 +2545,10 @@ export async function startTui(
     rt.renderer.on(CliRenderEvents.FRAME, () => {
         settleTranscriptScrollState(rt);
         measureMaterializedTranscriptEntries(rt);
+        if (rt.pendingTranscriptAnchorPaddingClear) {
+            rt.pendingTranscriptAnchorPaddingClear = false;
+            renderJumpToBottom(rt);
+        }
         if (
             rt.pendingSearchTarget === undefined
             && !maybeSnapTranscriptWindowToTail(rt)

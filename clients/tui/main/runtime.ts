@@ -81,7 +81,7 @@ import type { TuiTimelinePickerState, TuiTimelinePickerView } from "../timeline-
 import type { TuiTipState } from "../tips-store.ts";
 import type { WorkTabState } from "../work-tab.ts";
 import type { WorkspaceSidebarState } from "../workspace-sidebar.ts";
-import type { BoxRenderable, CliRenderer, MarkdownRenderable, Renderable, ScrollBoxRenderable, SyntaxStyle, TextRenderable } from "@opentui/core";
+import type { BoxRenderable, CliRenderer, MarkdownRenderable, Renderable, ScrollBoxRenderable, SyntaxStyle, TextBufferRenderable, TextRenderable, TextTableRenderable } from "@opentui/core";
 import type { AsyncLocalStorage } from "node:async_hooks";
 
 export type TuiAgentCatalog = {
@@ -101,6 +101,27 @@ export interface PoolChangeUndo {
 export interface TuiImportedSession {
     readonly agentId: string;
     readonly facts: ImportedSessionSummary;
+}
+
+export interface TuiTranscriptTextAnchor {
+    readonly kind: "text";
+    readonly node: TextBufferRenderable;
+    readonly line: number;
+    readonly column: number;
+}
+
+export interface TuiTranscriptTableAnchor {
+    readonly kind: "table";
+    readonly node: TextTableRenderable;
+    readonly row: number;
+}
+
+export type TuiTranscriptSourceAnchor = TuiTranscriptTextAnchor | TuiTranscriptTableAnchor;
+
+export interface TuiTranscriptResizeAnchor {
+    readonly index: number;
+    readonly entries: readonly TuiTranscriptEntry[];
+    readonly source: TuiTranscriptTextAnchor;
 }
 
 export interface TuiRuntime {
@@ -409,11 +430,17 @@ export interface TuiRuntime {
         readonly scrollTop: number;
         readonly atBottom: boolean;
     } | undefined;
+    transcriptAnchorPadding: number;
+    transcriptAnchorSpacer: BoxRenderable;
+    pendingTranscriptAnchorPaddingClear: boolean;
+    transcriptResizeAnchor: TuiTranscriptResizeAnchor | undefined;
     pendingTranscriptScrollAnchor: {
         readonly index: number;
         readonly offset: number;
         readonly width: number;
         readonly height: number;
+        readonly minimumScrollHeight?: number;
+        readonly source?: TuiTranscriptSourceAnchor;
     } | undefined;
     sidebarEntryNodes: (
         TextRenderable | MarkdownRenderable | BoxRenderable
