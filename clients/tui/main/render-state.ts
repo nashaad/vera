@@ -10,7 +10,7 @@ import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { markSearchLanding } from "../main/chrome.ts";
 import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
-import { destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
+import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
@@ -536,6 +536,7 @@ export function showSearchTarget(rt: TuiRuntime): void {
     };
     const landed = rt.state.entries[index];
     if (landed !== undefined) markSearchLanding(rt, landed, node);
+    rt.transcriptResizeAnchor = undefined;
     rt.transcript.scrollTo(
         rt.transcript.scrollTop + node.screenY - rt.transcript.viewport.screenY,
     );
@@ -703,6 +704,8 @@ export function reseedTranscriptNodes(rt: TuiRuntime,
 }
 
 export function clearTranscriptNodes(rt: TuiRuntime): void {
+    clearTranscriptAnchorPadding(rt);
+    rt.transcriptResizeAnchor = undefined;
     if (rt.state.entries.length > 0) {
         rt.pendingTranscriptScrollRestore = {
             scrollTop: rt.transcript.scrollTop,

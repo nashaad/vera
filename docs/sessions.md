@@ -22,6 +22,14 @@ for moving between active tasks.
 attached for this client. Use its resume overlay when you want to continue
 working. Home means no conversation is open.
 
+## Read the transcript
+
+Ctrl+Up and Ctrl+Down scroll one row. Ctrl+U and Ctrl+D scroll half a page,
+and Ctrl+End returns to the bottom. When the terminal width changes while you
+read earlier text, the row containing that text stays at the top. Returning to
+the original width restores the original row until you scroll or the transcript
+changes. At the bottom, the transcript continues to follow new text.
+
 ## Stop, park, or exit
 
 | Action | Result |

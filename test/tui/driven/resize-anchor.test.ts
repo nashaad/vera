@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CodeRenderable, ScrollBoxRenderable, type CliRenderer } from "@opentui/core";
+import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
@@ -38,21 +40,29 @@ function topRow(pane: string, token: RegExp): TopRow {
     throw new Error(`no numbered row in pane:\n${pane}`);
 }
 
-async function open(entries: HistoryEntry[], width: number, ready: string) {
+async function open(
+    entries: HistoryEntry[],
+    width: number,
+    ready: string,
+    onRenderer?: (renderer: CliRenderer) => void,
+) {
     const session = await startTuiTestSession({
         home: mkdtempSync(join(tmpdir(), "vera-tui-test-")),
         width,
         height: HEIGHT,
-        dependencies: () => ({
-            client: createSettingsAnsweringClient({
-                agentId: "resize-anchor-session",
-                workspace: "/work/vera",
-                model: "resize-anchor-model",
-                mode: "review",
-                initialUpdates: [{ type: "history", entries, seq: 0 }],
-            }),
-            listAgents: async () => [],
-        }),
+        dependencies: (renderer) => {
+            onRenderer?.(renderer);
+            return {
+                client: createSettingsAnsweringClient({
+                    agentId: "resize-anchor-session",
+                    workspace: "/work/vera",
+                    model: "resize-anchor-model",
+                    mode: "review",
+                    initialUpdates: [{ type: "history", entries, seq: 0 }],
+                }),
+                listAgents: async () => [],
+            };
+        },
     });
     await session.waitForVisiblePane(ready);
     await session.settle(150);
@@ -74,33 +84,124 @@ async function resizeTo(session: Awaited<ReturnType<typeof open>>, width: number
     return session.captureVisiblePane();
 }
 
-test("a resize keeps the same wrapped text at the top of the view", async () => {
+test("a resize keeps the captured column of a wrapped source line", async () => {
     const entries: HistoryEntry[] = [];
     for (let n = 0; n < 4; n += 1) {
         entries.push({ kind: "user", text: `q${n}` });
         entries.push({ kind: "assistant", text: words(n * 2000, 2000) });
     }
-    const session = await open(entries, 120, "w7999");
+    let renderer: CliRenderer | undefined;
+    const session = await open(entries, 120, "w7999", (value) => { renderer = value; });
     try {
-        for (const presses of [7, 11, 13]) {
-            await scrollUp(session, presses);
-            const before = topRow(session.captureVisiblePane(), /w(\d{4})/g);
-            for (const width of WIDTHS) {
-                const after = topRow(await resizeTo(session, width), /w(\d{4})/g);
-                expect(after.row).toBe(before.row);
-                if (width === 120) {
-                    expect(after.first).toBe(before.first);
-                } else {
-                    // A narrower row holds fewer words, so it must hold part of the old top row.
-                    expect(after.first).toBeLessThanOrEqual(before.last);
-                    expect(after.last).toBeGreaterThanOrEqual(before.first);
-                }
-            }
+        await scrollUp(session, 7);
+        const transcript = renderer?.root.findDescendantById("transcript");
+        const code = renderer?.root.findDescendantById("entry-7-block-0");
+        if (!(transcript instanceof ScrollBoxRenderable) || !(code instanceof CodeRenderable)) {
+            throw new Error("Transcript text is unavailable");
         }
+        const visualRow = (): number => transcript.viewport.screenY - code.screenY + code.scrollY;
+        const initialRow = visualRow();
+        const line = code.lineInfo.lineSources[initialRow]!;
+        const column = code.lineInfo.lineStartCols[initialRow]!;
+        const before = session.captureVisiblePane().split("\n")[1];
+        expect(column).toBeGreaterThan(0);
+
+        for (const width of [70, 120, 65, 120, 72, 120]) {
+            const pane = await resizeTo(session, width);
+            const info = code.lineInfo;
+            let expected = -1;
+            for (let row = 0; row < info.lineSources.length; row += 1) {
+                if (info.lineSources[row] === line && info.lineStartCols[row]! <= column) expected = row;
+            }
+            expect(visualRow()).toBe(expected);
+            expect(topRow(pane, /w(\d{4})/g).first).toBe(6000 + info.lineStartCols[expected]! / 6);
+            if (width === 120) expect(pane.split("\n")[1]).toBe(before);
+        }
+
+        await resizeTo(session, 70);
+        session.sendKeyWithModifiers("up", { ctrl: true });
+        await session.settle(100);
+        const scrolledRow = visualRow();
+        const scrolledColumn = code.lineInfo.lineStartCols[scrolledRow]!;
+        const scrolledText = session.captureVisiblePane().split("\n")[1];
+        await resizeTo(session, 120);
+        const afterScroll = code.lineInfo;
+        const expected = afterScroll.lineSources.findLastIndex((source, row) =>
+            source === line && afterScroll.lineStartCols[row]! <= scrolledColumn);
+        expect(visualRow()).toBe(expected);
+        expect((await resizeTo(session, 70)).split("\n")[1]).toBe(scrolledText);
+
+        await session.sendMouseWheel("up", 10, 5);
+        await session.settle(100);
+        const wheelRow = visualRow();
+        const wheelColumn = code.lineInfo.lineStartCols[wheelRow]!;
+        const wheelText = session.captureVisiblePane().split("\n")[1];
+        expect(wheelColumn).toBeLessThan(scrolledColumn);
+        await resizeTo(session, 120);
+        const afterWheel = code.lineInfo;
+        const wheelExpected = afterWheel.lineSources.findLastIndex((source, row) =>
+            source === line && afterWheel.lineStartCols[row]! <= wheelColumn);
+        expect(visualRow()).toBe(wheelExpected);
+        expect((await resizeTo(session, 70)).split("\n")[1]).toBe(wheelText);
     } finally {
         await session.close();
     }
 }, 120_000);
+
+test("a transcript change resets the captured resize column", async () => {
+    const entries: HistoryEntry[] = [];
+    for (let n = 0; n < 4; n += 1) {
+        entries.push({ kind: "user", text: `q${n}` });
+        entries.push({ kind: "assistant", text: words(n * 2000, 2000) });
+    }
+    let push: ((update: AgentUpdate) => void) | undefined;
+    const client = createSettingsAnsweringClient({
+        agentId: "resize-change-session",
+        model: "resize-anchor-model",
+        mode: "auto",
+        initialUpdates: [{ type: "history", entries, seq: 0 }],
+        onCommand: (_, emit) => { push = emit; },
+    });
+    await client.send({ type: "prompt", content: "register" });
+    let renderer: CliRenderer | undefined;
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-tui-test-")),
+        width: 120,
+        height: HEIGHT,
+        dependencies: (value) => {
+            renderer = value;
+            return { client, listAgents: async () => [] };
+        },
+    });
+    try {
+        await session.waitForVisiblePane("w7999");
+        await scrollUp(session, 7);
+        const transcript = renderer?.root.findDescendantById("transcript");
+        const code = renderer?.root.findDescendantById("entry-7-block-0");
+        if (!(transcript instanceof ScrollBoxRenderable) || !(code instanceof CodeRenderable) || push === undefined) {
+            throw new Error("Transcript text is unavailable");
+        }
+        const visualRow = (): number => transcript.viewport.screenY - code.screenY + code.scrollY;
+        const oldColumn = code.lineInfo.lineStartCols[visualRow()]!;
+        await resizeTo(session, 70);
+        const line = code.lineInfo.lineSources[visualRow()]!;
+        const newColumn = code.lineInfo.lineStartCols[visualRow()]!;
+        expect(newColumn).toBeLessThan(oldColumn);
+        push({ type: "assistant_delta", text: " updated", seq: 1 });
+        for (let attempt = 0; attempt < 50 && !code.content.endsWith(" updated"); attempt += 1) {
+            await session.settle(30);
+        }
+        expect(code.content.endsWith(" updated")).toBe(true);
+        await resizeTo(session, 120);
+        const info = code.lineInfo;
+        const expected = info.lineSources.findLastIndex((source, row) =>
+            source === line && info.lineStartCols[row]! <= newColumn);
+        expect(visualRow()).toBe(expected);
+        expect(info.lineStartCols[expected]).not.toBe(oldColumn);
+    } finally {
+        await session.close();
+    }
+}, 30_000);
 
 test("a resize keeps the same line at the top when lines do not wrap", async () => {
     const entries: HistoryEntry[] = [

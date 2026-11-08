@@ -19,6 +19,7 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
+import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -215,6 +216,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         && rt.pendingUiRequest === undefined
                         && rt.followTranscriptAfterUiRequest
                     ) {
+                        clearTranscriptAnchorPadding(rt);
                         rt.transcript.scrollTo(rt.transcript.scrollHeight);
                         rt.followTranscriptAfterUiRequest = false;
                         renderJumpToBottom(rt);
