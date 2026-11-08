@@ -328,6 +328,23 @@ test("turn finished and history carry the model failure that ended a turn", () =
     }
 });
 
+test("request build failures decode in live updates, history, and pages", () => {
+    const failure = { model: "stub/crow", kind: "request_build" as const };
+    const entry = { kind: "error" as const, outcome: "error" as const, detail: "duplicate ID", modelFailure: failure };
+    const finished = { type: "turn_finished" as const, outcome: "error" as const, error: "duplicate ID", modelFailure: failure, seq: 1 };
+    const history = { type: "history" as const, entries: [entry, { kind: "future_entry" }], seq: 2 };
+    const page = { type: "history_page", request_id: "page-1", before: "x", entries: [entry, { kind: "future_entry" }], page: { pageVersion: 1 as const, hasMore: false } };
+
+    expect(parseAgentUpdateFrame(finished)).toEqual({ kind: "update", update: finished });
+    expect(parseAgentUpdate(history)).toEqual({ ...history, entries: [entry] });
+    expect(parseHistoryPagePayload(page)).toEqual({ before: "x", entries: [entry], page: page.page });
+    expect(parseAgentUpdateFrame({ ...finished, modelFailure: { ...failure, model: 4 } }))
+        .toEqual({ kind: "invalid" });
+    expect(parseAgentUpdate({ ...history, entries: [{ ...entry, modelFailure: { ...failure, statusCode: "400" } }] }))
+        .toBeUndefined();
+    expect(parseAgentUpdateFrame({ type: "future_update", seq: 3 })).toEqual({ kind: "unknown", seq: 3 });
+});
+
 test("a classifier review carries the call's args when the host sends them", () => {
     const review = {
         type: "tool_review" as const,

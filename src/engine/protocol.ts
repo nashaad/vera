@@ -1796,6 +1796,7 @@ export function createProtocolEncoder(
     let measuredContext: ContextMeasurement | undefined;
     let measuredModel: string | undefined;
     let pendingCheckpointFloor: ContextMeasurement | undefined;
+    let replayedRequestFloor: ContextMeasurement | undefined;
     let promptQueue: PromptQueueState | undefined;
     // Clients concatenate thinking text, so a new block in the same run needs its own break.
     let thinkingBlock: number | undefined;
@@ -2177,6 +2178,7 @@ export function createProtocolEncoder(
         }
 
         if (event.type === "context_measured") {
+            replayedRequestFloor = undefined;
             measuredModel = event.model;
             measuredCapacity = event.measurement.capacity;
             measuredContext = event.measurement;
@@ -2272,6 +2274,7 @@ export function createProtocolEncoder(
         }
 
         if (event.type === "compaction_finished") {
+            if (event.outcome === "compacted") replayedRequestFloor = undefined;
             seq += 1;
             sender.send({
                 type: "compaction",
@@ -2382,7 +2385,10 @@ export function createProtocolEncoder(
                 measuredCapacity,
                 replayContextCapacity,
             );
-            const floor = pendingCheckpointFloor;
+            if (recipe !== undefined) {
+                replayedRequestFloor = checkpointContext === undefined ? recipe : undefined;
+            }
+            const floor = pendingCheckpointFloor ?? replayedRequestFloor;
             pendingCheckpointFloor = undefined;
             // Occupancy can be rebuilt from provider usage. The last request
             // recipe cannot: keep it from this encoder and stretch it to the
@@ -2391,13 +2397,17 @@ export function createProtocolEncoder(
                 ?? (restored === undefined
                     ? floor
                     : floor !== undefined
-                        && floor.capacity === restored.capacity
+                        && (floor.capacity === undefined || restored.capacity === undefined
+                            || floor.capacity === restored.capacity)
                         ? {
                             ...restored,
                             tokens: Math.max(
                                 restored.tokens,
                                 floor.tokens,
                             ),
+                            ...(restored.capacity === undefined && floor.capacity !== undefined
+                                ? { capacity: floor.capacity }
+                                : {}),
                             estimated: true,
                             ...(floor.compaction === undefined
                                 ? {}
@@ -2434,6 +2444,7 @@ export function createProtocolEncoder(
         restoreContext(measurement?: ContextMeasurement): void {
             measuredContext = measurement;
             pendingCheckpointFloor = undefined;
+            replayedRequestFloor = undefined;
         },
     });
 }

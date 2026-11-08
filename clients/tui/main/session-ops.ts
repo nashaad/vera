@@ -84,10 +84,12 @@ export function switchToClient(rt: TuiRuntime,
     rt.state = options.preserveReconnectTranscript === true
         ? {
             ...createTuiState(),
+            entries: rt.state.entries,
             transcriptStarted: true,
             reopenedTurnFinishedAt: rt.state.reopenedTurnFinishedAt,
         }
         : createTuiState();
+    rt.reconnectHistoryPending = options.preserveReconnectTranscript === true;
     // A hop the notice never landed in is over; it must not surface in whichever conversation rebuilds next.
     rt.pendingBackNotice = undefined;
     rt.pendingSessionSwitchNotice = undefined;
@@ -102,6 +104,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.connectionFailure = undefined;
     rt.hostBuildRefusal = undefined;
     rt.jsonlCommandMode = false;
+    rt.homeCommandMode = false;
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
@@ -324,6 +327,13 @@ export function beginParkToJsonl(rt: TuiRuntime): void {
 }
 
 export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
+    if (action.kind === "command") {
+        rt.homeCommandMode = true;
+        rt.composer.setComposerText("/");
+        renderState(rt);
+        focusActiveSurface(rt);
+        return;
+    }
     if (action.kind === "connect_provider") {
         openProviderPicker(rt);
         return;

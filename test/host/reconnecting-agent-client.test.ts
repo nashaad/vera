@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 
@@ -27,6 +27,59 @@ const KRAKEN_BUILD = "vera-kraken-2";
 type ScriptedIdentity = { readonly buildId: string } | "no_build_id" | "silent";
 
 const temporaryDirectories: string[] = [];
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a stopped peer stays attached until it is killed, then closes immediately",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "peer.sock");
+        const identityLog = join(directory, "identity.log");
+        const peer = Bun.spawn([
+            process.execPath,
+            join(import.meta.dir, "fixtures/connection-loss-peer.ts"),
+            socketPath,
+            identityLog,
+        ], { stdout: "ignore", stderr: "pipe" });
+        let client: AttachedAgentClient | undefined;
+        try {
+            const readyDeadline = Date.now() + 5_000;
+            while (!existsSync(socketPath) && Date.now() < readyDeadline) {
+                if (peer.exitCode !== null) throw new Error("Peer exited before listening");
+                await Bun.sleep(20);
+            }
+            expect(existsSync(socketPath)).toBeTrue();
+            client = await attachReconnectingAgent({
+                socketPath: () => socketPath,
+                agentId: "agent-1",
+                buildId: CROW_BUILD,
+                failOnDisconnect: true,
+            });
+            expect((await client.receive()).type).toBe("history");
+            let settled = false;
+            const pending = client.receive().then(
+                () => { settled = true; return undefined; },
+                (error: unknown) => { settled = true; return error; },
+            );
+            const initialIdentities = readFileSync(identityLog, "utf8");
+            expect(initialIdentities.length).toBeGreaterThan(0);
+            await Bun.sleep(1_300);
+            expect(readFileSync(identityLog, "utf8")).toBe(initialIdentities);
+            peer.kill("SIGSTOP");
+            await Bun.sleep(5_300);
+            expect(settled).toBeFalse();
+            expect(client.closed).toBeFalse();
+            const startedAt = performance.now();
+            peer.kill("SIGKILL");
+            expect(await pending).toBeInstanceOf(Error);
+            expect(performance.now() - startedAt).toBeLessThan(2_000);
+        } finally {
+            client?.close();
+            if (peer.exitCode === null) peer.kill("SIGKILL");
+            await peer.exited;
+        }
+    },
+    18_000,
+);
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {

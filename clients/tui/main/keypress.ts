@@ -15,7 +15,7 @@ import { handleWizardKey, wizardFieldIsOpen } from "../onboarding-wizard.ts";
 import { onboardingInput } from "./model-pickers.ts";
 import { runOnboardingWizardAction, updateWizardSession } from "./onboarding-wizard-ops.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
-import { isJsonlViewClient } from "../jsonl-view-client.ts";
+import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
@@ -166,6 +166,19 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
     if (
+        isHomeClient(rt.client) && rt.homeCommandMode
+        && key.name === "escape" && !key.ctrl && !key.shift && !key.meta
+        && !key.super && !key.hyper && !anyOverlayOpen(rt)
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.homeCommandMode = false;
+        rt.composer.clearComposer();
+        focusActiveSurface(rt);
+        renderState(rt);
+        return;
+    }
+    if (
         isHomeClient(rt.client)
         && rt.sessionSwitchPending
         && rt.homeTypedText !== undefined
@@ -193,6 +206,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
     if (
         isHomeClient(rt.client)
+        && !rt.homeCommandMode
         && !rt.sessionSwitchPending
         && !rt.commandPaletteView.surface.visible
         && !anyOverlayOpen(rt)
@@ -758,6 +772,18 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
 
     if (rt.settingsPicker !== undefined) {
+        const focused = focusedAgentState(rt);
+        if (
+            rt.settingsPicker.kind === "session"
+            && rt.settingsPicker.nothingToLeave === true
+            && !isWorkerFreeClient(rt.client)
+            && (focused.transcriptStarted === true || focused.working
+                || focused.compactingSince !== undefined || focused.queuedPrompts.length > 0
+                || rt.promptSubmitting || rt.pendingUiRequest !== undefined
+                || rt.hostedSidebar.pane !== undefined)
+        ) {
+            rt.settingsPicker = { ...rt.settingsPicker, nothingToLeave: false };
+        }
         const viewportRows = tuiPickerViewportRows(
             rt.renderer,
             rt.settingsPicker,

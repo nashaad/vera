@@ -163,6 +163,7 @@ export interface TuiRuntime {
     clientSurfaceReady: boolean;
     transcriptSeeded: boolean;
     pendingTranscriptReseed: boolean;
+    reconnectHistoryPending: boolean;
     deferredKeymapNotices: string[];
     pendingBackNotice: string | undefined;
     pendingSessionSwitchNotice: string | undefined;
@@ -529,6 +530,7 @@ export interface TuiRuntime {
     composerRule: BoxRenderable;
     slashArgumentHint: TextRenderable;
     homeState: HomeState;
+    homeCommandMode: boolean;
     homeTypedText: string | undefined;
     /** A prompt that reached submit with no provider behind it. It sits in the composer until the gates close. */
     onboardingPromptWaiting: boolean;

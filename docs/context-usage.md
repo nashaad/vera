@@ -27,8 +27,9 @@ the remaining conversation. Between replies the count is an estimate that Vera
 corrects with the provider's count for the last request, including reasoning
 the provider carries forward, so it stays close to what the next request uses.
 Each attached image counts as about 1,600 tokens until the provider reports
-its real size. After resume, the loaded-file list describes the last measured
-request.
+its real size. After resume, the used count retains the last request estimate
+when it is larger than the provider's reported usage, and the loaded-file list
+describes that last measured request.
 
 The maximum comes from the model's known context window. If a local server
 does not publish a window, or the model is not in Vera's catalog, Vera leaves

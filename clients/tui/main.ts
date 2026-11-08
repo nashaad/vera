@@ -1011,6 +1011,7 @@ export async function startTui(
     rt.clientSurfaceReady = false;
     rt.transcriptSeeded = false;
     rt.pendingTranscriptReseed = false;
+    rt.reconnectHistoryPending = false;
     rt.deferredKeymapNotices = [];
     rt.experimentalTuiHost = createTuiExperimentalHost({
         renderer: rt.renderer,
@@ -2032,6 +2033,7 @@ export async function startTui(
         rt.dependencies.homeHasSessions ?? true,
         homeNeedsProvider(rt),
     );
+    rt.homeCommandMode = false;
     rt.homeSubmitPending = false;
     rt.onboardingPromptWaiting = false;
     rt.onboardingPromptRequest = undefined;

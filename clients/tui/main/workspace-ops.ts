@@ -6,7 +6,7 @@ import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { subagentTitle } from "../subagent-title.ts";
 import { buildJumpRows, openJumpMenu as openJumpMenuState, type JumpOrigin } from "../jump.ts";
 import { beginCreateSession, beginSessionResume } from "../main.ts";
-import { focusedAgentClient } from "../main/agents-dials.ts";
+import { focusedAgentClient, focusedAgentState } from "../main/agents-dials.ts";
 import { clearSearchLanding, coreHelpCommands, registeredPaletteEntries, setComposerMargin } from "../main/chrome.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { renderJumpMenu } from "../main/palette-jump.ts";
@@ -292,7 +292,19 @@ export function openResumePicker(rt: TuiRuntime): void {
     }
     const version = ++rt.resumeListVersion;
     const targetAgentId = focusedAgentClient(rt).agentId;
-    const nothingToLeave = isWorkerFreeClient(rt.client);
+    const nothingToLeave = (hasUserContent?: boolean): boolean => {
+        const state = focusedAgentState(rt);
+        return isWorkerFreeClient(rt.client) || (
+            hasUserContent !== true
+            && state.transcriptStarted === false
+            && !state.working
+            && state.compactingSince === undefined
+            && state.queuedPrompts.length === 0
+            && !rt.promptSubmitting
+            && rt.pendingUiRequest === undefined
+            && rt.hostedSidebar.pane === undefined
+        );
+    };
     rt.settingsPicker = startTuiSessionPicker(
         [],
         targetAgentId,
@@ -301,7 +313,7 @@ export function openResumePicker(rt: TuiRuntime): void {
         false,
         [],
         "stop",
-        nothingToLeave,
+        nothingToLeave(),
     );
     focusActiveSurface(rt);
     renderState(rt);
@@ -321,7 +333,7 @@ export function openResumePicker(rt: TuiRuntime): void {
             false,
             rt.hostedPanePersistence.groups,
             "stop",
-            nothingToLeave,
+            nothingToLeave(agents.find((agent) => agent.id === targetAgentId)?.has_user_content),
         );
         focusActiveSurface(rt);
         renderState(rt);

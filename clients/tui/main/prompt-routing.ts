@@ -6,6 +6,7 @@ import type { TuiCommandCatalogEntry } from "../commands.ts";
 import { materializeDroppedImage } from "../dropped-image.ts";
 import { pastedImagePaths } from "../image-path.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
+import { isHomeClient } from "../home-client.ts";
 import { focusActiveSurface, renderCommandSuggestions, renderState, renderStatus, sendCommand } from "../main.ts";
 import { hostOwnsPromptQueue, setSidebarFocused } from "../main/agents-dials.ts";
 import { workerFreeAction } from "../main/chrome.ts";
@@ -35,17 +36,19 @@ export function availableCommandSuggestions(rt: TuiRuntime,
     input: string,
 ): readonly TuiCommandCatalogEntry[] {
     const suggestions = rt.commandRegistry.suggestions(input);
-    return isJsonlViewClient(rt.client) && rt.jsonlCommandMode
+    const viewingFile = isJsonlViewClient(rt.client) && rt.jsonlCommandMode;
+    return viewingFile || (isHomeClient(rt.client) && rt.homeCommandMode)
         ? suggestions.filter((entry) =>
             workerFreeAction(rt, 
                 rt.commandRegistry.dispatch(`/${entry.name}`),
-                true,
+                viewingFile,
             ))
         : suggestions;
 }
 
 export function availableCommandCompletion(rt: TuiRuntime, input: string): string | undefined {
-    if (!(isJsonlViewClient(rt.client) && rt.jsonlCommandMode)) {
+    if (!(isJsonlViewClient(rt.client) && rt.jsonlCommandMode)
+        && !(isHomeClient(rt.client) && rt.homeCommandMode)) {
         return rt.commandRegistry.completion(input);
     }
     const suggestions = availableCommandSuggestions(rt, input);

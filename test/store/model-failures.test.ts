@@ -74,6 +74,18 @@ test("the same model failing the same way twice is one signature", () => {
     expect(summary.signatures[0]?.sessions).toBe(2);
 });
 
+test("repeated local request build failures keep the local wording", () => {
+    const failures = [
+        record({ kind: "request_build" }),
+        record({ kind: "request_build" }),
+    ];
+    const nudge = modelFailureNudge(failures, new Set(), new Date("2026-08-19T14:00:10.000Z"));
+    expect(nudge?.text).toBe(
+        "Vera could not build the request for openrouter/moonshotai/kimi-k3."
+            + " Fix: open /diagnostics and check the Vera report.",
+    );
+});
+
 test("the same model failing two ways is two signatures", () => {
     const summary = summariseModelFailures([
         record(),

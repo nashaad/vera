@@ -2,6 +2,7 @@ import type { ChatMessages } from "@openrouter/sdk/models";
 
 import type { ModelAdapter, ModelReasoningEffort } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { buildModelRequest } from "../model/request-build.ts";
 import {
     OpenAICompatibleAdapter,
     type ChatProviderProfile,
@@ -50,7 +51,7 @@ export function createDeepSeekAdapter(
                     authorization: `Bearer ${options.apiKey}`,
                     "content-type": "application/json",
                 },
-                body: JSON.stringify(encodeRequest(request)),
+                body: buildModelRequest(() => JSON.stringify(encodeRequest(request))),
                 signal,
             });
             if (!response.ok) {
