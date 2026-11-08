@@ -28,7 +28,7 @@ import type {
 } from "./prompt-contributions.ts";
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
-import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { SessionCompactionOptions, TurnHaltCheck } from "./run-turn.ts";
 import type { ToolResultLimits } from "./tool-result-history.ts";
 import type { RequestMissingSubagentConfiguration } from "./subagent.ts";
 
@@ -50,6 +50,7 @@ export interface HostOwnedObjects {
     readonly compaction?: SessionCompactionOptions;
     readonly toolResults?: ToolResultLimits;
     readonly router: InboundRouterHostHooks;
+    readonly haltCheck?: TurnHaltCheck;
 }
 
 export interface HostBoundary {
@@ -165,6 +166,9 @@ export function createLocalHostBoundary(
                 return services.compaction;
             },
             router: services.router ?? {},
+            ...(services.haltCheck === undefined
+                ? {}
+                : { haltCheck: services.haltCheck }),
         },
     };
 }

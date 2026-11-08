@@ -18,6 +18,16 @@ import {
     closeAgentThroughHost,
     type CloseAgentResult,
 } from "../../src/host/agent-close-client.ts";
+import {
+    blockSessionThroughHost,
+    unblockSessionThroughHost,
+} from "../../src/host/session-block-client.ts";
+import { readStoredSessionTree } from "../../src/host/session-block.ts";
+import {
+    runBlockCommand,
+    runUnblockCommand,
+    type SessionBlockCommandDependencies,
+} from "./session-block-command.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
@@ -42,9 +52,12 @@ import {
 import {
     forceStopResidentHost,
     gracefulStopResidentHost,
+    stopResidentHostWhenIdle,
     unverifiedHostMessage,
     type ForceStopOutcome,
+    type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
+import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import {
     type SupervisionReport,
     superviseHost,
@@ -71,7 +84,7 @@ import {
     rollbackHomeMigration,
     type HomeMigrationResult,
 } from "../../src/home-migration.ts";
-import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
+import { thisProcessVersion } from "../../src/release/stamp.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -80,10 +93,12 @@ import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts"
 import { workspaceKey } from "../../src/workspace-key.ts";
 import {
     assertProfileLayout,
+    veraBlockedDirectory,
     veraHomeDirectory,
     veraRuntimeDirectory,
     VeraProfileError,
 } from "../../src/profile-paths.ts";
+import { defaultSessionDirectory } from "../../src/store/session-store.ts";
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
@@ -247,6 +262,7 @@ type RollbackInstallResult =
 
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
+    readonly sessionBlock?: Partial<SessionBlockCommandDependencies>;
     readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly scheduleOperation?: (
@@ -281,8 +297,11 @@ export interface CliDependencies {
         target: TuiStartTarget,
         options?: TuiStartOptions,
     ) => Promise<void>;
-    readonly confirmHostStop?: () => boolean | Promise<boolean>;
-    readonly stopHost?: () => Promise<ForceStopOutcome | undefined>;
+    readonly confirmHostStop?: (force: boolean) => boolean | Promise<boolean>;
+    readonly stopHost?: (options: {
+        readonly onWaiting: (waiting: readonly StopWaitTarget[]) => void;
+        readonly force?: boolean;
+    }) => Promise<StopWhenIdleOutcome | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly prune?: () => Promise<readonly LiveProcessRecord[]>;
@@ -371,7 +390,7 @@ export async function runCli(
     ) {
         try {
             output.write(
-                `${dependencies.version ?? formatVeraVersion(readStampedRelease())}\n`,
+                `${dependencies.version ?? thisProcessVersion()}\n`,
             );
             return 0;
         } catch (error) {
@@ -603,6 +622,16 @@ export async function runCli(
         await (dependencies.openConfigure ?? (() =>
             openFileInEditor(veraConfigPath())))();
         return 0;
+    }
+
+    if (args[0] === "block" || args[0] === "unblock") {
+        const deps = {
+            ...sessionBlockDependencies(output, errorOutput),
+            ...dependencies.sessionBlock,
+        };
+        return args[0] === "block"
+            ? runBlockCommand(args, deps)
+            : runUnblockCommand(args, deps);
     }
 
     if (
@@ -875,13 +904,45 @@ export async function runCli(
         const confirmed = hostStopAssumeYes
             || await (
                 dependencies.confirmHostStop ?? confirmResidentHostStop
-            )();
+            )(force);
         if (!confirmed) {
             output.write("Resident Vera host was not stopped.\n");
             return 0;
         }
         try {
+            let announced = false;
+            const onWaiting = (waiting: readonly StopWaitTarget[]): void => {
+                if (!announced) {
+                    announced = true;
+                    output.write(force
+                        ? "Cutting running turns and queued prompts. New turns are refused until the host stops.\n"
+                        : "Stopping after running turns end. New turns are refused until the host stops.\n");
+                }
+                for (const target of waiting) {
+                    output.write(target.name === null
+                        ? `Waiting on ${target.session_id} (${target.status})\n`
+                        : `Waiting on ${target.name} (${target.session_id}, ${target.status})\n`);
+                }
+            };
             if (force) {
+                const cut = await (
+                    dependencies.stopHost ?? stopResidentHostWhenIdle
+                )({ onWaiting, force: true });
+                if (cut !== undefined && !cutNeedsSignal(cut)) {
+                    const rendered = cut.endedBy === "stopped"
+                        ? {
+                            text: `Stopped resident Vera host PID ${cut.pid} after cutting its running turns.\n`,
+                            exitCode: 0,
+                        }
+                        : renderStopWhenIdleOutcome(cut);
+                    output.write(rendered.text);
+                    return rendered.exitCode;
+                }
+                if (cut === undefined) {
+                    output.write("No resident Vera host is recorded.\n");
+                    return 0;
+                }
+                output.write(cutFallbackNotice(cut));
                 const outcome = await (
                     dependencies.forceStopHost ?? forceStopResidentHost
                 )();
@@ -894,13 +955,13 @@ export async function runCli(
                 return rendered.exitCode;
             }
             const outcome = await (
-                dependencies.stopHost ?? gracefulStopResidentHost
-            )();
+                dependencies.stopHost ?? stopResidentHostWhenIdle
+            )({ onWaiting });
             if (outcome === undefined) {
                 output.write("No resident Vera host is running.\n");
                 return 0;
             }
-            const rendered = renderGracefulStopOutcome(outcome);
+            const rendered = renderStopWhenIdleOutcome(outcome);
             output.write(rendered.text);
             return rendered.exitCode;
         } catch (error) {
@@ -1184,6 +1245,84 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
     }
 }
 
+// Only an answer the host did not give falls back to a signal. A refusal is reported and never signalled.
+function cutNeedsSignal(outcome: StopWhenIdleOutcome): boolean {
+    return outcome.endedBy === "no_answer"
+        || outcome.endedBy === "unsupported"
+        || outcome.endedBy === "timed_out";
+}
+
+function cutFallbackNotice(outcome: StopWhenIdleOutcome): string {
+    const pid = outcome.pid === undefined ? "" : ` PID ${outcome.pid}`;
+    switch (outcome.endedBy) {
+        case "unsupported":
+            return `Resident Vera host${pid} is a build that cannot cut its turns. Sending it the stop signal.\n`;
+        case "timed_out":
+            return `Resident Vera host${pid} did not stop within 10 seconds. Sending it the stop signal.\n`;
+        default:
+            return `Resident Vera host${pid} did not answer the cut request. Sending it the stop signal.\n`;
+    }
+}
+
+function renderStopWhenIdleOutcome(outcome: StopWhenIdleOutcome): StopRendering {
+    switch (outcome.endedBy) {
+        case "stopped":
+            return {
+                text: `Stopped resident Vera host PID ${outcome.pid} after its running turns ended.\n`,
+                exitCode: 0,
+            };
+        case "still_running":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} accepted the stop but is still running.`
+                    + " Run 'vera host stop --force' to stop it now.\n",
+                exitCode: 1,
+            };
+        case "no_answer":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} did not answer the stop request, so it was left running.`
+                    + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
+                exitCode: 1,
+            };
+        case "unsupported":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} is a build that cannot wait for turns, so it was left running.`
+                    + " Run 'vera host stop --force' to stop it now and cut its running turns.\n",
+                exitCode: 1,
+            };
+        case "timed_out":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} did not stop after its turns were cut, so it was left running.\n`,
+                exitCode: 1,
+            };
+        case "accepted":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} will stop once its running turns end.\n`,
+                exitCode: 0,
+            };
+        case "abandoned":
+            return {
+                text: `${outcome.message ?? "The stop was abandoned."}\n`,
+                exitCode: 1,
+            };
+        case "refused":
+            return {
+                text: outcome.message !== undefined
+                    ? `${outcome.message}\n`
+                    : outcome.refusal === "identity_mismatch"
+                        ? `Resident Vera host PID ${outcome.pid} refused the stop because it is not the host its lockfile records. Left it running.\n`
+                        : `Resident Vera host PID ${outcome.pid} is not accepting stop requests yet. Left it running; try again.\n`,
+                exitCode: 1,
+            };
+        case "sigterm":
+        case "sigkill":
+        case "already_dead":
+        case "survived":
+        case "not_ours":
+        case "unverified":
+            return renderGracefulStopOutcome(outcome);
+    }
+}
+
 function renderGracefulStopOutcome(outcome: ForceStopOutcome): StopRendering {
     switch (outcome.endedBy) {
         case "sigterm":
@@ -1320,6 +1459,36 @@ export function renderAgentList(
 
 function truncate(value: string, limit: number): string {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}\u2026`;
+}
+
+function sessionBlockDependencies(
+    output: { write(text: string): unknown },
+    errorOutput: { write(text: string): unknown },
+): SessionBlockCommandDependencies {
+    const sessionDirectory = defaultSessionDirectory();
+    return {
+        listLive: listLiveAgents,
+        readStored: () => readStoredSessionTree(sessionDirectory),
+        sessionDirectory,
+        blockedDirectory: veraBlockedDirectory(),
+        hostSocketPath: async () => (await readPairedLiveHost())?.socket_path,
+        blockThroughHost: (socketPath, request) => blockSessionThroughHost(socketPath, request),
+        unblockThroughHost: (socketPath, request) => unblockSessionThroughHost(socketPath, request),
+        hasTerminal: process.stdin.isTTY === true && process.stdout.isTTY === true,
+        confirm: confirmSessionBlock,
+        output,
+        errorOutput,
+    };
+}
+
+async function confirmSessionBlock(question: string): Promise<boolean> {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = (await prompt.question(question)).trim().toLowerCase();
+        return answer === "y" || answer === "yes";
+    } finally {
+        prompt.close();
+    }
 }
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
@@ -1651,13 +1820,14 @@ async function runRollbackCommand(
     }
 }
 
-async function confirmResidentHostStop(): Promise<boolean> {
+async function confirmResidentHostStop(force: boolean): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    const question = force
+        ? "Stop the resident Vera host now, cut its running turns and disconnect attached clients? [y/N] "
+        : "Stop the resident Vera host after its running turns end? New turns are refused until it stops. [y/N] ";
     try {
-        const answer = await prompt.question(
-            "Stop the resident Vera host and disconnect attached clients? [y/N] ",
-        );
+        const answer = await prompt.question(question);
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";
     } finally {

@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
+    childReleaseRoot,
     RELEASE_SUPERVISOR_NAME,
     releaseBinaryPath,
 } from "../release/layout.ts";
@@ -23,10 +26,24 @@ export interface SupervisorHandle {
     readonly exited: Promise<void>;
 }
 
+export function residentSupervisorEntrypoint(): string {
+    return fileURLToPath(new URL("./worker-supervisor.ts", import.meta.url));
+}
+
+export function residentSupervisorSpawnCommand(
+    releaseRoot: string | undefined = childReleaseRoot(),
+): readonly string[] {
+    if (releaseRoot !== undefined) {
+        const packed = releaseBinaryPath(RELEASE_SUPERVISOR_NAME, releaseRoot);
+        if (existsSync(packed)) return [packed];
+    }
+    return [process.execPath, residentSupervisorEntrypoint()];
+}
+
 export function superviseWorker(
     options: SupervisorHandleOptions,
 ): SupervisorHandle {
-    const command = options.command ?? [releaseBinaryPath(RELEASE_SUPERVISOR_NAME)];
+    const command = options.command ?? residentSupervisorSpawnCommand();
     const [executable, ...args] = command;
     const child = spawn(executable as string, args, {
         argv0: "vera-supervisor",

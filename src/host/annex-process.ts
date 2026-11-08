@@ -1,10 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
+    childReleaseRoot,
     packedAnnexRoot,
     RELEASE_ANNEX_NAME,
+    checkoutPackRoot,
     releaseBinaryPath,
-    thisProcessReleaseRoot,
 } from "../release/layout.ts";
 import { defaultVeraHomeDirectory } from "../profile-paths.ts";
 import { saveAnnexPort, wantedAnnexPort } from "./annex-port.ts";
@@ -34,12 +38,58 @@ export interface StartAnnexProcessOptions {
     readonly onExit?: (reason: string) => void;
 }
 
+export interface AnnexLaunchOptions {
+    readonly root: string | undefined;
+    readonly checkoutRoot?: string;
+    readonly command?: readonly string[];
+    readonly assets?: string;
+}
+
+export interface AnnexLaunch {
+    readonly command: readonly string[];
+    readonly assets: string;
+}
+
+export function residentAnnexEntrypoint(): string {
+    return fileURLToPath(new URL("../annex/main.ts", import.meta.url));
+}
+
+// An undefined root runs the checkout's annex, which serves the page `bun run pack:web` builds.
+export function annexLaunch(options: AnnexLaunchOptions): AnnexLaunch {
+    if (options.root !== undefined) {
+        return {
+            command: options.command
+                ?? [releaseBinaryPath(RELEASE_ANNEX_NAME, options.root)],
+            assets: options.assets ?? packedAnnexRoot(options.root),
+        };
+    }
+    const checkoutRoot = options.checkoutRoot ?? process.cwd();
+    const checkoutAssets = join(checkoutPackRoot(checkoutRoot), "annex");
+    if (
+        options.assets === undefined
+        && !existsSync(join(checkoutAssets, "index.html"))
+    ) {
+        throw new Error(
+            "This checkout has no built annex page. Run `bun run pack:web` in "
+                + checkoutRoot
+                + ".",
+        );
+    }
+    return {
+        command: options.command ?? [process.execPath, residentAnnexEntrypoint()],
+        assets: options.assets ?? checkoutAssets,
+    };
+}
+
 export async function startAnnexProcess(
     options: StartAnnexProcessOptions,
 ): Promise<AnnexProcess> {
-    const executable = options.command ?? [
-        releaseBinaryPath(RELEASE_ANNEX_NAME),
-    ];
+    const launch = annexLaunch({
+        root: childReleaseRoot(),
+        command: options.command,
+        assets: options.assets,
+    });
+    const executable = launch.command;
     const [bin, ...prefix] = executable;
     const wanted = wantedAnnexPort(
         options.home,
@@ -53,7 +103,7 @@ export async function startAnnexProcess(
         String(wanted.port ?? 0),
         "--any-port-if-busy",
         "--assets",
-        options.assets ?? packedAnnexRoot(thisProcessReleaseRoot()),
+        launch.assets,
         ...(options.extensionDirectories ?? []).flatMap((directory) => [
             "--extension",
             directory,

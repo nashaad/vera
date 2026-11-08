@@ -258,10 +258,15 @@ export interface CompactionContext {
     readonly capacity?: number;
 }
 
+// Returns the reason the session must stop, or undefined to keep running.
+export type TurnHaltCheck = () => string | undefined;
+
 export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    // Asked before each model request and each tool call; a reason ends the turn.
+    readonly haltCheck?: TurnHaltCheck;
     readonly modelContext?: (
         context?: CompactionContext,
     ) => readonly ModelMessage[];
@@ -874,6 +879,9 @@ export async function runHeadlessLoop(
         ...(owned.toolResults === undefined
             ? {}
             : { toolResults: owned.toolResults }),
+        ...(owned.haltCheck === undefined
+            ? {}
+            : { haltCheck: owned.haltCheck }),
         get disabledPromptContributions() {
             return policy().disabledPromptContributions;
         },
@@ -1177,6 +1185,14 @@ export async function runTurn(
         };
 
         while (true) {
+            const haltBeforeRequest = state.haltCheck?.();
+            if (haltBeforeRequest !== undefined) {
+                assistantMessage = withTurnTiming(
+                    haltedMessage(activeModel, haltBeforeRequest),
+                );
+                await commitMessage(state, assistantMessage);
+                break;
+            }
             // Before the request, not after a refusal: a level the pool already knows this model rejects would otherwise be sent again every single turn, buying the same refusal each time.
             const preflight = state.effortPool === undefined
                     || turnReasoningEffort === undefined
@@ -1766,6 +1782,33 @@ export async function runTurn(
             let interrupt: TurnInterrupt | undefined;
             const batchCompleted: CompletedToolCall[] = [];
             const toolCapacity = capacityForModel(activeModel);
+            // Asked per call, so a halt that lands mid-batch stops the calls not yet started.
+            const runToolCall = (
+                prepared: PreparedToolCall,
+            ): Promise<CompletedToolCall> => {
+                const haltBeforeTool = state.haltCheck?.();
+                if (haltBeforeTool !== undefined) {
+                    return Promise.resolve({
+                        result: haltedToolResult(prepared.toolCall, haltBeforeTool),
+                    });
+                }
+                return executePreparedTool(
+                    state,
+                    prepared,
+                    turn.signal,
+                    {
+                        model: activeModel,
+                        ...(turnReasoningEffort === undefined
+                            ? {}
+                            : {
+                                reasoningEffort: turnReasoningEffort,
+                            }),
+                    },
+                    reviewBreaker,
+                    denialBreaker,
+                    toolCapacity,
+                );
+            };
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
                 if (!toolMayRunInParallel(
@@ -1773,22 +1816,7 @@ export async function runTurn(
                     state.extensionTools,
                 )) {
                     const finished = await finishToolCalls(state, [
-                        executePreparedTool(
-                            state,
-                            first,
-                            turn.signal,
-                            {
-                                model: activeModel,
-                                ...(turnReasoningEffort === undefined
-                                    ? {}
-                                    : {
-                                        reasoningEffort: turnReasoningEffort,
-                                    }),
-                            },
-                            reviewBreaker,
-                            denialBreaker,
-                            toolCapacity,
-                        ),
+                        runToolCall(first),
                     ]);
                     batchCompleted.push(...finished.completed);
                     interrupt = finished.interrupt;
@@ -1812,24 +1840,7 @@ export async function runTurn(
                 }
                 const finished = await finishToolCalls(
                     state,
-                    parallelCalls.map((prepared) =>
-                        executePreparedTool(
-                            state,
-                            prepared,
-                            turn.signal,
-                            {
-                                model: activeModel,
-                                ...(turnReasoningEffort === undefined
-                                    ? {}
-                                    : {
-                                        reasoningEffort: turnReasoningEffort,
-                                    }),
-                            },
-                            reviewBreaker,
-                            denialBreaker,
-                            toolCapacity,
-                        )
-                    ),
+                    parallelCalls.map(runToolCall),
                 );
                 batchCompleted.push(...finished.completed);
                 interrupt = finished.interrupt;
@@ -1846,6 +1857,15 @@ export async function runTurn(
                     interrupt,
                 );
                 assistantMessage = withTurnTiming(assistantMessage);
+                await commitMessage(state, assistantMessage);
+                break;
+            }
+            // A halt that arrived during the last call must not release held prompts or start a model request.
+            const haltAfterTools = state.haltCheck?.();
+            if (haltAfterTools !== undefined) {
+                assistantMessage = withTurnTiming(
+                    haltedMessage(activeModel, haltAfterTools),
+                );
                 await commitMessage(state, assistantMessage);
                 break;
             }
@@ -2035,6 +2055,29 @@ function sanitizedErrorMessage(message: AssistantMessage): AssistantMessage {
             ...message,
             errorMessage: sanitizeDiagnosticText(message.errorMessage),
         };
+}
+
+// Shaped like an abort so the turn ends the same way; the reason rides in errorMessage.
+function haltedMessage(model: string, reason: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [],
+        source: { provider: "vera", api: "halt", model },
+        usage: emptyUsage(),
+        stopReason: "aborted",
+        errorMessage: reason,
+    };
+}
+
+// Keeps the tool_use and tool_result pairing intact for calls the halt stopped.
+function haltedToolResult(toolCall: ToolCallContent, reason: string): CompletedToolCall["result"] {
+    return {
+        role: "tool_result",
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: "text", text: `Not run: ${reason}` }],
+        isError: true,
+    };
 }
 
 function reviewInterruptedMessage(

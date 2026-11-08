@@ -39,7 +39,7 @@ import {
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { hostExtensionConfigs, workerExtensionConfigs } from "../extensions/host-set.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
-import { selectedVeraHome, VERA_HOME_ENV, veraMachineDirectoryIn } from "../profile-paths.ts";
+import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirectoryIn } from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -77,6 +77,14 @@ import {
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
 import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { recoverCrashedTurns } from "./restart-scan.ts";
+import {
+    appendRestartRecord,
+    clearRestartRecordsForSession,
+    defaultRestartRecordPath,
+    listRestartRecords,
+    type RestartRecord,
+} from "../store/restart-records.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -88,7 +96,7 @@ import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
-import { readStampedRelease } from "../release/stamp.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
 
 import {
     addPoolModel,
@@ -220,6 +228,9 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import { createSessionBlockService } from "./session-block-service.ts";
+import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
 import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
@@ -259,6 +270,7 @@ export interface StartResidentHostOptions {
     readonly buildId?: string;
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
+    readonly blockedDirectory?: string;
     readonly permissionPreferencesPath?: string;
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
@@ -372,6 +384,27 @@ export async function startResidentHost(
     const socketPath = options.socketPath
         ?? defaultHostSocketPath(home);
     const lockPath = options.lockPath ?? defaultHostLockPath(home);
+    const restartRecordPath = defaultRestartRecordPath(home);
+    const forgetRestartRecords = (sessionId: string): void => {
+        try {
+            clearRestartRecordsForSession(sessionId, restartRecordPath);
+        } catch (error) {
+            hostLog({
+                type: "restart_records_clear_failed",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    };
+    const recordStopCut = (record: RestartRecord): void => {
+        try {
+            appendRestartRecord(record, restartRecordPath);
+        } catch (error) {
+            hostLog({
+                type: "restart_record_write_failed",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    };
     const modelFailureLedgerPath = options.modelFailureLedgerPath
         ?? defaultModelFailureLedgerPath(home);
     const sessionDirectory = options.sessionDirectory
@@ -593,7 +626,19 @@ export async function startResidentHost(
         "subagent_finished_hook_failed",
     );
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
-    const registry = new AgentRegistry({
+    const blockedDirectory = options.blockedDirectory
+        ?? veraBlockedDirectory(home);
+    const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
+        waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        onStopped: () => closeHost(),
+        targetProblem: updateTargetProblem,
+        prepare: prepareStopForTarget,
+        cutSession: (sessionId, reason) => registry.cutSessionForStop(sessionId, reason),
+        recordCut: recordStopCut,
+    });
+    const registry: AgentRegistry = new AgentRegistry({
+        sessionBlockDirectory: blockedDirectory,
+        turnsHeld: (): boolean => stopWhenIdle.holdsTurns,
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
             credentialFingerprint(authStorage, provider),
@@ -1055,6 +1100,11 @@ export async function startResidentHost(
         onSessionsClosed: (members): Promise<void> =>
             indexClosedMembers(registry, members, storedSessionIndex),
     });
+    const sessionBlocks = createSessionBlockService({
+        registry,
+        sessionDirectory,
+        blockedDirectory,
+    });
     // Scores fill in after startup; discovery never waits for the arena download.
     if (discoversModelsAtStartup) {
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
@@ -1184,6 +1234,31 @@ export async function startResidentHost(
                 ...(options.projectRoot === undefined
                     ? {}
                     : { projectRoot: options.projectRoot }),
+                recoverPrevious: async () => {
+                    try {
+                        const scan = await recoverCrashedTurns({
+                            lockPath,
+                            sessionDirectory,
+                            recordPath: restartRecordPath,
+                        });
+                        if (scan.recorded.length > 0) {
+                            hostLog({
+                                type: "restart_turns_recorded",
+                                message: `${scan.recorded.length} session(s) had a turn open at the last exit`,
+                            });
+                        }
+                    } catch (error) {
+                        hostLog({
+                            type: "restart_scan_failed",
+                            message: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                },
+                restartRecords: {
+                    list: () => listRestartRecords(restartRecordPath),
+                    dismiss: (sessionId) =>
+                        clearRestartRecordsForSession(sessionId, restartRecordPath),
+                },
             findAgent: (agentId) => findOrRestoreAgent(
                 registry,
                 agentId,
@@ -1192,6 +1267,7 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            stopWhenIdle,
             forgetProvider: async (provider, workspace) => {
                 forgetProviderConnection(provider, authStorage);
                 providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
@@ -1320,6 +1396,7 @@ export async function startResidentHost(
                 const resident = await registry.trashSession(targetId);
                 if (resident === "trashed") {
                     storedSessionIndex.delete(targetId);
+                    forgetRestartRecords(targetId);
                 }
                 if (resident !== "not_found") return resident;
                 const stored = await registry.trashStoredSession(
@@ -1350,6 +1427,7 @@ export async function startResidentHost(
                 );
                 if (stored === "trashed") {
                     storedSessionIndex.delete(targetId);
+                    forgetRestartRecords(targetId);
                 }
                 return stored;
             },
@@ -1379,6 +1457,8 @@ export async function startResidentHost(
                     ? { status: "closed", sessionRetained: true }
                     : { status: "not_found" };
             },
+            blockSession: (request) => sessionBlocks.block(request),
+            unblockSession: (request) => sessionBlocks.unblock(request),
             renameSession: async (targetId, name) => {
                 const resident = await registry.renameSession(targetId, name);
                 if (resident.status !== "not_found") return resident;
@@ -1534,7 +1614,7 @@ export async function startResidentHost(
         throw error;
     }
 
-    const buildId = readStampedRelease().build_id;
+    const buildId = thisProcessBuildId();
     parkIdleTimer = setInterval(() => {
         void registry.parkExpiredIdle()
             .then((closed) =>

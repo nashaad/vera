@@ -11,9 +11,18 @@ context usage without sending a model request.
 
 ## The client lost its host
 
-Vera makes one automatic restart attempt after a dropped connection. If the
-TUI still says disconnected, press Ctrl+C twice to quit. Vera prints the
-command to resume this session before it exits.
+After a dropped connection that was not a planned stop, Vera makes one
+automatic restart attempt. After a planned stop, the TUI makes no automatic
+attempt; it shows "The host stopped." and waits. If the TUI says disconnected
+or the host stopped, press **Ctrl+L** to restart the host into the same
+conversation. To quit instead, press Ctrl+C twice. Vera prints
+the command to resume this session before it exits.
+
+Ctrl+L does what Reconnect host does: it starts a host if none runs and
+reopens this session. If the installed build differs from the
+TUI's build, the TUI relaunches into the installed build and keeps the
+conversation. If the restart fails, the conversation says so and prints
+`vera resume <id>`.
 
 To stay in the TUI instead, press Ctrl+P and choose **Reconnect host**. It
 attaches to or replaces the host associated with this Vera home and returns to

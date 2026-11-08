@@ -10,6 +10,8 @@ import {
     parseAgentLocationReply,
     parseAttachedClientMessage,
     parseHostRequest,
+    parseHostStopWaitEvent,
+    stopWaitWireMessage,
     requestHostIdentity,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
@@ -823,4 +825,51 @@ test("agent location replies round trip through the wire encoding", () => {
         ...failed,
         reason: "unknown",
     }))).toBeUndefined();
+});
+
+test("host stop-wait events encode to wire shapes and decode back", () => {
+    const target = { session_id: "s1", name: null, status: "queued" as const };
+    const update = stopWaitWireMessage({
+        type: "wait",
+        kind: "update",
+        target_build_id: "build-9",
+        waiting_on: [target],
+    });
+    expect(update).toEqual({
+        type: "host_stop_wait",
+        kind: "update",
+        target_build_id: "build-9",
+        waiting_on: [target],
+    });
+    expect(parseHostStopWaitEvent(JSON.parse(JSON.stringify(update)))).toEqual(update);
+
+    const stop = stopWaitWireMessage({ type: "wait", kind: "stop", waiting_on: [] });
+    expect(parseHostStopWaitEvent(stop)).toEqual({ type: "host_stop_wait", kind: "stop", waiting_on: [] });
+
+    const cleared = stopWaitWireMessage({ type: "wait_cleared", reason: "abandoned", message: "no" });
+    expect(parseHostStopWaitEvent(cleared)).toEqual(cleared);
+
+    const restarting = stopWaitWireMessage({ type: "restarting", build_id: "build-9" });
+    expect(restarting).toEqual({ type: "host_restarting", build_id: "build-9" });
+    expect(parseHostStopWaitEvent(restarting)).toEqual(restarting);
+});
+
+test("host stop-wait decoder rejects malformed events", () => {
+    expect(parseHostStopWaitEvent({ type: "host_stop_wait", kind: "update", waiting_on: [] })).toBeUndefined();
+    expect(parseHostStopWaitEvent({ type: "host_stop_wait", kind: "stop", waiting_on: [{ session_id: "s1" }] }))
+        .toBeUndefined();
+    expect(parseHostStopWaitEvent({ type: "host_stop_wait_cleared", reason: "refused" })).toBeUndefined();
+    expect(parseHostStopWaitEvent({ type: "host_restarting", build_id: "" })).toBeUndefined();
+    expect(parseHostStopWaitEvent(null)).toBeUndefined();
+});
+
+test("host protocol parses cut_stop_wait and the forced stop_host flag", () => {
+    expect(parseHostRequest('{"type":"cut_stop_wait"}')).toEqual({ type: "cut_stop_wait" });
+    const identity = { pid: 101, started_at: "2026-07-17T12:00:00.123Z" };
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: true })))
+        .toEqual({ type: "stop_host", ...identity, force: true });
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: false })))
+        .toEqual({ type: "stop_host", ...identity });
+    expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: "yes" })))
+        .toBeUndefined();
 });

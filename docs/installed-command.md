@@ -27,18 +27,20 @@ The launcher should be `~/.local/bin/vera`. It follows the active release:
 
 ## Activate a new release
 
-Run `bun run install:local` from the checkout you want to install. It packs
-and verifies the release before changing the active version. If it stops an
-existing host, it starts the new release's host afterward. The new host
-counts as started when the process the install launched published the lock, or
-when another host on the same build holds it and the launched process yielded
-to it or was stopped. A failed or timed-out start leaves the previous release
-active and starts its host again. The install records the host it launches in
-its journal as soon as it starts, so an install that is killed while it waits
-leaves that host recorded. If the host the install launched cannot be stopped,
-the previous release is active but no host runs for it: the install names the
-launched host's PID, and the next install or `vera rollback` stops it and
-starts the previous release's host.
+Run `bun run install:local` from the checkout you want to install. It packs and
+verifies the release first. With no host running, the release becomes active at
+once. With a host running, the installer leaves `current` where it is and asks
+the host to move to the new release when its running turns end. The host holds
+new turns while it waits, then moves `current` and starts the new release's
+host as it exits. From a terminal the install waits and prints what the host
+waits on. An attached TUI shows the update build and the sessions it waits for.
+When the host moves, a TUI started through the `vera` launcher restarts into
+the new build in the same terminal and keeps its unsent draft. A TUI started
+without the launcher shows the notice and stays attached. From inside a Vera
+session the install returns at once with a line that the update happens when
+running turns end. If the new host does not start, the previous release is made
+active again and its host is started. A second install that arrives while an
+earlier update still waits is refused until that update finishes.
 
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
 `$HOME/.local`. A test prefix stops and starts only the host of the home that
@@ -48,7 +50,7 @@ The daily prefix goes with the default home, so an install without `--prefix`
 is refused when `VERA_HOME` selects another home. Unset `VERA_HOME` for a
 daily install.
 
-Run `bun run install:local` or `vera rollback` from a terminal outside Vera.
+Run `vera rollback` from a terminal outside Vera. Inside a Vera session, `bun run install:local` returns at once and the update waits for running turns.
 From inside a Vera session, the host it would stop is the session's own host,
 so stopping it would end the session before the switch finished; both
 commands refuse and change nothing.

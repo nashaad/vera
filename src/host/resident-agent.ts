@@ -40,10 +40,24 @@ export class AgentDetachedError extends Error {
     }
 }
 
+export class ResidentAgentTurnsHeldError extends Error {
+    constructor() {
+        super("Resident agent is not accepting turns while Vera stops");
+        this.name = "ResidentAgentTurnsHeldError";
+    }
+}
+
 export class ResidentAgentClosedError extends Error {
     constructor() {
         super("Resident agent is closed");
         this.name = "ResidentAgentClosedError";
+    }
+}
+
+export class SessionBlockedError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "SessionBlockedError";
     }
 }
 
@@ -69,6 +83,8 @@ export interface ResidentAgentOptions {
     readonly modelCatalogFacts?: () => Pick<HostModelCatalogSettings, "providerCatalogs" | "selectionCleared">;
     readonly maxPendingCommands?: number;
     readonly clientPromptRefusal?: string | (() => string | undefined);
+    /** Holds turns: a prompt throws and a delivery wake is left for the next host. */
+    readonly turnsHeld?: () => boolean;
     readonly onClientPrompt?: () => void;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
@@ -83,6 +99,8 @@ export interface ResidentAgentOptions {
     readonly onCompactionStarted?: (update: CompactionUpdate) => void;
     /** Called after an update that may change status, the open request, or context. */
     readonly onSessionFactsChanged?: () => void;
+    /** Returns the refusal text while the session is blocked; read at each turn start. */
+    readonly turnStartRefusal?: () => string | undefined;
 }
 
 const SESSION_FACT_UPDATES: ReadonlySet<AgentUpdate["type"]> = new Set([
@@ -139,6 +157,10 @@ export class ResidentAgent {
     private outstandingDeliveryWakes = 0;
     private startedTurnActive = false;
     private deliveryTurnQueued = false;
+    // While the engine's router is halted it drops prompts, so the host does not count them.
+    private routerHalted = false;
+    // A worker clears its own halt after the cut turn ends, which the host sees as turn_finished.
+    private haltClearsOnTurnFinish = false;
     private readonly maxPendingCommands: number;
     private readonly createAttachmentId: () => string;
 
@@ -162,7 +184,7 @@ export class ResidentAgent {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
-                    if (queued.command.type === "prompt") {
+                    if (queued.command.type === "prompt" && !this.routerHalted) {
                         this.unstartedPrompts += 1;
                     }
                     if (queued.command.type === "trigger_delivery_turn") {
@@ -237,8 +259,8 @@ export class ResidentAgent {
                 if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
                 }
-                const refusal = typeof this.options.clientPromptRefusal === "function"
-                    ? this.options.clientPromptRefusal() : this.options.clientPromptRefusal;
+                const refusal = this.options.turnStartRefusal?.() ?? (typeof this.options.clientPromptRefusal === "function"
+                    ? this.options.clientPromptRefusal() : this.options.clientPromptRefusal);
                 if (command.type === "prompt" && refusal !== undefined) {
                     outgoing.push({
                         type: "prompt_rejected",
@@ -355,6 +377,13 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
+        const blocked = this.options.turnStartRefusal?.();
+        if (blocked !== undefined) {
+            throw new SessionBlockedError(blocked);
+        }
+        if (this.options.turnsHeld?.() === true) {
+            throw new ResidentAgentTurnsHeldError();
+        }
         if (this.pendingCommandCount >= this.maxPendingCommands) {
             throw new AgentCommandQueueFullError();
         }
@@ -383,6 +412,13 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
+        // The deliveries stay in the store: a blocked session does not wake for them, and a held one is woken by the next host.
+        if (
+            this.options.turnStartRefusal?.() !== undefined
+            || this.options.turnsHeld?.() === true
+        ) {
+            return;
+        }
         if (this.deliveryTurnQueued) {
             return;
         }
@@ -396,6 +432,26 @@ export class ResidentAgent {
             this.deliveryTurnQueued = false;
             throw error;
         }
+    }
+
+    // The router dropped its queued prompts and wakes on halt, so none of them is still outstanding.
+    noteRouterHalted(clearsOnTurnFinish: boolean): void {
+        if (this.routerHalted) {
+            // A block over a cut must hold until released, so only a cut-and-cut keeps the turn-finish release.
+            this.haltClearsOnTurnFinish = this.haltClearsOnTurnFinish && clearsOnTurnFinish;
+            return;
+        }
+        this.routerHalted = true;
+        this.haltClearsOnTurnFinish = clearsOnTurnFinish;
+        this.unstartedPrompts = 0;
+        this.outstandingDeliveryWakes = 0;
+        this.deliveryTurnQueued = false;
+        this.notifyRunStateChanged();
+    }
+
+    noteRouterCleared(): void {
+        this.routerHalted = false;
+        this.haltClearsOnTurnFinish = false;
     }
 
     deliveryTurnDiscarded(): void {
@@ -458,6 +514,15 @@ export class ResidentAgent {
 
     close(): void {
         this.closeWithError(new ResidentAgentClosedError(), true);
+    }
+
+    // Cancels the running turn only; queued prompts stay queued.
+    abort(): void {
+        if (this.isClosed || this.terminalFailure !== undefined) return;
+        this.inbound.push({
+            command: { type: "abort" },
+            countsTowardLimit: false,
+        });
     }
 
     fail(failureId: string, detail: string): void {
@@ -613,6 +678,9 @@ export class ResidentAgent {
                 this.unstartedPrompts -= 1;
             } else if (this.outstandingDeliveryWakes > 0) {
                 this.outstandingDeliveryWakes -= 1;
+            }
+            if (this.haltClearsOnTurnFinish) {
+                this.noteRouterCleared();
             }
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";

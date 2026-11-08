@@ -47,6 +47,39 @@ and Escape keep their usual picker behavior.
 
 Other conversations can remain running after the TUI exits.
 
+## Block a session that will not stop
+
+`vera abort <agent-id>` ends a live agent's active turn and leaves the agent
+running. `vera close <agent-id>` ends the agent and discards its queued prompts.
+When a session ignores both, `vera block <agent-id>` is the stronger move.
+
+`vera block <agent-id>` lists the session and every session it started, with
+their ids and whether each is live, then asks you to confirm. Once confirmed,
+Vera stops their running turns and writes a block for each one. A blocked
+session stays open and inert: a new prompt, a queued prompt, an inbox message,
+a scheduled job, or a resume does not start a turn in it, and an extension's
+side question to it is refused. It is not closed.
+Run `vera close <agent-id>` afterwards to end it.
+
+`vera block --reason <text>` records a short reason with the block.
+
+A block reaches a running session at its next step, and an in-flight model
+stream or tool is stopped at once. Prompts that were queued in the session
+are dropped, not held, and each one leaves a "Not started" line in the
+transcript. A turn that was running when the block landed ends with a
+"Stopped" line that gives the block's reason.
+
+`vera unblock <agent-id>` lists the sessions blocked with that session, asks
+you to confirm, and clears their blocks. Turns can start again after that.
+If a running session does not confirm the unblock, the command says so, and
+that session stays stopped until its process exits.
+
+If the host is running but does not answer, `vera block` writes the flags
+itself and says that work already running may not have stopped.
+
+Both commands need a terminal to confirm. Without one they refuse, and nothing
+is blocked or unblocked.
+
 ## Recognize a finished turn
 
 A **Worked for** divider records active turn time after turns that ran at least
@@ -61,6 +94,19 @@ divider then shows only the count.
 For work finished more than 24 hours ago, the divider also shows the saved
 finish date and time in your local timezone. Older turns without timing data
 have no divider.
+
+## Sessions cut short by a restart
+
+When the host stops, updates, or crashes during a turn, that turn is cut
+short. The home screen lists those sessions above its rows under
+`Cut short (N)`, newest first, with the cause of each. Up and Down move through
+the entries and the rows as one list. Enter opens the session, the same way the
+resume picker does, and removes its entry. Delete removes an entry without
+opening it. Removing an entry clears its records from the host's restart log.
+
+The list is read when Vera starts on the home screen and each time the home
+screen opens. It does not refresh on a timer. Vera does not resend an
+interrupted turn; send the prompt again if you still need the result.
 
 ## Where history is stored
 

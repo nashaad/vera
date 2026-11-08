@@ -1,4 +1,5 @@
 import { ToolHooks } from "../engine/hooks.ts";
+import { clearCutHaltWhenIdle } from "./cut-release.ts";
 import { modelSelectionCleared } from "./model-catalog-settings.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, mkdtemp, readdir, realpath, rm, rmdir, unlink } from "node:fs/promises";
@@ -57,6 +58,7 @@ import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/han
 import type { WorkerAdapterSpec } from "./worker/start.ts";
 import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { type StopWaitTarget, TURNS_HELD_REFUSAL } from "./stop-when-idle.ts";
 import { historyPageFromStore } from "./history-page.ts";
 import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
 import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
@@ -71,6 +73,11 @@ import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
+import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
+import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block-latch.ts";
+
+// A worker that does not confirm the cut in time keeps running; the cut reports it as failed.
+const STOP_CUT_ACK_TIMEOUT_MS = 2000;
 
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
@@ -153,6 +160,78 @@ export class AgentRegistry {
         reason?: SessionEndReason,
     ): Promise<CloseAgentTreeResult> {
         return registryLifecycle.closeAgentTree(this, id, reason);
+    }
+
+    // The in-process session latches the flag as a worker does; the router takes the halt once it is ready.
+    createInProcessBlockLatch(entry: RegisteredAgentEntry): SessionBlockLatch | undefined {
+        const directory = this.options.sessionBlockDirectory;
+        if (directory === undefined) return undefined;
+        const latch = createSessionBlockLatch({
+            directory,
+            sessionId: entry.store.header.id,
+            onLatched: (reason) => this.haltInProcess(entry, reason),
+            onReleased: () => this.clearInProcessHalt(entry),
+        });
+        entry.blockHeld = () => latch.check() !== undefined;
+        entry.blockControl = {
+            confirmBlock: async () => latch.check() !== undefined,
+            releaseBlock: async () => {
+                latch.release();
+                return true;
+            },
+        };
+        return latch;
+    }
+
+    // Halts the in-process router and the host counts in one step, so dropped prompts are not left outstanding.
+    private haltInProcess(entry: RegisteredAgentEntry, reason: string): boolean {
+        const router = entry.inbound;
+        if (router === undefined) return false;
+        router.halt(reason);
+        entry.agent.noteRouterHalted(false);
+        return true;
+    }
+
+    private clearInProcessHalt(entry: RegisteredAgentEntry): void {
+        entry.inbound?.clearHalt();
+        entry.agent.noteRouterCleared();
+    }
+
+    // Halts one session and clears the halt, so its queued prompts are dropped and its turn ends.
+    // A session held by a block keeps its own halt and does not confirm the cut.
+    async cutSessionForStop(sessionId: string, reason: string): Promise<boolean> {
+        const entry = this.agents.get(sessionId);
+        if (entry === undefined) return false;
+        if (entry.worker !== undefined) {
+            // The worker clears its own halt once the cut turn ends; a session idle at the cut has no turn to end.
+            const turnRunning = entry.agent.status !== "idle";
+            entry.agent.noteRouterHalted(turnRunning);
+            const ok = await entry.worker.cutWait(reason, STOP_CUT_ACK_TIMEOUT_MS);
+            if (!ok || !turnRunning) entry.agent.noteRouterCleared();
+            return ok;
+        }
+        const router = entry.inbound;
+        if (router === undefined || entry.blockHeld?.() === true) return false;
+        entry.cutReason = reason;
+        this.haltInProcess(entry, reason);
+        void clearCutHaltWhenIdle(
+            {
+                timelineBlocked: () => router.timelineBlocked(),
+                clearHalt: () => this.clearInProcessHalt(entry),
+            },
+            () => entry.blockHeld?.() === true,
+        ).then(() => {
+            entry.cutReason = undefined;
+        });
+        return true;
+    }
+
+    // The refusal text while a block file holds the session, else undefined.
+    blockRefusalFor(sessionId: string): string | undefined {
+        const directory = this.options.sessionBlockDirectory;
+        return directory !== undefined && isSessionBlockedSync(directory, sessionId)
+            ? blockedSessionMessage(sessionId)
+            : undefined;
     }
 
     async parkExpiredIdle(now = Date.now()): Promise<readonly ClosedMember[]> {
@@ -724,6 +803,7 @@ export class AgentRegistry {
             attachImage: (path, signal, sourcePath) =>
                 imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
+            turnStartRefusal: () => this.blockRefusalFor(store.header.id),
             onSessionFactsChanged: () => {
                 const current = this.agents.get(store.header.id);
                 if (current?.agent === agent) {
@@ -752,8 +832,11 @@ export class AgentRegistry {
                     woken.peerHop = 0;
                 }
             },
-            clientPromptRefusal: () => clientPromptRefusal ?? (modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings)
-                ? "No model selected. Open Switch model before sending a request." : undefined),
+            clientPromptRefusal: () => this.options.turnsHeld?.() === true
+                ? TURNS_HELD_REFUSAL
+                : clientPromptRefusal ?? (modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings)
+                    ? "No model selected. Open Switch model before sending a request." : undefined),
+            turnsHeld: () => this.options.turnsHeld?.() === true,
         });
         const events = new EngineEventBus();
         const instructionRoot = resolveInstructionRoot(store.header.cwd);
@@ -1052,6 +1135,10 @@ export class AgentRegistry {
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
         };
+        const adapterSpec = this.workerAdapterSpecFor(store, entry);
+        const blockLatch = adapterSpec === undefined
+            ? this.createInProcessBlockLatch(entry)
+            : undefined;
         const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
@@ -1087,6 +1174,7 @@ export class AgentRegistry {
                         ),
                 applyCommittedToolEffect,
                 extensionTools,
+                haltCheck: () => blockLatch?.check() ?? entry.cutReason,
                 ...(startupProfile !== "default"
                     || this.options.loadContextualContributions === undefined
                     ? {}
@@ -1152,6 +1240,8 @@ export class AgentRegistry {
                     onInboundReady: (inbound) => {
                         entry.inbound = inbound;
                         entry.markLoopReady();
+                        const reason = blockLatch?.check();
+                        if (reason !== undefined) this.haltInProcess(entry, reason);
                     },
                     hasPendingDeliveryTurn: () =>
                         entry.inbox?.hasAdmittedPending() === true,
@@ -1252,7 +1342,6 @@ export class AgentRegistry {
                         agent.sendSessionNameReply(ownerId, reply),
                 },
         };
-        const adapterSpec = this.workerAdapterSpecFor(store, entry);
         // Set only as the loop starts: a failed start reads it to decide whether a session_end may follow.
         entry.loopServices = loopServices;
         entry.run = (adapterSpec === undefined
@@ -1287,7 +1376,7 @@ export class AgentRegistry {
                 }
                 agent.fail(failureId, detail);
             }
-        });
+        }).finally(() => blockLatch?.close());
         if (kind === "interactive" && this.options.inboxDelivery !== undefined) {
             const inboxDelivery = this.options.inboxDelivery;
             const admissionPath = inboxDelivery.hasAdmissionPath();
@@ -1370,6 +1459,22 @@ export class AgentRegistry {
             agent.triggerDeliveryTurn();
         }
         return agent;
+    }
+
+    stopWaitTargets(): StopWaitTarget[] {
+        const targets: StopWaitTarget[] = [];
+        for (const [id, entry] of this.agents) {
+            const agent = entry.agent;
+            if (agent.idleForReplacement()) continue;
+            // A blocked session runs nothing and its block survives the restart, so the wait does not hold for it.
+            if (this.blockRefusalFor(id) !== undefined) continue;
+            targets.push({
+                session_id: id,
+                name: entry.store.name() ?? null,
+                status: agent.status === "idle" ? "queued" : agent.status,
+            });
+        }
+        return targets;
     }
 
     workerAdapterSpecFor(

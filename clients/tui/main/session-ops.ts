@@ -4,10 +4,11 @@ import type { TrashSessionResult } from "../../../src/host/session-trash-client.
 import { startTuiAdmissionDialog } from "../admission-dialog.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { createHomeClient, isHomeClient } from "../home-client.ts";
-import { createHomeState, type HomeAction } from "../home-screen.ts";
+import { createHomeState, homeStateWithRestarts, type HomeAction } from "../home-screen.ts";
 import { createJsonlViewClient, isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
-import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchSessionTitle, watchWorkIndex, type TuiDraft } from "../main.ts";
+import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchSessionTitle, watchStopWait, watchWorkIndex, type TuiDraft } from "../main.ts";
 import { receiveAgentUpdates } from "../main/agent-updates.ts";
+import { dismissHomeRestart, listHomeRestarts } from "./home-restarts.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
 import { homeNeedsProvider, openProviderPicker } from "../main/model-pickers.ts";
 import { openOnboardingWizard } from "../main/onboarding-wizard-ops.ts";
@@ -142,6 +143,7 @@ export function switchToClient(rt: TuiRuntime,
     watchBackgroundAgents(rt, next);
     watchWorkIndex(rt, next);
     watchSessionTitle(rt, next);
+    watchStopWait(rt, next);
     rt.sessionTitle = undefined;
     rt.sessionParentId = undefined;
     rt.mainHeaderVisible = true;
@@ -332,6 +334,10 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         openCommandPalette(rt);
         return;
     }
+    if (action.kind === "open_restart" || action.kind === "dismiss_restart") {
+        runHomeRestartAction(rt, action.kind, action.sessionId);
+        return;
+    }
     if (action.kind !== "type") {
         beginCreateSession(rt, "stop");
         return;
@@ -341,6 +347,24 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         text: rt.homeTypedText ?? "",
         attachmentIds: [],
     }));
+}
+
+/** Opening a restart entry dismisses it, because the session it names is now being shown. */
+function runHomeRestartAction(
+    rt: TuiRuntime,
+    kind: "open_restart" | "dismiss_restart",
+    sessionId: string,
+): void {
+    const restart = rt.homeState.restarts.find((entry) =>
+        entry.sessionId === sessionId
+    );
+    if (restart === undefined) return;
+    if (kind === "dismiss_restart") {
+        void dismissHomeRestart(rt, sessionId);
+        return;
+    }
+    beginSessionResume(rt, restart.sessionPath, restart.sessionId);
+    void dismissHomeRestart(rt, sessionId);
 }
 
 export function returnToHome(rt: TuiRuntime): void {
@@ -363,11 +387,12 @@ export async function refreshHomeSessions(rt: TuiRuntime): Promise<void> {
     } catch {
         return;
     }
+    const restarts = await listHomeRestarts(rt, agents);
     if (!isHomeClient(rt.client)) return;
-    rt.homeState = createHomeState(
+    rt.homeState = homeStateWithRestarts(createHomeState(
         agents.some((agent) => sessionPickerLists(agent)),
         homeNeedsProvider(rt),
-    );
+    ), restarts);
     rt.homeView.update(rt.homeState);
     rt.renderer.requestRender();
 }

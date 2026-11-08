@@ -40,7 +40,7 @@ import type { ModelFallbackPolicy } from "./recovery.ts";
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionNameReplyUpdate, TimelineReplyUpdate } from "./protocol.ts";
-import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { SessionCompactionOptions, TurnHaltCheck } from "./run-turn.ts";
 import type {
     RequestMissingSubagentConfiguration,
     SubagentPoolPolicy,
@@ -157,6 +157,7 @@ export interface RunHeadlessLoopServices {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly compaction?: SessionCompactionOptions;
     readonly toolResults?: ToolResultLimits;
+    readonly haltCheck?: TurnHaltCheck;
 
     readonly readPolicy?: () => LoopPolicy;
     readonly readModelSettings?: () => ModelTurnSettings;

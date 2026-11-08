@@ -30,6 +30,7 @@ import { providerCatalogCacheDir } from "../src/model/catalog-cache.ts";
 import { readWebDevArenaSnapshot } from "../src/model/webdev-arena.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
+import { VERA_PRODUCT_VERSION } from "../src/release/manifest.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
 
 test("--help and version are available without starting a client", async () => {
@@ -232,6 +233,32 @@ test("the package bin runs help from outside the checkout", () => {
             `${formatVeraVersion(readStampedRelease())}\n`,
         );
         expect(version.stderr.toString()).toBe("");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("vera --version in a development instance without a pack prints the launch build id", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-cli-dev-version-"));
+    try {
+        const version = Bun.spawnSync(
+            [process.execPath, join(import.meta.dir, "..", "clients", "cli", "main.ts"), "--version"],
+            {
+                cwd: directory,
+                env: {
+                    ...process.env,
+                    HOME: directory,
+                    VERA_DEV_INSTANCE: "srchost vera-988d9d44+02fed1c78547",
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        expect(version.stderr.toString()).toBe("");
+        expect(version.exitCode).toBe(0);
+        expect(version.stdout.toString()).toBe(
+            `vera ${VERA_PRODUCT_VERSION} (vera-988d9d44+02fed1c78547)\n`,
+        );
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
@@ -1429,6 +1456,108 @@ test("vera host stop confirms the explicit resident-host shutdown", async () => 
     expect(output).toBe("Stopped resident Vera host PID 51639.\n");
 });
 
+test("vera host stop waits for turns and reports each target it waits on", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        stopHost: async ({ onWaiting }) => {
+            onWaiting([{ session_id: "s1", name: "build", status: "working" }]);
+            onWaiting([
+                { session_id: "s1", name: "build", status: "working" },
+                { session_id: "s2", name: null, status: "queued" },
+            ]);
+            return { pid: 51639, endedBy: "stopped" };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Stopping after running turns end. New turns are refused until the host stops.\n"
+            + "Waiting on build (s1, working)\n"
+            + "Waiting on build (s1, working)\n"
+            + "Waiting on s2 (queued)\n"
+            + "Stopped resident Vera host PID 51639 after its running turns ended.\n",
+    );
+});
+
+test("vera host stop exits 1 and does not signal when the host does not answer or is too old", async () => {
+    for (const endedBy of ["no_answer", "unsupported"] as const) {
+        let output = "";
+        const exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: async () => ({ pid: 51639, endedBy }),
+            stdout: { write: (text) => output += text },
+        });
+        expect(exitCode).toBe(1);
+        expect(output).toContain("vera host stop --force");
+    }
+});
+
+test("vera host stop --force asks the host to cut first and signals only when it does not answer", async () => {
+    let output = "";
+    const forcedFlags: boolean[] = [];
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "sigterm" }),
+        stopHost: async (options) => {
+            forcedFlags.push(options.force === true);
+            return { pid: 51639, endedBy: "no_answer" };
+        },
+        stdout: { write: (text) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(forcedFlags).toEqual([true]);
+    expect(output).toBe(
+        "Resident Vera host PID 51639 did not answer the cut request. Sending it the stop signal.\n"
+            + "Stopped resident Vera host PID 51639 (SIGTERM).\n",
+    );
+});
+
+test("vera host stop --force does not signal a host that stopped after the cut", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => {
+            throw new Error("a host that stopped must not be signalled");
+        },
+        stopHost: async () => ({ pid: 51639, endedBy: "stopped" }),
+        stdout: { write: (text) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe("Stopped resident Vera host PID 51639 after cutting its running turns.\n");
+});
+
+test("vera host stop --force signals after an unsupported or timed-out cut, and not after a refusal", async () => {
+    for (const endedBy of ["unsupported", "timed_out"] as const) {
+        let signalled = false;
+        const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+            forceStopHost: async () => {
+                signalled = true;
+                return { pid: 51639, endedBy: "sigterm" };
+            },
+            stopHost: async () => ({ pid: 51639, endedBy }),
+            stdout: { write: () => undefined },
+        });
+        expect(exitCode).toBe(0);
+        expect(signalled).toBe(true);
+    }
+    let refusedSignal = false;
+    let refusedOutput = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => {
+            refusedSignal = true;
+            return { pid: 51639, endedBy: "sigterm" };
+        },
+        stopHost: async () => ({
+            pid: 51639,
+            endedBy: "refused",
+            refusal: "stop_pending",
+            message: "Vera is already stopping.",
+        }),
+        stdout: { write: (text) => refusedOutput += text },
+    });
+    expect(exitCode).toBe(1);
+    expect(refusedSignal).toBe(false);
+    expect(refusedOutput).toBe("Vera is already stopping.\n");
+});
+
 test("vera host stop says it cleared the lockfile of a host that had already exited", async () => {
     let output = "";
     const exitCode = await runCli(["host", "stop", "--yes"], {
@@ -1481,7 +1610,7 @@ test("vera host stop --yes skips confirmation", async () => {
     expect(stopped).toBe(true);
 });
 
-test("vera host stop --force uses the handshake-free stop", async () => {
+test("vera host stop --force falls back to the signal path when the cut gets no answer", async () => {
     let output = "";
     let forced = false;
     const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
@@ -1489,16 +1618,15 @@ test("vera host stop --force uses the handshake-free stop", async () => {
             forced = true;
             return { pid: 51639, endedBy: "sigkill" };
         },
-        stopHost: async () => {
-            throw new Error("the graceful stop must not run under --force");
-        },
+        stopHost: async () => ({ pid: 51639, endedBy: "no_answer" }),
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(0);
     expect(forced).toBe(true);
     expect(output).toBe(
-        "Stopped resident Vera host PID 51639 (killed after it ignored SIGTERM).\n",
+        "Resident Vera host PID 51639 did not answer the cut request. Sending it the stop signal.\n"
+            + "Stopped resident Vera host PID 51639 (killed after it ignored SIGTERM).\n",
     );
 });
 
@@ -1620,12 +1748,14 @@ test("vera host stop --force says it cleared the lockfile of a host that had alr
     let output = "";
     const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
         forceStopHost: async () => ({ pid: 51639, endedBy: "already_dead" }),
+        stopHost: async () => ({ pid: 51639, endedBy: "no_answer" }),
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(0);
     expect(output).toBe(
-        "Resident Vera host PID 51639 had already exited; cleared its lockfile.\n",
+        "Resident Vera host PID 51639 did not answer the cut request. Sending it the stop signal.\n"
+            + "Resident Vera host PID 51639 had already exited; cleared its lockfile.\n",
     );
 });
 
@@ -1633,12 +1763,14 @@ test("vera host stop --force says a PID that is no longer a Vera host only had i
     let output = "";
     const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
         forceStopHost: async () => ({ pid: 51639, endedBy: "not_ours" }),
+        stopHost: async () => ({ pid: 51639, endedBy: "no_answer" }),
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(0);
     expect(output).toBe(
-        "PID 51639 is no longer a Vera host; cleared its stale lockfile.\n",
+        "Resident Vera host PID 51639 did not answer the cut request. Sending it the stop signal.\n"
+            + "PID 51639 is no longer a Vera host; cleared its stale lockfile.\n",
     );
 });
 
@@ -1646,11 +1778,12 @@ test("vera host stop --force reports a host it could not identify and exits nonz
     let output = "";
     const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
         forceStopHost: async () => ({ pid: 51639, endedBy: "unverified" }),
+        stopHost: async () => ({ pid: 51639, endedBy: "no_answer" }),
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(1);
-    expect(output).toBe(
+    expect(output).toContain(
         "Could not confirm PID 51639 is the Vera host (process start time"
             + " unreadable); left it running and kept its lockfile. Try again.\n",
     );
@@ -1757,6 +1890,7 @@ test("vera host stop clears a damaged lockfile whose pid is not Vera or is gone"
         writeFileSync(lockPath, damaged);
         output = "";
         exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+            stopHost: async () => ({ pid: 51639, endedBy: "no_answer" }),
             forceStopHost: () => forceStopResidentHost({
                 lockPath,
                 kill: () => {},
@@ -1766,8 +1900,8 @@ test("vera host stop clears a damaged lockfile whose pid is not Vera or is gone"
         });
         expect(exitCode).toBe(0);
         expect(output).toBe(
-            "Resident Vera host PID 51639 had already exited; cleared its"
-                + " damaged lockfile.\n",
+            "Resident Vera host PID 51639 did not answer the cut request. Sending it the stop signal.\n"
+                + "Resident Vera host PID 51639 had already exited; cleared its damaged lockfile.\n",
         );
         expect(existsSync(lockPath)).toBe(false);
     } finally {
@@ -2337,4 +2471,18 @@ test("a lockfile failure prints as the unreadable-lockfile sentence alone", () =
 
     expect(renderCliFailure(error)).toBe(error.message);
     expect(renderCliFailure(error)).toContain("/tmp/vera/runtime/host.json");
+});
+
+test("vera host stop --force says the host did not stop within 10 seconds before signalling it", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "sigterm" }),
+        stopHost: async () => ({ pid: 51639, endedBy: "timed_out" }),
+        stdout: { write: (text) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Resident Vera host PID 51639 did not stop within 10 seconds. Sending it the stop signal.\n"
+            + "Stopped resident Vera host PID 51639 (SIGTERM).\n",
+    );
 });

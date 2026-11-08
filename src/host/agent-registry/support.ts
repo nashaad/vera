@@ -306,6 +306,10 @@ export function importedSessionSummary(
 }
 
 export interface AgentRegistryOptions {
+    // Flag directory read on every turn start; see src/host/session-block.ts.
+    readonly sessionBlockDirectory?: string;
+    /** True while a host stop holds new turns. */
+    readonly turnsHeld?: () => boolean;
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
@@ -781,6 +785,11 @@ export interface BoundSessionIdentity extends SessionIdentity {
     readonly env: Readonly<Record<string, string>>;
 }
 
+export interface SessionBlockControl {
+    confirmBlock(timeoutMs: number): Promise<boolean>;
+    releaseBlock(timeoutMs: number): Promise<boolean>;
+}
+
 export interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
@@ -809,6 +818,12 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
+    /** Block confirmation for a session that runs in the host process; a worker uses its handle. */
+    blockControl?: SessionBlockControl;
+    /** True while a block file holds an in-process session. */
+    blockHeld?: () => boolean;
+    // Set while a stop cut holds the in-process turn; cleared once its turn has ended.
+    cutReason?: string;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;

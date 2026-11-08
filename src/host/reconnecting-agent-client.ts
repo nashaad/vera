@@ -8,7 +8,7 @@ import {
     CLIENT_CAPABILITIES,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 } from "./capabilities.ts";
-import { requestHostIdentity } from "./protocol.ts";
+import { requestHostIdentity, type HostStopWaitEvent } from "./protocol.ts";
 import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
@@ -103,6 +103,11 @@ export function createReconnectingAgentClient(
     >();
     let sessionTitle = current.sessionTitle;
     let stopSessionTitleUpdates = current.onSessionTitle(publishSessionTitle);
+    const stopWaitListeners = new Set<
+        Parameters<AttachedAgentClient["onStopWait"]>[0]
+    >();
+    let stopWait = current.stopWait;
+    let stopStopWaitUpdates = current.onStopWait(publishStopWait);
 
     const client: AttachedAgentClient = {
         get agentId(): string {
@@ -151,6 +156,15 @@ export function createReconnectingAgentClient(
             sessionTitleListeners.add(listener);
             return (): void => {
                 sessionTitleListeners.delete(listener);
+            };
+        },
+        get stopWait() {
+            return stopWait;
+        },
+        onStopWait(listener) {
+            stopWaitListeners.add(listener);
+            return (): void => {
+                stopWaitListeners.delete(listener);
             };
         },
         send(command) {
@@ -229,6 +243,7 @@ export function createReconnectingAgentClient(
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
             stopSessionTitleUpdates();
+            stopStopWaitUpdates();
             return release.call(current, policy);
         },
         async detach(): Promise<void> {
@@ -238,6 +253,7 @@ export function createReconnectingAgentClient(
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
             stopSessionTitleUpdates();
+            stopStopWaitUpdates();
             if (!current.closed) await current.detach();
         },
         close(): void {
@@ -247,6 +263,7 @@ export function createReconnectingAgentClient(
                 stopBackgroundAgentUpdates();
                 stopWorkIndexUpdates();
                 stopSessionTitleUpdates();
+                stopStopWaitUpdates();
             }
             // A release or detach still waiting on the host keeps the socket open until this closes it.
             current.close();
@@ -257,6 +274,17 @@ export function createReconnectingAgentClient(
     };
 
     return client;
+
+    function publishStopWait(event: HostStopWaitEvent): void {
+        if (event.type === "host_stop_wait") stopWait = event;
+        if (event.type === "host_stop_wait_cleared") stopWait = undefined;
+        for (const listener of [...stopWaitListeners]) {
+            try {
+                listener(event);
+            } catch {
+            }
+        }
+    }
 
     function subscribeToWorkIndexUpdates(
         attached: AttachedAgentClient,
@@ -338,6 +366,14 @@ export function createReconnectingAgentClient(
                 stopSessionTitleUpdates = next.onSessionTitle(
                     publishSessionTitle,
                 );
+                stopStopWaitUpdates();
+                stopStopWaitUpdates = next.onStopWait(publishStopWait);
+                // The old host's wait does not carry over; the new host reports its own on attach.
+                if (stopWait !== undefined && next.stopWait === undefined) {
+                    publishStopWait({ type: "host_stop_wait_cleared", reason: "stopped" });
+                } else if (next.stopWait !== undefined) {
+                    publishStopWait(next.stopWait);
+                }
                 for (const listener of backgroundAgentListeners) {
                     try {
                         listener(next.backgroundAgents);

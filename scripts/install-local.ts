@@ -1,26 +1,25 @@
 #!/usr/bin/env bun
 
-import { packRunnableRelease, type InstallReleaseOptions } from "./pack-release.ts";
+import { packRunnableRelease, type InstallReleaseOptions as PackOptions } from "./pack-release.ts";
+import { defaultInstallPrefix } from "../src/release/layout.ts";
 import {
-    upgradeLocalInstall,
-    type UpgradeLocalOptions,
-    type UpgradedLocal,
-} from "../src/release/upgrade.ts";
+    installRelease,
+    type InstallOutcome,
+    type InstallReleaseOptions,
+} from "../src/release/install.ts";
 
-export type InstallLocalOptions = InstallReleaseOptions & Partial<Pick<
-    UpgradeLocalOptions,
-    "pack" | "verify" | "drainHost" | "startHost"
+export type InstallLocalOptions = PackOptions & Partial<Pick<
+    InstallReleaseOptions,
+    "pack" | "verify" | "readLiveHost" | "handOff" | "report"
 >>;
 
-/**
- * Pack, verify, drain, activate, and restart as one command. Does not write
- * user data under ~/.vera except stopping and starting the resident host.
- */
+// Pack and verify, then activate at once when no host runs. With a host running,
+// the host moves current once its running turns end.
 export async function installLocal(
     options: InstallLocalOptions = {},
-): Promise<UpgradedLocal> {
-    return upgradeLocalInstall({
-        prefix: options.prefix,
+): Promise<InstallOutcome> {
+    return installRelease({
+        prefix: options.prefix ?? defaultInstallPrefix(),
         pack: options.pack ?? (() => packRunnableRelease({
             prefix: options.prefix,
             cwd: options.cwd,
@@ -28,8 +27,9 @@ export async function installLocal(
             force: options.force,
         })),
         ...(options.verify === undefined ? {} : { verify: options.verify }),
-        ...(options.drainHost === undefined ? {} : { drainHost: options.drainHost }),
-        ...(options.startHost === undefined ? {} : { startHost: options.startHost }),
+        ...(options.readLiveHost === undefined ? {} : { readLiveHost: options.readLiveHost }),
+        ...(options.handOff === undefined ? {} : { handOff: options.handOff }),
+        ...(options.report === undefined ? {} : { report: options.report }),
     });
 }
 
@@ -65,22 +65,44 @@ function parseArgs(argv: readonly string[]): {
     return { prefix, force };
 }
 
+function printOutcome(outcome: InstallOutcome): number {
+    switch (outcome.kind) {
+        case "activated":
+            process.stdout.write(`${outcome.releaseRoot}\n`);
+            process.stdout.write(`${outcome.launcher}\n`);
+            process.stdout.write(`${outcome.buildId}\n`);
+            if (outcome.fromBuildId !== null) {
+                process.stderr.write(
+                    `vera install:local: activated ${outcome.buildId} (was ${outcome.fromBuildId})\n`,
+                );
+            }
+            return 0;
+        case "updated":
+            process.stdout.write(`vera install:local: the running host moved to ${outcome.buildId}\n`);
+            return 0;
+        case "accepted":
+            process.stdout.write(
+                `vera install:local: ${outcome.buildId} is unpacked. The running host moves to it when its running turns end.\n`,
+            );
+            return 0;
+        case "restored":
+        case "no_host_started":
+            process.stderr.write(`vera install:local: ${outcome.message}\n`);
+            return 1;
+        case "not_moved":
+            process.stderr.write(`vera install:local: ${outcome.message}\n`);
+            return 1;
+    }
+}
+
 if (import.meta.main) {
     try {
         const args = parseArgs(Bun.argv.slice(2));
-        const result = await installLocal({
+        const outcome = await installLocal({
             force: args.force,
             ...(args.prefix === undefined ? {} : { prefix: args.prefix }),
         });
-        process.stdout.write(`${result.releaseRoot}\n`);
-        process.stdout.write(`${result.launcher}\n`);
-        process.stdout.write(`${result.manifest.build_id}\n`);
-        if (result.fromBuildId !== null) {
-            process.stderr.write(
-                `vera install:local: activated ${result.manifest.build_id}`
-                    + ` (was ${result.fromBuildId})\n`,
-            );
-        }
+        process.exitCode = printOutcome(outcome);
     } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
     }

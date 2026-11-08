@@ -29,10 +29,13 @@ import {
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     parseHostCapabilities,
 } from "./capabilities.ts";
-import type {
-    AttachmentReleasePolicy,
-    HistoryPageFailedResponse,
-    HistoryPageResponse,
+import {
+    type AttachmentReleasePolicy,
+    type HistoryPageFailedResponse,
+    type HistoryPageResponse,
+    type HostStopWaitEvent,
+    type HostStopWaitResponse,
+    parseHostStopWaitEvent,
 } from "./protocol.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
@@ -75,6 +78,10 @@ export interface AttachedAgentClient {
     // Undefined both before the first report and when the session has no title.
     readonly sessionTitle: string | undefined;
     onSessionTitle(listener: (title: string | undefined) => void): () => void;
+    /** The open stop or update wait, undefined when none is open or the attachment did not negotiate `host.stop-wait.v1`. */
+    readonly stopWait: HostStopWaitResponse | undefined;
+    /** Stop, update and restart events as the host sends them. */
+    onStopWait(listener: (event: HostStopWaitEvent) => void): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     requestHistoryPage(
@@ -272,6 +279,8 @@ function createAttachedClient(
     let workIndex: WorkIndexSnapshot | undefined;
     const workIndexListeners = new Set<(index: WorkIndexSnapshot) => void>();
     let sessionTitle: string | undefined;
+    let stopWait: HostStopWaitResponse | undefined;
+    const stopWaitListeners = new Set<(event: HostStopWaitEvent) => void>();
     const sessionTitleListeners = new Set<
         (title: string | undefined) => void
     >();
@@ -349,6 +358,15 @@ function createAttachedClient(
         },
         get sessionTitle(): string | undefined {
             return sessionTitle;
+        },
+        get stopWait(): HostStopWaitResponse | undefined {
+            return stopWait;
+        },
+        onStopWait(listener): () => void {
+            stopWaitListeners.add(listener);
+            return (): void => {
+                stopWaitListeners.delete(listener);
+            };
         },
         onSessionTitle(listener): () => void {
             sessionTitleListeners.add(listener);
@@ -565,6 +583,9 @@ function createAttachedClient(
                     );
                 }
                 if (receiveExtensionResponse(value)) {
+                    continue;
+                }
+                if (receiveStopWait(value)) {
                     continue;
                 }
                 if (receiveWorkIndex(value)) {
@@ -788,6 +809,26 @@ function createAttachedClient(
         }
         extensionRequests.delete(response.request_id);
         pending.resolve(result);
+        return true;
+    }
+
+    function receiveStopWait(value: unknown): boolean {
+        const event = parseHostStopWaitEvent(value);
+        if (event === undefined) {
+            return false;
+        }
+        if (event.type === "host_stop_wait") {
+            stopWait = event;
+        } else if (event.type === "host_stop_wait_cleared") {
+            stopWait = undefined;
+        }
+        for (const listener of [...stopWaitListeners]) {
+            try {
+                listener(event);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
         return true;
     }
 

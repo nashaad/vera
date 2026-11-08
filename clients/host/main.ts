@@ -15,6 +15,7 @@ import { waitForCheckoutRemoval } from "./checkout-watch.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
 import { waitForSocketLoss } from "./socket-watch.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
+import { runPendingHandoff } from "../../src/release/handoff.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
 import {
     anotherHostIsServing,
@@ -69,6 +70,7 @@ await runResidentHostProcess(host, {
         ? undefined
         : () => waitForCheckoutRemoval(developmentSource),
     waitForSocketLoss: () => waitForSocketLoss(host.server.socketPath),
+    afterClose: runPendingHandoff,
 });
 
 /**

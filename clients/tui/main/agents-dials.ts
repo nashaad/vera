@@ -12,6 +12,8 @@ import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyE
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
 import { appendTuiNotice, type TuiState } from "../state.ts";
+import { closeStopWaitCard, isStopWaitCardUpdate, stopNow, stopWaitCardChoice, stopWaitCardUpdate } from "../stop-wait.ts";
+import type { UiResponseCommand } from "../../../src/engine/protocol.ts";
 import type { TuiAgentCatalog, TuiAgentCatalogRow, TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { loadModelPickerPreferences } from "../theme-preference.ts";
@@ -519,6 +521,35 @@ export function focusedAbortRequested(rt: TuiRuntime): boolean {
 export function focusedAgentCanAbort(rt: TuiRuntime): boolean {
     const focused = focusedAgentState(rt);
     return focused.working || focused.compactingSince !== undefined;
+}
+
+// Answers the local stop-wait card. Only "Stop it now" ends turns; every other answer closes the card.
+export function answerStopWaitCard(
+    rt: TuiRuntime,
+    response: UiResponseCommand | undefined,
+): void {
+    if (rt.stopWaitCard !== undefined) {
+        rt.stopWaitCard = closeStopWaitCard(rt.stopWaitCard);
+    }
+    if (response !== undefined && stopWaitCardChoice(response) === "stop") {
+        void stopWaitNow(rt).catch(((error: unknown) => reportConnectionError(rt, error)));
+    }
+    focusActiveSurface(rt);
+}
+
+// Cuts the running turns and queued prompts of every session the open stop or update waits on.
+export async function stopWaitNow(rt: TuiRuntime): Promise<void> {
+    const wait = rt.stopWait;
+    const cutStopWait = rt.dependencies.cutStopWait;
+    if (wait === undefined || cutStopWait === undefined) return;
+    const outcome = await stopNow({ cut: cutStopWait });
+    if (outcome.kind === "unsupported") {
+        showStatusNotice(rt, "Could not stop the running turns: the resident host cannot cut them");
+        return;
+    }
+    if (outcome.kind === "cut" && outcome.failures.length > 0) {
+        showStatusNotice(rt, `Could not stop ${outcome.failures.length} session${outcome.failures.length === 1 ? "" : "s"}: ${outcome.failures[0]?.error ?? ""}`);
+    }
 }
 
 export function abortFocusedAgent(rt: TuiRuntime): void {

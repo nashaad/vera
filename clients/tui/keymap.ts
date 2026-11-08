@@ -23,7 +23,8 @@ export type TuiKeyScope =
     | "diff"
     | "inspect_document"
     | "diagnostics"
-    | "search";
+    | "search"
+    | "home";
 
 export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "global",
@@ -49,6 +50,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "inspect_document",
     "diagnostics",
     "search",
+    "home",
 ];
 
 export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
@@ -242,6 +244,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "global",
         description: "Start a new conversation",
         hint: "Ctrl+N new",
+    },
+    {
+        // Acts only while the host is lost. Global chords are reachable everywhere, so this avoids ctrl+r, which other scopes claim.
+        id: "restart_host",
+        keys: ["ctrl+l"],
+        scope: "global",
+        description: "Restart the lost host and reopen this conversation",
+        hint: "Ctrl+L restart",
+        remappable: true,
     },
     {
         id: "workspace_resume_picker",
@@ -589,6 +600,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "preferences_list",
         description: "Revoke the selected grant or preference",
         hint: "[del] remove",
+    },
+    {
+        id: "home_dismiss_restart",
+        keys: ["delete", "backspace"],
+        scope: "home",
+        description: "Dismiss the selected session cut short by a restart",
+        hint: "del dismisses",
+        remappable: true,
     },
     {
         id: "collapse_all",

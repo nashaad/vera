@@ -1,3 +1,4 @@
+import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
@@ -6,6 +7,14 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
+import { currentReleaseBuildId } from "../../src/release/layout.ts";
+import {
+    launcherKeyFromEnv,
+    RELAUNCH_LAUNCHER_ENV,
+    takeRelaunchRecord,
+    writeRelaunchRecord,
+} from "../../src/release/relaunch.ts";
+import { launcherRelaunch, type TuiRelaunchRequest } from "./restart-notice.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { readLastGoodConfig } from "./main/last-good-config.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
@@ -135,7 +144,9 @@ import {
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
+    hostRestartRecords,
     requireIdentifiedTuiAgentClient,
+    type HostRestartRecords,
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
@@ -199,6 +210,7 @@ import { wheelCursor } from "./list-window.ts";
 import { workTabAction } from "./work-tab.ts";
 import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
+import { refreshHomeRestarts } from "./main/home-restarts.ts";
 import {
     readModelSettingsThroughHost,
     refreshCatalogThroughHost,
@@ -330,8 +342,8 @@ import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
-import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
-export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
+import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
+export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
 export { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
@@ -385,7 +397,8 @@ export function reconnectBusyMessage(): string {
 // Shared by the conversation notice reportConnectionError appends and the
 // disconnected-submit refusal in submit-prompt.ts.
 export function disconnectedRecoveryHint(): string {
-    return "Press Ctrl+C to quit; Vera prints the command to resume this session."
+    return `Press ${tuiKeyChordLabel("restart_host")} to restart the host into this conversation,`
+        + " or Ctrl+C to quit; Vera prints the command to resume this session."
         + " Or choose Reconnect host from Ctrl+P.";
 }
 
@@ -529,8 +542,17 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly restartRecords?: HostRestartRecords;
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    /** Ends one session's turn through the host. Used by the stop-now action. */
+    readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
+    /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
+    readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
+    /** This TUI's build id. Compared with the installed build only when a relaunch is possible. */
+    readonly clientBuildId?: string;
+    /** Reads the `current` link. Called only when relaunchTui is set. */
+    readonly installedBuildId?: () => string | undefined;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -701,11 +723,19 @@ async function hostHasSessions(socketPath: string): Promise<boolean> {
 const HOME_SESSION_PROBE_PAGES = 4;
 
 export async function startConfiguredTui(
-    target: TuiStartTarget,
+    requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
+    const launcherKey = launcherKeyFromEnv();
+    delete process.env[RELAUNCH_LAUNCHER_ENV];
+    const restored = launcherKey === undefined ? undefined : takeRelaunchRecord(launcherKey);
+    const target: TuiStartTarget = restored === undefined
+        ? requestedTarget
+        : restored.sessionId === undefined
+        ? { type: "home", workspace: process.cwd() }
+        : { type: "attach", agentId: restored.sessionId };
     // Read once: the stamp on disk can change while this TUI runs.
     const clientBuildId = thisProcessBuildId();
     // Optional: requiring config made attach fail against an already-running host.
@@ -779,7 +809,16 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            initialDraft: restored?.draft,
+            relaunchTui: launcherRelaunch(launcherKey, {
+                writeRecord: writeRelaunchRecord,
+                markTerminalRestored,
+                exit: (code) => process.exit(code),
+            }),
+            clientBuildId,
+            installedBuildId: () => currentReleaseBuildId(),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
+            cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
@@ -791,6 +830,7 @@ export async function startConfiguredTui(
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
+            restartRecords: hostRestartRecords(pairedSocket),
             listSessionPage,
             createSession: async (workspace) => {
                 const createStartedAt = performance.now();
@@ -997,6 +1037,9 @@ export async function startTui(
     });
     rt.connectionFailed = false;
     rt.hostBuildRefusal = undefined;
+    // The restart notice ends once this TUI is attached to a host again.
+    rt.relaunching = undefined;
+    rt.plannedHostStop = undefined;
     // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.
@@ -1330,8 +1373,10 @@ export async function startTui(
             },
             postNotice(text, noticeOptions) {
                 rt.state = appendTuiNotice(rt.state, text, noticeOptions?.tone);
-                showModeToast(rt, text, noticeOptions?.tone);
-                renderState(rt);
+                if (rt.clientSurfaceReady) {
+                    showModeToast(rt, text, noticeOptions?.tone);
+                    renderState(rt);
+                }
                 if (
                     noticeOptions?.replay === true
                     && rt.client.supportsHostCapability?.(
@@ -2394,6 +2439,7 @@ export async function startTui(
         surface: "main_composer",
     });
     renderStatus(rt);
+    if (isHomeClient(rt.client)) void refreshHomeRestarts(rt);
     if (
         rt.appearance.sidebarOpenAtLaunch
         && rt.dependencies.listAgents !== undefined
@@ -2424,6 +2470,10 @@ export async function startTui(
         rt.stopWatchingWorkIndex = undefined;
         rt.stopWatchingSessionTitle?.();
         rt.stopWatchingSessionTitle = undefined;
+        rt.stopWatchingStopWait?.();
+        rt.stopWatchingStopWait = undefined;
+        rt.stopWait = undefined;
+        rt.stopWaitCard = undefined;
         rt.disposeSkillCommands();
         rt.disposeSkillCommands = () => {};
         rt.pendingSkillInvocations.clear();
@@ -2484,6 +2534,7 @@ export async function startTui(
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     watchSessionTitle(rt, rt.dependencies.client);
+    watchStopWait(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 
     rt.renderer.on(CliRenderEvents.RESIZE, () => {

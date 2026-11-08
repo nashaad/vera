@@ -104,7 +104,7 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
             `${formatVeraVersion(readStampedRelease(join(prefix, "share", "vera", "current")))}\n`,
         );
         expect(readFileSync(join(prefix, "share", "vera", "current", RELEASE_CLI_NAME), "utf8"))
-            .toContain("$here/clients/cli/main.ts");
+            .toContain("$release/clients/cli/main.ts");
     } finally {
         rmSync(prefix, { recursive: true, force: true });
         rmSync(userHome, { recursive: true, force: true });
@@ -121,10 +121,6 @@ test("installLocal leaves the previous release active when pack fails", async ()
             prefix,
             pack: async () => {
                 throw new Error("disk full while packing");
-            },
-            drainHost: async () => "absent",
-            startHost: async () => {
-                throw new Error("startHost must not run");
             },
         })).rejects.toThrow(/disk full while packing/);
         expect(currentReleaseBuildId(prefix)).toBe("vera-old");

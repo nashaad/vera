@@ -621,16 +621,7 @@ export class SessionStore {
     }
 
     hasUnansweredDeliveryTurn(): boolean {
-        const entries = this.activeEntries();
-        const lastDeliveryIndex = entries.findLastIndex(
-            (entry) => entry.deliveryId !== undefined,
-        );
-        if (lastDeliveryIndex === -1) return false;
-        return !entries.slice(lastDeliveryIndex + 1).some(
-            (entry) =>
-                entry.message.role === "assistant"
-                && entry.message.stopReason !== "tool_use",
-        );
+        return hasOpenDeliveryTurn(this.activeEntries());
     }
 
     modelSettings(): ModelTurnSettings | undefined {
@@ -1716,6 +1707,47 @@ function deliveredMessages(
         }
     }
     return delivered;
+}
+
+export interface SessionTurnState {
+    readonly sessionId: string;
+    readonly turnOpen: boolean;
+}
+
+// Reads the file without repairing it. Only the active branch counts.
+export async function readSessionTurnState(
+    path: string,
+): Promise<SessionTurnState> {
+    const source = await readFile(path, "utf8");
+    const loaded = parseSessionFile(path, completeSessionSource(path, source));
+    const active = activeBranchEntries(
+        loaded.state.messageEntries,
+        loaded.state.leafId,
+    );
+    return {
+        sessionId: loaded.header.id,
+        turnOpen: turnOpenAtTail(active),
+    };
+}
+
+// A turn is open when the branch ends on something the model has not answered.
+function turnOpenAtTail(entries: readonly SessionMessageEntry[]): boolean {
+    const tail = entries.at(-1)?.message;
+    if (tail === undefined) return false;
+    if (tail.role === "user" || tail.role === "tool_result") return true;
+    return tail.role === "assistant" && tail.stopReason === "tool_use";
+}
+
+function hasOpenDeliveryTurn(entries: readonly SessionMessageEntry[]): boolean {
+    const lastDeliveryIndex = entries.findLastIndex(
+        (entry) => entry.deliveryId !== undefined,
+    );
+    if (lastDeliveryIndex === -1) return false;
+    return !entries.slice(lastDeliveryIndex + 1).some(
+        (entry) =>
+            entry.message.role === "assistant"
+            && entry.message.stopReason !== "tool_use",
+    );
 }
 
 export async function readSessionSnapshot(

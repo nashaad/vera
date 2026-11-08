@@ -18,6 +18,15 @@ export function defaultVeraHomeDirectory(): string {
     return join(homedir(), ".vera");
 }
 
+// One file per session blocked by `vera block`; see src/host/session-block.ts.
+export function veraBlockedDirectoryIn(veraHome: string): string {
+    return join(veraRuntimeDirectoryIn(veraHome), "blocked");
+}
+
+export function veraBlockedDirectory(home?: string): string {
+    return veraBlockedDirectoryIn(selectedVeraHome(home));
+}
+
 export function veraMachineDirectoryIn(veraHome: string): string {
     return join(veraHome, "machine");
 }

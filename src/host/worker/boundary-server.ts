@@ -25,7 +25,13 @@ export interface WorkerBoundaryServerOptions {
     readonly onWorkerFinished?: (error?: string) => void;
     readonly onProcessStarted?: (pid: number) => void;
     readonly onProcessSettled?: (pid: number) => void;
+    readonly onBlockAck?: (ack: SessionBlockAck) => void;
 }
+
+export type SessionBlockAck =
+    | { readonly method: "session.latched"; readonly requestId: string; readonly latched: boolean }
+    | { readonly method: "session.released"; readonly requestId: string }
+    | { readonly method: "session.cutAck"; readonly requestId: string; readonly ok: boolean };
 
 export interface WorkerBoundaryServer {
     handleRequest(body: unknown): Promise<unknown>;
@@ -423,6 +429,14 @@ export function createWorkerBoundaryServer(
             if (message.method === "process.started") {
                 const { pid } = body as { readonly pid: number };
                 options.onProcessStarted?.(pid);
+                return;
+            }
+            if (
+                message.method === "session.latched"
+                || message.method === "session.released"
+                || message.method === "session.cutAck"
+            ) {
+                options.onBlockAck?.(body as SessionBlockAck);
                 return;
             }
             if (message.method === "process.settled") {

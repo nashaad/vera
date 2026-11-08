@@ -2,6 +2,7 @@
 import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
 import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
+import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
@@ -21,6 +22,10 @@ import {
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 import { installLiveProcess } from "../../live-process.ts";
+import {
+    createSessionBlockLatch,
+    type SessionBlockLatch,
+} from "../session-block-latch.ts";
 
 export async function runWorker(
     input: NodeJS.ReadableStream,
@@ -38,12 +43,25 @@ export async function runWorker(
     let deliverCommand = (command: EngineCommand): void => {
         pending.push(command);
     };
+    const pendingBlockControl: unknown[] = [];
+    let blockControl = (body: unknown): void => {
+        pendingBlockControl.push(body);
+    };
+    let blockLatch: SessionBlockLatch | undefined;
 
     const pipe: JsonPipe = createJsonPipe({ input, output }, {
         onNotification(body: unknown): void {
             const message = body as { readonly method?: string };
             if (message.method === "worker.start") {
                 start?.(body as WorkerStartNotification);
+                return;
+            }
+            if (
+                message.method === "session.confirmBlock"
+                || message.method === "session.release"
+                || message.method === "session.cut"
+            ) {
+                blockControl(body);
                 return;
             }
             if (message.method === "client.command") {
@@ -96,8 +114,25 @@ export async function runWorker(
         const adapter = activationFailure === undefined
             ? await loadAdapter(options.adapter)
             : failingWorkerAdapter(activationFailure, options.model);
+        const sessionId = options.session.header.id;
+        if (
+            options.blockedDirectory !== undefined
+            && typeof sessionId === "string"
+        ) {
+            blockLatch = createSessionBlockLatch({
+                directory: options.blockedDirectory,
+                sessionId,
+                onLatched: (reason) => inbound?.halt(reason),
+                onReleased: () => inbound?.clearHalt(),
+            });
+        }
+        const latch = blockLatch;
+        // The engine asks before each step; a cut holds until its turn has ended.
+        let cutHold: string | undefined;
+        const haltCheck = (): string | undefined => latch?.check() ?? cutHold;
         const remote = createRemoteHostBoundary({
             pipe,
+            haltCheck,
             onReplicaDiverged: (error) => replicaDiverged(error),
             session: options.session,
             offers: options.offers,
@@ -120,8 +155,51 @@ export async function runWorker(
                 : { toolResults: options.toolResults }),
             onInboundReady: (ready) => {
                 inbound = ready;
+                const reason = latch?.check();
+                if (reason !== undefined) ready.halt(reason);
             },
         });
+        blockControl = (body: unknown): void => {
+            const message = body as {
+                readonly method: string;
+                readonly requestId: string;
+                readonly reason?: unknown;
+            };
+            if (message.method === "session.confirmBlock") {
+                pipe.notify({
+                    method: "session.latched",
+                    requestId: message.requestId,
+                    latched: latch !== undefined && latch.check() !== undefined,
+                });
+                return;
+            }
+            if (message.method === "session.cut") {
+                // A held block keeps its own halt; clearing it here would release the session.
+                const held = latch !== undefined && latch.check() !== undefined;
+                const router = inbound;
+                const ok = router !== undefined
+                    && !held
+                    && typeof message.reason === "string";
+                if (ok) {
+                    cutHold = message.reason;
+                    router.halt(message.reason);
+                    void clearCutHaltWhenIdle(router, () => latch?.check() !== undefined)
+                        .then(() => {
+                            cutHold = undefined;
+                        });
+                }
+                pipe.notify({ method: "session.cutAck", requestId: message.requestId, ok });
+                return;
+            }
+            latch?.release();
+            pipe.notify({
+                method: "session.released",
+                requestId: message.requestId,
+            });
+        };
+        for (const body of pendingBlockControl.splice(0)) {
+            blockControl(body);
+        }
         acceptHostNotification = remote.acceptNotification;
         for (const body of pendingHost.splice(0)) {
             acceptHostNotification(body);
@@ -168,6 +246,7 @@ export async function runWorker(
             failure = error instanceof Error ? error.message : String(error);
         }
     }
+    blockLatch?.close();
     await extensions?.close();
     pipe.notify({
         method: "worker.finished",

@@ -22,6 +22,8 @@ import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-
 import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
+import { stopWaitNoticeText } from "../stop-wait.ts";
+import { RESTARTING_NOTICE_TEXT } from "../restart-notice.ts";
 import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -108,7 +110,9 @@ export function renderStatus(rt: TuiRuntime): void {
         // reportConnectionError already put the reason and the recovery
         // steps in the conversation, so the footer does not repeat them.
         lifecycleHint = rt.hostBuildRefusal === undefined
-            ? "disconnected · Ctrl+C to quit and get your resume command"
+            ? (rt.plannedHostStop === true
+                ? `host stopped · ${tuiKeyHint("restart_host")} · Ctrl+C quit for resume command`
+                : `disconnected · ${tuiKeyHint("restart_host")} · Ctrl+C quit for resume command`)
             : `disconnected${
                 rt.connectionFailure === undefined
                     ? ""
@@ -412,10 +416,23 @@ export function renderStatus(rt: TuiRuntime): void {
         rt.workIndex?.needs_you ?? 0,
     );
     const noticeIndent = " ".repeat(rt.composerContentIndent);
+    const stopNotice = rt.relaunching === true
+        ? RESTARTING_NOTICE_TEXT
+        : stopWaitNoticeText(rt.stopWait);
+    const stopRow = stopNotice === undefined
+        ? []
+        : [fg(TUI_ACCENT)(
+            " ".repeat(Math.max(
+                0,
+                rt.renderer.width - rt.composerHorizontalInset - railInset
+                    - stopNotice.length - rt.composerContentIndent,
+            )) + `${noticeIndent}${stopNotice}\n`,
+        )];
     const noticeChunks = nudgeIndicator === undefined &&
-            agentSection.length === 0
+            agentSection.length === 0 && stopRow.length === 0
         ? []
         : [
+            ...stopRow,
             ...(nudgeIndicator === undefined
                 ? []
                 : [
@@ -429,7 +446,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 ? []
                 : [
                     fg(TUI_MUTED)(
-                        `${nudgeIndicator === undefined ? "" : "\n"}${noticeIndent}`,
+                        `${nudgeIndicator === undefined && stopRow.length === 0 ? "" : "\n"}${noticeIndent}`,
                     ),
                     ...animatedAgentHeader.chunks,
                     fg(TUI_MUTED)(
@@ -444,7 +461,8 @@ export function renderStatus(rt: TuiRuntime): void {
                 ]),
         ];
     rt.agentNoticeRows = agentSection.length +
-        (nudgeIndicator === undefined ? 0 : 1);
+        (nudgeIndicator === undefined ? 0 : 1) +
+        (stopNotice === undefined ? 0 : 1);
     setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;

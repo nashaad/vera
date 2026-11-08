@@ -13,6 +13,7 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { StopRefusalReason, StopWaitEvent, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -246,6 +247,30 @@ export interface ShutdownForReplacementRequest {
     readonly requester_protocol_version: number;
 }
 
+export interface RestartRecordsRequest {
+    readonly type: "restart_records";
+}
+
+export interface RestartRecordDismissRequest {
+    readonly type: "restart_record_dismiss";
+    readonly session_id: string;
+}
+
+export interface StopHostRequest {
+    readonly type: "stop_host";
+    readonly pid: number;
+    readonly started_at: string;
+    // Set for an update: the host moves to this build once it is idle.
+    readonly target_build_id?: string;
+    // Cuts the waited sessions as soon as the wait opens.
+    readonly force?: boolean;
+}
+
+// Halts every session the open stop wait names. Replies with the cut list, or refuses when no wait is open.
+export interface CutStopWaitRequest {
+    readonly type: "cut_stop_wait";
+}
+
 export interface CreateAgentRequest {
     readonly type: "create_agent";
     readonly workspace: string;
@@ -343,6 +368,50 @@ export interface AgentCloseRejectedResponse {
     readonly agent_id: string;
     /** `busy`: the conversation is being moved to the trash, alone or inside a tree. Nothing was closed. */
     readonly reason: "not_found" | "not_owned" | "failed" | "busy";
+}
+
+/**
+ * Block a session and every session it started. The host aborts the turns,
+ * writes one block file per session, then aborts again. `session_ids` are the
+ * ones the user confirmed; the host adds any started since then.
+ */
+export interface BlockSessionRequest {
+    readonly type: "block_session";
+    readonly target_agent_id: string;
+    readonly session_ids: readonly string[];
+    readonly reason: string | null;
+}
+
+export interface SessionBlockedResponse {
+    readonly type: "session_blocked";
+    readonly agent_id: string;
+    readonly session_ids: readonly string[];
+}
+
+export interface SessionBlockRejectedResponse {
+    readonly type: "session_block_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
+}
+
+export interface UnblockSessionRequest {
+    readonly type: "unblock_session";
+    readonly target_agent_id: string;
+    readonly session_ids: readonly string[];
+}
+
+/** `session_ids` are the blocks removed by this request. `unconfirmed_session_ids` are removed blocks whose live worker did not acknowledge the release; that worker may still be halted. */
+export interface SessionUnblockedResponse {
+    readonly type: "session_unblocked";
+    readonly agent_id: string;
+    readonly session_ids: readonly string[];
+    readonly unconfirmed_session_ids?: readonly string[];
+}
+
+export interface SessionUnblockRejectedResponse {
+    readonly type: "session_unblock_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
 }
 
 export interface RenameSessionRequest {
@@ -712,6 +781,100 @@ export type ShutdownForReplacementResponse =
     | ShutdownForReplacementAcceptedResponse
     | ShutdownForReplacementRefusedResponse;
 
+// Streamed on one connection: waiting lines whenever the wait set changes, then stopped.
+export interface StopHostWaitingResponse {
+    readonly type: "stop_host_waiting";
+    readonly waiting_on: readonly StopWaitTarget[];
+}
+
+export interface StopHostStoppedResponse {
+    readonly type: "stop_host_stopped";
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+export interface StopHostRefusedResponse {
+    readonly type: "stop_host_refused";
+    readonly reason: StopRefusalReason;
+    readonly message: string;
+}
+
+export interface CutStopWaitDoneResponse {
+    readonly type: "cut_stop_wait_done";
+    readonly cut: readonly string[];
+    readonly failed: readonly { readonly session_id: string; readonly message: string }[];
+}
+
+export interface CutStopWaitRefusedResponse {
+    readonly type: "cut_stop_wait_refused";
+    readonly reason: "no_wait";
+    readonly message: string;
+}
+
+export type CutStopWaitResponse = CutStopWaitDoneResponse | CutStopWaitRefusedResponse;
+
+// The host kept running: the move to the target build could not start.
+export interface StopHostAbandonedResponse {
+    readonly type: "stop_host_abandoned";
+    readonly message: string;
+}
+
+export type StopHostResponse =
+    | StopHostWaitingResponse
+    | StopHostStoppedResponse
+    | StopHostRefusedResponse
+    | StopHostAbandonedResponse;
+
+// Pushed to every attached client that negotiated host.stop-wait.v1, and sent
+// once on attach while a wait is open. waiting_on lists the sessions the wait holds.
+export interface HostStopWaitResponse {
+    readonly type: "host_stop_wait";
+    readonly kind: "stop" | "update";
+    readonly target_build_id?: string;
+    readonly waiting_on: readonly StopWaitTarget[];
+}
+
+export interface HostStopWaitClearedResponse {
+    readonly type: "host_stop_wait_cleared";
+    readonly reason: "abandoned" | "stopped";
+    readonly message?: string;
+}
+
+// Sent just before the host closes for an update, so clients can reconnect to build_id.
+export interface HostRestartingResponse {
+    readonly type: "host_restarting";
+    readonly build_id: string;
+}
+
+export type HostStopWaitEvent =
+    | HostStopWaitResponse
+    | HostStopWaitClearedResponse
+    | HostRestartingResponse;
+
+export interface RestartRecordWire {
+    readonly session_id: string;
+    readonly cause: "stop" | "update" | "crash";
+    readonly target_build_id?: string;
+    readonly at: string;
+}
+
+export interface RestartRecordsListResponse {
+    readonly type: "restart_records_list";
+    readonly records: readonly RestartRecordWire[];
+}
+
+export interface RestartRecordDismissedResponse {
+    readonly type: "restart_record_dismissed";
+    readonly session_id: string;
+    readonly removed: number;
+}
+
+// The records file could not be rewritten, so nothing was removed.
+export interface RestartRecordDismissFailedResponse {
+    readonly type: "restart_record_dismiss_failed";
+    readonly session_id: string;
+}
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
@@ -750,6 +913,9 @@ export type HostRequest =
     | ScheduleOperationRequest
     | ShutdownIfIdleRequest
     | ShutdownForReplacementRequest
+    | StopHostRequest
+    | RestartRecordsRequest
+    | RestartRecordDismissRequest
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
@@ -757,6 +923,9 @@ export type HostRequest =
     | SyncAgentContextRequest
     | TrashSessionRequest
     | CloseAgentRequest
+    | BlockSessionRequest
+    | UnblockSessionRequest
+    | CutStopWaitRequest
     | RenameSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
@@ -773,6 +942,7 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest
     | HistoryPageRequest;
 export type HostResponse =
+    | HostStopWaitEvent
     | ModelOperationProgressResponse
     | ModelOperationStepResponse
     | ModelOperationCompleteResponse
@@ -801,6 +971,10 @@ export type HostResponse =
     | SessionTrashRejectedResponse
     | AgentClosedResponse
     | AgentCloseRejectedResponse
+    | SessionBlockedResponse
+    | SessionBlockRejectedResponse
+    | SessionUnblockedResponse
+    | SessionUnblockRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
     | SessionImportedResponse
@@ -808,6 +982,11 @@ export type HostResponse =
     | ImportableSessionsResponse
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
+    | StopHostResponse
+    | RestartRecordsListResponse
+    | RestartRecordDismissedResponse
+    | RestartRecordDismissFailedResponse
+    | CutStopWaitResponse
     | AttachedResponse
     | BackgroundAgentsResponse
     | WorkIndexResponse
@@ -847,6 +1026,18 @@ function parseSessionFactNames(
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "restart_records") {
+        return { type: "restart_records" };
+    }
+    if (
+        value?.type === "restart_record_dismiss"
+        && typeof value.session_id === "string"
+        && value.session_id.length > 0
+        && value.session_id.length <= 256
+        && !value.session_id.includes("\0")
+    ) {
+        return { type: "restart_record_dismiss", session_id: value.session_id };
+    }
     if (value?.type === "provider_forget" && typeof value.provider === "string" && /^[a-z0-9][a-z0-9._-]*$/.test(value.provider)) {
         return { type: "provider_forget", provider: value.provider,
             ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };
@@ -955,6 +1146,28 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         if (operation !== undefined) {
             return { type: "schedule_operation", operation };
         }
+    }
+    if (
+        value?.type === "stop_host"
+        && Number.isInteger(value.pid)
+        && (value.pid as number) > 0
+        && typeof value.started_at === "string"
+        && !Number.isNaN(Date.parse(value.started_at))
+        && (value.target_build_id === undefined || isBuildIdText(value.target_build_id))
+        && (value.force === undefined || typeof value.force === "boolean")
+    ) {
+        return {
+            type: "stop_host",
+            pid: value.pid as number,
+            started_at: value.started_at,
+            ...(typeof value.target_build_id === "string"
+                ? { target_build_id: value.target_build_id }
+                : {}),
+            ...(value.force === true ? { force: true } : {}),
+        };
+    }
+    if (value?.type === "cut_stop_wait") {
+        return { type: "cut_stop_wait" };
     }
     if (
         (value?.type === "shutdown_if_idle"
@@ -1108,6 +1321,37 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         };
     }
     if (
+        (value?.type === "block_session" || value?.type === "unblock_session")
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+        && Array.isArray(value.session_ids)
+        && value.session_ids.length > 0
+        && value.session_ids.length <= 10_000
+        && value.session_ids.every((id: unknown) =>
+            typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)
+        )
+    ) {
+        if (value.type === "unblock_session") {
+            return {
+                type: "unblock_session",
+                target_agent_id: value.target_agent_id,
+                session_ids: value.session_ids,
+            };
+        }
+        if (
+            (value.reason === undefined || value.reason === null || (typeof value.reason === "string"
+                && value.reason.length <= 500
+                && !/[\u0000-\u001f]/u.test(value.reason)))
+        ) {
+            return {
+                type: "block_session",
+                target_agent_id: value.target_agent_id,
+                session_ids: value.session_ids,
+                reason: value.reason ?? null,
+            };
+        }
+    }
+    if (
         value?.type === "import_session"
         && typeof value.path === "string"
         && isAbsolute(value.path)
@@ -1213,6 +1457,70 @@ function isBranchInitialMessages(
                     return true;
                 });
         });
+}
+
+export function parseHostStopWaitEvent(value: unknown): HostStopWaitEvent | undefined {
+    if (typeof value !== "object" || value === null) return undefined;
+    const record = value as Record<string, unknown>;
+    if (record.type === "host_stop_wait") {
+        const kind = record.kind;
+        const waiting = record.waiting_on;
+        if (
+            (kind !== "stop" && kind !== "update")
+            || !Array.isArray(waiting)
+            || !waiting.every(isStopWaitTargetRecord)
+        ) {
+            return undefined;
+        }
+        if (kind === "update") {
+            if (!isBuildIdText(record.target_build_id)) return undefined;
+            return {
+                type: "host_stop_wait",
+                kind,
+                target_build_id: record.target_build_id,
+                waiting_on: waiting,
+            };
+        }
+        return { type: "host_stop_wait", kind, waiting_on: waiting };
+    }
+    if (record.type === "host_stop_wait_cleared") {
+        if (record.reason !== "abandoned" && record.reason !== "stopped") return undefined;
+        if (record.message !== undefined && typeof record.message !== "string") return undefined;
+        return record.message === undefined
+            ? { type: "host_stop_wait_cleared", reason: record.reason }
+            : { type: "host_stop_wait_cleared", reason: record.reason, message: record.message };
+    }
+    if (record.type === "host_restarting" && isBuildIdText(record.build_id)) {
+        return { type: "host_restarting", build_id: record.build_id };
+    }
+    return undefined;
+}
+
+export function stopWaitWireMessage(event: StopWaitEvent): HostStopWaitEvent {
+    if (event.type === "wait") {
+        return event.kind === "update"
+            ? {
+                type: "host_stop_wait",
+                kind: "update",
+                target_build_id: event.target_build_id,
+                waiting_on: event.waiting_on,
+            }
+            : { type: "host_stop_wait", kind: "stop", waiting_on: event.waiting_on };
+    }
+    if (event.type === "wait_cleared") {
+        return event.message === undefined
+            ? { type: "host_stop_wait_cleared", reason: event.reason }
+            : { type: "host_stop_wait_cleared", reason: event.reason, message: event.message };
+    }
+    return { type: "host_restarting", build_id: event.build_id };
+}
+
+function isStopWaitTargetRecord(value: unknown): value is StopWaitTarget {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return typeof record.session_id === "string"
+        && (record.name === null || typeof record.name === "string")
+        && (record.status === "working" || record.status === "waiting" || record.status === "queued");
 }
 
 export function parseAttachedClientMessage(
@@ -1430,6 +1738,136 @@ export function requestHostShutdownForReplacement(
         started_at: identity.started_at,
         requester_protocol_version: requesterProtocolVersion,
     }, parseShutdownForReplacementResponse);
+}
+
+export type HostStopResult =
+    | { readonly type: "timed_out" }
+    | { readonly type: "stopped" }
+    | { readonly type: "accepted" }
+    | { readonly type: "abandoned"; readonly message: string }
+    | { readonly type: "refused"; readonly reason: StopRefusalReason; readonly message: string }
+    | { readonly type: "unsupported" }
+    | { readonly type: "no_answer" };
+
+export interface HostStopOptions {
+    readonly targetBuildId?: string;
+    // Resolve at the first answer instead of waiting for the stop to finish.
+    readonly detach?: boolean;
+    readonly force?: boolean;
+    // Resolves timed_out when the host has not reported stopped by then.
+    readonly deadlineMs?: number;
+}
+
+// Resolves once the host reports stopped, or at the first answer when detached.
+// A disconnect does not cancel the stop.
+export function requestHostStop(
+    socketPath: string,
+    identity: Pick<HostIdentity, "pid" | "started_at">,
+    onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    options: HostStopOptions = {},
+): Promise<HostStopResult> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        try {
+            socket = createConnection(socketPath);
+        } catch {
+            resolve({ type: "no_answer" });
+            return;
+        }
+        let finished = false;
+        let buffered = "";
+        const finish = (result: HostStopResult): void => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(deadline);
+            if (overall !== undefined) clearTimeout(overall);
+            socket.destroy();
+            resolve(result);
+        };
+        // Only the first answer has a deadline; a host that is waiting on turns may take minutes.
+        const deadline = setTimeout(() => finish({ type: "no_answer" }), 1_000);
+        const overall = options.deadlineMs === undefined
+            ? undefined
+            : setTimeout(() => finish({ type: "timed_out" }), options.deadlineMs);
+        socket.setEncoding("utf8");
+        socket.once("connect", () => {
+            socket.write(`${JSON.stringify({
+                type: "stop_host",
+                pid: identity.pid,
+                started_at: identity.started_at,
+                ...(options.targetBuildId === undefined
+                    ? {}
+                    : { target_build_id: options.targetBuildId }),
+                ...(options.force === true ? { force: true } : {}),
+            })}\n`);
+        });
+        socket.on("data", (chunk: string) => {
+            clearTimeout(deadline);
+            buffered += chunk;
+            if (buffered.length > 65_536) {
+                finish({ type: "no_answer" });
+                return;
+            }
+            let newline = buffered.indexOf("\n");
+            while (newline !== -1) {
+                const line = buffered.slice(0, newline);
+                buffered = buffered.slice(newline + 1);
+                const outcome = parseStopHostLine(line, onWaiting, options.detach === true);
+                if (outcome !== undefined) {
+                    finish(outcome);
+                    return;
+                }
+                newline = buffered.indexOf("\n");
+            }
+        });
+        socket.once("error", () => finish({ type: "no_answer" }));
+        socket.once("end", () => finish({ type: "no_answer" }));
+        socket.once("close", () => finish({ type: "no_answer" }));
+    });
+}
+
+const STOP_REFUSAL_REASONS = new Set<string>([
+    "identity_mismatch",
+    "unavailable",
+    "stop_pending",
+    "target_unavailable",
+]);
+
+function parseStopHostLine(
+    source: string,
+    onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    detached: boolean,
+): HostStopResult | undefined {
+    const response = parseJsonObject(source);
+    if (response?.type === "stop_host_waiting" && Array.isArray(response.waiting_on)) {
+        onWaiting(response.waiting_on as readonly StopWaitTarget[]);
+        return detached ? { type: "accepted" } : undefined;
+    }
+    if (response?.type === "stop_host_stopped") return { type: "stopped" };
+    if (response?.type === "stop_host_abandoned" && typeof response.message === "string") {
+        return { type: "abandoned", message: response.message };
+    }
+    if (
+        response?.type === "stop_host_refused"
+        && typeof response.reason === "string"
+        && STOP_REFUSAL_REASONS.has(response.reason)
+        && typeof response.message === "string"
+    ) {
+        return {
+            type: "refused",
+            reason: response.reason as StopRefusalReason,
+            message: response.message,
+        };
+    }
+    if (response?.type === "protocol_error") return { type: "unsupported" };
+    return undefined;
+}
+
+// Same shape as a release build id, so a target cannot name a path outside releases.
+export function isBuildIdText(value: unknown): value is string {
+    return typeof value === "string"
+        && value.length <= 128
+        && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 
 function requestHostShutdown<Response>(

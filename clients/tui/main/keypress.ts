@@ -19,7 +19,8 @@ import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
-import { abortFocusedAgent, closeDials, commitDials, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
+import { abortFocusedAgent, answerStopWaitCard, closeDials, commitDials, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
+import { isStopWaitCardUpdate, stopWaitCardUpdate } from "../stop-wait.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { handleTuiPermissionsConfirmKey } from "../permissions-confirm.ts";
@@ -38,6 +39,7 @@ import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
 import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow } from "./notices.ts";
+import { restartLostHost } from "./restart-lost-host.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -443,7 +445,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    const uiRequest = focusedUiRequest(rt);
+    const uiRequest = focusedUiRequest(rt)
+        ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard);
     if (
         uiRequest !== undefined
         && isUserQuestionUiRequestUpdate(uiRequest)
@@ -452,6 +455,13 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         if (result.handled) {
             key.preventDefault();
             key.stopPropagation();
+            if (isStopWaitCardUpdate(uiRequest)) {
+                if (result.response !== undefined) {
+                    answerStopWaitCard(rt, result.response);
+                }
+                renderState(rt);
+                return;
+            }
             if (result.response !== undefined) {
                 void focusedAgentClient(rt).send(result.response)
                     .catch(((error: unknown) => reportConnectionError(rt, error)));
@@ -1454,6 +1464,17 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             openResumePicker(rt);
             return;
         }
+    }
+
+    if (
+        tuiBindingId("global", key) === "restart_host"
+        && rt.connectionFailed
+        && !anyOverlayOpen(rt)
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        restartLostHost(rt);
+        return;
     }
 
     if (

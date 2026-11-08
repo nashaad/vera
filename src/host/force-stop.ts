@@ -2,8 +2,15 @@ import { unlink } from "node:fs/promises";
 
 import {
     checkRecordIdentity,
+    processIsAlive,
     type RecordIdentity,
 } from "./process-identity.ts";
+import {
+    requestHostStop,
+    type HostStopOptions,
+    type HostStopResult,
+} from "./protocol.ts";
+import type { StopRefusalReason, StopWaitTarget } from "./stop-when-idle.ts";
 
 import {
     defaultHostLockPath,
@@ -50,6 +57,47 @@ export function unverifiedHostMessage(
     return `Could not confirm PID ${pid} is the Vera host (process start time`
         + " unreadable); left it running and kept its lockfile. Try again.";
 }
+
+// The host answers a stop request by waiting for its turns; it never gets a signal here.
+export interface WaitStopOutcome {
+    readonly pid?: number;
+    readonly endedBy:
+        | "stopped"
+        | "accepted"
+        | "still_running"
+        | "no_answer"
+        | "refused"
+        | "abandoned"
+        | "unsupported"
+        | "timed_out";
+    readonly refusal?: StopRefusalReason;
+    readonly message?: string;
+}
+
+export type StopWhenIdleOutcome = WaitStopOutcome | ForceStopOutcome;
+
+export interface StopWhenIdleOptions extends ForceStopOptions {
+    readonly onWaiting?: (waiting: readonly StopWaitTarget[]) => void;
+    readonly requestStop?: (
+        socketPath: string,
+        identity: Pick<HostLockRecord, "pid" | "started_at">,
+        onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+        options: HostStopOptions,
+    ) => Promise<HostStopResult>;
+    readonly stoppedGraceMs?: number;
+    // Set for an update: the host moves to this build once it stops. An update
+    // never signals the host, and never waits for it to exit.
+    readonly targetBuildId?: string;
+    // Resolve at the first answer instead of waiting for the stop to finish.
+    readonly detach?: boolean;
+    // Cut the waited sessions at once. Without an answer, a refusal from an older build, or a stop
+    // not reported within cutDeadlineMs, the caller falls back to a signal.
+    readonly force?: boolean;
+    readonly cutDeadlineMs?: number;
+}
+
+const DEFAULT_STOPPED_GRACE_MS = 5_000;
+export const DEFAULT_CUT_DEADLINE_MS = 10_000;
 
 export class HostKillNotPermittedError extends Error {
     constructor(readonly pid: number, cause: NodeJS.ErrnoException) {
@@ -157,6 +205,123 @@ export async function gracefulStopResidentHost(
     return outcome;
 }
 
+// Asks a live, verified host to stop once its turns end. A plain stop falls
+// back to the graceful path. An update never does: an unverified or silent
+// host is left running and reported, because a signal would stop it without
+// moving current.
+export async function stopResidentHostWhenIdle(
+    options: StopWhenIdleOptions = {},
+): Promise<StopWhenIdleOutcome | undefined> {
+    const lockPath = options.lockPath ?? defaultHostLockPath();
+    if (options.force === true && options.targetBuildId === undefined) {
+        return cutResidentHostForStop({ ...options, lockPath });
+    }
+    const inspection = await inspectHostLockFile(lockPath);
+    const isAlive = options.isProcessAlive ?? processIsAlive;
+    const isUpdate = options.targetBuildId !== undefined;
+    if (inspection.state !== "valid") {
+        if (!isUpdate) return gracefulStopResidentHost({ ...options, lockPath });
+        if (inspection.state === "absent") return undefined;
+        return {
+            pid: inspection.pid,
+            endedBy: "refused",
+            refusal: "identity_mismatch",
+            message: "Could not confirm the running Vera host from its lockfile, so it was left running and current was not moved.",
+        };
+    }
+    const record = inspection.record;
+    const identity = options.matchesRecord === undefined
+        ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
+        : options.matchesRecord(record) ? "match" : "mismatch";
+    if (identity !== "match" || !isAlive(record.pid)) {
+        if (!isUpdate) return gracefulStopResidentHost({ ...options, lockPath });
+        if (identity === "match") return undefined;
+        return {
+            pid: record.pid,
+            endedBy: "refused",
+            refusal: "identity_mismatch",
+            message: `Could not confirm PID ${record.pid} is the Vera host, so it was left running and current was not moved.`,
+        };
+    }
+    const requestStop = options.requestStop ?? requestHostStop;
+    const result = await requestStop(
+        record.socket_path,
+        record,
+        options.onWaiting ?? (() => undefined),
+        { targetBuildId: options.targetBuildId, detach: options.detach === true },
+    );
+    if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
+    if (result.type === "unsupported") return { pid: record.pid, endedBy: "unsupported" };
+    if (result.type === "accepted") return { pid: record.pid, endedBy: "accepted" };
+    if (result.type === "abandoned") {
+        return { pid: record.pid, endedBy: "abandoned", message: result.message };
+    }
+    if (result.type === "refused") {
+        return { pid: record.pid, endedBy: "refused", refusal: result.reason, message: result.message };
+    }
+    if (isUpdate) return { pid: record.pid, endedBy: "stopped" };
+    const wait = options.wait ?? waitFor;
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    const deadline = Date.now() + (options.stoppedGraceMs ?? DEFAULT_STOPPED_GRACE_MS);
+    while (isAlive(record.pid)) {
+        if (Date.now() >= deadline) return { pid: record.pid, endedBy: "still_running" };
+        await wait(pollIntervalMs);
+    }
+    return { pid: record.pid, endedBy: "stopped" };
+}
+
+// Never signals. Every case that cannot be answered returns no_answer, so the caller's signal
+// path does its own identity checks.
+async function cutResidentHostForStop(
+    options: StopWhenIdleOptions & { readonly lockPath: string },
+): Promise<StopWhenIdleOutcome | undefined> {
+    const inspection = await inspectHostLockFile(options.lockPath);
+    if (inspection.state === "absent") return undefined;
+    if (inspection.state !== "valid") {
+        return inspection.pid === undefined
+            ? { endedBy: "no_answer" }
+            : { pid: inspection.pid, endedBy: "no_answer" };
+    }
+    const record = inspection.record;
+    const isAlive = options.isProcessAlive ?? processIsAlive;
+    const identity = options.matchesRecord === undefined
+        ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
+        : options.matchesRecord(record) ? "match" : "mismatch";
+    if (identity !== "match" || !isAlive(record.pid)) {
+        return { pid: record.pid, endedBy: "no_answer" };
+    }
+    const requestStop = options.requestStop ?? requestHostStop;
+    const result = await requestStop(
+        record.socket_path,
+        record,
+        options.onWaiting ?? (() => undefined),
+        {
+            force: true,
+            deadlineMs: options.cutDeadlineMs ?? DEFAULT_CUT_DEADLINE_MS,
+        },
+    );
+    if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
+    if (result.type === "timed_out") return { pid: record.pid, endedBy: "timed_out" };
+    if (result.type === "unsupported") return { pid: record.pid, endedBy: "unsupported" };
+    if (result.type === "abandoned") {
+        return { pid: record.pid, endedBy: "abandoned", message: result.message };
+    }
+    if (result.type === "refused") {
+        return result.reason === "unavailable"
+            ? { pid: record.pid, endedBy: "unsupported" }
+            : { pid: record.pid, endedBy: "refused", refusal: result.reason, message: result.message };
+    }
+    if (result.type === "accepted") return { pid: record.pid, endedBy: "accepted" };
+    const wait = options.wait ?? waitFor;
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    const deadline = Date.now() + (options.stoppedGraceMs ?? DEFAULT_STOPPED_GRACE_MS);
+    while (isAlive(record.pid)) {
+        if (Date.now() >= deadline) return { pid: record.pid, endedBy: "still_running" };
+        await wait(pollIntervalMs);
+    }
+    return { pid: record.pid, endedBy: "stopped" };
+}
+
 export async function forceStopHostProcess(
     record: Pick<HostLockRecord, "pid" | "started_at">,
     options: ForceStopOptions = {},
@@ -232,15 +397,6 @@ export function defaultKill(pid: number, signal: NodeJS.Signals): void {
             );
         }
         throw error;
-    }
-}
-
-function processIsAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return (error as NodeJS.ErrnoException).code === "EPERM";
     }
 }
 

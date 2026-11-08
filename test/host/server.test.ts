@@ -23,7 +23,11 @@ import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
+    requestHostStop,
 } from "../../src/host/protocol.ts";
+import { HOST_CAPABILITIES, HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
+import { cutStopWaitThroughHost } from "../../src/host/stop-wait-cut-client.ts";
+import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
 
 const temporaryDirectories: string[] = [];
@@ -1765,3 +1769,187 @@ function transcriptEntries(count: number): readonly {
         text: `message ${index}`,
     }));
 }
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "stop_host streams waiting targets and stops once they end, with identity and availability refusals",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const unavailable = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            pid: 102,
+            startedAt: "2026-07-17T12:00:00.123Z",
+        });
+        try {
+            expect(await requestHostStop(socketPath, unavailable.identity, () => undefined))
+                .toMatchObject({ type: "refused", reason: "unavailable" });
+        } finally {
+            await unavailable.close();
+        }
+
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        let stopped = 0;
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            onStopped: () => {
+                stopped += 1;
+            },
+            pollIntervalMs: 5,
+        });
+        const socketPathWithControl = join(directory, "host-stop.sock");
+        const server = await startHostServer({
+            socketPath: socketPathWithControl,
+            lockPath: join(directory, "host-stop.json"),
+            pid: 103,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            stopWhenIdle: control,
+        });
+        try {
+            expect(await requestHostStop(socketPathWithControl, { pid: 999, started_at: server.identity.started_at }, () => undefined))
+                .toMatchObject({ type: "refused", reason: "identity_mismatch" });
+
+            const seen: StopWaitTarget[][] = [];
+            const pending = requestHostStop(socketPathWithControl, server.identity, (targets) => {
+                seen.push([...targets]);
+                if (seen.length === 1) {
+                    waiting = [{ session_id: "s1", name: "build", status: "working" }, { session_id: "s2", name: null, status: "queued" }];
+                }
+            });
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            waiting = [];
+            expect(await pending).toEqual({ type: "stopped" });
+            expect(seen[0]).toEqual([{ session_id: "s1", name: "build", status: "working" }]);
+            expect(seen.at(-1)).toEqual([
+                { session_id: "s1", name: "build", status: "working" },
+                { session_id: "s2", name: null, status: "queued" },
+            ]);
+            expect(stopped).toBe(1);
+        } finally {
+            await server.close().catch(() => undefined);
+        }
+    },
+);
+
+type HostConnection = Awaited<ReturnType<typeof connectHost>>;
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached clients that ask for stop-wait get the open wait, its change, and its clearing",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        const agents = [summary({ id: "main", kind: "interactive", status: "idle" })];
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            onStopped: () => undefined,
+            pollIntervalMs: 5,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            listAgents: () => agents,
+            onRosterChanged: () => () => undefined,
+            capabilities: HOST_CAPABILITIES,
+            stopWhenIdle: control,
+        });
+        const attachWithStopWait = async (): Promise<HostConnection> => {
+            const connection = await connectHost({ socketPath });
+            await connection.send({
+                type: "attach",
+                agent_id: "main",
+                requested_capabilities: [HOST_CAPABILITY_STOP_WAIT],
+            });
+            return connection;
+        };
+        const receiveType = async (
+            connection: HostConnection,
+            type: string,
+        ): Promise<Record<string, unknown>> => {
+            for (;;) {
+                const message = await connection.receive() as Record<string, unknown>;
+                if (message.type === type) return message;
+            }
+        };
+        const first = await attachWithStopWait();
+        try {
+            await receiveType(first, "attached");
+            await receiveType(first, "history");
+
+            const pending = requestHostStop(socketPath, server.identity, () => undefined);
+            expect(await receiveType(first, "host_stop_wait")).toEqual({
+                type: "host_stop_wait",
+                kind: "stop",
+                waiting_on: waiting,
+            });
+
+            const late = await attachWithStopWait();
+            try {
+                await receiveType(late, "attached");
+                expect(await receiveType(late, "host_stop_wait")).toMatchObject({
+                    type: "host_stop_wait",
+                    kind: "stop",
+                });
+            } finally {
+                late.close();
+            }
+
+            waiting = [];
+            expect(await receiveType(first, "host_stop_wait_cleared")).toEqual({
+                type: "host_stop_wait_cleared",
+                reason: "stopped",
+            });
+            expect(await pending).toEqual({ type: "stopped" });
+        } finally {
+            first.close();
+            await server.close().catch(() => undefined);
+        }
+    },
+);
+
+test(
+    "cut_stop_wait refuses with no wait, and cuts each waited session on request",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host-cut.sock");
+        const cuts: string[] = [];
+        let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
+        const control = new StopWhenIdle({
+            waitingOn: () => waiting,
+            cutSession: async (id) => {
+                cuts.push(id);
+                return true;
+            },
+            onStopped: () => undefined,
+            pollIntervalMs: 5,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host-cut.json"),
+            pid: 104,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            stopWhenIdle: control,
+        });
+        try {
+            expect(await cutStopWaitThroughHost(socketPath)).toMatchObject({
+                type: "cut_stop_wait_refused",
+                reason: "no_wait",
+            });
+
+            const pending = requestHostStop(socketPath, server.identity, () => undefined);
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(await cutStopWaitThroughHost(socketPath)).toEqual({
+                type: "cut_stop_wait_done",
+                cut: ["s1"],
+                failed: [],
+            });
+            expect(cuts).toEqual(["s1"]);
+            waiting = [];
+            expect(await pending).toEqual({ type: "stopped" });
+        } finally {
+            await server.close().catch(() => undefined);
+        }
+    },
+);

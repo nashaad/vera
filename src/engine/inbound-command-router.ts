@@ -423,6 +423,7 @@ export class InboundCommandRouter {
     private activeQueueTurn: ActiveQueueTurn | undefined;
     private claimedQueueRelease: QueueRelease | undefined;
     private release: QueueRelease | undefined;
+    private haltReason: string | undefined;
     private queuedDirectAbortId: number | undefined;
     private queuedDirectFollowUp: {
         readonly mode: "direct" | "one" | "all";
@@ -478,7 +479,8 @@ export class InboundCommandRouter {
         try {
             while (true) {
                 while (
-                    this.release === undefined
+                    this.haltReason !== undefined
+                    || this.release === undefined
                     || this.queuedTurns.length === 0
                 ) {
                     await this.turnAvailable.receive();
@@ -694,6 +696,10 @@ export class InboundCommandRouter {
     }
 
     private enqueueTurn(queued: QueuedTurn): void {
+        if (this.haltReason !== undefined && queued.prompt !== undefined) {
+            this.noteNotStarted(this.haltReason);
+            return;
+        }
         if (
             this.resumeAfterAbort
             && this.queuedDirectAbortId !== undefined
@@ -811,6 +817,60 @@ export class InboundCommandRouter {
                 ? {}
                 : { attachmentIds: [...prompt.attachmentIds] }),
         });
+    }
+
+    // Stops the active turn and every queued prompt until clearHalt. Held prompts are dropped, not replayed.
+    halt(reason: string): void {
+        if (this.haltReason !== undefined) return;
+        this.haltReason = reason;
+        const dropped = this.queuedTurns.filter(
+            (queued) => queued.prompt !== undefined,
+        ).length;
+        this.queuedTurns.splice(0, this.queuedTurns.length);
+        this.pendingPromptCount -= dropped;
+        this.deliveryTurnQueued = false;
+        this.release = undefined;
+        this.claimedQueueRelease = undefined;
+        this.queuedDirectAbortId = undefined;
+        this.queuedDirectFollowUp = undefined;
+        this.resumeAfterAbort = false;
+        for (const requestId of this.pendingApprovals.keys()) {
+            this.finishApproval(requestId, { behavior: "deny", reason });
+        }
+        for (const requestId of this.pendingQuestions.keys()) {
+            this.finishQuestion(requestId, { outcome: "cancelled" });
+        }
+        for (const requestId of this.pendingConfigurations.keys()) {
+            this.finishConfigurationRequired(requestId, "unavailable");
+        }
+        for (let index = 0; index < dropped; index += 1) {
+            this.noteNotStarted(reason);
+        }
+        if (this.activeTurn !== undefined) {
+            this.noteStopped(reason);
+        }
+        this.activeTurn?.abort(new Error(reason));
+        this.emitPromptQueue();
+    }
+
+    clearHalt(): void {
+        if (this.haltReason === undefined) return;
+        this.haltReason = undefined;
+        this.signalTurnAvailable();
+    }
+
+    private noteNotStarted(reason: string): void {
+        void this.options.appendHarnessMessage?.(
+            `Not started: ${reason}`,
+            "error",
+        ).catch(() => {});
+    }
+
+    private noteStopped(reason: string): void {
+        void this.options.appendHarnessMessage?.(
+            `Stopped: ${reason}`,
+            "error",
+        ).catch(() => {});
     }
 
     private plainAbort(): void {

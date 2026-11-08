@@ -8,7 +8,9 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import type { RestartCause } from "../../src/store/restart-records.ts";
 import { DIALOG_BACKGROUND_Z_INDEX } from "./dialog-chrome.ts";
+import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
@@ -55,11 +57,22 @@ function hintCaretColumn(hint: string): number {
     return HOME_CONTENT_INDENT + hint.length + 1;
 }
 
+/** A session whose turn a restart or crash cut short, listed above the rows. */
+export interface HomeRestart {
+    readonly sessionId: string;
+    readonly sessionPath: string;
+    readonly title: string;
+    readonly cause: RestartCause;
+}
+
 export interface HomeState {
     readonly selectedId: HomeRowId;
     readonly hasSessions: boolean;
     /** No provider has answered yet, so the card leads with the way to fix that. */
     readonly needsProvider: boolean;
+    readonly restarts: readonly HomeRestart[];
+    /** Set while the cursor is on a restart entry; the rows then show no cursor. */
+    readonly selectedRestartId: string | undefined;
 }
 
 export type HomeAction =
@@ -68,6 +81,8 @@ export type HomeAction =
     | { readonly kind: "resume_picker" }
     | { readonly kind: "search" }
     | { readonly kind: "palette" }
+    | { readonly kind: "open_restart"; readonly sessionId: string }
+    | { readonly kind: "dismiss_restart"; readonly sessionId: string }
     | { readonly kind: "type"; readonly text: string };
 
 export function createHomeState(
@@ -78,6 +93,23 @@ export function createHomeState(
         selectedId: needsProvider ? "connect" : "new",
         hasSessions,
         needsProvider,
+        restarts: [],
+        selectedRestartId: undefined,
+    };
+}
+
+/** Replaces the restart block. A cursor on an entry that is no longer listed moves to the rows. */
+export function homeStateWithRestarts(
+    state: HomeState,
+    restarts: readonly HomeRestart[],
+): HomeState {
+    const kept = restarts.some((restart) =>
+        restart.sessionId === state.selectedRestartId
+    );
+    return {
+        ...state,
+        restarts,
+        selectedRestartId: kept ? state.selectedRestartId : undefined,
     };
 }
 
@@ -102,6 +134,8 @@ export type HomeLineTone =
     | "rule"
     | "notice"
     | "row"
+    | "restart"
+    | "block"
     | "hint";
 
 /** The half-open column range a row fills, which is how a row is drawn as a button. */
@@ -114,6 +148,7 @@ export interface HomeLine {
     readonly text: string;
     readonly tone: HomeLineTone;
     readonly rowId?: HomeRowId;
+    readonly restartId?: string;
     readonly selected?: boolean;
     readonly fill?: HomeLineFill;
 }
@@ -121,7 +156,9 @@ export interface HomeLine {
 const BLANK: HomeLine = { text: "", tone: "rule" };
 
 export function homeCardLines(state: HomeState): readonly HomeLine[] {
-    const selected = selectedRowId(state);
+    const selected = state.selectedRestartId === undefined
+        ? selectedRowId(state)
+        : undefined;
     const rows = homeRows(state).flatMap((row) => {
         const line: HomeLine = {
             text: rowText(row, row.id === selected),
@@ -134,11 +171,13 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
         // rows that need a provider first do not read as alternatives to it.
         return row.id === "connect" ? [line, BLANK] : [line];
     });
+    const block = restartBlockLines(state);
     if (state.needsProvider) {
         return [
             { text: centered(HOME_WORDMARK), tone: "wordmark" },
             { text: `${indent()}${HOME_RULE}`, tone: "rule" },
             BLANK,
+            ...block,
             // Above the rows, where the reason for the first one belongs. Below
             // them it read as a status line about something already decided.
             { text: `${indent()}${HOME_COLD_HINT}`, tone: "notice" },
@@ -150,6 +189,7 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
         { text: centered(HOME_WORDMARK), tone: "wordmark" },
         { text: `${indent()}${HOME_RULE}`, tone: "rule" },
         BLANK,
+        ...block,
         ...rows,
         BLANK,
         { text: `${indent()}${HOME_TYPING_HINT}`, tone: "hint" },
@@ -173,6 +213,16 @@ export function handleHomeKey(
     readonly handled: boolean;
 } {
     const rows = homeRows(state);
+    if (
+        state.selectedRestartId !== undefined
+        && key.ctrl !== true
+        && tuiBindingId("home", key) === "home_dismiss_restart"
+    ) {
+        return {
+            action: { kind: "dismiss_restart", sessionId: state.selectedRestartId },
+            handled: true,
+        };
+    }
     if (key.ctrl === true) {
         const chord = rows.find((row) =>
             HOME_OWN_CHORDS.includes(row.id)
@@ -186,15 +236,26 @@ export function handleHomeKey(
         return { handled: false };
     }
     if (key.name === "up" || key.name === "down") {
-        const current = rows.findIndex((row) => row.id === selectedRowId(state));
-        const next = rows[
-            (current + (key.name === "down" ? 1 : rows.length - 1)) % rows.length
+        const entries = homeEntries(state);
+        const current = entries.findIndex((entry) => entryIsSelected(entry, state));
+        const next = entries[
+            (current + (key.name === "down" ? 1 : entries.length - 1)) % entries.length
         ];
-        return next === undefined
-            ? { handled: true }
-            : { state: { ...state, selectedId: next.id }, handled: true };
+        if (next === undefined) return { handled: true };
+        return {
+            state: next.kind === "restart"
+                ? { ...state, selectedRestartId: next.sessionId }
+                : { ...state, selectedId: next.rowId, selectedRestartId: undefined },
+            handled: true,
+        };
     }
     if (key.name === "return" || key.name === "enter") {
+        if (state.selectedRestartId !== undefined) {
+            return {
+                action: { kind: "open_restart", sessionId: state.selectedRestartId },
+                handled: true,
+            };
+        }
         return { action: rowAction(selectedRowId(state), state), handled: true };
     }
     const typed = homeTypedCharacter(key);
@@ -234,6 +295,95 @@ function rowAction(id: HomeRowId, state: HomeState): HomeAction {
     return state.needsProvider
         ? { kind: "connect_provider" }
         : { kind: "new_session" };
+}
+
+type HomeEntry =
+    | { readonly kind: "restart"; readonly sessionId: string }
+    | { readonly kind: "row"; readonly rowId: HomeRowId };
+
+/** Restart entries come first, then the rows, so Up and Down move through the card as one list. */
+function homeEntries(state: HomeState): readonly HomeEntry[] {
+    return [
+        ...state.restarts.map((restart): HomeEntry => ({
+            kind: "restart",
+            sessionId: restart.sessionId,
+        })),
+        ...homeRows(state).map((row): HomeEntry => ({
+            kind: "row",
+            rowId: row.id,
+        })),
+    ];
+}
+
+function entryIsSelected(entry: HomeEntry, state: HomeState): boolean {
+    if (entry.kind === "restart") {
+        return entry.sessionId === state.selectedRestartId;
+    }
+    return state.selectedRestartId === undefined
+        && entry.rowId === selectedRowId(state);
+}
+
+const HOME_RESTART_WINDOW = 3;
+
+const HOME_RESTART_CAUSE_WORDS: Readonly<Record<RestartCause, string>> = {
+    stop: "stopped",
+    update: "updated",
+    crash: "crashed",
+};
+
+const HOME_RESTART_CAUSE_COLUMNS = Math.max(
+    ...Object.values(HOME_RESTART_CAUSE_WORDS).map((word) => word.length),
+);
+
+const HOME_RESTART_TITLE_COLUMNS = HOME_CARD_COLUMNS
+    - HOME_CONTENT_INDENT
+    - "❯ ".length
+    - 1
+    - HOME_RESTART_CAUSE_COLUMNS;
+
+/**
+ * Shows a window of the restart entries around the cursor, and a footer that
+ * names the two keys. A restart-free home has no block at all.
+ */
+function restartBlockLines(state: HomeState): readonly HomeLine[] {
+    if (state.restarts.length === 0) return [];
+    const count = state.restarts.length;
+    const cursor = state.restarts.findIndex((restart) =>
+        restart.sessionId === state.selectedRestartId
+    );
+    const start = cursor < 0
+        ? 0
+        : Math.min(Math.max(0, cursor - 1), Math.max(0, count - HOME_RESTART_WINDOW));
+    const visible = state.restarts.slice(start, start + HOME_RESTART_WINDOW);
+    return [
+        { text: `${indent()}Cut short (${count})`, tone: "notice" },
+        ...visible.map((restart): HomeLine => {
+            const selected = restart.sessionId === state.selectedRestartId;
+            return {
+                text: restartText(restart, selected),
+                tone: "restart",
+                restartId: restart.sessionId,
+                selected,
+            };
+        }),
+        {
+            text: `${indent()}enter opens  ${tuiKeyHint("home_dismiss_restart")}`,
+            tone: "block",
+        },
+        BLANK,
+    ];
+}
+
+function restartText(restart: HomeRestart, selected: boolean): string {
+    const marker = selected ? "❯" : " ";
+    const title = restart.title.replace(/\s+/g, " ").trim();
+    const fitted = title.length > HOME_RESTART_TITLE_COLUMNS
+        ? `${title.slice(0, HOME_RESTART_TITLE_COLUMNS - 1)}…`
+        : title.padEnd(HOME_RESTART_TITLE_COLUMNS);
+    const cause = HOME_RESTART_CAUSE_WORDS[restart.cause].padStart(
+        HOME_RESTART_CAUSE_COLUMNS,
+    );
+    return `${indent()}${marker} ${fitted} ${cause}`;
 }
 
 function selectedRowId(state: HomeState): HomeRowId {
@@ -367,7 +517,7 @@ export function createTuiHomeView(
                 fg: lineColor(line, colors),
                 width: "100%" as const,
                 height: 1,
-                onMouseDown: line.tone === "row"
+                onMouseDown: line.tone === "row" || line.tone === "restart"
                     ? () => onRun(rowActionFor(state, index))
                     : undefined,
             };
@@ -399,7 +549,11 @@ export function createTuiHomeView(
 }
 
 function rowActionFor(state: HomeState, lineIndex: number): HomeAction {
-    const id = homeCardLines(state)[lineIndex]?.rowId;
+    const line = homeCardLines(state)[lineIndex];
+    if (line?.restartId !== undefined) {
+        return { kind: "open_restart", sessionId: line.restartId };
+    }
+    const id = line?.rowId;
     return id === undefined ? { kind: "new_session" } : rowAction(id, state);
 }
 

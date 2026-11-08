@@ -1,4 +1,10 @@
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
+import {
+    dismissRestartRecordThroughHost,
+    listRestartRecordsThroughHost,
+    type RestartRecordDismissResult,
+} from "../../src/host/restart-records-client.ts";
+import type { RestartRecordWire } from "../../src/host/protocol.ts";
 import type {
     AgentUpdate,
     ClientCommand,
@@ -18,6 +24,8 @@ export interface TuiAgentClient {
     readonly workIndex?: AttachedAgentClient["workIndex"];
     onWorkIndex?: AttachedAgentClient["onWorkIndex"];
     onSessionTitle?: AttachedAgentClient["onSessionTitle"];
+    readonly stopWait?: AttachedAgentClient["stopWait"];
+    onStopWait?: AttachedAgentClient["onStopWait"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
@@ -39,4 +47,20 @@ export function requireIdentifiedTuiAgentClient(
         throw new Error("Attached agent has no identity");
     }
     return client as IdentifiedTuiAgentClient;
+}
+
+export interface HostRestartRecords {
+    list(): Promise<readonly RestartRecordWire[]>;
+    dismiss(sessionId: string): Promise<RestartRecordDismissResult>;
+}
+
+// One short connection per request, so a session view can read records without an attached client.
+export function hostRestartRecords(
+    socketPath: () => Promise<string>,
+): HostRestartRecords {
+    return {
+        list: async () => listRestartRecordsThroughHost(await socketPath()),
+        dismiss: async (sessionId) =>
+            dismissRestartRecordThroughHost(await socketPath(), sessionId),
+    };
 }
