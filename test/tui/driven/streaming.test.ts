@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { createTuiChildDependencies } from "../../support/tui-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
@@ -12,7 +11,7 @@ function turnRunning(pane: string): boolean {
 }
 
 test("real TUI queues a prompt and Escape steers to it", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
+    const home = createStubTuiHome("vera-tui-test-");
     const session = await startTuiTestSession({
         home,
         width: 100,
@@ -103,7 +102,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
 }, 15_000);
 
 test("extension insertion edits the live draft without touching the queue", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-queued-compose-"));
+    const home = createStubTuiHome("vera-tui-queued-compose-");
     const session = await startTuiTestSession({
         home,
         width: 100,
@@ -148,7 +147,7 @@ test("extension insertion edits the live draft without touching the queue", asyn
 }, 15_000);
 
 test("scrolling away from the stream offers a way back to the bottom", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-jump-bottom-"));
+    const home = createStubTuiHome("vera-jump-bottom-");
     const session = await startTuiTestSession({
         home,
         width: 100,
@@ -202,7 +201,7 @@ test("scrolling away from the stream offers a way back to the bottom", async () 
 }, 20_000);
 
 test("the jump pill sits above the command suggestion strip", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-jump-strip-"));
+    const home = createStubTuiHome("vera-jump-strip-");
     const session = await startTuiTestSession({
         home,
         width: 100,

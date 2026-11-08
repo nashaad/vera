@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { TranscriptEntry } from "../../../src/engine/protocol.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 const answer = (marker: string): string =>
@@ -35,7 +32,7 @@ const earlier: TranscriptEntry[] = Array.from({ length: 2 }, (_, index) => ({
  * Both turns run in one session to keep that ceiling in reach.
  */
 test("a delivered history keeps finished answers on every frame", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
+    const home = createStubTuiHome("vera-tui-test-");
     const delivered: TranscriptEntry[] = [...earlier];
     let finishTurn: (() => void) | undefined;
     let turn = 0;

@@ -12,7 +12,7 @@ import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
 import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
 import { setTextContent } from "../text-content.ts";
-import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
+import { resumeTuiTranscriptFollow, tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
 import type { TuiRuntime, TuiTranscriptSourceAnchor } from "./runtime.ts";
 import { BoxRenderable, MarkdownRenderable, TextBufferRenderable, TextRenderable, TextTableRenderable, type Renderable } from "@opentui/core";
@@ -506,7 +506,7 @@ export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
 }
 
 export function transcriptFollowsBottom(rt: TuiRuntime): boolean {
-    return tuiTranscriptAtBottom(
+    return rt.transcript.stickyScroll && tuiTranscriptAtBottom(
         rt.transcript.scrollTop,
         rt.transcript.scrollHeight,
         rt.transcript.viewport.height,
@@ -576,11 +576,7 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         materializeTo = Math.max(materializeTo, rt.materializedEntryEnd);
         rt.pendingTranscriptScrollRestore = {
             scrollTop: rt.transcript.scrollTop,
-            atBottom: tuiTranscriptAtBottom(
-                rt.transcript.scrollTop,
-                rt.transcript.scrollHeight,
-                rt.transcript.viewport.height,
-            ),
+            atBottom: transcriptFollowsBottom(rt),
         };
         for (
             let index = changedKindAt;
@@ -770,7 +766,7 @@ export function snapTranscriptWindowToTail(rt: TuiRuntime,
     rt.transcriptResizeAnchor = undefined;
     const tail = tuiTranscriptTailRange(entries.length);
     setTranscriptWindow(rt, entries, tail.start, tail.end);
-    rt.transcript.scrollTo(rt.transcript.scrollHeight);
+    resumeTuiTranscriptFollow(rt.transcript);
     rt.pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
 }
 
@@ -801,9 +797,8 @@ export function settleTranscriptScrollState(rt: TuiRuntime): void {
             clearTranscriptAnchorPadding(rt);
             rt.transcriptResizeAnchor = undefined;
         }
-        rt.transcript.scrollTo(
-            restore.atBottom ? rt.transcript.scrollHeight : restore.scrollTop,
-        );
+        if (restore.atBottom) resumeTuiTranscriptFollow(rt.transcript);
+        else rt.transcript.scrollTo(restore.scrollTop);
     }
     applyTranscriptScrollAnchor(rt);
 }

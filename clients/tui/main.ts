@@ -339,7 +339,7 @@ import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, ru
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, requestFocusedPaneClose, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
-import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
+import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, trackTranscriptScroll, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
@@ -1482,10 +1482,11 @@ export async function startTui(
         if (!event.modifiers.shift && (event.scroll?.direction === "up" || event.scroll?.direction === "down")) {
             rt.transcriptResizeAnchor = undefined;
             if (event.scroll.direction === "down") clearTranscriptAnchorPadding(rt);
+            trackTranscriptScroll(rt, event.scroll.direction);
         }
     };
-    rt.transcript.verticalScrollBar.onMouseDown = () => { rt.transcriptResizeAnchor = undefined; };
-    rt.transcript.verticalScrollBar.onMouseDrag = () => { rt.transcriptResizeAnchor = undefined; };
+    rt.transcript.verticalScrollBar.onMouseDown = () => { rt.transcriptResizeAnchor = undefined; trackTranscriptScroll(rt); };
+    rt.transcript.verticalScrollBar.onMouseDrag = () => { rt.transcriptResizeAnchor = undefined; trackTranscriptScroll(rt); };
     rt.appendTranscriptRenderable = (node) => {
         rt.transcriptResizeAnchor = undefined;
         const container = new BoxRenderable(rt.renderer, {
@@ -1528,10 +1529,7 @@ export async function startTui(
         zIndex: 4,
         visible: false,
         onMouseDown: () => {
-            rt.transcriptResizeAnchor = undefined;
-            clearTranscriptAnchorPadding(rt);
-            rt.transcript.scrollTo(rt.transcript.scrollHeight);
-            renderJumpToBottom(rt);
+            applyTranscriptScroll(rt, "jump_to_bottom");
         },
     });
     rt.jumpToBottom.add(rt.jumpToBottomText);

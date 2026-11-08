@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
     createTuiSettingsDependencies,
 } from "../../support/tui-settings-child.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 function profileDirectory(home: string): string {
@@ -13,7 +13,7 @@ function profileDirectory(home: string): string {
 }
 
 test("settings picker restores the composer and the next Enter submits", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-settings-"));
+    const home = createStubTuiHome("vera-tui-settings-");
     const session = await startTuiTestSession({
         home,
         dependencies: () => createTuiSettingsDependencies(),

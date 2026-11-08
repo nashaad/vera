@@ -5,10 +5,11 @@ import { join } from "node:path";
 
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("a dropped reasoning row leaves the transcript", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
+    const home = createStubTuiHome("vera-tui-test-");
     let finishTurn: (() => void) | undefined;
     const session = await startTuiTestSession({
         home,

@@ -1,3 +1,5 @@
+import type { ScrollBoxRenderable } from "@opentui/core";
+
 export function tuiTranscriptAtBottom(
     scrollTop: number,
     scrollHeight: number,
@@ -11,4 +13,9 @@ export function tuiTranscriptAtBottom(
         return false;
     }
     return scrollTop >= maxScrollTop - 1;
+}
+
+export function resumeTuiTranscriptFollow(transcript: ScrollBoxRenderable): void {
+    transcript.scrollTo(transcript.scrollHeight);
+    transcript.stickyScroll = true;
 }

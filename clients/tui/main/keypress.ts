@@ -38,7 +38,8 @@ import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPic
 import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
-import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow } from "./notices.ts";
+import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow, updateTranscriptScrollFollow } from "./notices.ts";
+import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { restartLostHost } from "./restart-lost-host.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
@@ -65,11 +66,13 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         clearTranscriptAnchorPadding(rt);
     }
     if (scrollLines === undefined) {
-        rt.transcript.scrollTo(rt.transcript.scrollHeight);
+        resumeTuiTranscriptFollow(rt.transcript);
+        renderJumpToBottom(rt, false);
     } else {
+        const previousTop = rt.transcript.scrollTop;
         rt.transcript.scrollBy(scrollLines);
+        updateTranscriptScrollFollow(rt, previousTop, scrollLines < 0 ? "up" : "down");
     }
-    renderJumpToBottom(rt, scrollLines === undefined);
     return true;
 }
 
