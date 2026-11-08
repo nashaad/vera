@@ -36,6 +36,7 @@ export interface ImportSessionOptions {
     readonly indexed: Iterable<RegisteredAgentSummary>;
     readonly now?: () => Date;
     readonly createSessionId?: () => string;
+    readonly importedSourceHash?: (summary: RegisteredAgentSummary) => Promise<string | undefined>;
 }
 
 const MAX_NAME_BYTES = 200;
@@ -48,7 +49,7 @@ export async function importSessionFile(
     const source = await parseSourceFileInChild(absolutePath);
     if (source.status === "rejected") return source;
     const { parsed, sha256 } = source;
-    const existing = await findExistingImport(parsed, sha256, options.indexed);
+    const existing = await findExistingImport(parsed, sha256, options.indexed, options.importedSourceHash);
     if (existing !== undefined) {
         return {
             status: "imported",
@@ -83,6 +84,7 @@ async function findExistingImport(
     parsed: ParsedImport,
     sha256: string,
     indexed: Iterable<RegisteredAgentSummary>,
+    importedSourceHash?: (summary: RegisteredAgentSummary) => Promise<string | undefined>,
 ): Promise<RegisteredAgentSummary | undefined> {
     for (const summary of indexed) {
         const imported = summary.imported_from;
@@ -94,8 +96,10 @@ async function findExistingImport(
             continue;
         }
         try {
-            const header = await readSessionHeader(summary.session_path);
-            if (header.importedFrom?.sourceSha256 === sha256) return summary;
+            const existingHash = importedSourceHash === undefined
+                ? (await readSessionHeader(summary.session_path)).importedFrom?.sourceSha256
+                : await importedSourceHash(summary);
+            if (existingHash === sha256) return summary;
         } catch {
             // A session that cannot be read is not a match.
         }

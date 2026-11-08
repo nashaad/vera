@@ -72,6 +72,7 @@ export interface StopWhenIdleControl {
 
 export interface StopWhenIdleOptions {
     readonly waitingOn: () => readonly StopWaitTarget[];
+    readonly waitingOnAsync?: () => Promise<readonly StopWaitTarget[]>;
     readonly onStopped: () => void | Promise<void>;
     readonly pollIntervalMs?: number;
     // Checked when a request names a build. A message refuses the request.
@@ -104,6 +105,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private announced: Extract<StopWaitEvent, { type: "wait" }> | undefined;
     // One record per session per wait; a repeat cut in the same wait still halts the session.
     private readonly recordedThisWait = new Set<string>();
+    private checks: Promise<void> = Promise.resolve();
 
     constructor(private readonly options: StopWhenIdleOptions) {}
 
@@ -136,6 +138,11 @@ export class StopWhenIdle implements StopWhenIdleControl {
         this.pending = buildId;
         this.held = true;
         this.listeners.add(listener);
+        if (this.options.waitingOnAsync !== undefined) {
+            this.ensureTimer();
+            this.enqueueCheck(listener, requestOptions.cutFirst === true);
+            return { accepted: true, unsubscribe: () => { this.listeners.delete(listener); } };
+        }
         const waiting = this.options.waitingOn();
         if (waiting.length === 0) {
             void this.finish();
@@ -170,7 +177,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
             : `Vera is updating to ${this.pending}`;
         const cut: string[] = [];
         const failed: StopCutFailure[] = [];
-        for (const target of this.options.waitingOn()) {
+        const waiting = this.options.waitingOnAsync === undefined
+            ? this.options.waitingOn() : await this.options.waitingOnAsync();
+        for (const target of waiting) {
             try {
                 const applied = this.options.cutSession !== undefined
                     && await this.options.cutSession(target.session_id, reason);
@@ -237,6 +246,10 @@ export class StopWhenIdle implements StopWhenIdleControl {
 
     private check(): void {
         if (this.finished) return;
+        if (this.options.waitingOnAsync !== undefined) {
+            this.enqueueCheck();
+            return;
+        }
         const waiting = this.options.waitingOn();
         if (waiting.length === 0) {
             void this.finish();
@@ -247,6 +260,31 @@ export class StopWhenIdle implements StopWhenIdleControl {
         this.lastKey = key;
         void this.broadcast({ type: "waiting", waiting_on: waiting });
         this.announce(waiting);
+    }
+
+    private enqueueCheck(listener?: StopWhenIdleListener, cutFirst = false): void {
+        this.checks = this.checks.then(async () => {
+            if (this.finished || this.pending === undefined) return;
+            const waiting = await this.options.waitingOnAsync!();
+            if (this.finished || this.pending === undefined) return;
+            if (waiting.length === 0) {
+                await this.finish();
+                return;
+            }
+            const key = keyOf(waiting);
+            if (listener !== undefined) {
+                this.lastKey = key;
+                await deliver(listener, { type: "waiting", waiting_on: waiting });
+                this.announce(waiting);
+                if (cutFirst) void this.cutWait();
+            } else if (key !== this.lastKey) {
+                this.lastKey = key;
+                await this.broadcast({ type: "waiting", waiting_on: waiting });
+                this.announce(waiting);
+            }
+        }).catch(async () => {
+            if (!this.finished && this.pending !== undefined) await this.abandon("The host could not check running sessions.");
+        });
     }
 
     // Starts or updates the announced wait for every observer.

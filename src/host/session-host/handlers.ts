@@ -10,21 +10,25 @@ import {
 } from "../../session-import/discover.ts";
 import {
     NO_SEARCH_RESULTS,
+    searchSessionShard,
     searchSessions,
+    type SessionSearchQuery,
+    type SessionSearchShard,
 } from "../../store/session-search.ts";
 import {
     type AgentRegistry,
     renameStoredSession,
     type RegisteredAgentSummary,
 } from "../agent-registry.ts";
+import type { ClosedMember } from "../agent-registry/support.ts";
 import type { ExtensionLoadFailure } from "../protocol.ts";
 import type { ResidentAgent } from "../resident-agent.ts";
-import { createSessionBlockService } from "../session-block-service.ts";
+import { createSessionBlockService, type SessionBlockService } from "../session-block-service.ts";
 import {
     importSessionFile,
     markImportedSessions,
 } from "../session-import-service.ts";
-import { buildWorkIndex, type WorkIndexSnapshot } from "../work-index.ts";
+import { buildWorkIndex, type WorkAgentFacts, type WorkIndexSnapshot, type WorkScheduleFacts } from "../work-index.ts";
 
 import type { CloseAgentOutcome, StartHostServerOptions } from "../server.ts";
 import {
@@ -73,6 +77,14 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
     readonly resumeAgent: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
     readonly releaseAgent: (id: string) => Promise<CloseAgentOutcome>;
+    readonly searchShard: (query: SessionSearchQuery, includePaths?: readonly string[], excludePaths?: readonly string[]) => Promise<SessionSearchShard>;
+    readonly workSchedules: (agents: readonly WorkAgentFacts[]) => readonly WorkScheduleFacts[];
+    readonly setImportedSourceHash: (reader: ((summary: RegisteredAgentSummary) => Promise<string | undefined>) | undefined) => void;
+    readonly blockParts: SessionBlockService;
+    readonly recordTrashOutcome: (rootId: string, closed: readonly ClosedMember[], trashed: boolean) => Promise<void>;
+    readonly recordClosedMembers: (closed: readonly ClosedMember[]) => Promise<void>;
+    readonly rememberStored: (summary: RegisteredAgentSummary) => void;
+    readonly forgetStored: (id: string) => void;
 }
 
 interface SessionHandlerOptions {
@@ -104,6 +116,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
     // Imports run one at a time so two requests for one file cannot both write.
     let importQueue: Promise<void> = Promise.resolve();
+    let importedSourceHash: ((summary: RegisteredAgentSummary) => Promise<string | undefined>) | undefined;
     const closeSession = async (targetId: string, reason?: SessionEndReason, transfer = false): Promise<CloseAgentOutcome> => {
         const outcome = transfer
             ? await registry.releaseAgentTree(targetId)
@@ -120,6 +133,25 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             : { status: "not_found" } as const;
     };
     return {
+        blockParts: sessionBlocks,
+        rememberStored(summary) {
+            if (!storedSessionIndex.has(summary.id)) storedSessionIndex.set(summary.id, summary);
+        },
+        forgetStored(id) {
+            storedSessionIndex.delete(id);
+        },
+        async recordClosedMembers(closed) {
+            await indexClosedMembers(registry, closed, storedSessionIndex);
+            registry.notifyRosterChanged();
+        },
+        async recordTrashOutcome(rootId, closed, trashed) {
+            await indexClosedMembers(registry, trashed ? closed.filter((member) => member.id !== rootId) : closed, storedSessionIndex).catch(() => {});
+            if (trashed) {
+                storedSessionIndex.delete(rootId);
+                forgetRestartRecords(rootId);
+            }
+            registry.notifyRosterChanged();
+        },
         findAgent: (agentId) => findOrRestoreAgent(
             registry,
             agentId,
@@ -164,6 +196,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             });
             return workIndexThisTurn;
         },
+        workSchedules: (agents) => registry.scheduleWorkFacts(recentScheduleRuns(), agents),
         searchSessions: async (query) => {
             if (query.session_id === undefined) {
                 return searchSessions(sessionDirectory, query);
@@ -179,6 +212,10 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
                 ? NO_SEARCH_RESULTS
                 : searchSessions(sessionDirectory, query, { sessionPath });
         },
+        searchShard: (query, includePaths, excludePaths) => searchSessionShard(sessionDirectory, query, {
+            ...(includePaths === undefined ? {} : { includePaths }),
+            ...(excludePaths === undefined ? {} : { excludePaths }),
+        }),
         onRosterChanged: (listener) => {
             const stopRoster = registry.onRosterChanged(listener);
             const stopWork = onWorkChanged(listener);
@@ -261,6 +298,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
                 const outcome = await importSessionFile(path, {
                     sessionDirectory,
                     indexed: storedSessionIndex.values(),
+                    ...(importedSourceHash === undefined ? {} : { importedSourceHash }),
                 });
                 if (outcome.status === "imported" && !outcome.existing) {
                     await indexStoredSession(
@@ -273,6 +311,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             importQueue = run.then(() => undefined, () => undefined);
             return run;
         },
+        setImportedSourceHash: (reader) => { importedSourceHash = reader; },
         listImportableSessions: async (workspace) => {
             const listed = await importableSessions.list(workspace);
             await storedSessions;

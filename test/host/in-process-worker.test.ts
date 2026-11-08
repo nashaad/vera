@@ -225,14 +225,14 @@ socketTest("resume releases the master before the worker opens a session", async
 
         activeClient = await attachAgent({ socketPath: masterSocket, agentId: agent.id });
         await activeClient.receive();
-        await expect(resumeAgentThroughHost(masterSocket, path)).rejects.toThrow();
+        expect((await resumeAgentThroughHost(masterSocket, path)).id).toBe(agent.id);
         expect(host.registry.find(agent.id)).toBe(agent);
         activeClient.close();
         activeClient = undefined;
         await waitUntil(() => !agent.attached);
         const entry = host.registry.agents.get(agent.id)!;
         entry.pendingCompletionDeliveries = 1;
-        await expect(resumeAgentThroughHost(masterSocket, path)).rejects.toThrow();
+        expect((await resumeAgentThroughHost(masterSocket, path)).id).toBe(agent.id);
         expect(host.registry.agents.has(agent.id)).toBe(true);
         entry.pendingCompletionDeliveries = 0;
 
