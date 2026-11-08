@@ -605,6 +605,30 @@ test("TUI diagnostics says so when no model has failed", () => {
     expect(text).toContain("No recorded model failures.");
 });
 
+test("the Vera report shows the local request build error", () => {
+    const detail = "Tool call ID normalization produced duplicate ID: call_bash_1";
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "ready",
+        elapsed: "0s",
+        scope: "vera",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        modelFailures: summariseModelFailures([{
+            at: "2026-11-08T00:00:00.000Z",
+            provider: "stub",
+            model: "crow",
+            kind: "request_build",
+            detail,
+            sessionId: "crow",
+        }]),
+    });
+
+    expect(text).toContain("stub/crow");
+    expect(text).toContain("request build");
+    expect(text).toContain(detail);
+});
+
 test("TUI diagnostics prints a ready provider health line on both scopes", () => {
     const health = {
         kind: "ready" as const,

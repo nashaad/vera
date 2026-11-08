@@ -1226,6 +1226,7 @@ function isProviderFailureKind(value: unknown): boolean {
         || value === "payment_required"
         || value === "permission"
         || value === "invalid_request"
+        || value === "request_build"
         || value === "not_found"
         || value === "request_too_large"
         || value === "unknown";

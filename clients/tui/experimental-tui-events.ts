@@ -4,6 +4,7 @@ import type {
     VeraExperimentalTuiKey,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
+import { createRenderCoalescer } from "./render-coalescer.ts";
 
 export type TuiExperimentalEventName =
     | "conversation_changed"
@@ -46,6 +47,8 @@ export function createTuiExperimentalEventBus(
 ): TuiExperimentalEventBus {
     let lastTranscript: VeraExperimentalTuiContext["transcript"] = [];
     let closed = false;
+    // Stream deltas repaint on the render coalescer's interval, not once per chunk.
+    const repaint = createRenderCoalescer({ render: onRenderRequested });
     const listeners: EventListeners = {
         conversation_changed: new Set(),
         transcript_changed: new Set(),
@@ -72,14 +75,17 @@ export function createTuiExperimentalEventBus(
         event: TuiExperimentalEventName,
         ...args: any[]
     ): void {
+        const updateType = event === "agent_event"
+            ? String((args[0] as VeraExperimentalTuiAgentEvent).type)
+            : event;
         for (const registered of listeners[event]) {
             try {
                 void Promise.resolve(registered.listener(...args))
                     .catch((error) => reportFailure(registered, error))
-                    .then(() => onRenderRequested());
+                    .then(() => repaint.request(updateType));
             } catch (error) {
                 reportFailure(registered, error);
-                onRenderRequested();
+                repaint.request(updateType);
             }
         }
     }
@@ -108,6 +114,7 @@ export function createTuiExperimentalEventBus(
         agentEvent: (event) => fire("agent_event", event),
         clear(): void {
             closed = true;
+            repaint.stop();
             for (const set of Object.values(listeners)) set.clear();
         },
     };

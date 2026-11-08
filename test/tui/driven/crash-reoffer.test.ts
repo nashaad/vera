@@ -5,9 +5,11 @@ import { join } from "node:path";
 
 import type { TuiAgentClient } from "../../../clients/tui/main.ts";
 import { AsyncQueue } from "../../../src/engine/async-queue.ts";
-import type { AgentUpdate, ClientCommand, HistoryUpdate } from "../../../src/engine/protocol.ts";
+import { createProtocolEncoder, type AgentUpdate, type ClientCommand, type HistoryUpdate } from "../../../src/engine/protocol.ts";
 import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
+import { emptyUsage } from "../../../src/model/types.ts";
+import { CRASHED_TOOL_RESULT, SessionStore } from "../../../src/store/session-store.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 function history(): HistoryUpdate {
@@ -34,13 +36,74 @@ function fake() {
     return { updates, sent, client };
 }
 
+test("a partly saved tool batch re-offers its surviving queued prompts", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-crash-batch-reoffer-"));
+    const path = join(home, "session.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });
+    const sha256 = "a".repeat(64);
+    const imageId = `${sha256}.png`;
+    await store.appendAttachment({ id: imageId, name: "map.png", mediaType: "image/png", bytes: 123, width: 10, height: 20, sha256 });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the ship" }] });
+    const call = await store.appendMessage({
+        role: "assistant", content: [
+            { type: "tool_call", id: "fast", name: "read", input: {} },
+            { type: "tool_call", id: "slow", name: "read", input: {} },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "tool_use",
+    });
+    await store.appendMessage({
+        role: "tool_result", toolCallId: "fast", toolName: "read",
+        content: [{ type: "text", text: "The deck is clear." }], isError: false,
+    });
+    const notice = await store.appendHarnessMessage("Crew notice", "soft", call.id);
+    expect(notice.afterMessageId).toBe(call.id);
+    await store.appendQueuedPrompt("first", { content: "Check the sails" });
+    await store.appendQueuedPrompt("second", { content: "Inspect the map", attachmentIds: [imageId] });
+    expect(await store.repairCrashedTurn()).toBe(true);
+    const reopened = await SessionStore.open(path);
+    expect(await reopened.repairCrashedTurn()).toBe(false);
+    const source = fake();
+    let projected: HistoryUpdate | undefined;
+    const encoder = createProtocolEncoder({
+        send(update) { if (update.type === "history") projected = update; },
+    }, undefined, () => reopened.projectedHarnessMessages(), undefined, undefined, undefined, () => reopened.unsentPrompts());
+    encoder.checkpoint(reopened.messages(), reopened.activeMessageStamps());
+    expect(projected).toBeDefined();
+    expect(projected!.entries.filter((entry) => entry.kind === "tool_result")).toMatchObject([
+        { output: "The deck is clear.", isError: false },
+        { output: CRASHED_TOOL_RESULT, isError: true },
+    ]);
+    expect(projected!.unsentPrompts).toEqual([
+        { content: "Check the sails" }, { content: "Inspect the map", attachmentIds: [imageId] },
+    ]);
+    source.updates.push({ type: "history", entries: [], seq: 0 });
+    const session = await startTuiTestSession({ home, dependencies: () => ({ client: source.client }) });
+    try {
+        await session.waitForVisiblePane("Message Vera");
+        source.updates.push(projected!);
+        const pane = await session.waitForVisiblePaneWhere(
+            (value) => value.includes("Check the sails") && value.includes("Vera crashed before this turn finished."),
+            "recovered prompt and crash line",
+        );
+        expect(pane).toContain("Vera crashed before this turn finished.");
+        session.sendKey("Up");
+        expect(await session.waitForVisiblePane("Inspect the map")).toContain("[Image 1]");
+        expect(source.sent.filter((command) => command.type === "prompt")).toEqual([]);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("a crash re-offers the earliest prompt once without sending it", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-crash-reoffer-"));
     const source = fake();
     source.updates.push(history());
     const session = await startTuiTestSession({ home, dependencies: () => ({ client: source.client }) });
     try {
-        const pane = await session.waitForVisiblePane("first crow");
+        const pane = await session.waitForVisiblePaneWhere(
+            (value) => value.includes("first crow") && value.includes("Vera crashed before this turn finished."),
+            "recovered prompt and crash line",
+        );
         expect(pane).toContain("Vera crashed before this turn finished.");
         expect(source.sent.filter((command) => command.type === "prompt")).toEqual([]);
         session.sendText(" edited");

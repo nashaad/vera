@@ -1,5 +1,6 @@
 import { HTTPClient, OpenRouter } from "@openrouter/sdk";
 import type { ChatMessages, ChatRequestEffort } from "@openrouter/sdk/models";
+import { SDKValidationError } from "@openrouter/sdk/models/errors";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
@@ -22,6 +23,7 @@ import type { ImageSupportLookup } from "../model/image-support.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { cacheRetention, promptCacheKey } from "../model/prompt-cache.ts";
 import { transformMessages } from "../model/transform.ts";
+import { buildModelRequest, requestBuildFailure } from "../model/request-build.ts";
 import {
     encodeOpenRouterMessages,
     encodeOpenRouterTools,
@@ -130,32 +132,37 @@ export class OpenRouterAdapter implements ModelAdapter {
 
         try {
             throwIfAborted(request.signal);
-            const providerPreferences = this.profile.provider === "openrouter"
-                && request.bodyExtensions !== undefined
-                ? openRouterProviderPreferences(
-                    request.bodyExtensions,
-                    "OpenRouter request body",
-                )
-                : undefined;
-            if (
-                request.bodyExtensions !== undefined
-                && this.profile.provider !== "openrouter"
-                && !this.profile.supportsBodyExtensions
-            ) {
-                throw new Error(
-                    `Provider ${this.profile.provider} does not support model request contributions`,
-                );
-            }
-            const messages = transformMessages(request.messages, {
-                target: source,
-                normalizeToolCallId: normalizeOpenRouterToolCallId,
+            const { providerPreferences, messages, profileEffort } = buildModelRequest(() => {
+                const preferences = this.profile.provider === "openrouter"
+                    && request.bodyExtensions !== undefined
+                    ? openRouterProviderPreferences(
+                        request.bodyExtensions,
+                        "OpenRouter request body",
+                    )
+                    : undefined;
+                if (
+                    request.bodyExtensions !== undefined
+                    && this.profile.provider !== "openrouter"
+                    && !this.profile.supportsBodyExtensions
+                ) {
+                    throw new Error(
+                        `Provider ${this.profile.provider} does not support model request contributions`,
+                    );
+                }
+                return {
+                    providerPreferences: preferences,
+                    messages: transformMessages(request.messages, {
+                        target: source,
+                        normalizeToolCallId: normalizeOpenRouterToolCallId,
+                    }),
+                    profileEffort: request.reasoningEffort === undefined
+                        ? undefined
+                        : this.profile.reasoningEffort?.(
+                            request.reasoningEffort,
+                            request.model,
+                        ),
+                };
             });
-            const profileEffort = request.reasoningEffort === undefined
-                ? undefined
-                : this.profile.reasoningEffort?.(
-                    request.reasoningEffort,
-                    request.model,
-                );
             const verifiedMapping = request.reasoningEffort === undefined
                 ? undefined
                 : profileEffort ?? this.reasoningMappings
@@ -183,34 +190,36 @@ export class OpenRouterAdapter implements ModelAdapter {
             if (substituted !== undefined) {
                 stream.push(substituted);
             }
-            const cacheKey = promptCacheKey(request);
-            const providerRequest = {
-                model: request.model,
-                ...(request.maxTokens === undefined
-                    ? {}
-                    : { maxTokens: request.maxTokens }),
-                messages: encodeOpenRouterMessages(
-                    request.systemPrompt,
-                    messages,
-                    request.model,
-                ),
-                ...(reasoning?.providerEffort === undefined
-                    ? {}
-                    : { reasoning: { effort: reasoning.providerEffort } }),
-                ...(request.tools === undefined || request.tools.length === 0
-                    ? {}
-                    : { tools: encodeOpenRouterTools(request.tools, request.model) }),
-                ...(request.bodyExtensions === undefined
-                    ? {}
-                    : { bodyExtensions: request.bodyExtensions }),
-                ...(providerPreferences === undefined
-                    ? {}
-                    : { provider: providerPreferences }),
-                ...(cacheKey === undefined ? {} : { cacheKey }),
-                cacheRetention: cacheRetention(request),
-            };
+            const providerRequest = buildModelRequest(() => {
+                const cacheKey = promptCacheKey(request);
+                return {
+                    model: request.model,
+                    ...(request.maxTokens === undefined
+                        ? {}
+                        : { maxTokens: request.maxTokens }),
+                    messages: encodeOpenRouterMessages(
+                        request.systemPrompt,
+                        messages,
+                        request.model,
+                    ),
+                    ...(reasoning?.providerEffort === undefined
+                        ? {}
+                        : { reasoning: { effort: reasoning.providerEffort } }),
+                    ...(request.tools === undefined || request.tools.length === 0
+                        ? {}
+                        : { tools: encodeOpenRouterTools(request.tools, request.model) }),
+                    ...(request.bodyExtensions === undefined
+                        ? {}
+                        : { bodyExtensions: request.bodyExtensions }),
+                    ...(providerPreferences === undefined
+                        ? {}
+                        : { provider: providerPreferences }),
+                    ...(cacheKey === undefined ? {} : { cacheKey }),
+                    cacheRetention: cacheRetention(request),
+                };
+            });
 
-            allowanceRequest = this.allowanceScope === undefined
+            allowanceRequest = buildModelRequest(() => this.allowanceScope === undefined
                 ? undefined
                 : {
                     scope: this.allowanceScope,
@@ -222,7 +231,7 @@ export class OpenRouterAdapter implements ModelAdapter {
                     ...(request.maxTokens === undefined
                         ? {}
                         : { maxTokens: request.maxTokens }),
-                };
+                });
             const preflight = allowanceRequest === undefined
                 ? undefined
                 : this.allowanceGuard?.preflight(allowanceRequest);
@@ -370,33 +379,38 @@ export function createOpenRouterAdapter(
     });
 
     return new OpenRouterAdapter(async (request, signal) => {
-        return client.chat.send(
-            {
-                chatRequest: {
-                    model: request.model,
-                    ...(request.maxTokens === undefined
-                        ? {}
-                        : { maxTokens: request.maxTokens }),
-                    messages: openRouterCacheMessages(request),
-                    ...openRouterCacheFields(request),
-                    ...(request.reasoning === undefined
-                        ? {}
-                        : {
-                            reasoning: {
-                                effort: request.reasoning.effort as ChatRequestEffort,
-                            },
-                        }),
-                    ...(request.tools === undefined || request.tools.length === 0
-                        ? {}
-                        : { tools: request.tools }),
-                    ...(request.provider === undefined
-                        ? {}
-                        : { provider: request.provider }),
-                    stream: true,
+        try {
+            return await client.chat.send(
+                {
+                    chatRequest: {
+                        model: request.model,
+                        ...(request.maxTokens === undefined
+                            ? {}
+                            : { maxTokens: request.maxTokens }),
+                        messages: buildModelRequest(() => openRouterCacheMessages(request)),
+                        ...buildModelRequest(() => openRouterCacheFields(request)),
+                        ...(request.reasoning === undefined
+                            ? {}
+                            : {
+                                reasoning: {
+                                    effort: request.reasoning.effort as ChatRequestEffort,
+                                },
+                            }),
+                        ...(request.tools === undefined || request.tools.length === 0
+                            ? {}
+                            : { tools: request.tools }),
+                        ...(request.provider === undefined
+                            ? {}
+                            : { provider: request.provider }),
+                        stream: true,
+                    },
                 },
-            },
-            { signal },
-        );
+                { signal },
+            );
+        } catch (cause) {
+            if (cause instanceof SDKValidationError) throw requestBuildFailure(cause);
+            throw cause;
+        }
     },
     options.reasoningMappings,
     OPENROUTER_PROFILE,

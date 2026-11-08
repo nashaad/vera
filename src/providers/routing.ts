@@ -7,6 +7,7 @@ import {
     type ModelStreamEvent,
 } from "../model/types.ts";
 import { ModelEventStream } from "../model/stream.ts";
+import { requestBuildFailure } from "../model/request-build.ts";
 import type { VeraConfig } from "../config.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
 import { validateProviderRequestBody } from "./request-options.ts";
@@ -151,7 +152,12 @@ export class ProviderRoutingAdapter implements ModelAdapter {
     ): Promise<void> {
         let terminal = false;
         try {
-            const prepared = await this.preparedRequest(request, provider);
+            let prepared: ModelRequest;
+            try {
+                prepared = await this.preparedRequest(request, provider);
+            } catch (cause) {
+                throw request.signal?.aborted ? cause : requestBuildFailure(cause);
+            }
             for await (const event of this.adapter(provider).stream(prepared)) {
                 if (event.type === "done" || event.type === "error") {
                     terminal = true;

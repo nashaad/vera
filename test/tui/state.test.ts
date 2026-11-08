@@ -2871,6 +2871,34 @@ test("a failed model request says what failed and how to fix it, live and replay
     expect(plainText(renderTuiEntry(older.entries.at(-1)!))).toBe(`MODEL REQUEST FAILED\n${error}`);
 });
 
+test("a local request build failure renders the same row live and after replay", () => {
+    const modelFailure = { model: "stub/crow", kind: "request_build" as const };
+    const error = "Tool call ID normalization produced duplicate ID: call_bash_1";
+    const live = applyAgentUpdate(beginTuiTurn(createTuiState(), "ahoy"), {
+        type: "turn_finished",
+        outcome: "error",
+        error,
+        modelFailure,
+        seq: 1,
+    });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "ahoy" },
+            { kind: "error", outcome: "error", detail: error, modelFailure },
+        ],
+        seq: 1,
+    });
+
+    expect(live.entries.at(-1)).toEqual(replayed.entries.at(-1));
+    expect(plainText(renderTuiEntry(replayed.entries.at(-1)!))).toBe(
+        "MODEL REQUEST FAILED\n"
+            + "Vera could not build the request for stub/crow.\n"
+            + "Fix: open /diagnostics and check the Vera report.",
+    );
+    expect(live.working).toBe(false);
+});
+
 function autoReviewEntry(
     userAuthorization: "unknown" | "low" | "medium" | "high",
     reason: string,

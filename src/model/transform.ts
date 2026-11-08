@@ -29,7 +29,8 @@ export function transformMessages(
     const usedToolCallIds = new Set<string>();
     const transformed: ModelInputMessage[] = [];
 
-    for (const message of messages) {
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index]!;
         if (message.role === "assistant") {
             if (shouldSkip(message)) {
                 continue;
@@ -39,6 +40,33 @@ export function transformMessages(
             transformed.push(assistant.message);
             for (const [originalId, toolCall] of assistant.toolCalls) {
                 transformedToolCallIds.set(originalId, toolCall.id);
+            }
+            const adjacent: ModelInputToolResultMessage[] = [];
+            for (let next = index + 1; next < messages.length; next += 1) {
+                const candidate = messages[next]!;
+                if (candidate.role !== "tool_result" || !assistant.toolCalls.has(candidate.toolCallId)) break;
+                adjacent.push(candidate);
+            }
+            const calls = [...assistant.toolCalls];
+            const hasMissing = calls.some(([id]) => !resultIds.has(id));
+            const present = new Map(adjacent.map((result) => [result.toolCallId, result]));
+            const ordered = calls.filter(([id]) => present.has(id)).map(([id]) => id);
+            if (hasMissing && adjacent.length > 0
+                && present.size === adjacent.length
+                && adjacent.every((result, position) =>
+                    result.toolCallId === ordered[position] && !skippedToolCallIds.has(result.toolCallId)
+                )
+                && calls.every(([id]) => !resultIds.has(id) || present.has(id))) {
+                for (const [originalId, toolCall] of calls) {
+                    const result = present.get(originalId);
+                    transformed.push(result === undefined
+                        ? missingToolResult(toolCall.id, toolCall.name)
+                        : { ...result, toolCallId: toolCall.id });
+                }
+                index += adjacent.length;
+                continue;
+            }
+            for (const [originalId, toolCall] of calls) {
                 if (!resultIds.has(originalId)) {
                     transformed.push(missingToolResult(toolCall.id, toolCall.name));
                 }

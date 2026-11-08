@@ -140,6 +140,50 @@ test("the reusable NDJSON endpoint frames engine messages and EOF", async () => 
     });
 });
 
+test("stdio carries the local build failure in live and replayed updates", async () => {
+    const client = new FakeAttachedAgentClient();
+    const input = new Readable({ read() {} });
+    const frames: Record<string, unknown>[] = [];
+    let finish!: () => void;
+    const written = new Promise<void>((resolve) => finish = resolve);
+    const run = runAttachedStdioBridge(input, {
+        write: (text) => {
+            const frame = JSON.parse(text) as Record<string, unknown>;
+            frames.push(frame);
+            if (frame.type === "turn_finished") finish();
+        },
+    }, client);
+    const modelFailure = { model: "stub/crow", kind: "request_build" as const };
+    client.updates.push({
+        type: "history",
+        entries: [{ kind: "error", outcome: "error", detail: "duplicate ID", modelFailure }],
+        seq: 1,
+    });
+    client.updates.push({
+        type: "turn_finished",
+        outcome: "error",
+        error: "duplicate ID",
+        modelFailure,
+        seq: 2,
+    });
+    await written;
+    input.push(null);
+    await run;
+
+    expect(frames).toContainEqual({
+        type: "history",
+        entries: [{ kind: "error", outcome: "error", detail: "duplicate ID", modelFailure }],
+        seq: 1,
+    });
+    expect(frames).toContainEqual({
+        type: "turn_finished",
+        outcome: "error",
+        error: "duplicate ID",
+        modelFailure,
+        seq: 2,
+    });
+});
+
 test("stdio frames updates after its attached marker", async () => {
     const client = new FakeAttachedAgentClient();
     const input = new Readable({ read() {} });

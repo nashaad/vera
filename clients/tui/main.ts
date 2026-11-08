@@ -963,6 +963,7 @@ export async function startTui(
         ?? createCliRenderer({
             exitOnCtrlC: false,
             targetFps: 30,
+            debounceDelay: 33,
         }));
     // Request the kitty keyboard protocol so ctrl+shift chords actually arrive.
     rt.renderer.enableKittyKeyboard();
@@ -2012,6 +2013,7 @@ export async function startTui(
         rt.dependencies.homeHasSessions ?? true,
         homeNeedsProvider(rt),
     );
+    rt.homeCommandMode = false;
     rt.homeSubmitPending = false;
     rt.onboardingPromptWaiting = false;
     rt.onboardingPromptRequest = undefined;

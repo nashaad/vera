@@ -184,6 +184,12 @@ export interface SessionHarnessMessageEntry {
     readonly unsentPrompts?: readonly UnsentPrompt[];
 }
 
+interface CommitHarnessMessageOptions {
+    readonly crashCut?: true;
+    readonly unsentPrompts?: readonly UnsentPrompt[];
+    readonly afterMessageId?: string | null;
+}
+
 export interface SessionNameEntry {
     readonly type: "session_name";
     readonly timestamp: string;
@@ -856,7 +862,7 @@ export class SessionStore {
                     isError: true,
                 });
             }
-            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", true, unsentPrompts);
+            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", { crashCut: true, unsentPrompts });
             return true;
         });
         this.pendingAppend = result.then(() => undefined, () => undefined);
@@ -911,10 +917,16 @@ export class SessionStore {
     appendHarnessMessage(
         text: string,
         tone: "primary" | "soft" | "error",
+        visibleHeadId?: string | null,
     ): Promise<SessionHarnessMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitHarnessMessage(text, tone);
+            const leaf = this.activeEntries().at(-1);
+            const afterMessageId = leaf?.message.role === "tool_result"
+                && visibleHeadId !== undefined && leaf.id !== visibleHeadId
+                ? visibleHeadId
+                : undefined;
+            return this.commitHarnessMessage(text, tone, { afterMessageId });
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -1307,9 +1319,9 @@ export class SessionStore {
     private async commitHarnessMessage(
         requestedText: string,
         tone: "primary" | "soft" | "error",
-        crashCut?: true,
-        unsentPrompts?: readonly UnsentPrompt[],
+        options: CommitHarnessMessageOptions = {},
     ): Promise<SessionHarnessMessageEntry> {
+        const { crashCut, unsentPrompts, afterMessageId } = options;
         const text = requestedText.trim();
         if (text.length === 0) {
             throw new Error("Cannot append an empty harness message");
@@ -1317,7 +1329,7 @@ export class SessionStore {
         const entry: SessionHarnessMessageEntry = {
             type: "harness_message",
             timestamp: this.now().toISOString(),
-            afterMessageId: this.projection.leafId,
+            afterMessageId: afterMessageId === undefined ? this.projection.leafId : afterMessageId,
             text,
             tone,
             ...(crashCut === true ? { crashCut } : {}),

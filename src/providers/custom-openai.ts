@@ -1,5 +1,6 @@
 import type { ModelAdapter } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { buildModelRequest } from "../model/request-build.ts";
 import type { ImageSupportLookup } from "../model/image-support.ts";
 import {
     OpenAICompatibleAdapter,
@@ -66,14 +67,14 @@ export function createCustomOpenAIAdapter(
                         : { authorization: `Bearer ${options.apiKey}` }),
                     ...affinityHeader(options.cache, request.cacheKey),
                 },
-                body: JSON.stringify(encodeRequest(
+                body: buildModelRequest(() => JSON.stringify(encodeRequest(
                     request,
                     options.requestLayers ?? [],
                     options.provider,
                     options.overlay,
                     options.cacheDir,
                     options.cache,
-                )),
+                ))),
                 signal,
             });
             if (!response.ok) {

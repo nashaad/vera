@@ -27,7 +27,9 @@ Escape closes the preview.
 
 <div data-widget="screen-steps" data-steps="keep-running"></div>
 
-From Home or a saved-file view, Enter opens the selected conversation directly.
+From Home, a saved-file view, or an empty conversation with no turn running,
+Enter opens the selected conversation directly. Typing a slash command at Home
+does not start a conversation.
 `Ctrl+E` opens the same picker as `/resume`.
 
 ## See what is running

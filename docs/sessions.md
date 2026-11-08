@@ -108,7 +108,8 @@ The list is read when Vera starts on the home screen and each time the home
 screen opens. It does not refresh on a timer. Vera does not resend an
 interrupted turn. After a crash, the transcript marks the cut turn and records
 an unknown effect for any unfinished tool call. Check the workspace before
-relying on that call or running it again. Streamed text that was not committed
+relying on that call or running it again. Finished tool results that were saved
+before the crash remain in the transcript. Streamed text that was not committed
 before the crash is lost.
 
 After a crash, prompts still waiting in the queue and prompts that received no

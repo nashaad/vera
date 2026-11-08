@@ -15,7 +15,7 @@ import { searchOverlayViewState } from "../search-overlay.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { setTextContent } from "../text-content.ts";
-import { tuiTranscriptReusableTail } from "../transcript-window.ts";
+import { tuiTranscriptReusablePrefix, tuiTranscriptReusableTail } from "../transcript-window.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
 import { subagentTitle } from "../subagent-title.ts";
@@ -358,11 +358,11 @@ export function renderState(rt: TuiRuntime): void {
     rt.overlayScrim.left = requestRailColumns;
     rt.overlayScrim.width = Math.max(1, rt.renderer.width - requestRailColumns);
     rt.composerBox.visible = uiRequest === undefined
-        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode);
+        && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode || rt.homeCommandMode);
     rt.resumeOverlay.surface.visible = uiRequest === undefined
         && isJsonlViewClient(rt.client)
         && !rt.jsonlCommandMode;
-    rt.homeView.surface.visible = isHomeClient(rt.client)
+    rt.homeView.surface.visible = isHomeClient(rt.client) && !rt.homeCommandMode
         && rt.onboardingWizard === undefined && !overlayVisible;
     rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined;
     renderCommandSuggestions(rt);
@@ -662,25 +662,35 @@ export function reseedTranscriptNodes(rt: TuiRuntime,
             ? undefined
             : rt.entryNodeSources.get(node);
     }
-    const kept = tuiTranscriptReusableTail({
+    const reusable = {
         previous,
         next: entries,
         previousStart: rt.materializedEntryStart,
         previousEnd: rt.materializedEntryEnd,
-    });
+    };
+    const kept = tuiTranscriptReusableTail(reusable);
     if (kept === 0) {
-        clearTranscriptNodes(rt);
-        return;
+        const prefix = tuiTranscriptReusablePrefix(reusable);
+        if (prefix === 0) {
+            clearTranscriptNodes(rt);
+            return;
+        }
+        const keepTo = rt.materializedEntryStart + prefix;
+        for (let index = keepTo; index < rt.materializedEntryEnd; index += 1) {
+            destroyTranscriptEntryNode(rt, index);
+        }
+        rt.materializedEntryEnd = keepTo;
+    } else {
+        const oldEnd = rt.materializedEntryEnd;
+        const newEnd = entries.length;
+        const dropTo = oldEnd - kept;
+        for (let index = rt.materializedEntryStart; index < dropTo; index += 1) {
+            destroyTranscriptEntryNode(rt, index);
+        }
+        shiftTranscriptEntrySlots(rt, dropTo, oldEnd, newEnd - oldEnd);
+        rt.materializedEntryStart = newEnd - kept;
+        rt.materializedEntryEnd = newEnd;
     }
-    const oldEnd = rt.materializedEntryEnd;
-    const newEnd = entries.length;
-    const dropTo = oldEnd - kept;
-    for (let index = rt.materializedEntryStart; index < dropTo; index += 1) {
-        destroyTranscriptEntryNode(rt, index);
-    }
-    shiftTranscriptEntrySlots(rt, dropTo, oldEnd, newEnd - oldEnd);
-    rt.materializedEntryStart = newEnd - kept;
-    rt.materializedEntryEnd = newEnd;
     rt.pendingTranscriptScrollAnchor = undefined;
     rt.pendingTranscriptScrollRestore = {
         scrollTop: rt.transcript.scrollTop,
