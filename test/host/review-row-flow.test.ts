@@ -26,30 +26,36 @@ socketTest("a session that edited files is ready to review", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-review-row-"));
     const target = join(root, "hello.txt");
     await writeFile(target, "before\n", "utf8");
-    const socketPath = join(root, "host.sock");
-    const host = await startResidentHost({
-        config: {
-            schema_version: 1,
-            provider: "openrouter",
-            model: "faux/test",
-            approval_mode: "auto",
-        },
-        createAdapter: () => new FauxAdapter([
-            writeCall(target),
-            textResponse("done"),
-        ]),
-        socketPath,
-        lockPath: join(root, "host.json"),
-        sessionDirectory: join(root, "sessions"),
-        eventLogDirectory: join(root, "events"),
-    });
-    await host.registry.create({ id: "review-row-flow-agent", workspace: root });
-    const client = await attachAgent({
-        socketPath,
-        agentId: "review-row-flow-agent",
-        requestedCapabilities: [HOST_CAPABILITY_WORK_INDEX],
-    });
+    // The review count is read from the session's preimage stash under the Vera
+    // home, so the session id has to start with nothing there.
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = join(root, "vera-home");
+    let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
+    let client: Awaited<ReturnType<typeof attachAgent>> | undefined;
     try {
+        const socketPath = join(root, "host.sock");
+        host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([
+                writeCall(target),
+                textResponse("done"),
+            ]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "events"),
+        });
+        await host.registry.create({ id: "review-row-flow-agent", workspace: root });
+        client = await attachAgent({
+            socketPath,
+            agentId: "review-row-flow-agent",
+            requestedCapabilities: [HOST_CAPABILITY_WORK_INDEX],
+        });
         await client.send({ type: "prompt", content: "change it" });
 
         const reviewing = await untilIndex(client, (index) =>
@@ -64,8 +70,10 @@ socketTest("a session that edited files is ready to review", async () => {
         // The edit really happened; the row is describing the real thing.
         expect(await readFile(target, "utf8")).toContain("after");
     } finally {
-        client.close();
-        await host.close();
+        client?.close();
+        await host?.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
