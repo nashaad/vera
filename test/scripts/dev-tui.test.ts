@@ -82,6 +82,9 @@ test("dev:tui flags parse without swallowing passthrough args", () => {
         passthrough: ["-c"],
     });
     expect(parseDevTuiArgs(["--discard", "--stop"]).action).toBe("stop");
+    expect(parseDevTuiArgs(["--pool", "--no-discovery", "-c"])).toEqual({
+        action: "run", fresh: false, yes: false, passthrough: ["-c"], pool: true, noDiscovery: true,
+    });
 });
 
 test("the DEV marker is text, not a color-only cue", () => {

@@ -157,6 +157,8 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
 import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./master/in-process.ts";
+import { prepareProcessWorker } from "./master/process-worker.ts";
+import { controlSocketPath } from "./master/supervisor.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -164,6 +166,8 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
     readonly inProcessWorker?: boolean;
+    readonly processWorker?: boolean;
+    readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
     // Where Claude Code and Codex keep their sessions. Read, never written.
@@ -223,6 +227,23 @@ export interface ResidentHost {
 export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
+    return await startHostRuntime(options) as ResidentHost;
+}
+
+export interface SessionWorkerRuntime {
+    readonly sessionHost: SessionHost;
+    close(): Promise<void>;
+}
+
+export async function startSessionWorkerRuntime(
+    options: StartResidentHostOptions, restoringSessions: RestoringSessions,
+): Promise<SessionWorkerRuntime> {
+    return await startHostRuntime(options, restoringSessions) as SessionWorkerRuntime;
+}
+
+async function startHostRuntime(
+    options: StartResidentHostOptions, workerReservations?: RestoringSessions,
+): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     const selectedHome = options.home
         ?? process.env[VERA_HOME_ENV]?.trim();
@@ -267,12 +288,14 @@ export async function startResidentHost(
     const poolPath = options.home === undefined
         ? undefined
         : join(home, "pool.json");
-    const migration = migrateConfigPool({
-        configPath,
-        ...(poolPath === undefined ? {} : { poolPath }),
-    });
-    if (migration.notice !== undefined) {
-        hostLog({ type: "pool_migrated", message: migration.notice });
+    if (workerReservations === undefined) {
+        const migration = migrateConfigPool({
+            configPath,
+            ...(poolPath === undefined ? {} : { poolPath }),
+        });
+        if (migration.notice !== undefined) {
+            hostLog({ type: "pool_migrated", message: migration.notice });
+        }
     }
     const currentConfig = createLiveVeraConfigReader(options.config, {
         path: configPath,
@@ -288,7 +311,16 @@ export async function startResidentHost(
     const socketPath = options.socketPath
         ?? defaultHostSocketPath(home);
     const lockPath = options.lockPath ?? defaultHostLockPath(home);
-    const workerSocket = options.inProcessWorker === true ? inProcessWorkerSocket(home) : undefined;
+    if (options.inProcessWorker === true && options.processWorker === true) {
+        throw new Error("Choose one session worker transport");
+    }
+    if (options.processWorker === true && (options.createAdapter !== undefined || options.authStorage !== undefined
+        || options.trashSessionArtifacts !== undefined)) {
+        throw new Error("Process workers require serializable host services");
+    }
+    if (options.processWorker === true) controlSocketPath(home);
+    const workerSocket = options.inProcessWorker === true || options.processWorker === true
+        ? inProcessWorkerSocket(home) : undefined;
     if (workerSocket !== undefined && resolve(workerSocket) === resolve(socketPath)) {
         throw new Error("The host and worker socket paths must differ");
     }
@@ -324,7 +356,8 @@ export async function startResidentHost(
     const eventLogDirectory = options.eventLogDirectory;
     const authStorage = options.authStorage
         ?? createAuthStorage({ path: defaultAuthStoragePath(home) });
-    const discoversModelsAtStartup = options.createAdapter === undefined;
+    const discoversModelsAtStartup = workerReservations === undefined
+        && options.createAdapter === undefined && options.skipStartupDiscovery !== true;
     let models = await timed("model_discovery", () =>
         discoversModelsAtStartup
             ? discoverAvailableModels(
@@ -413,9 +446,11 @@ export async function startResidentHost(
         }
     };
     let sharedServices: SessionHostServices | undefined;
-    const restoringSessions: RestoringSessions = new Map();
+    const restoringSessions: RestoringSessions = workerReservations ?? new Map();
+    let annexUrl: string | undefined;
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
+        ...(workerReservations === undefined ? {} : { sessionWorker: true }),
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
         sessionDirectory, sessionIdentityReservationRoot, blockedDirectory, restoringSessions,
@@ -465,12 +500,14 @@ export async function startResidentHost(
             scheduleStore = ScheduleStore.open(
                 options.schedulePath ?? defaultSchedulePath(home),
             );
-            curatedRefresh = startCuratedRefresh({
-                path: curatedCachePath(home),
-                ...(options.config.curated_models_url === undefined
-                    ? {}
-                    : { url: options.config.curated_models_url }),
-            });
+            curatedRefresh = workerReservations === undefined
+                ? startCuratedRefresh({
+                    path: curatedCachePath(home),
+                    ...(options.config.curated_models_url === undefined
+                        ? {}
+                        : { url: options.config.curated_models_url }),
+                })
+                : { close: () => {} };
             const readFeedRow = createFeedRowReader(
                 options.config.model_feed_url === undefined
                     ? {}
@@ -721,6 +758,21 @@ export async function startResidentHost(
     };
     const sessionHost = await startSessionHost(sessionOptions);
     const { registry, extensions, createAdapter } = sessionHost;
+    if (workerReservations !== undefined) {
+        sessionHost.startStorage();
+        sessionHost.setParkIdle(async () => {});
+        return {
+            sessionHost,
+            async close() {
+                try {
+                    await sessionHost.close();
+                } finally {
+                    await closeInbox();
+                    await closeSidecars();
+                }
+            },
+        };
+    }
     // Scores fill in after startup; discovery never waits for the arena download.
     if (discoversModelsAtStartup) {
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
@@ -728,7 +780,6 @@ export async function startResidentHost(
 
     let server!: HostServer;
     let annex: AnnexProcess | undefined;
-    let annexUrl: string | undefined;
     let annexUnavailable: string | undefined;
     const annexHealth: { annex: "ok" | "failed"; annexReason?: string } = {
         annex: "failed",
@@ -784,11 +835,14 @@ export async function startResidentHost(
     try {
         sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
-            inProcessWorker = await prepareInProcessWorker({
+            const workerOptions = {
                 master: sessionHost, sessionOptions, masterSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
-            });
+            };
+            inProcessWorker = options.processWorker === true
+                ? prepareProcessWorker({ ...workerOptions, hostOptions: options })
+                : await prepareInProcessWorker(workerOptions);
         }
         watches = startWatchRuntimeIfConfigured(inbox, {
             watches: extensions.contributions().watches(),
@@ -849,7 +903,7 @@ export async function startResidentHost(
                                         registry.agents.has(id)
                                         || registry.startingIds.has(id)
                                         || registry.trashingIds.has(id)
-                                        || inProcessWorker?.hasSession(id) === true
+                                        || await (inProcessWorker?.hasSession(id) ?? false)
                                     ) return;
                                     await recover();
                                 });

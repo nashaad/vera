@@ -8,6 +8,7 @@ import {
     RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
+    RELEASE_SESSION_WORKER_NAME,
     RELEASE_SUPERVISOR_NAME,
     RELEASE_WORKER_NAME,
     releaseDirectory,
@@ -26,6 +27,7 @@ const RELEASE_WRAPPERS = [
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
     RELEASE_WORKER_NAME,
+    RELEASE_SESSION_WORKER_NAME,
     RELEASE_ANNEX_NAME,
     RELEASE_SUPERVISOR_NAME,
     RELEASE_BUN_NAME,
@@ -141,6 +143,7 @@ export function verifyPackedRelease(
     }
     requireRegularFile(releaseRoot, join("clients", "cli", "main.ts"));
     requireRegularFile(releaseRoot, join("clients", "host", "main.ts"));
+    requireRegularFile(releaseRoot, join("clients", "host", "session-worker.ts"));
     requireRegularFile(releaseRoot, join("src", "annex", "main.ts"));
     requireRegularFile(releaseRoot, join("docs", "index.md"));
 }

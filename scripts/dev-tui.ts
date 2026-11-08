@@ -9,8 +9,10 @@ import {
     rmSync,
     statSync,
     writeFileSync,
+    openSync,
+    closeSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -42,6 +44,9 @@ import {
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
 import { releaseBuildId } from "../src/release/build-id.ts";
+import { requestHostIdentity } from "../src/host/protocol.ts";
+import { controlSocketPath } from "../src/host/master/supervisor.ts";
+import { inProcessWorkerSocket } from "../src/host/master/in-process.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
 
 const CLI_ENTRYPOINT = fileURLToPath(
@@ -56,6 +61,8 @@ export interface DevTuiRequest {
     readonly fresh: boolean;
     readonly yes: boolean;
     readonly passthrough: readonly string[];
+    readonly pool?: true;
+    readonly noDiscovery?: true;
 }
 
 export interface DevInstanceMeta {
@@ -69,6 +76,8 @@ export function parseDevTuiArgs(args: readonly string[]): DevTuiRequest {
     let action: DevTuiAction = "run";
     let fresh = false;
     let yes = false;
+    let pool = false;
+    let noDiscovery = false;
     const passthrough: string[] = [];
     for (const arg of args) {
         if (arg === "--status") action = "status";
@@ -76,9 +85,11 @@ export function parseDevTuiArgs(args: readonly string[]): DevTuiRequest {
         else if (arg === "--discard") action = "discard";
         else if (arg === "--fresh") fresh = true;
         else if (arg === "--yes") yes = true;
+        else if (arg === "--pool") pool = true;
+        else if (arg === "--no-discovery") noDiscovery = true;
         else passthrough.push(arg);
     }
-    return { action, fresh, yes, passthrough };
+    return { action, fresh, yes, passthrough, ...(pool ? { pool: true } : {}), ...(noDiscovery ? { noDiscovery: true } : {}) };
 }
 
 export function factoryHomePath(worktreeRoot: string): string {
@@ -173,6 +184,7 @@ export interface DevTuiDependencies extends EvictHomeOptions {
         env: NodeJS.ProcessEnv,
         cwd: string,
     ) => Promise<number>;
+    readonly startPoolHost?: (home: string, env: NodeJS.ProcessEnv, cwd: string, noDiscovery: boolean) => Promise<void>;
     readonly checkpointDaily?: (
         socketPath: string,
         destination: string,
@@ -207,6 +219,12 @@ export async function runDevTui(
     const stdout = dependencies.stdout ?? process.stdout;
     const stderr = dependencies.stderr ?? process.stderr;
 
+    if (request.noDiscovery && !request.pool) throw new Error("--no-discovery requires --pool");
+    if (request.pool) {
+        controlSocketPath(destinationHome);
+        inProcessWorkerSocket(destinationHome);
+    }
+
     if (request.action === "status") {
         stdout.write(formatStatus(worktreeRoot, sourceHome, destinationHome));
         return 0;
@@ -237,6 +255,17 @@ export async function runDevTui(
 
     // A reused home outlives edits to the worktree, so the build is read now.
     const buildId = candidateBuildId(worktreeRoot);
+    if (request.pool) {
+        const inspection = inspectHostLockFileSync(join(destinationHome, "runtime", "host.json"));
+        if (inspection.state === "valid" && processIsAlive(inspection.record.pid)) {
+            stderr.write("Stop the existing development host before starting the session worker.\n");
+            return 1;
+        }
+        if (inspection.state === "damaged") {
+            stderr.write("The development host lock is damaged. Repair it before starting the session worker.\n");
+            return 1;
+        }
+    }
     const stale = await stopOtherBuildHost(destinationHome, buildId, stderr);
     if (stale !== 0) return stale;
 
@@ -336,11 +365,53 @@ export async function runDevTui(
         writeInstanceMeta(destinationHome, { ...meta, buildId });
     }
     const spawn = dependencies.spawnTui ?? spawnWorktreeTui;
+    const env = candidateLaunchEnv(destinationHome, worktreeRoot, buildId);
+    if (request.pool) {
+        env.VERA_DEV_INSTANCE = `${basename(worktreeRoot)} dev`;
+        await (dependencies.startPoolHost ?? startPoolHost)(destinationHome, env, worktreeRoot, request.noDiscovery === true);
+    }
     return await spawn(
         request.passthrough,
-        candidateLaunchEnv(destinationHome, worktreeRoot, buildId),
+        env,
         worktreeRoot,
     );
+}
+
+async function startPoolHost(home: string, env: NodeJS.ProcessEnv, cwd: string, noDiscovery: boolean): Promise<void> {
+    const entry = fileURLToPath(new URL("../clients/host/main.ts", import.meta.url));
+    mkdirSync(join(home, "runtime"), { recursive: true, mode: 0o700 });
+    const logPath = join(home, "runtime", "pool-start.log");
+    const log = openSync(logPath, "w", 0o600);
+    const child = spawn(process.execPath, [entry, "--pool", ...(noDiscovery ? ["--no-discovery"] : [])], {
+        cwd, env, detached: true, stdio: ["ignore", log, log],
+    });
+    closeSync(log);
+    const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
+    const error = new Promise<never>((_resolve, reject) => child.once("error", reject));
+    try {
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline) {
+            if (child.exitCode !== null || child.signalCode !== null) throw new Error("The development host exited during startup.");
+            const identity = await Promise.race([
+                requestHostIdentity(inProcessWorkerSocket(home)).catch(() => undefined),
+                error,
+            ]);
+            if (identity?.role === "worker" && readFileSync(logPath, "utf8").includes("Session worker ready\n")) {
+                child.unref();
+                return;
+            }
+            await Bun.sleep(25);
+        }
+        throw new Error("The development session worker did not become ready.");
+    } catch (failure) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+        const stopped = await Promise.race([exited.then(() => true), Bun.sleep(3_000).then(() => false)]);
+        if (!stopped) {
+            child.kill("SIGKILL");
+            await exited;
+        }
+        throw failure;
+    }
 }
 
 /** Lift a cloned profiles/ tree in place. Never touches the daily home. */

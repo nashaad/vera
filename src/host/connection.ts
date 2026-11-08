@@ -85,6 +85,10 @@ export function connectHost(
     });
 }
 
+export function acceptHostConnection(socket: Socket): HostConnection {
+    return createConnection_(socket, DEFAULT_MAX_LINE_BYTES, DEFAULT_MAX_PENDING_VALUES);
+}
+
 class OversizedFrame {
     constructor(readonly byteLength: number) {}
 }

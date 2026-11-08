@@ -6,6 +6,7 @@ import {
     RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
+    RELEASE_SESSION_WORKER_NAME,
     RELEASE_SUPERVISOR_NAME,
     RELEASE_WORKER_NAME,
 } from "./layout.ts";
@@ -15,6 +16,7 @@ export interface ReleaseWrapperSources {
     readonly cli: string;
     readonly host: string;
     readonly worker: string;
+    readonly sessionWorker: string;
     readonly annex: string;
     readonly supervisor: string;
 }
@@ -24,6 +26,7 @@ export function releaseSourceEntries(sourceRoot: string): ReleaseWrapperSources 
         cli: join(sourceRoot, "clients", "cli", "main.ts"),
         host: join(sourceRoot, "clients", "host", "main.ts"),
         worker: join(sourceRoot, "src", "host", "worker", "entry.ts"),
+        sessionWorker: join(sourceRoot, "clients", "host", "session-worker.ts"),
         annex: join(sourceRoot, "src", "annex", "main.ts"),
         supervisor: join(sourceRoot, "src", "host", "worker-supervisor.ts"),
     };
@@ -42,6 +45,7 @@ export function writeSelfContainedWrappers(releaseRoot: string): void {
         bun,
         `"$here/src/host/worker/entry.ts"`,
     );
+    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, `"$here/clients/host/session-worker.ts"`);
     writeWrapper(
         join(releaseRoot, RELEASE_ANNEX_NAME),
         bun,
@@ -71,6 +75,7 @@ export function writeExternalWrappers(
         bun,
         shellSingleQuote(sources.worker),
     );
+    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, shellSingleQuote(sources.sessionWorker));
     writeWrapper(
         join(releaseRoot, RELEASE_ANNEX_NAME),
         bun,
@@ -86,6 +91,7 @@ export function writeExternalWrappers(
 // The top-level wrapper files writeCheckoutPackWrappers creates.
 export const CHECKOUT_PACK_WRAPPER_NAMES: readonly string[] = [
     RELEASE_WORKER_NAME,
+    RELEASE_SESSION_WORKER_NAME,
     RELEASE_ANNEX_NAME,
     RELEASE_SUPERVISOR_NAME,
 ];
@@ -93,7 +99,7 @@ export const CHECKOUT_PACK_WRAPPER_NAMES: readonly string[] = [
 export function writeCheckoutPackWrappers(
     releaseRoot: string,
     bunPath: string,
-    sources: Pick<ReleaseWrapperSources, "worker" | "annex" | "supervisor">,
+    sources: Pick<ReleaseWrapperSources, "worker" | "sessionWorker" | "annex" | "supervisor">,
 ): void {
     const bun = shellSingleQuote(bunPath);
     writeWrapper(
@@ -101,6 +107,7 @@ export function writeCheckoutPackWrappers(
         bun,
         shellSingleQuote(sources.worker),
     );
+    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, shellSingleQuote(sources.sessionWorker));
     writeWrapper(
         join(releaseRoot, RELEASE_ANNEX_NAME),
         bun,

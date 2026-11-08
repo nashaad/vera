@@ -1257,6 +1257,7 @@ function temporaryHostDirectory(): string {
                 abandon: async () => {},
                 ready: async () => [],
                 release: async () => ({ remaining: 0, rootsToStop: [] }),
+                closeIfReady: async () => ({ status: "not_found" }),
             },
         });
         const connection = await connectHost({ socketPath });

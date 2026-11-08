@@ -14,6 +14,7 @@ import {
     RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
+    RELEASE_SESSION_WORKER_NAME,
     RELEASE_SUPERVISOR_NAME,
     RELEASE_WORKER_NAME,
     releaseDirectory,
@@ -40,6 +41,7 @@ function writeWrappers(releaseRoot: string): void {
         RELEASE_CLI_NAME,
         RELEASE_HOST_NAME,
         RELEASE_WORKER_NAME,
+        RELEASE_SESSION_WORKER_NAME,
         RELEASE_ANNEX_NAME,
         RELEASE_SUPERVISOR_NAME,
         RELEASE_BUN_NAME,
@@ -66,6 +68,7 @@ function writeRuntime(releaseRoot: string): void {
     mkdirSync(join(releaseRoot, "src", "annex"), { recursive: true });
     writeFileSync(join(releaseRoot, "clients", "cli", "main.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "clients", "host", "main.ts"), "export {}\n");
+    writeFileSync(join(releaseRoot, "clients", "host", "session-worker.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "src", "annex", "main.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "docs", "index.md"), "# Vera manual\n");
     writeFileSync(join(releaseRoot, "index.ts"), "export {}\n");
@@ -137,6 +140,17 @@ test("verifyPackedRelease refuses a wrapper that is not executable", () => {
         const root = writeCompleteRelease(prefix, "vera-exec");
         chmodSync(join(root, RELEASE_HOST_NAME), 0o644);
         expect(() => verifyPackedRelease(root, prefix)).toThrow(/host is not executable/);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("verifyPackedRelease refuses a missing session worker entry", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-verify-session-worker-"));
+    try {
+        const root = writeCompleteRelease(prefix, "vera-no-session-worker");
+        rmSync(join(root, "clients", "host", "session-worker.ts"));
+        expect(() => verifyPackedRelease(root, prefix)).toThrow(/missing clients\/host\/session-worker.ts/);
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }

@@ -68,6 +68,8 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private readonly closing = new Map<string, number>();
     private readonly trashing = new Set<string>();
     private readonly subagentStarts = new Map<string, number>();
+    private readonly subagentStartCompletions = new Map<string, OperationCompletion>();
+    private readonly masterOpeningParents = new Map<string, string>();
     private readonly operationCompletions = new Map<string, OperationCompletion>();
     private pending: Promise<void> = Promise.resolve();
 
@@ -346,6 +348,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             ]);
             const starting = this.subagentStarts.get(parentId) ?? 0;
             if (master + worker + starting >= limit) return false;
+            if (starting === 0) {
+                const completion = Promise.withResolvers<void>();
+                this.subagentStartCompletions.set(parentId, { promise: completion.promise, resolve: completion.resolve });
+            }
             this.subagentStarts.set(parentId, starting + 1);
             return true;
         });
@@ -354,12 +360,16 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     releaseSubagentStart(parentId: string): Promise<void> {
         return this.serial(() => {
             const remaining = (this.subagentStarts.get(parentId) ?? 1) - 1;
-            if (remaining === 0) this.subagentStarts.delete(parentId);
+            if (remaining === 0) {
+                this.subagentStarts.delete(parentId);
+                this.subagentStartCompletions.get(parentId)?.resolve();
+                this.subagentStartCompletions.delete(parentId);
+            }
             else this.subagentStarts.set(parentId, remaining);
         });
     }
 
-    async beginMasterCreate(id: string, path?: string): Promise<void> {
+    async beginMasterCreate(id: string, path?: string, parentId?: string): Promise<void> {
         while (true) {
             const canonical = path === undefined ? undefined : await this.options.master.canonicalPath(path);
             const waiting = await this.serial(async (): Promise<WaitForOperation | undefined> => {
@@ -371,6 +381,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (master !== undefined || worker !== undefined) throw new Error(`Resident agent ${id} already exists`);
                 this.startOperation(id);
                 this.masterOpening.add(id);
+                if (parentId !== undefined) this.masterOpeningParents.set(id, parentId);
                 if (canonical !== undefined) this.masterOpeningPaths.set(canonical, id);
                 return undefined;
             });
@@ -392,6 +403,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     endMasterOpen(id: string): void {
         this.masterOpening.delete(id);
+        this.masterOpeningParents.delete(id);
         for (const [path, owner] of this.masterOpeningPaths) {
             if (owner === id) this.masterOpeningPaths.delete(path);
         }
@@ -546,7 +558,40 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     block(request: BlockSessionRequest): Promise<BlockSessionOutcome> {
-        return this.withResidents((sessions) => blockAcrossOwners(this.options.master, this.options.worker, sessions, request));
+        return this.withResidents((sessions) => blockAcrossOwners(
+            this.options.master, this.options.worker, sessions, request,
+            () => this.allResidents(), (ids) => this.waitForSubagentStarts(ids),
+        ));
+    }
+
+    private async waitForSubagentStarts(ids: readonly string[]): Promise<void> {
+        while (true) {
+            const pending = await this.serial(() => {
+                const parents = new Set(ids);
+                return [
+                    ...ids.flatMap((id) => {
+                        const completion = this.subagentStartCompletions.get(id);
+                        return completion === undefined ? [] : [completion.promise];
+                    }),
+                    ...[...this.masterOpeningParents].flatMap(([id, parent]) => {
+                        const completion = this.operationCompletions.get(id);
+                        return parents.has(parent) && completion !== undefined ? [completion.promise] : [];
+                    }),
+                ];
+            });
+            if (pending.length === 0) return;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await Promise.race([
+                    Promise.all(pending),
+                    new Promise<never>((_resolve, reject) => {
+                        timer = setTimeout(() => reject(new Error("Session block timed out waiting for a child to start.")), 5_000);
+                    }),
+                ]);
+            } finally {
+                if (timer !== undefined) clearTimeout(timer);
+            }
+        }
     }
 
     unblock(request: UnblockSessionRequest): Promise<UnblockSessionOutcome> {

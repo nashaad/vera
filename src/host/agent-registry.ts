@@ -82,7 +82,7 @@ import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block
 const STOP_CUT_ACK_TIMEOUT_MS = 2000;
 
 export interface RegistryOpenGuard {
-    beginCreate(id: string, path?: string): Promise<void>;
+    beginCreate(id: string, path?: string, parentId?: string): Promise<void>;
     beginResume(path: string): Promise<string>;
     end(id: string): void;
 }
@@ -282,12 +282,20 @@ export class AgentRegistry {
         inherited?: InheritedAgentSettings,
         clientPromptRefusal?: string,
     ): Promise<ResidentAgent> {
+        if (inherited?.parentId !== undefined) {
+            const blocked = this.blockRefusalFor(inherited.parentId);
+            if (blocked !== undefined) throw new UserFacingError(blocked);
+        }
         const guard = this.openGuard;
         if (guard === undefined) return registryLifecycle.createWithKind(this, options, kind, inherited, clientPromptRefusal);
         const id = options.id ?? randomUUID();
         const path = options.sessionPath ?? (options.ephemeral === true ? undefined : this.options.sessionPathForId?.(id) ?? defaultSessionPath(id));
-        await guard.beginCreate(id, path);
+        await guard.beginCreate(id, path, inherited?.parentId);
         try {
+            if (inherited?.parentId !== undefined) {
+                const blocked = this.blockRefusalFor(inherited.parentId);
+                if (blocked !== undefined) throw new UserFacingError(blocked);
+            }
             return await registryLifecycle.createWithKind(this, { ...options, id }, kind, inherited, clientPromptRefusal);
         } finally {
             guard.end(id);

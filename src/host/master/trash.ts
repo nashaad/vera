@@ -21,6 +21,7 @@ export async function trashAcrossOwners(
     const tickets = new Map<SessionOwner, CloseTicket[]>([["host", []], ["w0", []]]);
     const closed = new Map<SessionOwner, ClosedMember[]>([["host", []], ["w0", []]]);
     const finished = new Set<string>();
+    let trashed = false;
     try {
         const quiesce = async (first: readonly OwnedSession[]): Promise<void> => {
             let pending = [...first];
@@ -53,7 +54,7 @@ export async function trashAcrossOwners(
         await quiesce(prepared.members);
         await finish();
         const rootPlan = prepared.plans.find((plan) => plan.id === prepared.root.session.id)!;
-        const trashed = await endpoint(prepared.root.owner).moveTrashArtifact(rootPlan);
+        trashed = await endpoint(prepared.root.owner).moveTrashArtifact(rootPlan);
         if (trashed) {
             const late = [...await expand()];
             prepared.members.push(...late);
@@ -89,6 +90,24 @@ export async function trashAcrossOwners(
             worker.recordTrashOutcome(prepared.root.session.id, closed.get("w0")!, trashed),
         ]);
         return trashed ? "trashed" : "failed";
+    } catch (error) {
+        await Promise.allSettled([
+            master.waitClose(tickets.get("host")!), worker.waitClose(tickets.get("w0")!),
+        ]);
+        for (const member of prepared.members) {
+            const ticket = tickets.get(member.owner)!.find((item) => item.id === member.session.id && !finished.has(item.token));
+            if (ticket === undefined) continue;
+            finished.add(ticket.token);
+            try {
+                const result = await endpoint(member.owner).finishCloseMember(ticket, "deleted");
+                if (result !== undefined) closed.get(member.owner)!.push(result);
+            } catch {}
+        }
+        await Promise.allSettled([
+            master.recordTrashOutcome(prepared.root.session.id, closed.get("host")!, trashed),
+            worker.recordTrashOutcome(prepared.root.session.id, closed.get("w0")!, trashed),
+        ]);
+        throw error;
     } finally {
         await Promise.allSettled([master.forgetClose(tickets.get("host")!), worker.forgetClose(tickets.get("w0")!)]);
     }
