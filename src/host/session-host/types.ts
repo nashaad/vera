@@ -1,5 +1,6 @@
 import type { VeraConfig } from "../../config.ts";
 import type { ExtensionRegistry, ExtensionRegistryFailure } from "../../extensions/registry.ts";
+import type { ExtensionHostServices } from "../../extensions/host-services.ts";
 import type { poolReachability } from "../../model/assignment-reachability.ts";
 import type { ModelAdapter } from "../../model/types.ts";
 import type { AuthStorage } from "../../providers/auth-storage.ts";
@@ -38,8 +39,13 @@ export interface SessionHostServices {
     readonly inboxDelivery: InboxDeliveryCoordinator;
 }
 
+export type ExtensionSessionServices = Pick<ExtensionHostServices,
+    "setSessionTitle" | "sendToSession" | "askSession" | "investigate"
+>;
+
 export interface StartSessionHostOptions {
     readonly sessions: "all";
+    readonly sessionWorker?: boolean;
     readonly config: VeraConfig;
     readonly currentConfig: () => VeraConfig;
     readonly currentReachability: () => ReturnType<typeof poolReachability>;
@@ -75,6 +81,8 @@ export interface SessionHost {
     readonly extensions: ExtensionRegistry;
     readonly handlers: SessionHandlers;
     readonly createAdapter: AgentRegistryOptions["createAdapter"];
+    readonly localExtensionSessions: ExtensionSessionServices;
+    setExtensionSessions(services: ExtensionSessionServices): void;
     // The resident host starts the scan after publishing its listener.
     startStorage(): void;
     stopMaintenance(): void;

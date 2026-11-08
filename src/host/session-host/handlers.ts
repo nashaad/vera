@@ -1,4 +1,5 @@
 import type { HostLog } from "../host-log.ts";
+import type { SessionEndReason } from "../../sdk/hooks.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -25,7 +26,7 @@ import {
 } from "../session-import-service.ts";
 import { buildWorkIndex, type WorkIndexSnapshot } from "../work-index.ts";
 
-import type { StartHostServerOptions } from "../server.ts";
+import type { CloseAgentOutcome, StartHostServerOptions } from "../server.ts";
 import {
     commandSessionPath,
     enrichSessionsWithFacts,
@@ -70,7 +71,8 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "onAgentStartFailure"
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
-    readonly resumeAgent: (sessionPath: string) => Promise<ResidentAgent>;
+    readonly resumeAgent: (sessionPath: string, ownershipTransfer?: boolean) => Promise<ResidentAgent>;
+    readonly releaseAgent: (id: string) => Promise<CloseAgentOutcome>;
 }
 
 interface SessionHandlerOptions {
@@ -95,12 +97,28 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         forgetRestartRecords, recentScheduleRuns, onWorkChanged, hostLog } = options;
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
-    const resumeSession = (sessionPath: string) => resumeOrFind(registry, sessionPath, restoringSessions);
+    const resumeSession = (sessionPath: string, ownershipTransfer = false) =>
+        resumeOrFind(registry, sessionPath, restoringSessions, ownershipTransfer);
     const importableSessions = new ImportableSessionScanner(options.importRoots ?? importRootsFrom(process.env));
     const sessionBlocks = createSessionBlockService({ registry, sessionDirectory, blockedDirectory });
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
     // Imports run one at a time so two requests for one file cannot both write.
     let importQueue: Promise<void> = Promise.resolve();
+    const closeSession = async (targetId: string, reason?: SessionEndReason, transfer = false): Promise<CloseAgentOutcome> => {
+        const outcome = transfer
+            ? await registry.releaseAgentTree(targetId)
+            : await registry.closeAgentTree(targetId, reason);
+        if (outcome.status === "busy") return { status: "busy" } as const;
+        if (outcome.status === "closed" && outcome.sessionRetained) {
+            await indexClosedMembers(registry, outcome.closed, storedSessionIndex);
+        }
+        if (outcome.status === "closed") {
+            return { status: "closed", sessionRetained: outcome.sessionRetained } as const;
+        }
+        return await storedSessionExists(targetId, sessionDirectory, storedSessionIndex)
+            ? { status: "closed", sessionRetained: true } as const
+            : { status: "not_found" } as const;
+    };
     return {
         findAgent: (agentId) => findOrRestoreAgent(
             registry,
@@ -216,32 +234,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             }
             return stored;
         },
-        closeAgent: async (targetId, reason) => {
-            const outcome = await registry.closeAgentTree(targetId, reason);
-            if (outcome.status === "busy") {
-                return { status: "busy" };
-            }
-            if (outcome.status === "closed" && outcome.sessionRetained) {
-                await indexClosedMembers(
-                    registry,
-                    outcome.closed,
-                    storedSessionIndex,
-                );
-            }
-            if (outcome.status === "closed") {
-                return {
-                    status: "closed",
-                    sessionRetained: outcome.sessionRetained,
-                };
-            }
-            return await storedSessionExists(
-                targetId,
-                sessionDirectory,
-                storedSessionIndex,
-            )
-                ? { status: "closed", sessionRetained: true }
-                : { status: "not_found" };
-        },
+        closeAgent: (targetId, reason) => closeSession(targetId, reason),
+        releaseAgent: (targetId) => closeSession(targetId, undefined, true),
         blockSession: (request) => sessionBlocks.block(request),
         unblockSession: (request) => sessionBlocks.unblock(request),
         renameSession: async (targetId, name) => {

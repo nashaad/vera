@@ -45,7 +45,7 @@ import { startSessionExtensions } from "./session-host/extensions.ts";
 import { createSessionHandlers } from "./session-host/handlers.ts";
 import { createSessionHooks } from "./session-host/hooks.ts";
 import { indexClosedMembers, indexStoredSessions } from "./session-host/storage.ts";
-import type { SessionHost, StartSessionHostOptions } from "./session-host/types.ts";
+import type { ExtensionSessionServices, SessionHost, StartSessionHostOptions } from "./session-host/types.ts";
 
 export type { SessionHost, StartSessionHostOptions } from "./session-host/types.ts";
 
@@ -108,7 +108,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         ),
         createAdapter,
         modelMiddleware: extensions.modelMiddleware(),
-        ...(options.createAdapter !== undefined || hasModelRequestHooks
+        ...(options.sessionWorker === true || options.createAdapter !== undefined || hasModelRequestHooks
             || (!workerExtensionsEnabled()
                 && extensions.modelMiddleware().length > 0)
             ? {}
@@ -202,14 +202,22 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         onSessionsClosed: (members): Promise<void> =>
             indexClosedMembers(registry, members, storedSessionIndex),
     });
-    extensions.bindHost(createExtensionHostServices({
+    const localExtensionSessions = createExtensionHostServices({
         registry,
         currentConfig,
         reachability: currentReachability,
         createAdapter: () => createAdapter(),
         annexUrl: options.annexUrl,
         availableModels: () => registry.availableModels,
-    }));
+    });
+    let extensionSessions: ExtensionSessionServices = localExtensionSessions;
+    extensions.bindHost({
+        ...localExtensionSessions,
+        setSessionTitle: (id, title) => extensionSessions.setSessionTitle(id, title),
+        sendToSession: (extensionId, id, text) => extensionSessions.sendToSession(extensionId, id, text),
+        askSession: (call, signal) => extensionSessions.askSession(call, signal),
+        investigate: (call, signal) => extensionSessions.investigate(call, signal),
+    });
 
     let publishStoredSessions: (sessions: ReadonlyMap<string, RegisteredAgentSummary>) => void = () => { };
     const storedSessions = new Promise<ReadonlyMap<string, RegisteredAgentSummary>>((resolve) => {
@@ -233,7 +241,10 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         }
     };
     return {
-        registry, extensions, handlers, createAdapter,
+        registry, extensions, handlers, createAdapter, localExtensionSessions,
+        setExtensionSessions(services) {
+            extensionSessions = services;
+        },
         startStorage() {
             if (storageStarted) return;
             storageStarted = true;

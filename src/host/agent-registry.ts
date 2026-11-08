@@ -166,6 +166,10 @@ export class AgentRegistry {
         return registryLifecycle.closeAgentTree(this, id, reason);
     }
 
+    async releaseAgentTree(id: string): Promise<CloseAgentTreeResult> {
+        return registryLifecycle.releaseAgentTree(this, id);
+    }
+
     // The in-process session latches the flag as a worker does; the router takes the halt once it is ready.
     createInProcessBlockLatch(entry: RegisteredAgentEntry): SessionBlockLatch | undefined {
         const directory = this.options.sessionBlockDirectory;
@@ -766,6 +770,7 @@ export class AgentRegistry {
         ephemeral = false,
         pendingPublication = false,
         sessionStartReason: "start" | "resume" = "start",
+        ownershipTransfer = false,
     ): Promise<ResidentAgent> {
         const identity = await this.bindSessionIdentity(store);
         const startupProfile = store.header.contextAssemblyMode ?? "default";
@@ -798,6 +803,7 @@ export class AgentRegistry {
             store,
             IMAGE_ATTACHMENT_LIMITS,
         );
+        let transferring = ownershipTransfer;
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             historyPageSource: (before) => historyPageFromStore(store, before),
             modelCatalogFacts: () => ({
@@ -808,9 +814,16 @@ export class AgentRegistry {
                 imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
             turnStartRefusal: () => this.blockRefusalFor(store.header.id),
-            onSessionFactsChanged: () => {
+            onSessionFactsChanged: (update) => {
                 const current = this.agents.get(store.header.id);
                 if (current?.agent === agent) {
+                    if (transferring) {
+                        // The first history update carries the resumed session's initial checkpoint.
+                        // Updates through it seed session_updated deduplication without notifications.
+                        changedSessionUpdate(current, this.defaultProvider);
+                        if (update.type === "history") transferring = false;
+                        return;
+                    }
                     this.announceSessionUpdated(current);
                 }
             },
@@ -955,6 +968,19 @@ export class AgentRegistry {
         const hooks = startupProfile === "default"
             ? this.options.createToolHooks?.() ?? new ToolHooks()
             : new ToolHooks();
+        if (ownershipTransfer) {
+            // The resumed loop calls runSessionStart first with reason "resume".
+            // Compaction can call the same hooks again later.
+            const runSessionStart = hooks.runSessionStart.bind(hooks);
+            let first = true;
+            hooks.runSessionStart = (payload, options) => {
+                if (first) {
+                    first = false;
+                    return Promise.resolve([]);
+                }
+                return runSessionStart(payload, options);
+            };
+        }
         const spawnSubagent = createSubagentSpawner({
             adapter,
             hooks,

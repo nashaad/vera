@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadVeraConfig } from "../../src/config.ts";
@@ -17,8 +17,9 @@ import { renameSessionThroughHost } from "../../src/host/session-rename-client.t
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { installTransferHooks, transferHookEvents, waitForTransferHooks } from "../support/transfer-hooks.ts";
 
 const config = {
     schema_version: 1,
@@ -272,6 +273,67 @@ socketTest("resume releases the master before the worker opens a session", async
         releaseStore();
         SessionStore.open = originalOpen;
         activeClient?.close();
+        await host.close();
+        await rm(home, { recursive: true, force: true });
+    }
+}, 20_000);
+
+socketTest("an ownership transfer does not fire lifecycle hooks or add context", async () => {
+    const home = await mkdtemp("/private/tmp/vhs-");
+    const { config: hookedConfig, log, updates } = await installTransferHooks(home);
+    const requests: ModelRequest[] = [];
+    const host = await startResidentHost({
+        home, config: hookedConfig, inProcessWorker: true,
+        createAdapter: () => ({ stream(request) {
+            requests.push(request);
+            return new FauxAdapter([textResponse("The map is safe.")]).stream(request);
+        } }),
+    });
+    let client: AttachedAgentClient | undefined;
+    try {
+        const agent = await host.registry.create({ workspace: home });
+        const entry = host.registry.agents.get(agent.id)!;
+        const path = entry.store.path;
+        await waitForTransferHooks(log, 2);
+        await waitUntil(() => entry.store.messages().some((message) => message.role === "user" && message.contextSource === "session_start"));
+        const before = (await SessionStore.open(path)).messages();
+        await writeFile(log, "");
+        await writeFile(updates, "");
+
+        await resumeAgentThroughHost(host.server.socketPath, path);
+        client = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        expect((await client.receive()).type).toBe("history");
+        expect(await transferHookEvents(log)).toEqual([]);
+        expect(await readFile(updates, "utf8")).toBe("");
+        expect((await SessionStore.open(path)).messages()).toEqual(before);
+        await client.send({ type: "prompt", content: "Where is the map?" });
+        await finishTurn(client);
+        expect(requests).toHaveLength(1);
+        const sent = JSON.stringify(requests[0]!.messages);
+        expect(sent).toContain("command: start");
+        expect(sent).not.toContain("command: resume");
+        expect(sent).not.toContain("extension: resume");
+        client.close();
+        client = undefined;
+
+        const ordinary = await host.registry.create({ workspace: home });
+        const ordinaryEntry = host.registry.agents.get(ordinary.id)!;
+        await waitForTransferHooks(log, 2);
+        await waitUntil(() => ordinaryEntry.store.messages().some((message) => message.role === "user" && message.contextSource === "session_start"));
+        await writeFile(log, "");
+        expect((await host.registry.closeAgentTree(ordinary.id, "idle")).status).toBe("closed");
+        const ended = await waitForTransferHooks(log, 2);
+        expect(ended.map(({ source, type, reason }) => ({ source, type, reason })).sort((a, b) => a.source.localeCompare(b.source)))
+            .toEqual([
+                { source: "command", type: "session_end", reason: "idle" },
+                { source: "extension", type: "session_end", reason: "idle" },
+            ]);
+        await writeFile(log, "");
+        await resumeAgentThroughHost(host.server.socketPath, ordinaryEntry.store.path);
+        const resumed = await waitForTransferHooks(log, 2);
+        expect(resumed.every((event) => event.type === "session_start" && event.reason === "resume")).toBe(true);
+    } finally {
+        client?.close();
         await host.close();
         await rm(home, { recursive: true, force: true });
     }

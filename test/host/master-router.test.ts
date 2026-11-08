@@ -12,6 +12,10 @@ function deferred() {
 
 function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
     return {
+        setSessionTitle: async () => "not_found",
+        sendToSession: async () => "not_found",
+        askSession: async () => { throw new Error("unused"); },
+        investigate: async () => { throw new Error("unused"); },
         inspect: async (path) => ({ id: "one", sessionPath: path }),
         resident: async (id) => sessions.get(id),
         residents: async () => [...sessions.values()],
@@ -107,6 +111,46 @@ test("a branch in progress prevents its source from moving", async () => {
     expect(await router.beginBranch("host", session.id)).toBe(true);
     await expect(router.resume(session.sessionPath)).rejects.toThrow("branching");
     router.endBranch(session.id);
+    expect(await router.resume(session.sessionPath)).toEqual(session);
+});
+
+test("an in-flight extension request leaves other sessions available and prevents a move", async () => {
+    const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
+    const other = { id: "two", workspace: "/work", sessionPath: "/sessions/two.jsonl" };
+    const masterSessions = new Map([[session.id, session], [other.id, other]]);
+    const workerSessions = new Map<string, RoutedSession>();
+    const master = endpoint(masterSessions);
+    const worker = endpoint(workerSessions);
+    const started = deferred();
+    let ownerSawAbort = false;
+    master.askSession = async (_call, signal) => {
+        started.resolve();
+        await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => { ownerSawAbort = true; resolve(); }, { once: true });
+        });
+        signal.throwIfAborted();
+        throw new Error("unreachable");
+    };
+    master.release = async (id) => { masterSessions.delete(id); return [id]; };
+    worker.resume = async () => { workerSessions.set(session.id, session); return session; };
+    const router = new HostRouter({
+        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+    });
+    const controller = new AbortController();
+    const pending = router.askSession({ sessionId: session.id, question: "Where is the map?" }, controller.signal);
+    await started.promise;
+    try {
+        const location = await Promise.race([
+            router.locate(other.id),
+            Bun.sleep(1_000).then(() => undefined),
+        ]);
+        expect(location).toMatchObject({ type: "agent_location", socket_path: "/host.sock" });
+        await expect(router.resume(session.sessionPath)).rejects.toThrow("active");
+    } finally {
+        controller.abort();
+    }
+    await expect(pending).rejects.toThrow();
+    expect(ownerSawAbort).toBe(true);
     expect(await router.resume(session.sessionPath)).toEqual(session);
 });
 

@@ -30,6 +30,10 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         return host.registry.ownedTreeIds(root);
     };
     return {
+        setSessionTitle: (id, title) => host.localExtensionSessions.setSessionTitle(id, title),
+        sendToSession: (extensionId, id, text) => host.localExtensionSessions.sendToSession(extensionId, id, text),
+        askSession: (call, signal) => host.localExtensionSessions.askSession(call, signal),
+        investigate: (call, signal) => host.localExtensionSessions.investigate(call, signal),
         async inspect(path) {
             const sessionPath = await realpath(path);
             const header = await readSessionHeader(sessionPath);
@@ -49,8 +53,8 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
             const agent = await host.handlers.createAgent(options);
             return describe(agent.id);
         },
-        async resume(path) {
-            const agent = await host.handlers.resumeAgent(path);
+        async resume(path, ownershipTransfer) {
+            const agent = await host.handlers.resumeAgent(path, ownershipTransfer);
             return describe(agent.id);
         },
         async release(id) {
@@ -69,7 +73,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                 }
                 stores.push(entry.store);
             }
-            const result = await host.handlers.closeAgent(members[0] ?? id, "idle");
+            const result = await host.handlers.releaseAgent(members[0] ?? id);
             if (result.status !== "closed" && result.status !== "not_found") {
                 throw new Error("Session could not be released");
             }
