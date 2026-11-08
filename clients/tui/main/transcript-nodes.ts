@@ -114,6 +114,13 @@ export function transcriptEntryRows(rt: TuiRuntime,
     );
 }
 
+// Keyed by entry object: a delta replaces only the entry it changes, so the spacer estimate for the rest is reused.
+const estimatedRowsMemo = new WeakMap<TuiTranscriptEntry, {
+    readonly width: number;
+    readonly margin: number;
+    readonly rows: number;
+}>();
+
 export function estimateTranscriptEntryRows(rt: TuiRuntime, 
     entries: readonly TuiTranscriptEntry[],
     index: number,
@@ -128,25 +135,31 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
             - 1,
     );
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
-    if (entry.kind === "thinking") {
-        if (rt.liveReasoningRows !== "all") return margin + liveReasoningHeight(rt.liveReasoningRows);
-        let cache = rt.reasoningRowCaches?.get(index);
-        if (cache === undefined) {
-            if (rt.reasoningRowCaches === undefined) {
-                rt.reasoningRowCaches = new Map();
-            }
-            cache = createLiveReasoningCache();
-            rt.reasoningRowCaches.set(index, cache);
+    if (entry.kind !== "thinking") {
+        const known = estimatedRowsMemo.get(entry);
+        if (known !== undefined && known.width === width && known.margin === margin) {
+            return known.rows;
         }
-        return margin + liveReasoningRowCount(
-            cache,
-            entry.text,
-            Math.max(8, width - ELLIPSIS_COLUMNS),
+        const rows = margin + Math.max(
+            1,
+            transcriptEstimatedRows(rt, transcriptEntryText(rt, entry), width),
         );
+        estimatedRowsMemo.set(entry, { width, margin, rows });
+        return rows;
     }
-    return margin + Math.max(
-        1,
-        transcriptEstimatedRows(rt, transcriptEntryText(rt, entry), width),
+    if (rt.liveReasoningRows !== "all") return margin + liveReasoningHeight(rt.liveReasoningRows);
+    let cache = rt.reasoningRowCaches?.get(index);
+    if (cache === undefined) {
+        if (rt.reasoningRowCaches === undefined) {
+            rt.reasoningRowCaches = new Map();
+        }
+        cache = createLiveReasoningCache();
+        rt.reasoningRowCaches.set(index, cache);
+    }
+    return margin + liveReasoningRowCount(
+        cache,
+        entry.text,
+        Math.max(8, width - ELLIPSIS_COLUMNS),
     );
 }
 
@@ -392,10 +405,21 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         ? entries.length
         : Math.min(rt.materializedEntryEnd, entries.length);
 
-    const changedKindAt = entries.findIndex((entry, index) =>
-        rt.entryNodes[index] !== undefined
-        && rt.entryNodeKinds[index] !== entry.kind
-    );
+    // Nodes exist only inside the materialized window, so the scan stops there.
+    let changedKindAt = -1;
+    for (
+        let index = rt.materializedEntryStart;
+        index < Math.min(rt.materializedEntryEnd, entries.length);
+        index += 1
+    ) {
+        if (
+            rt.entryNodes[index] !== undefined
+            && rt.entryNodeKinds[index] !== entries[index]?.kind
+        ) {
+            changedKindAt = index;
+            break;
+        }
+    }
     if (changedKindAt !== -1) {
         materializeTo = Math.max(materializeTo, rt.materializedEntryEnd);
         rt.pendingTranscriptScrollRestore = {
