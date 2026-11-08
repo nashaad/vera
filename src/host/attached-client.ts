@@ -10,7 +10,7 @@ import {
     type ExtensionCommandResult,
 } from "../extensions/commands.ts";
 import {
-    parseAgentUpdate,
+    parseAgentUpdateFrame,
     parseHistoryPagePayload,
 } from "./agent-update-wire.ts";
 import { TRASHING_REFUSAL } from "./agent-close-client.ts";
@@ -600,12 +600,22 @@ function createAttachedClient(
                 if (receiveHistoryPage(value)) {
                     continue;
                 }
-                const update = parseAgentUpdate(value);
-                if (update === undefined) {
+                const frame = parseAgentUpdateFrame(value);
+                if (frame.kind === "invalid") {
                     throw new Error(
                         `Host sent an invalid agent update: ${describeMessage(value)}`,
                     );
                 }
+                if (frame.kind === "unknown") {
+                    if (frame.seq !== undefined) {
+                        acceptSequence(frame.seq, false);
+                        if (pendingUpdateCount === 0) {
+                            lastDeliveredSequence = frame.seq;
+                        }
+                    }
+                    continue;
+                }
+                const update = frame.update;
                 if (pendingUpdateCount >= maxPendingUpdates) {
                     throw new Error(
                         "Agent updates exceeded the client buffer while an extension request was pending",
@@ -615,27 +625,7 @@ function createAttachedClient(
                     failed = true;
                 }
                 if ("seq" in update) {
-                    if (lastReadSequence === undefined) {
-                        if (update.type !== "history") {
-                            throw new Error(
-                                "Host sent an agent update before its history checkpoint",
-                            );
-                        }
-                    } else if (update.type === "history") {
-                        if (awaitingFirstSequencedReplay
-                            ? update.seq < lastReadSequence
-                            : update.seq !== lastReadSequence) {
-                            throw new Error(
-                                "Host sent a non-contiguous agent update sequence",
-                            );
-                        }
-                    } else if (update.seq !== lastReadSequence + 1) {
-                        throw new Error(
-                            "Host sent a non-contiguous agent update sequence",
-                        );
-                    }
-                    lastReadSequence = update.seq;
-                    awaitingFirstSequencedReplay = false;
+                    acceptSequence(update.seq, update.type === "history");
                 }
                 pendingUpdateCount += 1;
                 updates.push(update);
@@ -643,6 +633,30 @@ function createAttachedClient(
         } catch (error) {
             fail(error instanceof Error ? error : new Error(String(error)));
         }
+    }
+
+    function acceptSequence(seq: number, isHistory: boolean): void {
+        if (lastReadSequence === undefined) {
+            if (!isHistory) {
+                throw new Error(
+                    "Host sent an agent update before its history checkpoint",
+                );
+            }
+        } else if (isHistory) {
+            if (awaitingFirstSequencedReplay
+                ? seq < lastReadSequence
+                : seq !== lastReadSequence) {
+                throw new Error(
+                    "Host sent a non-contiguous agent update sequence",
+                );
+            }
+        } else if (seq !== lastReadSequence + 1) {
+            throw new Error(
+                "Host sent a non-contiguous agent update sequence",
+            );
+        }
+        lastReadSequence = seq;
+        awaitingFirstSequencedReplay = false;
     }
 
     function fail(error: Error): void {

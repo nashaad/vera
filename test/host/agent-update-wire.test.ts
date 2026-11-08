@@ -2,8 +2,33 @@ import { expect, test } from "bun:test";
 
 import {
     parseAgentUpdate,
+    parseAgentUpdateFrame,
     parseHistoryPagePayload,
 } from "../../src/host/agent-update-wire.ts";
+
+test("an update type this client does not know parses as unknown", () => {
+    expect(parseAgentUpdateFrame({ type: "future_update", payload: {}, seq: 9 }))
+        .toEqual({ kind: "unknown", seq: 9 });
+    expect(parseAgentUpdateFrame({ type: "future_update", payload: {} }))
+        .toEqual({ kind: "unknown", seq: undefined });
+    expect(parseAgentUpdateFrame({ type: "future_update", seq: "9" }))
+        .toEqual({ kind: "unknown", seq: undefined });
+    expect(parseAgentUpdateFrame({ type: "constructor", seq: 1 }).kind).toBe("unknown");
+    expect(parseAgentUpdate({ type: "future_update", seq: 9 })).toBeUndefined();
+});
+
+test("a known update type with an invalid shape stays invalid", () => {
+    expect(parseAgentUpdateFrame({ type: "assistant_delta", seq: 2 }))
+        .toEqual({ kind: "invalid" });
+    expect(parseAgentUpdateFrame({ type: "assistant_delta", text: "one", seq: 2 }).kind)
+        .toBe("update");
+});
+
+test("a value without an object shape or a string type is invalid", () => {
+    for (const value of [null, "history", 3, [], {}, { type: 7, seq: 1 }]) {
+        expect(parseAgentUpdateFrame(value)).toEqual({ kind: "invalid" });
+    }
+});
 
 test("host wire carries streamed reasoning and rejects a missing text field", () => {
     const thinking = {

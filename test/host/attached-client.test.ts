@@ -966,6 +966,185 @@ afterEach(() => {
     },
 );
 
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client skips an unknown update type and keeps its sequence",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "assistant_delta", text: "before", seq: 5 },
+            { type: "future_update", payload: { value: 1 }, seq: 6 },
+            { type: "assistant_delta", text: "after", seq: 7 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 5 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 7 });
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client skips an unknown update type without a sequence",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "future_update", seq: "not a sequence" },
+            { type: "assistant_delta", text: "next", seq: 5 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 5 });
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client rejects a gap after a skipped unknown update",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "future_update", seq: 5 },
+            { type: "assistant_delta", text: "gap", seq: 7 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent a non-contiguous agent update sequence",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client requires history before a sequenced unknown update",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "future_update", seq: 1 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent an agent update before its history checkpoint",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client still rejects a known update with an invalid shape",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "future_update", seq: 5 },
+            { type: "assistant_delta", seq: 6 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent an invalid agent update",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a skipped unknown update does not move lastSequence past buffered known updates",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "assistant_delta", text: "buffered", seq: 5 },
+            { type: "future_update", seq: 6 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            await Bun.sleep(10);
+            expect(client.lastSequence).toBeUndefined();
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            expect(client.lastSequence).toBe(4);
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 5 });
+            expect(client.lastSequence).toBe(5);
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a skipped unknown update advances lastSequence when nothing is buffered",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = createServer((socket) => {
+            socket.on("error", () => undefined);
+            let late: ReturnType<typeof setTimeout> | undefined;
+            socket.once("data", () => {
+                socket.write(`${JSON.stringify({
+                    type: "attached",
+                    agent_id: "agent-1",
+                    workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
+                })}\n`);
+                socket.write(`${JSON.stringify({ type: "history", entries: [], seq: 4 })}\n`);
+                socket.write(`${JSON.stringify({ type: "assistant_delta", text: "drained", seq: 5 })}\n`);
+                late = setTimeout(() => {
+                    socket.write(`${JSON.stringify({ type: "future_update", seq: 6 })}\n`);
+                }, 50);
+            });
+            socket.on("close", () => clearTimeout(late));
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 5 });
+            await Bun.sleep(100);
+            expect(client.lastSequence).toBe(6);
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
 function temporaryDirectory(): string {
     const directory = mkdtempSync(join("/private/tmp", "vera-attached-client-"));
     temporaryDirectories.push(directory);
@@ -985,7 +1164,7 @@ async function receiveUpdates(
 
 async function scriptedHost(
     socketPath: string,
-    updates: readonly AgentUpdate[],
+    updates: readonly unknown[],
 ): Promise<ReturnType<typeof createServer>> {
     const server = createServer((socket) => {
         socket.once("data", () => {
