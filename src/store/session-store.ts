@@ -825,10 +825,16 @@ export class SessionStore {
     appendHarnessMessage(
         text: string,
         tone: "primary" | "soft" | "error",
+        visibleHeadId?: string | null,
     ): Promise<SessionHarnessMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitHarnessMessage(text, tone);
+            const leaf = this.activeEntries().at(-1);
+            const afterMessageId = leaf?.message.role === "tool_result"
+                && visibleHeadId !== undefined && leaf.id !== visibleHeadId
+                ? visibleHeadId
+                : undefined;
+            return this.commitHarnessMessage(text, tone, undefined, afterMessageId);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -1212,6 +1218,7 @@ export class SessionStore {
         requestedText: string,
         tone: "primary" | "soft" | "error",
         crashCut?: true,
+        afterMessageId?: string | null,
     ): Promise<SessionHarnessMessageEntry> {
         const text = requestedText.trim();
         if (text.length === 0) {
@@ -1220,7 +1227,7 @@ export class SessionStore {
         const entry: SessionHarnessMessageEntry = {
             type: "harness_message",
             timestamp: this.now().toISOString(),
-            afterMessageId: this.projection.leafId,
+            afterMessageId: afterMessageId === undefined ? this.projection.leafId : afterMessageId,
             text,
             tone,
             ...(crashCut === true ? { crashCut } : {}),
