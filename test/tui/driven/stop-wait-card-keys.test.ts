@@ -121,6 +121,31 @@ test("Enter alone with a draft keeps waiting and leaves the draft in the compose
     }
 }, 20_000);
 
+test("Stop it now with a draft cuts once and leaves the draft in the composer", async () => {
+    const session = await startWithQueuedPrompt("vera-tui-card-stop-draft-");
+    try {
+        session.sendText("draft text");
+        await session.waitForVisiblePane("draft text");
+        openCard();
+        await session.waitForVisiblePane("Vera is stopping");
+        const before = sent.length;
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await until(() => cuts === 1, "one cut");
+        await session.waitForVisiblePaneWhere(
+            (pane) => !pane.includes("Vera is stopping"),
+            "card closed",
+        );
+        await session.settle(200);
+        expect(cuts).toBe(1);
+        expect(sent.slice(before)).not.toContain("prompt");
+        expect(sent.slice(before)).not.toContain("release_queued_prompts");
+        expect(session.captureVisiblePane()).toContain("draft text");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("Escape closes the stop-wait card and sends nothing", async () => {
     const session = await startWithQueuedPrompt("vera-tui-card-escape-");
     try {
