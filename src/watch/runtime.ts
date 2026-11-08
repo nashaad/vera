@@ -15,6 +15,7 @@ export interface WatchRuntimeOptions {
     readonly limits?: Partial<AdmissionLimits>;
     readonly now?: () => number;
     readonly onStateChange?: (status: WatchStatus) => void;
+    readonly beforeAdmit?: (address: string | null) => Promise<void>;
 }
 
 export interface WatchRuntime {
@@ -69,6 +70,9 @@ export function startWatchRuntime(options: WatchRuntimeOptions): WatchRuntime {
             watch,
             connector,
             admission,
+            ...(options.beforeAdmit === undefined ? {} : {
+                beforeAdmit: () => options.beforeAdmit!(watch.definition.address ?? null),
+            }),
             ...(options.now === undefined ? {} : { now: options.now }),
             ...(options.onStateChange === undefined
                 ? {}

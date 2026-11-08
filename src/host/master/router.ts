@@ -864,9 +864,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     pumpInbox(from: SessionOwner, admittedSeq?: number): Promise<void> {
-        return Promise.all([...this.endpoints.entries()].flatMap(([owner, endpoint]) =>
-            owner === from ? [] : [endpoint.pumpInbox(admittedSeq)]
-        )).then(() => undefined);
+        return from === "host" ? Promise.resolve() : this.options.master.pumpInbox(admittedSeq);
     }
 
     list(): Promise<RegisteredAgentSummary[]> {
@@ -901,6 +899,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     private hashOwner(id: string): WorkerOwner {
         return this.workers[sessionShardIndex(id, this.workers.length)]!.id;
+    }
+
+    inboxOwner(id: string): SessionOwner {
+        return this.owners.get(id) ?? this.hashOwner(id);
     }
 
     private activeEndpoints(): Array<[SessionOwner, SessionEndpoint]> {

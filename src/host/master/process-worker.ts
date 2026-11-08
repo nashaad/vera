@@ -7,6 +7,7 @@ import { prepareRoutedHost } from "./routing.ts";
 import { startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupervisor } from "./supervisor.ts";
 import { COMMON_METHODS, type WorkerBootstrap, type WorkerStartOptions } from "./worker-control.ts";
 import type { ControlPeer } from "./control.ts";
+import { MasterInboxBridge } from "./inbox.ts";
 import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
@@ -26,6 +27,7 @@ interface WorkerSlot {
     readonly exited: PromiseWithResolvers<void>;
     readonly endpoint: SessionEndpoint;
     readonly broker: ControlReservations;
+    readonly inbox: MasterInboxBridge;
     peer?: ControlPeer;
     supervisor?: SessionWorkerSupervisor;
     generation: number;
@@ -40,6 +42,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const forwardedShutdowns = new ForwardedShutdowns();
     const generations = new WorkerGenerations();
     const changes = new Set<() => void>();
+    const knownSessions = new Set<string>();
     let control: WorkerControlServer | undefined;
     const slots: WorkerSlot[] = Array.from({ length: options.workerCount }, (_, index) => {
         const connected = Promise.withResolvers<ControlPeer>();
@@ -49,7 +52,13 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         return {
             id: `w${index}`, index, socket: inProcessWorkerSocket(options.sessionOptions.home, index),
             connected, started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(connected.promise),
-            broker: new ControlReservations(reservations), generation: 0, ready: false, starting: true, closed: false,
+            broker: new ControlReservations(reservations),
+            inbox: new MasterInboxBridge(
+                options.master.inboxDelivery,
+                async (method, args, signal) => await (await connected.promise).request(`inbox.${method}`, args, signal),
+                (id) => routed.router.inboxOwner(id) === `w${index}`,
+            ),
+            generation: 0, ready: false, starting: true, closed: false,
         };
     });
     const requestWorker = async <T>(slot: WorkerSlot, method: string, args: readonly unknown[] = []): Promise<T> =>
@@ -77,6 +86,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const notifyChanges = (): void => { for (const listener of [...changes]) listener(); };
     const stopSnapshots = routed.snapshots.onChanged(() => {
         const value = { summaries: routed.snapshots.list(), workIndex: routed.snapshots.workIndex() };
+        for (const summary of value.summaries) knownSessions.add(summary.id);
         for (const slot of slots) void slot.peer?.event("snapshot", value).catch(() => {});
     });
     const hostOptions = options.hostOptions;
@@ -91,6 +101,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         ...(hostOptions.permissionPreferencesPath === undefined ? {} : { permissionPreferencesPath: hostOptions.permissionPreferencesPath }),
         ...(hostOptions.eventLogDirectory === undefined ? {} : { eventLogDirectory: hostOptions.eventLogDirectory }),
         ...(hostOptions.importRoots === undefined ? {} : { importRoots: hostOptions.importRoots }),
+        ...(hostOptions.inboxPath === undefined ? {} : { inboxPath: hostOptions.inboxPath }),
+        ...(hostOptions.inboxUserConfigPath === undefined ? {} : { inboxUserConfigPath: hostOptions.inboxUserConfigPath }),
+        ...(hostOptions.schedulePath === undefined ? {} : { schedulePath: hostOptions.schedulePath }),
+        ...(hostOptions.arcConfigPath === undefined ? {} : { arcConfigPath: hostOptions.arcConfigPath }),
     };
     const bootstrap: WorkerBootstrap = {
         options: childOptions, masterSocket: options.masterSocket, lockPath: options.lockPath,
@@ -114,6 +128,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                         slot.stopping = (async () => {
                             await slot.started.promise;
                             await slot.supervisor?.close();
+                            slot.inbox.close();
                             slot.broker.close();
                             routed.router.workerExited(slot.id);
                             slot.exited.resolve();
@@ -126,6 +141,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
+                    if (method.startsWith("inbox.")) return await slot.inbox.handle(method.slice(6), args, signal);
                     if (method === "public.request") {
                         if (slot.peer === undefined) throw new Error("Worker control is unavailable");
                         await servePublicRequest(slot.peer, options.masterSocket, args, signal, forwardedShutdowns);
@@ -168,9 +184,11 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             slot.ready = true;
             routed.router.observe(slot.id, slot.supervisor.snapshot.residents);
             routed.router.observeStored(slot.id, slot.supervisor.snapshot.summaries);
+            for (const summary of slot.supervisor.snapshot.summaries) knownSessions.add(summary.id);
         } catch (error) {
             if (slot.supervisor !== undefined) await slot.supervisor.close();
             slot.closed = true;
+            slot.inbox.close();
             slot.broker.close();
             routed.router.workerExited(slot.id);
             slot.exited.resolve();
@@ -219,6 +237,25 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.catalogChanged").catch(() => {});
         },
         flushStores: () => routed.router.flush(),
+        async knowsSession(id) {
+            while (true) {
+                const owner = routed.router.inboxOwner(id);
+                if (owner === "host") return (await options.master.handlers.listAgents()).some((session) => session.id === id);
+                const slot = slots.find((candidate) => candidate.id === owner);
+                if (slot === undefined) return false;
+                if (slot.starting) await slot.started.promise;
+                if (routed.router.inboxOwner(id) !== owner) continue;
+                if (!slot.ready) return knownSessions.has(id);
+                try {
+                    const sessions = await slot.endpoint.list();
+                    for (const session of sessions) knownSessions.add(session.id);
+                    return sessions.some((session) => session.id === id) || knownSessions.has(id);
+                } catch (error) {
+                    if (slot.closed) return knownSessions.has(id);
+                    throw error;
+                }
+            }
+        },
         waitForForwardedShutdowns: () => forwardedShutdowns.wait(),
         async close() {
             for (const slot of slots) {
@@ -231,6 +268,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 if (slot.supervisor !== undefined) await slot.supervisor.close();
                 else slot.connected.reject(new Error("Session worker was not started"));
                 await slot.stopping;
+                slot.inbox.close();
                 slot.broker.close();
             }));
             await control?.close();
