@@ -1001,7 +1001,8 @@ test("typing and paste from every Switch control focuses search at its preserved
             expect(typed.queryCursor).toBe(2);
             expect(typed.modelFocus).toBe("search");
             expect(typed.options.map((row) => row.label)).toEqual(["Beta"]);
-            view.update(state);
+            // update skips a state object it has already rendered, so reset with a copy.
+            view.update({ ...state });
             const pasted = view.handleEditorPaste(state, "e").state!;
             expect(pasted.query).toBe("beta");
             expect(pasted.modelFocus).toBe("search");
