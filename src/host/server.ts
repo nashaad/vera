@@ -2397,11 +2397,20 @@ function receiveConnection(
         agent: ResidentAgent,
         attached: AgentAttachment,
     ): Promise<void> {
+        let first = true;
         try {
             while (attachment === attached) {
                 const update = await attached.receive();
+                const initial = first;
+                first = false;
                 await send(update.type === "history" || update.type === "turn_finished"
-                    ? { ...update, ...sessionStateFields(agent.id) }
+                    ? {
+                        ...update,
+                        ...(initial && update.type === "history" && update.status === undefined
+                            && identity.role === "worker" && (identity.worker_generation ?? 1) > 1
+                            ? { status: "idle" as const } : {}),
+                        ...sessionStateFields(agent.id),
+                    }
                     : update);
             }
         } catch {

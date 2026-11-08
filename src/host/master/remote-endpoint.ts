@@ -22,14 +22,14 @@ const METHODS = {
     blockWrite: true, blockedIds: true, blockRemove: true, blockRelease: true,
 } satisfies Record<keyof SessionEndpoint, true>;
 
-export function remoteSessionEndpoint(connection: ControlPeer | Promise<ControlPeer>): SessionEndpoint {
-    const connected = Promise.resolve(connection);
+export function remoteSessionEndpoint(connection: ControlPeer | Promise<ControlPeer> | (() => Promise<ControlPeer>)): SessionEndpoint {
+    const connected = typeof connection === "function" ? connection : () => Promise.resolve(connection);
     const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
     for (const method of Object.keys(METHODS)) {
         methods[method] = (...args) => {
             const signal = method === "askSession" || method === "investigate"
                 ? args.pop() as AbortSignal : undefined;
-            return connected.then((peer) => peer.request(`session.${method}`, args, signal));
+            return connected().then((peer) => peer.request(`session.${method}`, args, signal));
         };
     }
     return methods as unknown as SessionEndpoint;

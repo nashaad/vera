@@ -32,7 +32,11 @@ the daily host instead of testing that checkout's code.
 For a development instance with a separate session process, run
 `bun run dev:tui --pool`. Clients attach to the session process and use the
 host to find it again after a disconnect. If the session process exits,
-restart the development host to start another process.
+the host replaces it and an interrupted prompt turn fails. Send the prompt
+again to retry it. After three process failures in one minute, the host leaves that
+process unavailable until the development host restarts.
+An interrupted inbox, schedule, or watch wake stays unread and appears when
+you next attach. A later entry can wake the conversation normally.
 
 When a development instance has to start its own host, that host and the
 worker and supervisor processes it starts run this checkout's code: the

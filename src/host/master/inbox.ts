@@ -27,7 +27,9 @@ interface MasterSession {
     readonly label: string;
     readonly session: InboxDeliverySession;
     readonly claim: InboxClaim;
+    readonly wakes: Set<number>;
     attached: boolean;
+    notifiedCount?: number;
 }
 
 interface InboxClaim {
@@ -36,10 +38,12 @@ interface InboxClaim {
 }
 
 const coordinatorClaims = new WeakMap<InboxDeliveryCoordinator, Map<string, InboxClaim>>();
+const coordinatorHeldWakes = new WeakMap<InboxDeliveryCoordinator, Map<string, Set<number>>>();
 
 export class MasterInboxBridge {
     private readonly sessions = new Map<string, MasterSession>();
     private readonly claims: Map<string, InboxClaim>;
+    private readonly heldWakes: Map<string, Set<number>>;
     private readonly stopped = new AbortController();
 
     constructor(
@@ -50,6 +54,9 @@ export class MasterInboxBridge {
         const existing = coordinatorClaims.get(coordinator);
         this.claims = existing ?? new Map();
         if (existing === undefined) coordinatorClaims.set(coordinator, this.claims);
+        const held = coordinatorHeldWakes.get(coordinator);
+        this.heldWakes = held ?? new Map();
+        if (held === undefined) coordinatorHeldWakes.set(coordinator, this.heldWakes);
     }
 
     async handle(method: string, args: readonly unknown[], signal?: AbortSignal): Promise<unknown> {
@@ -74,6 +81,7 @@ export class MasterInboxBridge {
             if (!this.owns(registration.label)) throw new Error("Inbox session is owned by another worker");
             const released = Promise.withResolvers<void>();
             const claim: InboxClaim = { released: released.promise, release: () => released.resolve() };
+            const wakes = new Set<number>();
             this.claims.set(registration.label, claim);
             let entry: MasterSession;
             const callback = (name: string, values: readonly unknown[] = [], callbackSignal?: AbortSignal) => {
@@ -88,9 +96,21 @@ export class MasterInboxBridge {
                     actor: registration.actor,
                     projectRoot: registration.projectRoot,
                     initialOffset: registration.initialOffset,
-                    notify: (notice) => { void callback("notify", [notice]).catch(() => {}); },
+                    notify: (notice) => {
+                        if (this.heldWakes.has(registration.label)) {
+                            if (!entry.attached || entry.notifiedCount === notice.unreadCount) return;
+                            entry.notifiedCount = notice.unreadCount;
+                        }
+                        void callback("notify", [notice]).catch(() => {
+                            if (entry.notifiedCount === notice.unreadCount) entry.notifiedCount = undefined;
+                        });
+                    },
                     canStartTurn: () => entry.attached,
-                    startTurn: async (candidate) => { await callback("start", [candidate]); },
+                    canWake: (candidate) => !this.heldWakes.get(registration.label)?.has(candidate.seq),
+                    startTurn: async (candidate) => {
+                        wakes.add(candidate.seq);
+                        await callback("start", [candidate]);
+                    },
                     ...(registration.requestAdmission ? {
                         requestAdmission: async (candidate: InboxAdmissionCandidate, admissionSignal: AbortSignal) =>
                             await callback("admission", [candidate], admissionSignal) as InboxAdmissionDecision | undefined,
@@ -105,7 +125,7 @@ export class MasterInboxBridge {
                 claim.release();
                 throw error;
             }
-            entry = { label: registration.label, session, claim, attached: false };
+            entry = { label: registration.label, session, claim, wakes, attached: false };
             this.sessions.set(token, entry);
             return;
         }
@@ -113,9 +133,10 @@ export class MasterInboxBridge {
         if (entry === undefined) throw new Error("Inbox session is unavailable");
         if (method !== "release" && !this.owns(entry.label)) throw new Error("Inbox session is owned by another worker");
         switch (method) {
-            case "pump": return await entry.session.pump();
+            case "pump": this.forgetAcknowledged(entry); return await entry.session.pump();
             case "attachment": {
                 if (typeof args[1] !== "boolean") throw new Error("Invalid inbox attachment");
+                if (entry.attached !== args[1]) entry.notifiedCount = undefined;
                 entry.attached = args[1];
                 entry.session.clientAttachmentChanged(args[1]);
                 return;
@@ -124,12 +145,14 @@ export class MasterInboxBridge {
             case "noteDelivered": {
                 if (!Number.isSafeInteger(args[1]) || (args[1] as number) <= 0) throw new Error("Invalid inbox entry");
                 await entry.session.noteDelivered(args[1] as number);
+                this.forgetAcknowledged(entry);
                 return;
             }
-            case "acknowledgeDelivered": await entry.session.acknowledgeDelivered(); return;
+            case "acknowledgeDelivered": await entry.session.acknowledgeDelivered(); this.forgetAcknowledged(entry); return;
             case "acknowledge": {
                 if (!Number.isSafeInteger(args[1]) || (args[1] as number) <= 0) throw new Error("Invalid inbox entry");
                 await entry.session.acknowledge(args[1] as number);
+                this.forgetAcknowledged(entry);
                 return;
             }
             case "release": this.release(token, entry); return;
@@ -140,6 +163,36 @@ export class MasterInboxBridge {
     close(): void {
         this.stopped.abort();
         for (const [token, entry] of this.sessions) this.release(token, entry);
+    }
+
+    interrupt(): void {
+        for (const entry of this.sessions.values()) {
+            this.forgetAcknowledged(entry);
+            if (entry.wakes.size === 0) continue;
+            let held = this.heldWakes.get(entry.label);
+            if (held === undefined) {
+                held = new Set();
+                this.heldWakes.set(entry.label, held);
+            }
+            for (const seq of entry.wakes) held.add(seq);
+        }
+    }
+
+    heldFor(label: string): readonly number[] {
+        return [...(this.heldWakes.get(label) ?? [])];
+    }
+
+    heldLabels(): readonly string[] {
+        return [...this.heldWakes.keys()].filter((label) => this.owns(label));
+    }
+
+    private forgetAcknowledged(entry: MasterSession): void {
+        const offset = entry.session.consumer.offset();
+        for (const seq of entry.wakes) if (seq <= offset) entry.wakes.delete(seq);
+        const held = this.heldWakes.get(entry.label);
+        if (held === undefined) return;
+        for (const seq of held) if (seq <= offset) held.delete(seq);
+        if (held.size === 0) this.heldWakes.delete(entry.label);
     }
 
     private release(token: string, entry: MasterSession): void {

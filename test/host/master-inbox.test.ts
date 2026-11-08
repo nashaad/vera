@@ -134,3 +134,49 @@ test("an entry arriving while a worker registers its inbox remains unread", asyn
         inbox.close();
     }
 });
+
+test("an interrupted start stays held across claims while a later entry wakes normally", async () => {
+    const inbox = Inbox.open(":memory:");
+    const master = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"));
+    const sent = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const first = new MasterInboxBridge(master, async (method) => {
+        if (method === "start") { sent.resolve(); await release.promise; }
+    });
+    const starts: number[] = [];
+    const notices: number[] = [];
+    const second = new MasterInboxBridge(master, async (method, args) => {
+        if (method === "start") starts.push((args[1] as { seq: number }).seq);
+        if (method === "notify") notices.push((args[1] as { unreadCount: number }).unreadCount);
+    });
+    const registration = { label: "crow", session: "crow", requestAdmission: false, initialOffset: 0 };
+    try {
+        await first.handle("attach", ["first", registration]);
+        await first.handle("attachment", ["first", true]);
+        await master.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "first" });
+        await sent.promise;
+        first.interrupt();
+        first.close();
+
+        await second.handle("attach", ["second", registration]);
+        await second.handle("pump", ["second"]);
+        expect(notices).toEqual([]);
+        await second.handle("attachment", ["second", true]);
+        await second.handle("pump", ["second"]);
+        await second.handle("pump", ["second"]);
+        expect(notices).toEqual([1]);
+        expect(starts).toEqual([]);
+        await master.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "second" });
+        expect(starts).toEqual([2]);
+        await second.handle("acknowledge", ["second", 1]);
+        await second.handle("acknowledge", ["second", 2]);
+        await second.handle("pump", ["second"]);
+        expect(starts).toEqual([2]);
+    } finally {
+        release.resolve();
+        first.close();
+        second.close();
+        master.close();
+        inbox.close();
+    }
+});

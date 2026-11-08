@@ -16,7 +16,7 @@ import type { AgentSendEffect, ToolOutput } from "../../tools/types.ts";
 import type { BranchSyncOutcome } from "../agent-registry/context-sync.ts";
 import type { SessionImportOutcome, ImportableSessionListing } from "../session-import-service.ts";
 import type { ParentDeliveryOutcome, SubagentAdmission, SubagentSessionServices } from "../agent-registry/subagent-services.ts";
-import type { PendingDelivery } from "../../store/session-store.ts";
+import { readSessionSnapshot, type PendingDelivery } from "../../store/session-store.ts";
 import type { MessageSubagentEffect } from "../../tools/types.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
 import type { StopWaitTarget } from "../stop-when-idle.ts";
@@ -29,6 +29,7 @@ import { blockAcrossOwners, unblockAcrossOwners } from "./block.ts";
 import { searchAcrossOwners } from "./search.ts";
 import { trashAcrossOwners, type PreparedTrash } from "./trash.ts";
 import { closeAcrossOwners } from "./close.ts";
+import { recoveryFileStamp, sameRecoveryFile, type RecoveryFileStamp } from "./recovery-file.ts";
 export type { RoutedSession, SessionEndpoint, SessionResumeOptions, SessionSnapshot } from "./session-endpoint.ts";
 
 export class SessionTransferReservationsChanged extends Error {}
@@ -52,6 +53,23 @@ interface StoredTrash {
     readonly storedOwner: SessionOwner;
 }
 
+interface PendingRecoveryOpen {
+    readonly owner: WorkerOwner;
+    readonly path: string;
+    readonly baseline: string | null;
+    readonly file: RecoveryFileStamp | null;
+    readonly confirmed: boolean;
+    revision: number;
+    opening: boolean;
+}
+
+export interface WorkerRecoverySession {
+    readonly id: string;
+    readonly path: string;
+    readonly baseline?: string | null;
+    readonly file?: RecoveryFileStamp | null;
+}
+
 export interface HostRouterOptions {
     readonly master: SessionEndpoint;
     readonly worker: SessionEndpoint;
@@ -62,6 +80,7 @@ export interface HostRouterOptions {
     readonly workerReady?: () => boolean;
     readonly extraWorkers?: readonly RouterWorker[];
     readonly keepResidentOwner?: boolean;
+    readonly sessionPathForId?: (id: string) => string | undefined;
     readonly reserveDelivery?: (id: string, run: () => Promise<ParentDeliveryOutcome>) => Promise<ParentDeliveryOutcome>;
 }
 
@@ -75,6 +94,10 @@ export interface RouterWorker {
 
 export class HostRouter implements ExtensionSessionServices, PeerSessionServices, SubagentSessionServices, SubagentAdmission {
     private readonly owners = new Map<string, SessionOwner>();
+    private readonly paths = new Map<string, string>();
+    private readonly residents = new Map<string, SessionOwner>();
+    private readonly recoveryOpens = new Map<string, PendingRecoveryOpen>();
+    private recoveryRevision = 0;
     private readonly branches = new Map<string, number>();
     private readonly extensionOperations = new Map<string, number>();
     private readonly masterOpening = new Set<string>();
@@ -101,10 +124,23 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         ]);
     }
 
-    observe(owner: SessionOwner, sessions: readonly RoutedSession[]): void {
+    snapshotRevision(): number { return this.recoveryRevision; }
+
+    observe(owner: SessionOwner, sessions: readonly RoutedSession[], revision = this.recoveryRevision): void {
+        const present = new Set(sessions.map((session) => session.id));
+        for (const [id, current] of this.residents) {
+            if (current === owner && !present.has(id)) this.residents.delete(id);
+        }
         for (const session of sessions) {
             const current = this.owners.get(session.id);
-            if (current === undefined || current === owner) this.owners.set(session.id, owner);
+            if (current === undefined || current === owner) {
+                this.owners.set(session.id, owner);
+                this.paths.set(session.id, session.sessionPath);
+                this.residents.set(session.id, owner);
+            }
+        }
+        for (const [id, opening] of this.recoveryOpens) {
+            if (opening.owner === owner && !opening.opening && opening.revision <= revision) this.recoveryOpens.delete(id);
         }
     }
 
@@ -113,7 +149,80 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             if (!this.owners.has(summary.id) && (owner === "host" || this.hashOwner(summary.id) === owner)) {
                 this.owners.set(summary.id, owner);
             }
+            if (this.owners.get(summary.id) === owner) this.paths.set(summary.id, summary.session_path);
         }
+    }
+
+    knownPath(id: string): string | undefined { return this.paths.get(id); }
+
+    workerSessions(owner: WorkerOwner, held: readonly string[] = []): readonly WorkerRecoverySession[] {
+        const sessions = new Map<string, WorkerRecoverySession>();
+        for (const [id, current] of this.residents) {
+            const path = this.paths.get(id);
+            if (current === owner && path !== undefined) sessions.set(id, { id, path });
+        }
+        for (const [id, opening] of this.recoveryOpens) {
+            if (opening.owner === owner && !sessions.has(id)) {
+                sessions.set(id, opening.confirmed ? { id, path: opening.path }
+                    : { id, path: opening.path, baseline: opening.baseline, file: opening.file });
+            }
+        }
+        for (const id of held) {
+            const path = this.paths.get(id) ?? this.recoveryOpens.get(id)?.path;
+            if (path !== undefined) sessions.set(id, { id, path });
+        }
+        return [...sessions.values()];
+    }
+
+    private async beginRecoveryOpen(owner: SessionOwner, id: string, path?: string): Promise<PendingRecoveryOpen | undefined> {
+        if (this.options.keepResidentOwner !== true || owner === "host" || path === undefined) return undefined;
+        const existing = this.recoveryOpens.get(id);
+        if (existing !== undefined && existing.owner === owner) {
+            existing.opening = true;
+            existing.revision = ++this.recoveryRevision;
+            return existing;
+        }
+        let confirmed = this.residents.get(id) === owner;
+        let baseline: string | null = null;
+        let file: RecoveryFileStamp | null = null;
+        if (!confirmed) {
+            const before = await recoveryFileStamp(path);
+            try {
+                const snapshot = await readSessionSnapshot(path);
+                const last = snapshot.messages.at(-1);
+                baseline = last === undefined ? null : snapshot.messageStamps.get(last)?.id ?? null;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            }
+            file = await recoveryFileStamp(path);
+            if (!sameRecoveryFile(before, file)) confirmed = true;
+        }
+        if (!this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        const opening: PendingRecoveryOpen = { owner, path, baseline, file, confirmed, revision: ++this.recoveryRevision, opening: true };
+        this.recoveryOpens.set(id, opening);
+        return opening;
+    }
+
+    private finishRecoveryOpen(id: string, opening: PendingRecoveryOpen | undefined): void {
+        if (opening === undefined || this.recoveryOpens.get(id) !== opening) return;
+        opening.opening = false;
+        opening.revision = ++this.recoveryRevision;
+    }
+
+    cachedLocation(id: string): AgentLocationResponse | AgentLocationFailedResponse | undefined {
+        if (this.options.keepResidentOwner !== true) return undefined;
+        const owner = this.owners.get(id);
+        if (owner === undefined || owner === "host") return undefined;
+        const worker = this.worker(owner);
+        if (!worker.ready()) {
+            return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." };
+        }
+        if (this.residents.get(id) !== owner || this.masterOpening.has(id)
+            || this.trashing.has(id) || this.closing.has(id)) return undefined;
+        return {
+            type: "agent_location", socket_path: worker.socket, worker_id: owner,
+            worker_generation: worker.generation(), build_id: this.options.buildId,
+        };
     }
 
     create(options: Pick<CreateRegisteredAgentOptions,
@@ -127,9 +236,15 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             const loads = await Promise.all(available.map(async (worker) => (await worker.endpoint.residents()).length));
             const chosen = available[loads.indexOf(Math.min(...loads))]!;
             this.owners.set(id, chosen.id);
-            const session = await chosen.endpoint.create({ ...options, id });
-            if (session.id !== id) throw new Error("Session worker returned a different id");
-            return session;
+            const opening = await this.beginRecoveryOpen(chosen.id, id,
+                options.ephemeral === true ? undefined : this.options.sessionPathForId?.(id));
+            try {
+                const session = await chosen.endpoint.create({ ...options, id });
+                if (session.id !== id) throw new Error("Session worker returned a different id");
+                this.paths.set(id, session.sessionPath);
+                this.residents.set(id, chosen.id);
+                return session;
+            } finally { this.finishRecoveryOpen(id, opening); }
         });
     }
 
@@ -227,16 +342,25 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                     for (const id of released) this.owners.set(id, owner);
                 }
                 this.owners.set(inspected.id, owner);
-                const session = await worker.endpoint.resume(inspected.sessionPath, {
-                    reserved: reservedPaths !== undefined,
-                    ownershipTransfer: master !== undefined,
-                });
+                const recoveryOpening = await this.beginRecoveryOpen(owner, inspected.id, inspected.sessionPath);
+                let session: RoutedSession;
+                try {
+                    session = await worker.endpoint.resume(inspected.sessionPath, {
+                        reserved: reservedPaths !== undefined,
+                        ownershipTransfer: master !== undefined,
+                    });
+                } finally { this.finishRecoveryOpen(inspected.id, recoveryOpening); }
+                this.paths.set(inspected.id, session.sessionPath);
+                this.residents.set(inspected.id, owner);
                 for (const member of transferred) {
                     if (member.id !== inspected.id) {
-                        await worker.endpoint.resume(member.sessionPath, {
-                            reserved: reservedPaths !== undefined,
-                            ownershipTransfer: true,
-                        });
+                        const memberOpening = await this.beginRecoveryOpen(owner, member.id, member.sessionPath);
+                        try {
+                            await worker.endpoint.resume(member.sessionPath, {
+                                reserved: reservedPaths !== undefined,
+                                ownershipTransfer: true,
+                            });
+                        } finally { this.finishRecoveryOpen(member.id, memberOpening); }
                     }
                 }
                 return session;
@@ -246,7 +370,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         }
     }
 
-    locate(id: string, reserved = false): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+    locate(id: string, reserved = false, path?: string): Promise<AgentLocationResponse | AgentLocationFailedResponse> {
+        const cached = this.cachedLocation(id);
+        if (cached !== undefined) return Promise.resolve(cached);
         return this.serial(async () => {
             try {
                 const owner = await this.resolvedOwner(id) ?? this.hashOwner(id);
@@ -254,11 +380,16 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                     return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." };
                 }
                 if (!this.owners.has(id)) this.owners.set(id, owner);
-                const session = await this.endpoint(owner).find(id, reserved);
+                const opening = await this.beginRecoveryOpen(owner, id, path ?? this.paths.get(id));
+                let session: RoutedSession | undefined;
+                try { session = await this.endpoint(owner).find(id, reserved); }
+                finally { this.finishRecoveryOpen(id, opening); }
                 if (session === undefined) {
                     return { type: "agent_location_failed", reason: "not_found", message: "No session with this id is on this host." };
                 }
                 this.owners.set(id, owner);
+                this.paths.set(id, session.sessionPath);
+                this.residents.set(id, owner);
                 return {
                     type: "agent_location",
                     socket_path: owner === "host" ? this.options.masterSocket : this.worker(owner).socket,
@@ -276,16 +407,21 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         });
     }
 
-    find(owner: SessionOwner, id: string, reserved = false): Promise<boolean> {
+    find(owner: SessionOwner, id: string, reserved = false, path?: string): Promise<boolean> {
         return this.serial(async () => {
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
             if (assigned === undefined && (owner === "host" || owner !== this.hashOwner(id))) return false;
             if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
             if (assigned === undefined) this.owners.set(id, owner);
-            const session = await this.endpoint(owner).find(id, reserved);
+            const opening = await this.beginRecoveryOpen(owner, id, path ?? this.paths.get(id));
+            let session: RoutedSession | undefined;
+            try { session = await this.endpoint(owner).find(id, reserved); }
+            finally { this.finishRecoveryOpen(id, opening); }
             if (session === undefined) return false;
             this.owners.set(id, owner);
+            this.paths.set(id, session.sessionPath);
+            this.residents.set(id, owner);
             return true;
         });
     }
@@ -473,12 +609,22 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (owner !== "host" && !this.worker(owner).ready()) {
                     throw new UserFacingError("The session worker is unavailable.");
                 }
+                const opening = owner === "host" ? undefined : await this.beginRecoveryOpen(owner, id, canonical);
+                if (signal?.aborted) {
+                    this.finishRecoveryOpen(id, opening);
+                    signal.throwIfAborted();
+                }
                 this.startOperation(id);
                 this.masterOpening.add(id);
                 if (this.options.keepResidentOwner === true || owner !== "host") this.owners.set(id, owner);
-                if (owner !== "host") this.workerOpenings.set(id, owner);
+                if (owner !== "host") {
+                    this.workerOpenings.set(id, owner);
+                }
                 if (parentId !== undefined) this.masterOpeningParents.set(id, parentId);
-                if (canonical !== undefined) this.masterOpeningPaths.set(canonical, id);
+                if (canonical !== undefined) {
+                    this.masterOpeningPaths.set(canonical, id);
+                    this.paths.set(id, canonical);
+                }
                 return undefined;
             });
             if (waiting === undefined) return;
@@ -500,14 +646,19 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     endWorkerOpen(id: string): void {
+        const owner = this.workerOpenings.get(id);
+        const opening = this.recoveryOpens.get(id);
+        if (opening?.owner === owner) this.finishRecoveryOpen(id, opening);
         this.workerOpenings.delete(id);
         this.endMasterOpen(id);
     }
 
     workerExited(owner: WorkerOwner): void {
         for (const [id, current] of this.owners) {
-            if (current === owner) this.owners.delete(id);
+            if (current === owner && this.options.keepResidentOwner !== true) this.owners.delete(id);
+            if (current === owner) this.residents.delete(id);
         }
+        for (const [id, opening] of this.recoveryOpens) if (opening.owner === owner) this.recoveryOpens.delete(id);
         for (const [id, worker] of this.workerOpenings) {
             if (worker === owner) this.endWorkerOpen(id);
         }

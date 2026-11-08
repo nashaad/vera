@@ -1,5 +1,5 @@
 import type { HostIdentity } from "../protocol.ts";
-import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
+import { HostSocketHeldError, startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
 import { startSessionWorkerRuntime, type StartResidentHostOptions } from "../runtime.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
 import { EMPTY_WORK_INDEX, type WorkIndexSnapshot } from "../work-index.ts";
@@ -12,6 +12,8 @@ import { sessionTarget } from "./routing.ts";
 import { createPublicForwarder } from "./public-forward.ts";
 import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
 import { WorkerInboxBridge } from "./inbox.ts";
+import { indexStoredSession, withSessionReservation } from "../session-host/storage.ts";
+import { SessionStore } from "../../store/session-store.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -26,6 +28,7 @@ export interface WorkerBootstrap {
     readonly buildId: string;
     readonly capabilities: readonly string[];
     readonly extensionCatalog: ExtensionCatalog;
+    readonly heartbeatIntervalMs?: number;
 }
 
 export interface WorkerHello {
@@ -57,7 +60,8 @@ function remoteCommon(peer: ControlPeer): RemoteCommon {
 export async function startControlledWorker(
     peer: ControlPeer, bootstrap: WorkerBootstrap, hello: WorkerHello, generation: number, onShutdown: () => void,
 ): Promise<{ close(): Promise<void> }> {
-    const runtime = await startSessionWorkerRuntime(bootstrap.options, remoteReservations(peer), {
+    const reservations = remoteReservations(peer);
+    const runtime = await startSessionWorkerRuntime(bootstrap.options, reservations, {
         index: hello.index, count: hello.count,
     }, remoteExtensions(peer, bootstrap.extensionCatalog));
     const host = runtime.sessionHost;
@@ -75,6 +79,15 @@ export async function startControlledWorker(
     host.registry.subagentSessions = router;
     host.registry.subagentAdmission = router;
     host.inboxDelivery.setSessionBridge(inbox);
+    const heldWakes = new Map<string, ReadonlySet<number>>();
+    host.registry.shouldWakeStoredDelivery = (id, delivery) => {
+        const held = heldWakes.get(id);
+        if (held === undefined) return true;
+        const extensionSeq = delivery.sourceKind === "extension" && /^inbox:\d+$/.test(delivery.id)
+            ? Number(delivery.id.slice(6)) : undefined;
+        const seq = delivery.peer?.messageId ?? extensionSeq;
+        return seq === undefined || !held.has(seq);
+    };
     const opening = new Set<string>();
     host.registry.openGuard = {
         async beginCreate(id, path, parentId) {
@@ -121,6 +134,32 @@ export async function startControlledWorker(
             host.stopMaintenance();
             return;
         }
+        if (method === "worker.recover") {
+            const sessions = args[0];
+            if (!Array.isArray(sessions) || !sessions.every((entry) =>
+                typeof entry === "object" && entry !== null && typeof entry.id === "string" && typeof entry.path === "string"
+                && Array.isArray(entry.heldWakes) && entry.heldWakes.every((seq: unknown) =>
+                    Number.isSafeInteger(seq) && (seq as number) > 0))) {
+                throw new Error("Invalid worker recovery sessions");
+            }
+            for (const session of sessions as Array<{ id: string; path: string; heldWakes: number[] }>) {
+                if (session.heldWakes.length > 0) heldWakes.set(session.id, new Set(session.heldWakes));
+                try {
+                    await withSessionReservation(session.path, reservations, async (path) => {
+                        const store = await SessionStore.open(path);
+                        if (store.header.id !== session.id) throw new Error("Worker recovery session identity changed");
+                        await store.repairCrashedTurn({ workerExited: true });
+                        const indexed = new Map<string, RegisteredAgentSummary>();
+                        await indexStoredSession(path, indexed);
+                        const summary = indexed.get(session.id);
+                        if (summary !== undefined) host.handlers.rememberStored(summary);
+                    });
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+                }
+            }
+            return;
+        }
         throw new Error("Unknown worker control request");
     });
     peer.setEventHandler((event, value) => {
@@ -134,6 +173,8 @@ export async function startControlledWorker(
         if (typeof snapshot.workIndex === "object" && snapshot.workIndex !== null) workIndex = snapshot.workIndex as WorkIndexSnapshot;
         for (const listener of listeners) listener();
     });
+    const heartbeat = setInterval(() => { void peer.event("heartbeat").catch(() => {}); }, bootstrap.heartbeatIntervalMs ?? 1_000);
+    heartbeat.unref();
     let rosterTimer: ReturnType<typeof setTimeout> | undefined;
     let lastRoster = 0;
     const publishRoster = (): void => {
@@ -148,6 +189,7 @@ export async function startControlledWorker(
         else rosterTimer = setTimeout(publishRoster, delay);
     });
     const stopTracking = (): void => {
+        clearInterval(heartbeat);
         stopRosterListener();
         if (rosterTimer !== undefined) clearTimeout(rosterTimer);
     };
@@ -194,6 +236,7 @@ export async function startControlledWorker(
         stopTracking();
         await server?.close();
         await runtime.close();
+        if (error instanceof HostSocketHeldError) throw new Error("worker_socket_busy");
         throw error;
     }
     let closing: Promise<void> | undefined;

@@ -13,13 +13,16 @@ export class RoutedSnapshots {
     constructor(
         private readonly master: SessionEndpoint,
         private readonly workers: readonly RouterWorker[],
-        private readonly observe: (owner: SessionOwner, snapshot: SessionSnapshot) => void,
+        private readonly revision: () => number,
+        private readonly observe: (owner: SessionOwner, snapshot: SessionSnapshot, revision: number) => void,
     ) {}
 
     refresh(): void {
+        const revision = this.revision();
         const owners: Array<[SessionOwner, SessionEndpoint]> = [
             ["host", this.master], ...this.workers.filter((worker) => worker.ready()).map((worker): [SessionOwner, SessionEndpoint] => [worker.id, worker.endpoint]),
         ];
+        const generations = new Map(this.workers.map((worker) => [worker.id, worker.generation()]));
         const snapshots = Promise.all(owners.map(([, endpoint]) => endpoint.snapshot())).then(
             (value) => ({ value }),
             (error: unknown) => ({ error }),
@@ -28,7 +31,8 @@ export class RoutedSnapshots {
             const result = await snapshots;
             if ("error" in result) throw result.error;
             const current = owners.flatMap(([owner], index) =>
-                owner === "host" || this.workers.some((worker) => worker.id === owner && worker.ready())
+                owner === "host" || this.workers.some((worker) => worker.id === owner && worker.ready()
+                    && worker.generation() === generations.get(worker.id))
                     ? [{ owner, snapshot: result.value[index]! }] : []
             );
             const residentOwners = new Map<string, SessionOwner>();
@@ -36,7 +40,7 @@ export class RoutedSnapshots {
             const agents = current.flatMap(({ owner, snapshot }) => {
                 for (const session of snapshot.residents) residentOwners.set(session.id, owner);
                 for (const id of snapshot.unreadSources) unread.add(id);
-                this.observe(owner, snapshot);
+                this.observe(owner, snapshot, revision);
                 return snapshot.work;
             }).map((fact) => unread.has(fact.id) ? { ...fact, unread_result: true } : fact);
             const schedules = await this.master.workSchedules(agents);

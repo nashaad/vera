@@ -46,6 +46,7 @@ export interface SessionWorkerSupervisor {
     readonly peer: ControlPeer;
     readonly snapshot: SessionSnapshot;
     readonly exited: Promise<number | null>;
+    kill(): void;
     close(): Promise<void>;
 }
 
@@ -133,9 +134,10 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
             }),
         ]);
         if (peer === undefined || child.pid === undefined) throw new Error("Session worker did not connect");
-        return { pid: child.pid, peer, snapshot, exited, close };
+        return { pid: child.pid, peer, snapshot, exited, kill: () => { child?.kill("SIGKILL"); }, close };
     } catch (error) {
         await close();
+        if (stderr.split(/\r?\n/).some((line) => line.trim() === "worker_socket_busy")) throw new Error("worker_socket_busy");
         throw error;
     } finally {
         if (timer !== undefined) clearTimeout(timer);

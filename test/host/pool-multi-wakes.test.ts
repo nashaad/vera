@@ -28,7 +28,7 @@ interface PoolProbe {
     restore(): void;
 }
 
-function probePool(beforeStart?: (index: number) => Promise<void>): PoolProbe {
+function probePool(beforeStart?: (index: number, generation: number) => Promise<void>): PoolProbe {
     const pids = new Map<number, number>();
     const allPids: number[] = [];
     const peers = new Map<number, ControlPeer>();
@@ -36,7 +36,7 @@ function probePool(beforeStart?: (index: number) => Promise<void>): PoolProbe {
     const start = supervisor.startSessionWorkerSupervisor;
     const spy = spyOn(supervisor, "startSessionWorkerSupervisor").mockImplementation(async (options) => {
         const index = options.index ?? 0;
-        await beforeStart?.(index);
+        await beforeStart?.(index, options.generation);
         const worker = await start({
             ...options,
             onSpawn(pid) { pids.set(index, pid); allPids.push(pid); options.onSpawn?.(pid); },
@@ -345,7 +345,10 @@ test("a watch admission waits for the scanning hash owner to register its consum
 test("an entry for a stored session stays unread while its hash worker is gone", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-offline-");
     const stub = startScheduleWakeProvider(true);
-    const probe = probePool();
+    const release = Promise.withResolvers<void>();
+    const probe = probePool(async (index, generation) => {
+        if (index === 2 && generation > 1) await release.promise;
+    });
     const watching = Promise.withResolvers<WatchRuntimeContext>();
     let host: ResidentHost | undefined;
     let client: AttachedAgentClient | undefined;
@@ -382,11 +385,8 @@ test("an entry for a stored session stays unread while its hash worker is gone",
         for (const index of [0, 1]) expect(await probe.peers.get(index)!.request("session.resident", [id])).toBeUndefined();
         const unavailable = await resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error);
         expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
-        const oldAnnexPid = host.annexPid;
-        await host.close();
-        host = undefined;
-        if (oldAnnexPid !== undefined) expect(() => process.kill(oldAnnexPid, 0)).toThrow();
-        host = await startResidentHost(options);
+        release.resolve();
+        await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 3, "replacement ready");
         const target = await resumeAgentThroughHost(host.server.socketPath, path);
         expect(target.location?.worker_id).toBe("w2");
         expect((await requestHostIdentity(target.location!.socket_path))?.pid).toBe(probe.pids.get(2));
@@ -396,6 +396,7 @@ test("an entry for a stored session stays unread while its hash worker is gone",
         expect(inboxState(home, id)).toEqual({ offset: 1, unread: 0 });
         expect(stub.requests).toBe(2);
     } finally {
+        release.resolve();
         client?.close();
         stub.close();
         await closePool(host, probe, home);
@@ -458,8 +459,9 @@ test("a dropped worker releases its claim after exit and the held entry follows 
         paused = undefined;
         await waitFor(() => { try { process.kill(lost, 0); return false; } catch { return true; } }, "worker exit");
         await waitFor(() => closed.has(oldClaim), "worker inbox claim release");
+        await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 3, "replacement ready");
         const reopened = await resumeAgentThroughHost(socket, path);
-        const owner = sessionShardIndex(target.id, 3);
+        const owner = 2;
         expect(reopened.location?.worker_id).toBe(`w${owner}`);
         expect((await requestHostIdentity(reopened.location!.socket_path))?.pid).toBe(probe.pids.get(owner));
         client = await attachAgent({ socketPath: reopened.location!.socket_path, agentId: target.id });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/master/router.ts";
+import { RoutedSnapshots } from "../../src/host/master/snapshots.ts";
 import { mergeRoster } from "../../src/host/master/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
@@ -94,6 +95,69 @@ function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
     };
 }
 
+test("an opening worker session survives an older roster snapshot until a fresh one settles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-recovery-open-"));
+    const path = join(root, "crow.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+    const session = { id: "crow", workspace: root, sessionPath: path };
+    const master = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const entered = deferred();
+    const release = deferred();
+    worker.find = async () => { entered.resolve(); await release.promise; return session; };
+    const router = new HostRouter({
+        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test", keepResidentOwner: true,
+    });
+    const stale = router.snapshotRevision();
+    let locating: ReturnType<HostRouter["locate"]> | undefined;
+    try {
+        locating = router.locate("crow", false, path);
+        await entered.promise;
+        router.observe("w0", [], stale);
+        expect(router.workerSessions("w0")).toMatchObject([{ id: "crow", path, baseline: null }]);
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map." }] }, { turnStart: true });
+        release.resolve();
+        expect(await locating).toMatchObject({ type: "agent_location", worker_id: "w0" });
+        router.observe("w0", [], stale);
+        expect(router.workerSessions("w0")).toMatchObject([{ id: "crow", path, baseline: null }]);
+        router.observe("w0", [session], router.snapshotRevision());
+        expect(router.workerSessions("w0")).toEqual([{ id: "crow", path }]);
+        router.observe("w0", [], router.snapshotRevision());
+        expect(router.workerSessions("w0")).toEqual([]);
+    } finally {
+        release.resolve();
+        await locating?.catch(() => {});
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a delayed roster from a lost worker cannot replace its successor's snapshot", async () => {
+    const master = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const old = deferred();
+    let generation = 1;
+    let calls = 0;
+    worker.snapshot = async () => {
+        calls += 1;
+        const current = calls;
+        if (current === 1) await old.promise;
+        const session = { id: current === 1 ? "old" : "new", workspace: "/work", sessionPath: `/sessions/${current}.jsonl` };
+        return { residents: [session], summaries: [], work: [], unreadSources: [] };
+    };
+    const observed: string[] = [];
+    const snapshots = new RoutedSnapshots(master, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => generation, ready: () => true,
+    }], () => 0, (owner, snapshot) => {
+        if (owner === "w0") observed.push(...snapshot.residents.map((session) => session.id));
+    });
+    snapshots.refresh();
+    generation = 2;
+    snapshots.refresh();
+    old.resolve();
+    await snapshots.wait();
+    expect(observed).toEqual(["new"]);
+});
+
 test("a lost create reply must not let another worker open the same session", async () => {
     const id = "00000000-0000-4000-8000-000000000001";
     const path = `/sessions/${id}.jsonl`;
@@ -113,7 +177,7 @@ test("a lost create reply must not let another worker open the same session", as
         firstReady = false;
         throw new Error("control connection closed before the create reply");
     };
-    for (const [worker, sessions] of [[second, secondSessions], [third, thirdSessions]] as const) {
+    for (const [worker, sessions] of [[first, firstSessions], [second, secondSessions], [third, thirdSessions]] as const) {
         worker.resume = async (sessionPath) => {
             const session = { id, workspace: "/work", sessionPath };
             sessions.set(id, session);
@@ -139,8 +203,10 @@ test("a lost create reply must not let another worker open the same session", as
         expect([firstSessions, secondSessions, thirdSessions].filter((sessions) => sessions.has(id))).toHaveLength(1);
         firstSessions.clear();
         router.workerExited("w0");
+        firstReady = true;
         await router.resume(path);
         expect([firstSessions, secondSessions, thirdSessions].filter((sessions) => sessions.has(id))).toHaveLength(1);
+        expect(firstSessions.has(id)).toBe(true);
     } finally {
         random.mockRestore();
     }

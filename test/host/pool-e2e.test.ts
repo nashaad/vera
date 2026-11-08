@@ -11,7 +11,7 @@ import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../src/host/capabil
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
-import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
+import { SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
 test("a real worker serves sessions and preserves an existing owner", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-pool-");
@@ -213,12 +213,7 @@ test("a killed session worker repairs its turn and re-offers a queued prompt onc
         client = undefined;
         hold = false;
         release.resolve();
-        await host.close();
-        host = undefined;
-
-        host = await startResidentHost(options);
-        if (host.annexPid !== undefined) annexes.push(host.annexPid);
-        expect((await resumeAgentThroughHost(host.server.socketPath, path)).id).toBe(session.id);
+        await waitFor(() => host!.health.workers?.[0]?.state === "replaced");
         const restarted = await locate(host.server.socketPath, session.id);
         workers.push((await requestHostIdentity(restarted.socket_path))!.pid);
         client = await attachAgent({ socketPath: host.server.socketPath, agentId: session.id });
@@ -226,7 +221,7 @@ test("a killed session worker repairs its turn and re-offers a queued prompt onc
         expect(history).toMatchObject({
             type: "history", unsentPrompts: [{ content: "Inspect the deck." }, { content: "Check the sails." }],
         });
-        expect((await readFile(path, "utf8")).split(CRASH_CUT_MESSAGE)).toHaveLength(2);
+        expect((await readFile(path, "utf8")).split(WORKER_EXIT_TURN_MESSAGE)).toHaveLength(2);
         await client.send({ type: "prompt", content: "Continue the voyage." });
         while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
         await client.detach();
@@ -236,7 +231,7 @@ test("a killed session worker repairs its turn and re-offers a queued prompt onc
         expect(later.type).toBe("history");
         if (later.type !== "history") throw new Error("Missing history");
         expect(later.unsentPrompts).toBeUndefined();
-        expect((await readFile(path, "utf8")).split(CRASH_CUT_MESSAGE)).toHaveLength(2);
+        expect((await readFile(path, "utf8")).split(WORKER_EXIT_TURN_MESSAGE)).toHaveLength(2);
     } finally {
         release.resolve();
         client?.close();

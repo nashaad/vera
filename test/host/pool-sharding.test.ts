@@ -27,13 +27,13 @@ interface PoolProbe {
     restore(): void;
 }
 
-function probePool(dropRoster = false, beforeStart?: (index: number) => Promise<void>): PoolProbe {
+function probePool(dropRoster = false, beforeStart?: (index: number, generation: number) => Promise<void>): PoolProbe {
     const pids: number[] = [];
     const pidsByIndex = new Map<number, number>();
     const peers = new Map<number, ControlPeer>();
     const start = supervisor.startSessionWorkerSupervisor;
     const spy = spyOn(supervisor, "startSessionWorkerSupervisor").mockImplementation(async (options) => {
-        await beforeStart?.(options.index ?? 0);
+        await beforeStart?.(options.index ?? 0, options.generation);
         return await start({
             ...options,
             onSpawn(pid) {
@@ -94,7 +94,10 @@ test("three workers scan thirty sessions, own each once, and search fails closed
         }
     }
     const stub = stubProvider();
-    const probe = probePool();
+    const release = Promise.withResolvers<void>();
+    const probe = probePool(false, async (index, generation) => {
+        if (index === 1 && generation > 1) await release.promise;
+    });
     let host: ResidentHost | undefined;
     try {
         host = await startResidentHost(poolOptions(home, stub.port));
@@ -146,6 +149,7 @@ test("three workers scan thirty sessions, own each once, and search fails closed
             expect(await probe.peers.get(index)!.request("session.resident", [missingOwnerId])).toBeUndefined();
         }
     } finally {
+        release.resolve();
         const annexPid = host?.annexPid;
         await host?.close();
         stub.stop(true);
@@ -227,7 +231,7 @@ test("creates balance resident sessions, concurrent resumes converge, and two wo
     }
 }, 90_000);
 
-test("control loss stops the child before its sessions can move", async () => {
+test("control loss stops the child before its replacement reclaims sessions", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-control-loss-");
     const stub = stubProvider();
     const probe = probePool();
@@ -267,7 +271,10 @@ test("control loss stops the child before its sessions can move", async () => {
             resumed = await resumeAgentThroughHost(socket, path).catch(() => undefined);
             return resumed !== undefined;
         });
-        expect(resumed?.location?.worker_id).toBe(`w${hashIndex}`);
+        expect(resumed?.location?.worker_id).toBe(`w${index}`);
+        const residents = await Promise.all([0, 1, 2].map((worker) => probe.peers.get(worker)!.request("session.resident", [session!.id])));
+        expect(residents.filter((value) => value !== undefined)).toHaveLength(1);
+        expect(residents[index]).toMatchObject({ id: session.id });
     } finally {
         if (pausedPid !== undefined && !exited) {
             try { process.kill(pausedPid, "SIGCONT"); }
@@ -382,7 +389,10 @@ test("a lost create reply must not leave one session open on two workers", async
             resumed = await resumeAgentThroughHost(socket, lost.path).catch(() => undefined);
             return resumed !== undefined;
         });
-        expect(resumed?.location?.worker_id).toBe(`w${hashIndex}`);
+        expect(resumed?.location?.worker_id).toBe(`w${lost.index}`);
+        const residents = await Promise.all([0, 1, 2].map((worker) => probe.peers.get(worker)!.request("session.resident", [lost.id])));
+        expect(residents.filter((value) => value !== undefined)).toHaveLength(1);
+        expect(residents[lost.index]).toMatchObject({ id: lost.id });
     } finally {
         if (paused !== undefined && !pausedExited) {
             try { process.kill(paused.pid, "SIGCONT"); }

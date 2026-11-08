@@ -171,6 +171,7 @@ export interface StartResidentHostOptions {
     readonly inProcessWorker?: boolean;
     readonly processWorker?: boolean;
     readonly processWorkerCount?: number;
+    readonly processWorkerHeartbeatDeadlineMs?: number;
     readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
@@ -215,6 +216,7 @@ export interface StartResidentHostOptions {
 export interface HostHealth {
     readonly annex: "ok" | "failed";
     readonly annexReason?: string;
+    readonly workers?: readonly import("./master/in-process.ts").WorkerHealth[];
 }
 
 export interface ResidentHost {
@@ -1142,7 +1144,11 @@ async function startHostRuntime(
         extensions,
         server,
         shutdownRequested,
-        health: annexHealth,
+        health: options.processWorker === true ? {
+            get annex() { return annexHealth.annex; },
+            get annexReason() { return annexHealth.annexReason; },
+            get workers() { return inProcessWorker?.workerHealth?.(); },
+        } : annexHealth,
         ...(annex === undefined ? {} : { annexPid: annex.pid }),
         buildId,
         close: closeHost,

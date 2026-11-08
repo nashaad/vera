@@ -11,6 +11,9 @@ import { MasterInboxBridge } from "./inbox.ts";
 import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
+import type { WorkerRecoverySession } from "./router.ts";
+import { readSessionSnapshot, readSessionTurnState } from "../../store/session-store.ts";
+import { recoveryFileStamp, sameRecoveryFile } from "./recovery-file.ts";
 import { startWorkerControlServer, type WorkerControlServer } from "./control-server.ts";
 import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
 
@@ -23,19 +26,25 @@ interface WorkerSlot {
     readonly id: WorkerOwner;
     readonly index: number;
     readonly socket: string;
-    readonly connected: PromiseWithResolvers<ControlPeer>;
-    readonly started: PromiseWithResolvers<void>;
-    readonly exited: PromiseWithResolvers<void>;
+    connected: PromiseWithResolvers<ControlPeer>;
+    started: PromiseWithResolvers<void>;
+    exited: PromiseWithResolvers<void>;
     readonly endpoint: SessionEndpoint;
-    readonly broker: ControlReservations;
-    readonly inbox: MasterInboxBridge;
+    broker: ControlReservations;
+    inbox: MasterInboxBridge;
     peer?: ControlPeer;
     supervisor?: SessionWorkerSupervisor;
     generation: number;
     ready: boolean;
     starting: boolean;
     closed: boolean;
+    lastHeartbeat: number;
+    failures: number[];
+    recoverySessions: readonly WorkerRecoverySession[];
+    reason?: string;
+    spawnPid?: number;
     stopping?: Promise<void>;
+    restarting?: Promise<void>;
 }
 
 export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWorker {
@@ -45,22 +54,30 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const changes = new Set<() => void>();
     const knownSessions = new Set<string>();
     let control: WorkerControlServer | undefined;
+    let closing = false;
+    let initializing = true;
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    const deadline = options.hostOptions.processWorkerHeartbeatDeadlineMs ?? 10_000;
+    if (!Number.isFinite(deadline) || deadline <= 0) throw new Error("Invalid worker heartbeat deadline");
+    const makeInbox = (index: number, connection: () => Promise<ControlPeer>): MasterInboxBridge => new MasterInboxBridge(
+        options.master.inboxDelivery,
+        async (method, args, signal) => await (await connection()).request(`inbox.${method}`, args, signal),
+        (id) => routed.router.inboxOwner(id) === `w${index}`,
+    );
     const slots: WorkerSlot[] = Array.from({ length: options.workerCount }, (_, index) => {
         const connected = Promise.withResolvers<ControlPeer>();
         const exited = Promise.withResolvers<void>();
         void connected.promise.catch(() => {});
         void exited.promise.catch(() => {});
-        return {
+        let slot!: WorkerSlot;
+        slot = {
             id: `w${index}`, index, socket: inProcessWorkerSocket(options.sessionOptions.home, index),
-            connected, started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(connected.promise),
+            connected, started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(() => slot.connected.promise),
             broker: new ControlReservations(reservations),
-            inbox: new MasterInboxBridge(
-                options.master.inboxDelivery,
-                async (method, args, signal) => await (await connected.promise).request(`inbox.${method}`, args, signal),
-                (id) => routed.router.inboxOwner(id) === `w${index}`,
-            ),
-            generation: 0, ready: false, starting: true, closed: false,
+            inbox: makeInbox(index, () => slot.connected.promise),
+            generation: 0, ready: false, starting: true, closed: false, lastHeartbeat: performance.now(), failures: [], recoverySessions: [],
         };
+        return slot;
     });
     const requestWorker = async <T>(slot: WorkerSlot, method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await slot.connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
@@ -111,35 +128,32 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         options: childOptions, masterSocket: options.masterSocket, lockPath: options.lockPath,
         buildId: options.buildId, capabilities: options.capabilities,
         extensionCatalog: buildExtensionCatalog(options.master.extensions),
+        heartbeatIntervalMs: Math.max(1, Math.min(1_000, Math.floor(deadline / 3))),
     };
     const startSlot = async (slot: WorkerSlot): Promise<void> => {
+        const generation = generations.next(slot.id);
+        slot.generation = generation;
+        slot.lastHeartbeat = performance.now();
         try {
-            slot.generation = generations.next(slot.id);
             slot.supervisor = await startSessionWorkerSupervisor({
                 home: options.sessionOptions.home, socket: slot.socket, bootstrap,
                 control,
                 index: slot.index, count: slots.length, generation: slot.generation,
+                onSpawn(pid) {
+                    slot.spawnPid = pid;
+                    if (closing) {
+                        try { process.kill(pid, "SIGKILL"); }
+                        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                    }
+                },
                 onConnected(peer) {
                     slot.peer = peer;
                     slot.connected.resolve(peer);
-                    void peer.closed.then(() => {
-                        slot.closed = true;
-                        slot.ready = false;
-                        slot.starting = false;
-                        notifyChanges();
-                        slot.stopping = (async () => {
-                            await slot.started.promise;
-                            await slot.supervisor?.close();
-                            slot.inbox.close();
-                            slot.broker.close();
-                            routed.router.workerExited(slot.id);
-                            slot.exited.resolve();
-                            notifyChanges();
-                        })();
-                        void slot.stopping.catch((error: unknown) => slot.exited.reject(error));
-                    });
+                    void peer.closed.then(() => slotLost(slot, generation, "control_closed"));
                 },
                 onEvent(event) {
+                    if (slot.generation !== generation) return;
+                    if (event === "heartbeat") slot.lastHeartbeat = performance.now();
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
@@ -171,8 +185,8 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (method === "host.findWorker" && typeof args[0] === "string") {
                         const id = args[0];
                         await routed.router.waitForImports();
-                        return await routed.reserveAgent(id, async (reserved) => {
-                            if (!await routed.router.find(slot.id, id, reserved)) return false;
+                        return await routed.reserveAgent(id, async (reserved, path) => {
+                            if (!await routed.router.find(slot.id, id, reserved, path)) return false;
                             await routed.snapshots.wait();
                             return true;
                         });
@@ -185,8 +199,35 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     throw new Error("Unknown master control request");
                 },
             });
-            if (slot.closed) throw new Error("Session worker closed before ready");
+            void slot.supervisor.exited.then(() => slotLost(slot, generation, "process_exited"));
+            if (closing || slot.closed) throw new Error("Session worker closed before ready");
+            if (generation > 1) {
+                const candidates = await Promise.all(slot.recoverySessions.map(async (session) => {
+                    const heldWakes = slot.inbox.heldFor(session.id);
+                    if ("baseline" in session && heldWakes.length === 0) {
+                        try {
+                            const current = await recoveryFileStamp(session.path);
+                            if (sameRecoveryFile(session.file ?? null, current) || current === null) return undefined;
+                            const snapshot = await readSessionSnapshot(session.path);
+                            const last = snapshot.messages.at(-1);
+                            const head = last === undefined ? null : snapshot.messageStamps.get(last)?.id ?? null;
+                            if (head === session.baseline) return undefined;
+                            const state = await readSessionTurnState(session.path);
+                            if (!state.turnOpen && !state.needsQueueRecovery) return undefined;
+                        } catch (error) {
+                            if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+                            throw error;
+                        }
+                    }
+                    return { id: session.id, path: session.path, heldWakes };
+                }));
+                const sessions = candidates.filter((session) => session !== undefined);
+                await slot.supervisor.peer.request("worker.recover", [sessions], AbortSignal.timeout(30_000));
+                if (slot.closed) throw new Error("Session worker closed during recovery");
+            }
+            slot.recoverySessions = [];
             slot.ready = true;
+            slot.lastHeartbeat = performance.now();
             routed.router.observe(slot.id, slot.supervisor.snapshot.residents);
             routed.router.observeStored(slot.id, slot.supervisor.snapshot.summaries);
             for (const summary of slot.supervisor.snapshot.summaries) knownSessions.add(summary.id);
@@ -204,20 +245,118 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             slot.started.resolve();
         }
     };
+    const resetSlot = (slot: WorkerSlot): void => {
+        slot.connected = Promise.withResolvers<ControlPeer>();
+        slot.started = Promise.withResolvers<void>();
+        slot.exited = Promise.withResolvers<void>();
+        void slot.connected.promise.catch(() => {});
+        void slot.exited.promise.catch(() => {});
+        slot.broker = new ControlReservations(reservations);
+        slot.inbox = makeInbox(slot.index, () => slot.connected.promise);
+        slot.peer = undefined;
+        slot.supervisor = undefined;
+        slot.spawnPid = undefined;
+        slot.ready = false;
+        slot.starting = true;
+        slot.closed = false;
+    };
+    const replaceSlot = async (slot: WorkerSlot, firstReason: string): Promise<void> => {
+        let reason = firstReason;
+        while (!closing) {
+            const now = Date.now();
+            slot.failures = slot.failures.filter((at) => now - at < 60_000);
+            slot.failures.push(now);
+            slot.reason = reason;
+            if (reason === "worker_socket_busy" || slot.failures.length >= 3) {
+                if (reason !== "worker_socket_busy") slot.reason = "crash_loop";
+                slot.starting = false;
+                notifyChanges();
+                return;
+            }
+            resetSlot(slot);
+            notifyChanges();
+            try {
+                await startSlot(slot);
+                notifyChanges();
+                return;
+            } catch (error) {
+                reason = error instanceof Error && error.message.includes("worker_socket_busy")
+                    ? "worker_socket_busy" : "startup_failed";
+            }
+        }
+    };
+    const slotLost = (slot: WorkerSlot, generation: number, reason: string): void => {
+        if (closing || slot.generation !== generation || slot.closed) return;
+        slot.closed = true;
+        slot.ready = false;
+        slot.reason = reason;
+        slot.inbox.interrupt();
+        if (!slot.starting) slot.recoverySessions = routed.router.workerSessions(slot.id, slot.inbox.heldLabels());
+        notifyChanges();
+        if (slot.starting) return;
+        slot.stopping = (async () => {
+            await slot.started.promise;
+            await slot.supervisor?.close();
+            slot.inbox.close();
+            slot.broker.close();
+            routed.router.workerExited(slot.id);
+            slot.exited.resolve();
+            notifyChanges();
+        })();
+        void slot.stopping.catch((error: unknown) => slot.exited.reject(error));
+        if (!initializing) scheduleReplacement(slot, reason);
+    };
+    const scheduleReplacement = (slot: WorkerSlot, reason: string): void => {
+        if (closing) return;
+        if (slot.restarting !== undefined) {
+            void slot.restarting.then(() => {
+                if (!closing && slot.closed) scheduleReplacement(slot, slot.reason ?? reason);
+            }).catch(() => {});
+            return;
+        }
+        const restarting = (async () => {
+            await slot.stopping;
+            if (!closing) await replaceSlot(slot, reason);
+        })();
+        slot.restarting = restarting;
+        void restarting.catch((error: unknown) => slot.exited.reject(error)).finally(() => {
+            if (slot.restarting === restarting) slot.restarting = undefined;
+        });
+    };
     return {
         masterHandlers: routed.masterHandlers,
         async start() {
             control = await startWorkerControlServer(options.sessionOptions.home);
             const results = await Promise.allSettled(slots.map(startSlot));
-            const failure = results.find((result) => result.status === "rejected");
-            if (failure?.status === "rejected") {
-                await Promise.allSettled(slots.flatMap((slot) => slot.supervisor === undefined ? [] : [slot.supervisor.close()]));
-                await control.close();
-                throw failure.reason;
+            initializing = false;
+            for (const [index, slot] of slots.entries()) {
+                if (slot.ready) continue;
+                const result = results[index];
+                const error = result?.status === "rejected" ? result.reason : undefined;
+                const reason = error instanceof Error && error.message.includes("worker_socket_busy")
+                    ? "worker_socket_busy" : slot.reason ?? "startup_failed";
+                scheduleReplacement(slot, reason);
             }
+            heartbeatTimer = setInterval(() => {
+                const now = performance.now();
+                for (const slot of slots) {
+                    if (!slot.ready || now - slot.lastHeartbeat < deadline) continue;
+                    const supervisor = slot.supervisor;
+                    slotLost(slot, slot.generation, "heartbeat_timeout");
+                    supervisor?.kill();
+                }
+            }, Math.max(1, Math.min(250, Math.floor(deadline / 4))));
+            heartbeatTimer.unref();
             routed.snapshots.refresh();
             await routed.snapshots.wait();
         },
+        workerHealth: () => slots.map((slot) => ({
+            id: slot.id, index: slot.index, generation: slot.generation,
+            ...(slot.supervisor === undefined || slot.closed ? {} : { pid: slot.supervisor.pid }),
+            state: slot.ready ? slot.reason === undefined ? "ready" as const : "replaced" as const
+                : slot.starting ? "starting" as const : "unavailable" as const,
+            ...(slot.reason === undefined ? {} : { reason: slot.reason }),
+        })),
         stopMaintenance() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.stopMaintenance").catch(() => {});
         },
@@ -252,31 +391,39 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 if (owner === "host") return (await options.master.handlers.listAgents()).some((session) => session.id === id);
                 const slot = slots.find((candidate) => candidate.id === owner);
                 if (slot === undefined) return false;
+                if (slot.starting && slot.generation > 1) return knownSessions.has(id) || routed.router.knownPath(id) !== undefined;
                 if (slot.starting) await slot.started.promise;
                 if (routed.router.inboxOwner(id) !== owner) continue;
-                if (!slot.ready) return knownSessions.has(id);
+                if (!slot.ready) return knownSessions.has(id) || routed.router.knownPath(id) !== undefined;
                 try {
                     const sessions = await slot.endpoint.list();
                     for (const session of sessions) knownSessions.add(session.id);
                     return sessions.some((session) => session.id === id) || knownSessions.has(id);
                 } catch (error) {
-                    if (slot.closed) return knownSessions.has(id);
+                    if (slot.closed) return knownSessions.has(id) || routed.router.knownPath(id) !== undefined;
                     throw error;
                 }
             }
         },
         waitForForwardedShutdowns: () => forwardedShutdowns.wait(),
         async close() {
+            closing = true;
+            if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
             for (const slot of slots) {
                 slot.ready = false;
-                slot.starting = false;
+                if (slot.starting && slot.supervisor === undefined && slot.spawnPid !== undefined) {
+                    try { process.kill(slot.spawnPid, "SIGKILL"); }
+                    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                }
             }
             stopSnapshots();
             routed.close();
             const results = await Promise.allSettled(slots.map(async (slot) => {
+                if (slot.supervisor === undefined && slot.starting) await slot.started.promise;
                 if (slot.supervisor !== undefined) await slot.supervisor.close();
                 else slot.connected.reject(new Error("Session worker was not started"));
                 await slot.stopping;
+                await slot.restarting;
                 slot.inbox.close();
                 slot.broker.close();
             }));

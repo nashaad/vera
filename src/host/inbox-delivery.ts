@@ -38,6 +38,7 @@ export interface AttachInboxConsumerRequest {
     readonly initialOffset?: number;
     readonly notify: (notice: InboxNotice) => void;
     readonly canStartTurn?: () => boolean;
+    readonly canWake?: (candidate: InboxAdmissionCandidate) => boolean;
     // A rejection or throw is retried with backoff, then reported through onStartFailure.
     readonly startTurn?: (candidate: InboxAdmissionCandidate) => void | Promise<void>;
     readonly requestAdmission?: (
@@ -71,6 +72,7 @@ export class InboxDeliverySession {
     private readonly notify: (notice: InboxNotice) => void;
     private readonly admission?: InboxAdmissionPolicy;
     private readonly canStartTurn: () => boolean;
+    private readonly canWake: (candidate: InboxAdmissionCandidate) => boolean;
     private readonly startTurn: (candidate: InboxAdmissionCandidate) => void | Promise<void>;
     private readonly requestAdmission:
         AttachInboxConsumerRequest["requestAdmission"];
@@ -112,6 +114,7 @@ export class InboxDeliverySession {
         this.notify = request.notify;
         this.admission = admission;
         this.canStartTurn = request.canStartTurn ?? (() => false);
+        this.canWake = request.canWake ?? (() => true);
         this.startTurn = request.startTurn ?? (() => undefined);
         this.requestAdmission = request.requestAdmission;
         this.onAdmissionFailure = request.onAdmissionFailure;
@@ -183,6 +186,7 @@ export class InboxDeliverySession {
         for (const entry of this.unreadEntries()) {
             if (
                 !this.deliveredAhead.has(entry.seq)
+                && this.canWake(candidateFor(entry))
                 && (this.remote === undefined
                     ? this.isAdmitted(candidateFor(entry))
                     : this.remoteAdmitted.has(entry.seq))
@@ -259,6 +263,7 @@ export class InboxDeliverySession {
         for (const entry of this.unreadEntries()) {
             if (this.deliveredAhead.has(entry.seq)) continue;
             const candidate = candidateFor(entry);
+            if (!this.canWake(candidate)) continue;
             if (this.isAdmitted(candidate)) {
                 this.maybeStartTurn(candidate);
                 continue;

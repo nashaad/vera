@@ -73,6 +73,7 @@ export const CRASHED_TOOL_RESULT = "The host stopped before this tool call finis
     + "so its result was not recorded and its effect is unknown. "
     + "Check the workspace before relying on it or running it again.";
 export const CRASH_CUT_MESSAGE = "Vera crashed before this turn finished.";
+export const WORKER_EXIT_TURN_MESSAGE = "This turn stopped because its session process exited. Send it again to retry.";
 export const CRASH_QUEUED_PROMPT_MESSAGE = "Vera crashed before sending the queued prompt.";
 export const CRASH_QUEUED_PROMPTS_MESSAGE = "Vera crashed before sending the queued prompts.";
 
@@ -112,6 +113,7 @@ export interface SessionMessageEntry {
     readonly timestamp: string;
     readonly deliveryId?: string;
     readonly queuedPromptId?: string;
+    readonly unsentPrompts?: readonly UnsentPrompt[];
     readonly message: ModelMessage;
 }
 
@@ -818,7 +820,7 @@ export class SessionStore {
         return result;
     }
 
-    repairCrashedTurn(): Promise<boolean> {
+    repairCrashedTurn(options?: { readonly workerExited?: boolean }): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
             const active = this.activeEntries();
             if (this.projection.agentFailure !== undefined) return false;
@@ -892,7 +894,20 @@ export class SessionStore {
                     isError: true,
                 });
             }
-            await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", { crashCut: true, unsentPrompts });
+            if (options?.workerExited === true) {
+                const lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+                const settings = this.modelSettings();
+                await this.commitMessage({
+                    role: "assistant", content: [],
+                    source: lastAssistant?.role === "assistant" ? lastAssistant.source : {
+                        provider: settings?.provider ?? "unknown", api: "unknown",
+                        model: settings?.model ?? "unknown",
+                    },
+                    usage: emptyUsage(), stopReason: "error", errorMessage: WORKER_EXIT_TURN_MESSAGE,
+                }, undefined, undefined, undefined, unsentPrompts);
+            } else {
+                await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", { crashCut: true, unsentPrompts });
+            }
             return true;
         });
         this.pendingAppend = result.then(() => undefined, () => undefined);
@@ -1259,6 +1274,7 @@ export class SessionStore {
         deliveryId?: string,
         turnStart?: true,
         queuedPromptId?: string,
+        unsentPrompts?: readonly UnsentPrompt[],
     ): Promise<SessionMessageEntry> {
         const snapshot = structuredClone(message);
         if (!isModelMessage(snapshot)) {
@@ -1286,6 +1302,7 @@ export class SessionStore {
             timestamp: this.now().toISOString(),
             ...(deliveryId === undefined ? {} : { deliveryId }),
             ...(queuedPromptId === undefined ? {} : { queuedPromptId }),
+            ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
             message: snapshot,
         };
         if (this.projection.messageEntries.some((candidate) => candidate.id === entry.id)) {
@@ -1302,6 +1319,10 @@ export class SessionStore {
         this.projection.leafId = entry.id;
         applyTurnMessage(this.projection, entry, turnStart === true);
         if (turnStart === true) this.projection.unsentPrompts = [];
+        if (unsentPrompts !== undefined) {
+            this.projection.queuedPrompts.clear();
+            this.projection.unsentPrompts = structuredClone(unsentPrompts);
+        }
         if (queuedPromptId !== undefined) this.projection.queuedPrompts.delete(queuedPromptId);
         return entry;
     }
@@ -2345,6 +2366,10 @@ export function ingestSessionRecord(
         state.leafId = entry.id;
         applyTurnMessage(state, entry, value.type === "turn_start");
         if (value.type === "turn_start") state.unsentPrompts = [];
+        if (entry.unsentPrompts !== undefined) {
+            state.queuedPrompts.clear();
+            state.unsentPrompts = structuredClone(entry.unsentPrompts);
+        }
         return;
     }
     if (value.type === "queued_prompt") {
@@ -3200,6 +3225,10 @@ function parseMessageEntry(
         )
         || (value.queuedPromptId !== undefined
             && (typeof value.queuedPromptId !== "string" || value.queuedPromptId.length === 0))
+        || (value.unsentPrompts !== undefined
+            && (!Array.isArray(value.unsentPrompts) || !value.unsentPrompts.every(isUnsentPrompt)
+                || value.type !== "message" || !isRecord(value.message)
+                || value.message.role !== "assistant" || value.message.stopReason !== "error"))
         || !isModelMessage(value.message)
     ) {
         throw invalidSession(

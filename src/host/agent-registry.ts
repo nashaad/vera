@@ -34,7 +34,7 @@ import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "
 import { projectTranscript } from "../engine/protocol.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ApplyCommittedToolEffect, ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
-import { SessionStore, defaultSessionPath, type SessionSettingOrigin } from "../store/session-store.ts";
+import { SessionStore, defaultSessionPath, type SessionDeliveryEntry, type SessionSettingOrigin } from "../store/session-store.ts";
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../agents/catalog.ts";
 import { type AgentDefinition } from "../agents/definition.ts";
 import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "../agents/snapshot.ts";
@@ -95,6 +95,7 @@ export class AgentRegistry {
     subagentSessions: SubagentSessionServices | undefined;
     subagentAdmission: SubagentAdmission | undefined;
     openGuard: RegistryOpenGuard | undefined;
+    shouldWakeStoredDelivery: ((id: string, delivery: SessionDeliveryEntry) => boolean) | undefined;
     readonly agents = new Map<string, RegisteredAgentEntry>();
     readonly startingIds = new Set<string>();
     readonly trashingIds = new Set<string>();
@@ -1552,7 +1553,7 @@ export class AgentRegistry {
             });
         }
         if (
-            pendingDeliveries.length > 0
+            pendingDeliveries.some((delivery) => this.shouldWakeStoredDelivery?.(agent.id, delivery) !== false)
             || store.hasUnansweredDeliveryTurn()
         ) {
             agent.triggerDeliveryTurn();

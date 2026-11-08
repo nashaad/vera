@@ -32,6 +32,7 @@ export interface InProcessWorkerOptions {
 
 export interface InProcessWorker {
     readonly masterHandlers: Partial<StartHostServerOptions>;
+    workerHealth?(): readonly WorkerHealth[];
     start(identity: Pick<HostIdentity, "pid" | "started_at">): Promise<void>;
     stopMaintenance(): void;
     waitingOn(): Promise<readonly StopWaitTarget[]>;
@@ -44,6 +45,15 @@ export interface InProcessWorker {
     knowsSession(id: string): Promise<boolean>;
     waitForForwardedShutdowns(): Promise<void>;
     close(): Promise<void>;
+}
+
+export interface WorkerHealth {
+    readonly id: string;
+    readonly index: number;
+    readonly generation: number;
+    readonly pid?: number;
+    readonly state: "starting" | "ready" | "replaced" | "unavailable";
+    readonly reason?: string;
 }
 
 export async function prepareInProcessWorker(options: InProcessWorkerOptions): Promise<InProcessWorker> {

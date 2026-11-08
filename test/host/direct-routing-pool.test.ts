@@ -225,8 +225,15 @@ test("a shutdown accepted on a worker socket reaches the client before the pool 
     }
 }, 30_000);
 
-test("a reconnecting client reaches a real replacement worker after the host is restarted", async () => {
+test("a reconnecting client reaches a replacement worker without restarting the host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-real-reconnect-");
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const start = supervisor.startSessionWorkerSupervisor;
+    const probe = spyOn(supervisor, "startSessionWorkerSupervisor").mockImplementation(async (options) => {
+        if (options.generation > 1) { entered.resolve(); await release.promise; }
+        return await start(options);
+    });
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
         fetch(request) {
@@ -264,6 +271,7 @@ test("a reconnecting client reaches a real replacement worker after the host is 
         expect(await requestHostIdentity(ready.location!.socket_path)).toMatchObject({ pid: first!.pid, role: "worker" });
         process.kill(first!.pid, "SIGKILL");
         await waitForExit(first!.pid);
+        await within(entered.promise);
         const deadline = Date.now() + 5_000;
         while ((await requestHostIdentity(masterPath))?.workers_ready !== 0) {
             if (Date.now() >= deadline) throw new Error("Master did not observe the worker exit");
@@ -271,17 +279,16 @@ test("a reconnecting client reaches a real replacement worker after the host is 
         }
         expect(await request(masterPath, { type: "locate_agent", agent_id: ready.id }))
             .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable" });
-        expect(await request(masterPath, { type: "create_agent", workspace: home }))
-            .toMatchObject({ type: "agent_start_failed", reason: "The session worker is unavailable." });
-        const createFailure = await createAgentThroughHost(masterPath, home).catch((error: unknown) => error);
-        expect(createFailure).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
         expect(await request(masterPath, {
             type: "resume_agent", session_path: join(home, "runtime", "sessions", `${ready.id}.jsonl`),
         })).toMatchObject({ type: "agent_start_failed", reason: "The session worker is unavailable." });
-        await host.close();
-        host = await startResidentHost(options);
-        if (host.annexPid !== undefined) pids.push(host.annexPid);
-        const second = await requestHostIdentity(ready.location!.socket_path);
+        release.resolve();
+        let second = await requestHostIdentity(ready.location!.socket_path);
+        while (second === undefined || second.pid === first!.pid) {
+            if (Date.now() >= deadline) throw new Error("Replacement did not become ready");
+            await Bun.sleep(10);
+            second = await requestHostIdentity(ready.location!.socket_path);
+        }
         pids.push(second!.pid);
         expect(second!.pid).not.toBe(first!.pid);
         pending = client.receive(AbortSignal.timeout(15_000));
@@ -295,9 +302,11 @@ test("a reconnecting client reaches a real replacement worker after the host is 
         expect(await request(masterPath, { type: "locate_agent", agent_id: ready.id }))
             .toMatchObject({ type: "agent_location", worker_id: "w0", socket_path: ready.location!.socket_path });
     } finally {
+        release.resolve();
         client?.close();
         await pending?.catch(() => {});
         await host?.close();
+        probe.mockRestore();
         stub.stop(true);
         try {
             for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
