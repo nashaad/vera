@@ -22,11 +22,86 @@ import { isContextMeasurement } from "../engine/context-measurement.ts";
 import { isModelTurnSettings } from "../engine/model-settings.ts";
 import { parseSettingsDestination } from "../engine/settings-destination.ts";
 
-export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
+export type AgentUpdateFrame =
+    | { readonly kind: "update"; readonly update: AgentUpdate }
+    | { readonly kind: "unknown"; readonly seq: number | undefined }
+    | { readonly kind: "invalid" };
+
+// Typed against AgentUpdate: a union variant missing here fails typecheck.
+const KNOWN_AGENT_UPDATE_TYPES: Record<AgentUpdate["type"], true> = {
+    history: true,
+    prompt_queue: true,
+    prompt_withdrawn: true,
+    context: true,
+    model_activity: true,
+    model_substitution: true,
+    compaction: true,
+    user_prompt: true,
+    assistant_delta: true,
+    assistant_thinking: true,
+    tool_started: true,
+    tool_review: true,
+    tool_breaker_tripped: true,
+    tool_finished: true,
+    tool_presentation: true,
+    turn_finished: true,
+    agent_failed: true,
+    status: true,
+    task_notification: true,
+    hook_context: true,
+    notice: true,
+    ui_request: true,
+    ui_request_closed: true,
+    model_settings: true,
+    session_model_settings_history: true,
+    agent_selected: true,
+    customization_sources: true,
+    agent_catalog: true,
+    agent_rejected: true,
+    skill_catalog: true,
+    skill_invocation_accepted: true,
+    skill_invocation_rejected: true,
+    model_settings_rejected: true,
+    pool_admission_progress: true,
+    pool_admission_result: true,
+    permissions: true,
+    permissions_rejected: true,
+    session_name: true,
+    session_name_rejected: true,
+    timeline: true,
+    timeline_action_preview: true,
+    timeline_action_applied: true,
+    timeline_action_rejected: true,
+    image_attached: true,
+    image_attachment_rejected: true,
+    oneshot_result: true,
+    oneshot_rejected: true,
+    prompt_rejected: true,
+};
+
+export function parseAgentUpdateFrame(value: unknown): AgentUpdateFrame {
     const update = asRecord(value);
-    if (update === undefined) {
-        return undefined;
+    if (update === undefined || typeof update.type !== "string") {
+        return { kind: "invalid" };
     }
+    if (!Object.hasOwn(KNOWN_AGENT_UPDATE_TYPES, update.type)) {
+        return { kind: "unknown", seq: isSequence(update.seq) ? update.seq : undefined };
+    }
+    const parsed = parseKnownAgentUpdate(value, update);
+    return parsed === undefined
+        ? { kind: "invalid" }
+        : { kind: "update", update: parsed };
+}
+
+export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
+    const frame = parseAgentUpdateFrame(value);
+    return frame.kind === "update" ? frame.update : undefined;
+}
+
+function parseKnownAgentUpdate(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
     if (isTimelineReplyType(update.type)) {
         return update.seq === undefined ? parseTimelineReply(value, update) : undefined;
     }
