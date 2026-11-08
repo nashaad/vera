@@ -89,6 +89,30 @@ describe("transformMessages", () => {
         });
     });
 
+    test("places missing results around a saved call in call order", () => {
+        const messages: ModelMessage[] = [{
+            role: "assistant",
+            content: ["first", "middle", "last"].map((id) => ({
+                type: "tool_call" as const, id, name: "read", input: {},
+            })),
+            source: { provider: "faux", api: "chat", model: "test" },
+            usage: emptyUsage(), stopReason: "tool_use",
+        }, {
+            role: "tool_result", toolCallId: "middle", toolName: "read",
+            content: [{ type: "text", text: "deck" }], isError: false,
+        }];
+        const projected = transformMessages(messages, {
+            target: { provider: "faux", api: "chat", model: "test" },
+            normalizeToolCallId: (id) => `normalized_${id}`,
+        });
+        const results = projected.filter((message) => message.role === "tool_result");
+        expect(results.map((result) => result.toolCallId)).toEqual([
+            "normalized_first", "normalized_middle", "normalized_last",
+        ]);
+        expect(results.map((result) => result.isError)).toEqual([true, false, true]);
+        expect(results[1]?.content).toEqual([{ type: "text", text: "deck" }]);
+    });
+
     test("removes tool results belonging to a failed assistant message", () => {
         const transformed = transformMessages(
             [
