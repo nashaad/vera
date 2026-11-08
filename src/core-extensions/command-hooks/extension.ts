@@ -9,6 +9,7 @@ interface CommandHookConfig {
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
+    readonly onFailure?: "allow" | "deny";
 }
 
 export function activate(vera: VeraExtensionApi): void {
@@ -23,6 +24,9 @@ export function activate(vera: VeraExtensionApi): void {
             ...(hook.timeout_ms === undefined
                 ? {}
                 : { timeoutMs: hook.timeout_ms }),
+            ...(hook.onFailure === undefined
+                ? {}
+                : { onFailure: hook.onFailure }),
         };
         vera.hooks.registerCommand(spec);
     }
@@ -45,7 +49,10 @@ function parseHook(value: unknown): CommandHookConfig {
             && value.protocol !== "vera"
             && value.protocol !== "claude")
         || (value.timeout_ms !== undefined
-            && typeof value.timeout_ms !== "number")) {
+            && typeof value.timeout_ms !== "number")
+        || (value.onFailure !== undefined
+            && value.onFailure !== "allow"
+            && value.onFailure !== "deny")) {
         throw new Error("Invalid command-hook config entry");
     }
     // registerCommand rejects an unknown phase or one the protocol cannot carry.
@@ -58,6 +65,9 @@ function parseHook(value: unknown): CommandHookConfig {
         ...(value.timeout_ms === undefined
             ? {}
             : { timeout_ms: value.timeout_ms }),
+        ...(value.onFailure === undefined
+            ? {}
+            : { onFailure: value.onFailure }),
     };
 }
 

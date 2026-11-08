@@ -58,6 +58,7 @@ export interface CommandHookSpec {
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeoutMs?: number;
+    readonly onFailure?: "deny" | "allow";
 }
 
 export type CommandHookFunction =
@@ -179,6 +180,13 @@ function validateCommandHookSpec(spec: CommandHookSpec): void {
         || (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS) <= 0
         || (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS) > 30_000) {
         throw new Error("Command hook timeout must be between 1 and 30000ms");
+    }
+    if (spec.onFailure !== undefined && spec.onFailure !== "allow" && spec.onFailure !== "deny") {
+        throw new Error("Command hook onFailure must be allow or deny");
+    }
+    const phase = commandHookPhase(spec.phase, spec.protocol);
+    if (spec.onFailure === "deny" && phase !== "pre_tool_use" && phase !== "pre_turn") {
+        throw new Error(`${phase} hook cannot deny on failure because it cannot block`);
     }
 }
 
