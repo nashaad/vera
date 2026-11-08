@@ -140,6 +140,7 @@ import {
     pickerIsSearchable,
     pickerSelection,
     searched,
+    selectableSettingsPickerIndex,
     showsAllModelsPrices,
     showsIntelligenceCutoff,
     showsListedFactsHeader,
@@ -303,12 +304,12 @@ export function handleTuiSettingsPickerKey(
     if (halfPage === "half_page_down" || halfPage === "half_page_up") {
         const next = {
             ...state,
-            selectedIndex: halfPageCursor(
+            selectedIndex: selectableSettingsPickerIndex(state, halfPageCursor(
                 state.selectedIndex,
                 state.options.length,
                 viewportRows ?? FALLBACK_JUMP * 2,
                 halfPage === "half_page_down" ? "down" : "up",
-            ),
+            ), halfPage === "half_page_down" ? 1 : -1),
         };
         return { state: next, handled: true, ...themePreview(next) };
     }
@@ -378,7 +379,7 @@ export function handleTuiSettingsPickerKey(
     if (key.name === "up") {
         const next = {
                 ...state,
-                selectedIndex: Math.max(0, state.selectedIndex - 1),
+                selectedIndex: selectableSettingsPickerIndex(state, Math.max(0, state.selectedIndex - 1), -1),
             };
         return {
             state: next,
@@ -399,13 +400,13 @@ export function handleTuiSettingsPickerKey(
         }
         const next = {
                 ...state,
-                selectedIndex: Math.max(
+                selectedIndex: selectableSettingsPickerIndex(state, Math.max(
                     0,
                     Math.min(
                         state.options.length - 1,
                         state.selectedIndex + 1,
                     ),
-                ),
+                ), 1),
             };
         return {
             state: next,
@@ -485,7 +486,9 @@ export function handleTuiSettingsPickerScroll(
     if (selectedIndex === undefined) {
         return unchanged(state, false);
     }
-    const next = { ...state, selectedIndex,
+    const next = { ...state, selectedIndex: selectableSettingsPickerIndex(
+        state, selectedIndex, scroll.direction === "down" ? 1 : -1,
+    ),
         ...(state.kind === "model" && state.modelBrowse !== undefined ? { modelFocus: "list" as const } : {}) };
     return { state: next, handled: true, ...themePreview(next) };
 }
@@ -1473,7 +1476,9 @@ export function renderListPickerRows(
                 heading: row.option.section !== undefined,
                 ...(state.kind === "session" ? { headingTone: "text" as const } : {}),
                 current: isCurrentOption(state, row.option),
-                ...dialogRowPointer(pointer, row.index),
+                ...(state.kind !== "model" && row.option.section !== undefined
+                    ? {}
+                    : dialogRowPointer(pointer, row.index)),
             }]
             : []
         ),

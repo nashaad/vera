@@ -9,8 +9,8 @@ import { anyOverlayOpen } from "../main/render-state.ts";
 import { renderTuiQuote, tuiQuoteMarker } from "../quote.ts";
 import { clippedToWidth, verificationConsoleLines } from "../settings-picker.ts";
 import { TUI_ACCENT, TUI_MUTED, type TuiState } from "../state.ts";
-import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
-import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
+import { resumeTuiTranscriptFollow, tuiTranscriptAtBottom } from "../transcript-scroll.ts";
+import { clearTranscriptAnchorPadding, transcriptFollowsBottom } from "./transcript-nodes.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, bg, fg } from "@opentui/core";
 
@@ -365,16 +365,43 @@ export function liveVerificationConsole(rt: TuiRuntime) {
     };
 }
 
+export function updateTranscriptScrollFollow(
+    rt: TuiRuntime,
+    previousTop: number,
+    direction: "up" | "down",
+): void {
+    const transcript = rt.transcript;
+    if (direction === "up" && transcript.scrollTop < previousTop) {
+        transcript.stickyScroll = false;
+        if (rt.pendingTranscriptScrollRestore?.atBottom) {
+            rt.pendingTranscriptScrollRestore = undefined;
+        }
+    } else if (direction === "down" && tuiTranscriptAtBottom(
+        transcript.scrollTop, transcript.scrollHeight, transcript.viewport.height,
+    )) {
+        clearTranscriptAnchorPadding(rt);
+        resumeTuiTranscriptFollow(transcript);
+    }
+    renderJumpToBottom(rt, false);
+}
+
+export function trackTranscriptScroll(rt: TuiRuntime, direction?: "up" | "down"): void {
+    const previousTop = rt.transcript.scrollTop;
+    queueMicrotask(() => {
+        if (rt.shuttingDown) return;
+        const actualDirection = direction ?? (rt.transcript.scrollTop > previousTop
+            ? "down"
+            : rt.transcript.scrollTop < previousTop ? "up" : undefined);
+        if (actualDirection !== undefined) updateTranscriptScrollFollow(rt, previousTop, actualDirection);
+    });
+}
+
 export function renderJumpToBottom(rt: TuiRuntime, resumeFollow = true): void {
-    const following = tuiTranscriptAtBottom(
-        rt.transcript.scrollTop,
-        rt.transcript.scrollHeight,
-        rt.transcript.viewport.height,
-    );
+    const following = transcriptFollowsBottom(rt);
     // OpenTUI's wheel handler marks every wheel event as manual after it updates scrollTop, including the event that reaches the bottom.
     if (following && resumeFollow) {
         clearTranscriptAnchorPadding(rt);
-        rt.transcript.scrollTo(rt.transcript.scrollHeight);
+        resumeTuiTranscriptFollow(rt.transcript);
     }
     const visible = !following && !anyOverlayOpen(rt);
     rt.jumpToBottom.visible = visible;

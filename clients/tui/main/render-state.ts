@@ -10,10 +10,10 @@ import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { markSearchLanding } from "../main/chrome.ts";
 import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
-import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
+import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip, transcriptFollowsBottom } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
-import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
+import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptReusablePrefix, tuiTranscriptReusableTail } from "../transcript-window.ts";
 import { workTabViewState } from "../work-tab.ts";
@@ -695,11 +695,7 @@ export function reseedTranscriptNodes(rt: TuiRuntime,
     rt.pendingTranscriptScrollAnchor = undefined;
     rt.pendingTranscriptScrollRestore = {
         scrollTop: rt.transcript.scrollTop,
-        atBottom: tuiTranscriptAtBottom(
-            rt.transcript.scrollTop,
-            rt.transcript.scrollHeight,
-            rt.transcript.viewport.height,
-        ),
+        atBottom: transcriptFollowsBottom(rt),
     };
 }
 
@@ -709,13 +705,10 @@ export function clearTranscriptNodes(rt: TuiRuntime): void {
     if (rt.state.entries.length > 0) {
         rt.pendingTranscriptScrollRestore = {
             scrollTop: rt.transcript.scrollTop,
-            atBottom: tuiTranscriptAtBottom(
-                rt.transcript.scrollTop,
-                rt.transcript.scrollHeight,
-                rt.transcript.viewport.height,
-            ),
+            atBottom: transcriptFollowsBottom(rt),
         };
     } else {
+        resumeTuiTranscriptFollow(rt.transcript);
         rt.pendingTranscriptScrollRestore = undefined;
     }
     rt.experimentalTuiHost.clearTranscriptRenderables();

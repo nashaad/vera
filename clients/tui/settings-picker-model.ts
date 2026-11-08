@@ -96,6 +96,7 @@ export function moveTuiSettingsPickerPointer(
         return { ...state, selectedIndex: index, searchFocused: false, focusedButton: undefined };
     }
     if (state.kind !== "model") {
+        if (state.options[index]?.section !== undefined) return state;
         return { ...state, selectedIndex: index };
     }
     if (index < 0) {
@@ -128,6 +129,23 @@ export function moveTuiSettingsPickerPointer(
         };
     }
     return state;
+}
+
+export function selectableSettingsPickerIndex(
+    state: TuiSettingsPickerState,
+    target: number,
+    direction: 1 | -1,
+): number {
+    if (state.kind === "model") return target;
+    for (let index = target; index >= 0 && index < state.options.length; index += direction) {
+        if (state.options[index]?.section === undefined) return index;
+    }
+    for (let index = target - direction;
+        direction > 0 ? index >= state.selectedIndex : index <= state.selectedIndex;
+        index -= direction) {
+        if (state.options[index]?.section === undefined) return index;
+    }
+    return state.selectedIndex;
 }
 
 export function mergeTuiModelPickerSettings(
@@ -1526,6 +1544,8 @@ export function searched(
         options,
         selectedIndex: state.kind === "session"
             ? firstSessionOptionIndex(options)
+            : state.kind !== "model"
+            ? Math.max(0, options.findIndex((row) => row.section === undefined))
             : state.modelBrowse === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
         query,
         queryCursor,
