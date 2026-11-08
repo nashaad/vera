@@ -73,6 +73,16 @@ test("a discovery file another build wrote is not used", () => {
     );
 });
 
+test("a discovery file with no build id is used", () => {
+    const { build_id: _buildId, ...unstamped } = snapshot([
+        { id: "old", label: "Old", levels: [] },
+    ]) as { build_id: string };
+    withDiscovery(unstamped, (cacheDir) => {
+        expect(effectiveCatalog("test", { cacheDir }).models.map((model) => model.id))
+            .toEqual(["old"]);
+    });
+});
+
 test("a provider nobody has discovered yet has no models, not an error", () => {
     withDiscovery(undefined, (cacheDir) => {
         expect(effectiveCatalog("test", { cacheDir }).models).toEqual([]);
