@@ -8,6 +8,7 @@ import { sessionEndpoint } from "../session-host/endpoint.ts";
 import type { StopWaitTarget } from "../stop-when-idle.ts";
 import { prepareRoutedHost } from "./routing.ts";
 import { forwardLocalRequest } from "./public-forward.ts";
+import { MasterInboxBridge, WorkerInboxBridge } from "./inbox.ts";
 
 export function inProcessWorkerSocket(home: string): string {
     const path = join(dirname(defaultHostSocketPath(home)), "w0.sock");
@@ -37,6 +38,7 @@ export interface InProcessWorker {
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
     flushStores(): Promise<void>;
+    knowsSession(id: string): Promise<boolean>;
     close(): Promise<void>;
 }
 
@@ -60,6 +62,11 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         onWorkerChanged: (listener) => worker.handlers.onRosterChanged(listener),
     });
     const { router } = routed;
+    const masterInbox: MasterInboxBridge = new MasterInboxBridge(options.master.inboxDelivery, (method, args, signal): Promise<unknown> =>
+        workerInbox.handle(method, args, signal ?? new AbortController().signal));
+    const workerInbox: WorkerInboxBridge = new WorkerInboxBridge((method, args, signal): Promise<unknown> =>
+        masterInbox.handle(method, args, signal));
+    worker.inboxDelivery.setSessionBridge(workerInbox);
     worker.setExtensionSessions(router);
     worker.registry.peerSessions = router;
     worker.registry.subagentSessions = router;
@@ -107,6 +114,14 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         flushStores: () => router.flush(),
+        async knowsSession(id) {
+            if (workerStarting) await started.promise;
+            if (!workerReady) return false;
+            const [masterSessions, workerSessions] = await Promise.all([
+                options.master.handlers.listAgents(), worker.handlers.listAgents(),
+            ]);
+            return [...masterSessions, ...workerSessions].some((session) => session.id === id);
+        },
         async close() {
             workerReady = false;
             finishStarting();
@@ -118,7 +133,13 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
             worker.inboxDelivery.setExternalPump(undefined);
             worker.handlers.setImportedSourceHash(undefined);
             try { await server?.close(); }
-            finally { await worker.close(); }
+            finally {
+                try { await worker.close(); }
+                finally {
+                    await workerInbox.drain();
+                    masterInbox.close();
+                }
+            }
         },
     };
 }

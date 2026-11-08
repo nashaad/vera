@@ -35,6 +35,7 @@ export interface AttachInboxConsumerRequest {
     readonly actor?: string | null;
     readonly session: string;
     readonly projectRoot?: string;
+    readonly initialOffset?: number;
     readonly notify: (notice: InboxNotice) => void;
     readonly canStartTurn?: () => boolean;
     // A rejection or throw is retried with backoff, then reported through onStartFailure.
@@ -45,6 +46,23 @@ export interface AttachInboxConsumerRequest {
     ) => Promise<InboxAdmissionDecision | undefined>;
     readonly onAdmissionFailure?: (candidate: InboxAdmissionCandidate) => void;
     readonly onStartFailure?: (candidate: InboxAdmissionCandidate) => void;
+}
+
+export interface RemoteInboxSession {
+    pump(): Promise<void>;
+    clientAttachmentChanged(attached: boolean): void;
+    forgetWakes(): void;
+    noteDelivered(seq: number): Promise<void>;
+    acknowledgeDelivered(): Promise<void>;
+    acknowledge(seq: number): Promise<void>;
+    release(): void;
+}
+
+export interface InboxSessionBridge {
+    attach(request: AttachInboxConsumerRequest, session: InboxDeliverySession): RemoteInboxSession;
+    append(entry: InboxEntryInput, admitted: boolean): Promise<InboxEntry>;
+    appendOnce(source: string, key: string, entry: InboxEntryInput): Promise<{ readonly entry: InboxEntry; readonly created: boolean }>;
+    drain(): Promise<void>;
 }
 
 export class InboxDeliverySession {
@@ -64,6 +82,7 @@ export class InboxDeliverySession {
     private released = false;
     private readonly sessionFamilies = new Set<string>();
     private readonly onceEntries = new Set<number>();
+    private readonly remoteAdmitted = new Set<number>();
     // Entries whose turn was asked for and not yet acknowledged, so a pump does not ask twice.
     private readonly woken = new Set<number>();
     private readonly startFailures = new Map<number, number>();
@@ -80,6 +99,7 @@ export class InboxDeliverySession {
         string,
         AbortController
     >();
+    private remote: RemoteInboxSession | undefined;
 
     constructor(
         coordinator: InboxDeliveryCoordinator,
@@ -102,8 +122,26 @@ export class InboxDeliverySession {
         return this.handle;
     }
 
+    setRemote(remote: RemoteInboxSession): void {
+        this.remote = remote;
+    }
+
+    rememberRemoteAdmission(candidate: InboxAdmissionCandidate, decision?: InboxAdmissionDecision): void {
+        if (decision?.mode === "session") this.sessionFamilies.add(candidate.sourceFamily);
+        if (decision?.mode === "once") this.onceEntries.add(candidate.seq);
+    }
+
+    rememberRemoteWake(candidate: InboxAdmissionCandidate): void {
+        this.remoteAdmitted.add(candidate.seq);
+    }
+
+    forgetRemoteWake(seq: number): void {
+        this.remoteAdmitted.delete(seq);
+    }
+
     pump(): Promise<void> {
         if (this.released) return Promise.resolve();
+        if (this.remote !== undefined) return this.remote.pump().catch(() => undefined);
         const next = this.queue.then(() => this.inspect());
         this.queue = next.then(() => undefined, () => undefined);
         return this.queue;
@@ -112,6 +150,7 @@ export class InboxDeliverySession {
     release(): void {
         if (this.released) return;
         this.released = true;
+        this.remote?.release();
         this.clearRetries();
         this.abortPendingQuestions();
         this.handle.release();
@@ -119,9 +158,11 @@ export class InboxDeliverySession {
     }
 
     clientAttachmentChanged(attached: boolean): void {
+        this.remote?.clientAttachmentChanged(attached);
         if (attached) return;
         this.sessionFamilies.clear();
         this.onceEntries.clear();
+        this.remoteAdmitted.clear();
         this.attachmentEpoch += 1;
         this.woken.clear();
         this.reportedStartFailures.clear();
@@ -134,6 +175,7 @@ export class InboxDeliverySession {
     /** Clears every woken mark, so each unread entry is asked for again at the next pump. */
     forgetWakes(): void {
         this.woken.clear();
+        this.remote?.forgetWakes();
     }
 
     hasAdmittedPending(): boolean {
@@ -141,7 +183,9 @@ export class InboxDeliverySession {
         for (const entry of this.unreadEntries()) {
             if (
                 !this.deliveredAhead.has(entry.seq)
-                && this.isAdmitted(candidateFor(entry))
+                && (this.remote === undefined
+                    ? this.isAdmitted(candidateFor(entry))
+                    : this.remoteAdmitted.has(entry.seq))
             ) {
                 return true;
             }
@@ -150,15 +194,17 @@ export class InboxDeliverySession {
     }
 
     /** The entry's text is in the conversation: acknowledge it now if it is next, else when it becomes next. */
-    noteDelivered(seq: number): void {
+    noteDelivered(seq: number): void | Promise<void> {
         if (this.released) return;
+        if (this.remote !== undefined) return this.remote.noteDelivered(seq);
         this.deliveredAhead.add(seq);
         this.acknowledgeDelivered();
     }
 
     /** Acknowledges the run of delivered entries now at the front. Call after every other acknowledgement. */
-    acknowledgeDelivered(): void {
+    acknowledgeDelivered(): void | Promise<void> {
         if (this.released) return;
+        if (this.remote !== undefined) return this.remote.acknowledgeDelivered();
         const offset = this.handle.offset();
         for (const seq of this.deliveredAhead) {
             if (seq <= offset) this.deliveredAhead.delete(seq);
@@ -177,6 +223,14 @@ export class InboxDeliverySession {
             }
             this.deliveredAhead.delete(next.seq);
         }
+    }
+
+    acknowledge(seq: number): void | Promise<void> {
+        if (this.remote !== undefined) {
+            return this.remote.acknowledge(seq);
+        }
+        this.handle.acknowledge(seq);
+        return this.acknowledgeDelivered();
     }
 
     isAdmittedSource(sourceFamily: string): boolean {
@@ -403,6 +457,8 @@ export class InboxDeliveryCoordinator {
     // In memory only: after a host restart an unread entry falls back to the admission prompt.
     private readonly preAdmitted = new Set<number>();
     private externalPump: ((admittedSeq?: number) => Promise<void>) | undefined;
+    private sessionBridge: InboxSessionBridge | undefined;
+    private beforeAppend: ((entry: InboxEntryInput) => Promise<void>) | undefined;
 
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
@@ -419,6 +475,7 @@ export class InboxDeliveryCoordinator {
                 actor: request.actor ?? null,
                 session: request.session,
             },
+            ...(request.initialOffset === undefined ? {} : { initialOffset: request.initialOffset }),
         });
         const session = new InboxDeliverySession(
             this,
@@ -427,23 +484,49 @@ export class InboxDeliveryCoordinator {
             this.admissionFor?.(request.projectRoot) ?? this.admission,
         );
         this.sessions.add(session);
+        if (this.sessionBridge !== undefined) {
+            session.setRemote(this.sessionBridge.attach(request, session));
+        }
         return session;
+    }
+
+    setSessionBridge(bridge: InboxSessionBridge): void {
+        if (this.sessions.size !== 0) throw new Error("Inbox sessions are already attached");
+        this.sessionBridge = bridge;
+    }
+
+    async drainRemote(): Promise<void> {
+        await this.sessionBridge?.drain();
     }
 
     setExternalPump(pump: ((admittedSeq?: number) => Promise<void>) | undefined): void {
         this.externalPump = pump;
     }
 
+    setBeforeAppend(prepare: (entry: InboxEntryInput) => Promise<void>): void {
+        this.beforeAppend = prepare;
+    }
+
     async pumpLocal(admittedSeq?: number): Promise<void> {
         if (admittedSeq !== undefined) this.preAdmitted.add(admittedSeq);
+        if (this.sessionBridge !== undefined) {
+            await this.externalPump?.(admittedSeq);
+            return;
+        }
         await Promise.all([...this.sessions].map((session) => session.pump()));
     }
 
     async pumpAll(admittedSeq?: number): Promise<void> {
+        if (this.sessionBridge !== undefined) {
+            await this.pumpLocal(admittedSeq);
+            return;
+        }
         await Promise.all([this.pumpLocal(admittedSeq), this.externalPump?.(admittedSeq)]);
     }
 
     async append(entry: InboxEntryInput): Promise<InboxEntry> {
+        if (this.sessionBridge !== undefined) return await this.sessionBridge.append(entry, false);
+        if (this.beforeAppend !== undefined) await this.beforeAppend(entry);
         const stored = this.consumers.append(entry);
         await this.pumpAll();
         return stored;
@@ -451,6 +534,8 @@ export class InboxDeliveryCoordinator {
 
     /** Appends an entry the host vouches for, so it starts a turn without an admission prompt. */
     async appendAdmitted(entry: InboxEntryInput): Promise<InboxEntry> {
+        if (this.sessionBridge !== undefined) return await this.sessionBridge.append(entry, true);
+        if (this.beforeAppend !== undefined) await this.beforeAppend(entry);
         const stored = this.consumers.append(entry);
         this.preAdmitted.add(stored.seq);
         await this.pumpAll(stored.seq);
@@ -466,6 +551,8 @@ export class InboxDeliveryCoordinator {
         key: string,
         entry: InboxEntryInput,
     ): Promise<{ readonly entry: InboxEntry; readonly created: boolean }> {
+        if (this.sessionBridge !== undefined) return await this.sessionBridge.appendOnce(source, key, entry);
+        if (this.beforeAppend !== undefined) await this.beforeAppend(entry);
         const stored = this.consumers.appendOnce(source, key, entry);
         if (stored.created) await this.pumpAll();
         return stored;

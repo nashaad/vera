@@ -48,7 +48,6 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         beginResume: (path) => router.beginMasterResume(path),
         end: (id) => router.endMasterOpen(id),
     };
-    options.master.inboxDelivery.setExternalPump((seq) => router.pumpInbox("host", seq));
     options.master.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     const snapshots = new RoutedSnapshots(masterEndpoint, workerEndpoint, (master, child) => {
         router.observe("host", master.residents);
@@ -179,7 +178,6 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             options.master.registry.subagentSessions = undefined;
             options.master.registry.subagentAdmission = undefined;
             options.master.registry.openGuard = undefined;
-            options.master.inboxDelivery.setExternalPump(undefined);
             options.master.handlers.setImportedSourceHash(undefined);
             stopMasterTracking();
             stopWorkerTracking();

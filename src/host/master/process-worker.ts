@@ -8,6 +8,7 @@ import { startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupe
 import { COMMON_METHODS, type WorkerBootstrap, type WorkerStartOptions } from "./worker-control.ts";
 import type { ControlPeer } from "./control.ts";
 import { servePublicRequest } from "./public-forward.ts";
+import { MasterInboxBridge } from "./inbox.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
@@ -29,9 +30,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let workerGeneration = 0;
     const requestWorker = async <T>(method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
+    const inbox = new MasterInboxBridge(options.master.inboxDelivery, async (method, args, signal) =>
+        await (await connected.promise).request(`inbox.${method}`, args, signal));
+    const workerEndpoint = remoteSessionEndpoint(connected.promise);
     const routed = prepareRoutedHost({
         master: options.master,
-        worker: remoteSessionEndpoint(connected.promise),
+        worker: workerEndpoint,
         masterSocket: options.masterSocket,
         workerSocket: options.workerSocket,
         buildId: options.buildId,
@@ -59,6 +63,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         ...(hostOptions.permissionPreferencesPath === undefined ? {} : { permissionPreferencesPath: hostOptions.permissionPreferencesPath }),
         ...(hostOptions.eventLogDirectory === undefined ? {} : { eventLogDirectory: hostOptions.eventLogDirectory }),
         ...(hostOptions.importRoots === undefined ? {} : { importRoots: hostOptions.importRoots }),
+        ...(hostOptions.inboxPath === undefined ? {} : { inboxPath: hostOptions.inboxPath }),
+        ...(hostOptions.inboxUserConfigPath === undefined ? {} : { inboxUserConfigPath: hostOptions.inboxUserConfigPath }),
+        ...(hostOptions.schedulePath === undefined ? {} : { schedulePath: hostOptions.schedulePath }),
+        ...(hostOptions.arcConfigPath === undefined ? {} : { arcConfigPath: hostOptions.arcConfigPath }),
     };
     const bootstrap: WorkerBootstrap = {
         options: workerOptions, masterSocket: options.masterSocket, lockPath: options.lockPath,
@@ -81,12 +89,14 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                             workerReady = false;
                             finishStarting();
                             broker.close();
+                            inbox.close();
                         });
                     },
                     onEvent(event) {
                         if (event === "roster_delta") for (const listener of [...changes]) listener();
                     },
                     async handler(method, args, signal) {
+                        if (method.startsWith("inbox.")) return await inbox.handle(method.slice(6), args, signal);
                         if (method === "public.request") {
                             if (peer === undefined) throw new Error("Worker control is unavailable");
                             await servePublicRequest(peer, options.masterSocket, args, signal);
@@ -144,6 +154,14 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         clearProviderSelection: (provider) => requestWorker<void>("worker.clearProviderSelection", [provider]),
         notifyModelCatalogChanged() { if (workerReady) void requestWorker("worker.catalogChanged").catch(() => {}); },
         flushStores: () => routed.router.flush(),
+        async knowsSession(id) {
+            if (workerStarting) await started.promise;
+            if (!workerReady) return false;
+            const [masterSessions, workerSessions] = await Promise.all([
+                options.master.handlers.listAgents(), workerEndpoint.list(),
+            ]);
+            return [...masterSessions, ...workerSessions].some((session) => session.id === id);
+        },
         async close() {
             workerReady = false;
             finishStarting();
@@ -152,6 +170,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             broker.close();
             if (supervisor !== undefined) await supervisor.close();
             else connected.reject(new Error("Session worker was not started"));
+            inbox.close();
         },
     };
 }
