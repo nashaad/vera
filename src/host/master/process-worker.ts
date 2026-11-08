@@ -12,6 +12,7 @@ import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
 import { startWorkerControlServer, type WorkerControlServer } from "./control-server.ts";
+import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
@@ -109,6 +110,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const bootstrap: WorkerBootstrap = {
         options: childOptions, masterSocket: options.masterSocket, lockPath: options.lockPath,
         buildId: options.buildId, capabilities: options.capabilities,
+        extensionCatalog: buildExtensionCatalog(options.master.extensions),
     };
     const startSlot = async (slot: WorkerSlot): Promise<void> => {
         try {
@@ -141,6 +143,9 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
+                    if (method.startsWith("extension.")) {
+                        return await serveExtensionRequest(options.master.extensions, method, args, signal);
+                    }
                     if (method.startsWith("inbox.")) return await slot.inbox.handle(method.slice(6), args, signal);
                     if (method === "public.request") {
                         if (slot.peer === undefined) throw new Error("Worker control is unavailable");
@@ -235,6 +240,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         },
         notifyModelCatalogChanged() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.catalogChanged").catch(() => {});
+        },
+        async notifyAnnexChanged(url) {
+            await Promise.all(slots.filter((slot) => slot.ready)
+                .map((slot) => requestWorker(slot, "worker.annexChanged", [url])));
         },
         flushStores: () => routed.router.flush(),
         async knowsSession(id) {

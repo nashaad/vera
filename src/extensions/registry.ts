@@ -171,6 +171,8 @@ export interface ExtensionRegistry {
     modelMiddleware(): readonly ModelMiddleware[];
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
+    extensionIds(): readonly string[];
+    toolsByExtension(): readonly ExtensionRegisteredTool[];
     /** Tool name to extension id, for installed tools that run without review. */
     installedUnreviewedTools(): ReadonlyMap<string, string>;
     agents(): readonly AgentDefinition[];
@@ -205,6 +207,11 @@ export interface ExtensionRegistry {
         signal: AbortSignal,
     ): Promise<JsonValue>;
     close(): Promise<void>;
+}
+
+export interface ExtensionRegisteredTool {
+    readonly extensionId: string;
+    readonly tool: RegisteredTool;
 }
 
 interface RegisteredExtensionCommand {
@@ -406,6 +413,14 @@ export async function startExtensionRegistry(
             return loaded.flatMap((extension) =>
                 extension.tools.map((registered) => registered.tool)
             );
+        },
+        extensionIds(): readonly string[] {
+            return loaded.map((extension) => extension.id);
+        },
+        toolsByExtension(): readonly ExtensionRegisteredTool[] {
+            return loaded.flatMap((extension) => extension.tools.map((registered) => ({
+                extensionId: extension.id, tool: registered.tool,
+            })));
         },
         installedUnreviewedTools(): ReadonlyMap<string, string> {
             const owners = new Map<string, string>();
@@ -1195,10 +1210,11 @@ async function activateExtension(
         };
     } catch (error) {
         phase = "failed";
-        const cleanupFailures = activationSettled
+        const cleanupOnTimeout = loaded.manifest.id === "vera.mcp";
+        const cleanupFailures = activationSettled || cleanupOnTimeout
             ? await runDisposers(disposers, disposeTimeoutMs)
             : [];
-        if (!activationSettled) {
+        if (!activationSettled && !cleanupOnTimeout) {
             void activationCompletion?.finally(async () => {
                 await runDisposers(disposers, disposeTimeoutMs);
             }).catch(() => undefined);
