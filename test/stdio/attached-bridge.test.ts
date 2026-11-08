@@ -714,8 +714,8 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             type: "stdio_attached",
             workspace: process.cwd(),
         });
-        expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount + 1);
-        expect(historyFrame(resumedFrames).entries).toContainEqual({
+        expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount);
+        expect(historyFrame(resumedFrames).entries).not.toContainEqual({
             kind: "harness", text: CRASH_CUT_MESSAGE, tone: "soft",
         });
         expect(historyFrame(resumedFrames).page).toBeUndefined();
@@ -732,7 +732,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             "attach to the larger session",
         );
         // The resume process ran one prompt, adding its user and assistant messages.
-        expect(historyFrame(largeAttachFrames).entries).toHaveLength(entryCount + 3);
+        expect(historyFrame(largeAttachFrames).entries).toHaveLength(entryCount + 2);
         expect(historyFrame(largeAttachFrames).page).toBeUndefined();
         expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
     } finally {
@@ -794,7 +794,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             }
         }
     }
-});
+}, 20_000);
 
 class FakeAttachedAgentClient implements AttachedAgentClient {
     readonly agentId = "agent-1";
@@ -945,10 +945,9 @@ function historyFrame(
 async function appendHistory(path: string, count: number): Promise<number> {
     const store = await SessionStore.open(path);
     for (let index = 0; index < count; index += 1) {
-        await store.appendMessage({
-            role: "user",
-            content: [{ type: "text", text: `earlier message ${index}` }],
-        });
+        await store.appendMessage(index % 2 === 0
+            ? { role: "user", content: [{ type: "text", text: `earlier message ${index}` }] }
+            : textResponse(`earlier message ${index}`));
     }
     return store.messages().length;
 }

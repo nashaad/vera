@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { TuiAgentClient } from "../../../clients/tui/main.ts";
@@ -9,7 +7,8 @@ import { createProtocolEncoder, type AgentUpdate, type ClientCommand, type Histo
 import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
 import { emptyUsage } from "../../../src/model/types.ts";
-import { CRASHED_TOOL_RESULT, SessionStore } from "../../../src/store/session-store.ts";
+import { CRASHED_TOOL_RESULT, CRASH_CUT_MESSAGE, CRASH_QUEUED_PROMPTS_MESSAGE, SessionStore } from "../../../src/store/session-store.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 function history(): HistoryUpdate {
@@ -37,13 +36,13 @@ function fake() {
 }
 
 test("a partly saved tool batch re-offers its surviving queued prompts", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-crash-batch-reoffer-"));
+    const home = createStubTuiHome("vera-crash-batch-reoffer-");
     const path = join(home, "session.jsonl");
     const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });
     const sha256 = "a".repeat(64);
     const imageId = `${sha256}.png`;
     await store.appendAttachment({ id: imageId, name: "map.png", mediaType: "image/png", bytes: 123, width: 10, height: 20, sha256 });
-    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the ship" }] });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the ship" }] }, { turnStart: true });
     const call = await store.appendMessage({
         role: "assistant", content: [
             { type: "tool_call", id: "fast", name: "read", input: {} },
@@ -94,8 +93,47 @@ test("a partly saved tool batch re-offers its surviving queued prompts", async (
     }
 }, 20_000);
 
+test("queued prompts after a completed reply return under their own notice", async () => {
+    const home = createStubTuiHome("vera-queued-reoffer-");
+    const store = await SessionStore.create(join(home, "session.jsonl"), { sessionId: "crow", cwd: home });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the ship" }] }, { turnStart: true });
+    await store.appendQueuedPrompt("first", { content: "Check the sails" });
+    await store.appendQueuedPrompt("second", { content: "Inspect the map" });
+    await store.appendMessage({
+        role: "assistant", content: [{ type: "text", text: "The deck is clear." }],
+        source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(),
+        stopReason: "stop", turnTiming: { durationMs: 1, finishedAt: 1 },
+    });
+    expect(await store.repairCrashedTurn()).toBe(true);
+    const reopened = await SessionStore.open(store.path);
+    let projected: HistoryUpdate | undefined;
+    const encoder = createProtocolEncoder({
+        send(update) { if (update.type === "history") projected = update; },
+    }, undefined, () => reopened.projectedHarnessMessages(), undefined, undefined, undefined, () => reopened.unsentPrompts());
+    encoder.checkpoint(reopened.messages(), reopened.activeMessageStamps());
+    expect(projected?.entries.slice(-2)).toMatchObject([
+        { kind: "assistant", text: "The deck is clear." },
+        { kind: "harness", text: CRASH_QUEUED_PROMPTS_MESSAGE, tone: "soft" },
+    ]);
+    const source = fake();
+    source.updates.push(projected!);
+    const session = await startTuiTestSession({ home, dependencies: () => ({ client: source.client }) });
+    try {
+        const pane = await session.waitForVisiblePaneWhere(
+            (value) => value.includes("Check the sails") && value.includes(CRASH_QUEUED_PROMPTS_MESSAGE),
+            "recovered queue and notice",
+        );
+        expect(pane).not.toContain(CRASH_CUT_MESSAGE);
+        session.sendKey("Up");
+        expect(await session.waitForVisiblePane("Inspect the map")).toContain("Inspect the map");
+        expect(source.sent.filter((command) => command.type === "prompt")).toEqual([]);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("a crash re-offers the earliest prompt once without sending it", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-crash-reoffer-"));
+    const home = createStubTuiHome("vera-crash-reoffer-");
     const source = fake();
     source.updates.push(history());
     const session = await startTuiTestSession({ home, dependencies: () => ({ client: source.client }) });
@@ -122,7 +160,7 @@ test("a crash re-offers the earliest prompt once without sending it", async () =
 }, 20_000);
 
 test("a draft survives history navigation and each recovered prompt is reachable with its image", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-crash-reoffer-draft-"));
+    const home = createStubTuiHome("vera-crash-reoffer-draft-");
     const source = fake();
     source.updates.push(history());
     const session = await startTuiTestSession({
@@ -151,7 +189,7 @@ test("a draft survives history navigation and each recovered prompt is reachable
 }, 20_000);
 
 test("a rejected queued prompt stays in the composer for retry", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-crash-reoffer-retry-"));
+    const home = createStubTuiHome("vera-crash-reoffer-retry-");
     const source = fake();
     let fail = true;
     const client: TuiAgentClient = {
@@ -182,7 +220,7 @@ for (const attachmentIds of [[], ["image-1"]] as const) {
     const label = attachmentIds.length === 0 ? "text" : "image";
     for (const failure of ["rejected", "connection", "build"] as const) {
         test(`${label} submission preserves the draft after a ${failure} failure`, async () => {
-            const home = mkdtempSync(join(tmpdir(), "vera-submit-failure-"));
+            const home = createStubTuiHome("vera-submit-failure-");
             const source = fake();
             const sent: ClientCommand[] = [];
             const client: TuiAgentClient = {
@@ -234,7 +272,7 @@ for (const attachmentIds of [[], ["image-1"]] as const) {
 }
 
 test("a dropped prompt submission automatically reconnects with the draft intact", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-submit-reconnect-"));
+    const home = createStubTuiHome("vera-submit-reconnect-");
     const source = fake();
     const reattached = fake();
     let reconnects = 0;

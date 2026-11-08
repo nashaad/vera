@@ -18,6 +18,8 @@ import { startSeededWorker, type WorkerHandle } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
+const CLOSE_ABORT_TIMEOUT_MS = 2_000;
+
 export interface SubagentParent {
     readonly id: string;
     readonly store?: SessionStore;
@@ -121,6 +123,8 @@ export async function runInWorker(reg: AgentRegistry, options: {
         // A question needs the owner router here and the worker's loop listening there, in either order.
         let heardWorker = false;
         let ownerRouterSet = false;
+        let closedTurnFinished = false;
+        let resolveClosedTurn: (() => void) | undefined;
         const markReady = (): void => {
             if (heardWorker && ownerRouterSet) options.entry.markLoopReady();
         };
@@ -155,6 +159,10 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     toolRuntime: hostToolRuntime(store, options.data),
                 }),
             onUpdate: (update, ownerId) => {
+                if (agent.closed && ownerId === undefined && update.type === "turn_finished") {
+                    closedTurnFinished = true;
+                    resolveClosedTurn?.();
+                }
                 forwardWorkerUpdate(agent, update, ownerId);
                 // A root update comes from the worker's loop, which listens for events by the time it sends one.
                 if (ownerId === undefined) {
@@ -164,6 +172,11 @@ export async function runInWorker(reg: AgentRegistry, options: {
             },
         }, readSessionSeed);
         options.entry.worker = handle;
+        let workerExited = false;
+        void handle.outcome.then(() => {
+            workerExited = true;
+            resolveClosedTurn?.();
+        });
         options.entry.blockControl = workerBlockControl(agent, handle);
         // A worker started on a blocked session halts itself; the host counts that halt from the start.
         if (reg.blockRefusalFor(store.header.id) !== undefined) {
@@ -223,21 +236,45 @@ export async function runInWorker(reg: AgentRegistry, options: {
                 }
                 handle.send(command);
             }
-        })().catch(() => {
+        })().catch(async () => {
             if (agent.closed && !pumping.signal.aborted) {
                 stopping = true;
-                handle.kill();
+                if (agent.hasPendingTurn() && !closedTurnFinished) {
+                    await new Promise<void>((resolve) => {
+                        const timer = setTimeout(resolve, CLOSE_ABORT_TIMEOUT_MS);
+                        resolveClosedTurn = () => {
+                            clearTimeout(timer);
+                            resolve();
+                        };
+                    });
+                }
+                if (!workerExited) handle.kill();
             }
         });
         try {
             const outcome = await handle.outcome;
-            if (stopping || outcome.kind === "finished" || outcome.kind === "failed") {
+            if (stopping || agent.closed) {
+                try {
+                    await store.exclusively(async () => {});
+                    if (options.entry.releasingForTransfer !== true) {
+                        await store.finishAbortedTurn();
+                        for (const queued of store.queuedPrompts()) {
+                            await store.removeQueuedPrompt(queued.id);
+                        }
+                    }
+                } catch (error) {
+                    options.entry.closeFailure = error;
+                    options.entry.failure = error;
+                }
+                return;
+            }
+            if (outcome.kind === "finished" || outcome.kind === "failed") {
                 await store.exclusively(async () => {});
                 for (const queued of store.queuedPrompts()) {
                     await store.removeQueuedPrompt(queued.id);
                 }
             }
-            if (stopping || outcome.kind === "finished") {
+            if (outcome.kind === "finished") {
                 return;
             }
             throw new Error(workerOutcomeDetail(outcome));

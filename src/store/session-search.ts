@@ -202,7 +202,7 @@ export async function searchSessionFile(
             }
             return;
         }
-        if (record.type !== "message") return;
+        if (record.type !== "message" && record.type !== "turn_start") return;
         const message = record.message as Record<string, unknown> | undefined;
         if (message === undefined) return;
         const entryId = typeof record.id === "string" ? record.id : null;

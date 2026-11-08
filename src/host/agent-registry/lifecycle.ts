@@ -37,6 +37,7 @@ export async function closeAgent(reg: AgentRegistry, id: string, reason: Session
         announceSessionEnd(reg, entry, reason);
         await reg.reapClosedAgent(id, entry);
         reg.notifyRosterChanged();
+        if (entry.closeFailure !== undefined) throw entry.closeFailure;
         return "closed";
     }
 
@@ -76,6 +77,7 @@ async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReaso
                 const entry = reg.agents.get(memberId);
                 if (entry !== undefined) {
                     reg.closingCompletionRecipients.add(entry.store);
+                    entry.releasingForTransfer = reason === undefined;
                     entry.agent.close();
                 }
             }
@@ -99,6 +101,8 @@ async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReaso
         if (quiesced.size > 0) {
             reg.notifyRosterChanged();
         }
+        const failed = [...quiesced.values()].find((entry) => entry.closeFailure !== undefined);
+        if (failed !== undefined) throw failed.closeFailure;
         return {
             status: present || quiesced.size > 0 ? "closed" : "not_found",
             sessionRetained,
@@ -980,6 +984,8 @@ export async function close(reg: AgentRegistry): Promise<void> {
                 recursive: true,
                 force: true,
             })));
+        const failed = entries.find((entry) => entry.closeFailure !== undefined);
+        if (failed !== undefined) throw failed.closeFailure;
     }
 
 export function reserveId(reg: AgentRegistry, id: string): void {

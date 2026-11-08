@@ -1,4 +1,5 @@
 import {
+    emptyUsage,
     isClassifierOutcome,
     isHookDisplay,
     isToolPresentation,
@@ -72,6 +73,8 @@ export const CRASHED_TOOL_RESULT = "The host stopped before this tool call finis
     + "so its result was not recorded and its effect is unknown. "
     + "Check the workspace before relying on it or running it again.";
 export const CRASH_CUT_MESSAGE = "Vera crashed before this turn finished.";
+export const CRASH_QUEUED_PROMPT_MESSAGE = "Vera crashed before sending the queued prompt.";
+export const CRASH_QUEUED_PROMPTS_MESSAGE = "Vera crashed before sending the queued prompts.";
 
 export interface SessionHeader {
     readonly type: "session";
@@ -110,6 +113,10 @@ export interface SessionMessageEntry {
     readonly deliveryId?: string;
     readonly queuedPromptId?: string;
     readonly message: ModelMessage;
+}
+
+export interface SessionTurnStartEntry extends Omit<SessionMessageEntry, "type"> {
+    readonly type: "turn_start";
 }
 
 export interface UnsentPrompt {
@@ -356,8 +363,13 @@ export interface StoredMessage {
     readonly message: ModelMessage;
 }
 
+export interface SessionMessageOptions {
+    readonly turnStart?: true;
+    readonly queuedPromptId?: string;
+}
+
 export interface SessionMessageStore {
-    appendMessage(message: ModelMessage, queuedPromptId?: string): Promise<StoredMessage>;
+    appendMessage(message: ModelMessage, options?: SessionMessageOptions): Promise<StoredMessage>;
     removeQueuedPrompt?(id: string): Promise<void>;
 }
 
@@ -398,6 +410,7 @@ export interface SessionDeliveryInbox {
     appendDeliveryMessage(
         deliveryId: string,
         message: ModelMessage,
+        options?: { readonly turnStart?: true },
     ): Promise<SessionMessageEntry>;
 }
 
@@ -754,10 +767,10 @@ export class SessionStore {
             : { ...this.projection.agentFailure };
     }
 
-    appendMessage(message: ModelMessage, queuedPromptId?: string): Promise<SessionMessageEntry> {
+    appendMessage(message: ModelMessage, options?: SessionMessageOptions): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitMessage(message, undefined, queuedPromptId);
+            return this.commitMessage(message, undefined, options?.turnStart, options?.queuedPromptId);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -808,16 +821,36 @@ export class SessionStore {
     repairCrashedTurn(): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
             const active = this.activeEntries();
-            const turnOpen = turnOpenAtTail(active, this.projection.harnessMessageEntries);
-            if (this.projection.agentFailure !== undefined
-                || (!turnOpen && this.projection.queuedPrompts.size === 0)) return false;
+            if (this.projection.agentFailure !== undefined) return false;
+            const turnOpen = this.projection.openTurnStartId !== undefined
+                && turnOpenAtTail(active, this.projection.harnessMessageEntries);
+            const queuedPrompts = this.queuedPrompts().map(({ content, attachmentIds }) => ({
+                content,
+                ...(attachmentIds === undefined ? {} : { attachmentIds }),
+            }));
+            if (!turnOpen && queuedPrompts.length === 0) return false;
             this.requireActive();
+            if (!turnOpen) {
+                const completed = active.findLast((entry) => entry.message.role === "assistant"
+                    && entry.message.internal !== true && entry.message.stopReason !== "tool_use");
+                await this.commitHarnessMessage(
+                    queuedPrompts.length === 1 ? CRASH_QUEUED_PROMPT_MESSAGE : CRASH_QUEUED_PROMPTS_MESSAGE,
+                    "soft",
+                    {
+                        ...(completed === undefined ? {} : { afterMessageId: completed.id }),
+                        unsentPrompts: queuedPrompts,
+                    },
+                );
+                return true;
+            }
+            const startIndex = active.findIndex((entry) => entry.id === this.projection.openTurnStartId);
+            const turnEntries = active.slice(Math.max(startIndex, 0));
             const previousCut = this.projection.harnessMessageEntries.findLast((entry) => entry.crashCut === true);
             const previousCutIndex = previousCut?.afterMessageId === undefined
                 ? -1
                 : active.findIndex((entry) => entry.id === previousCut.afterMessageId);
             const lastAssistantIndex = active.findLastIndex((entry) => entry.message.role === "assistant");
-            const unansweredPrompts = active.slice(Math.max(previousCutIndex, lastAssistantIndex) + 1)
+            const unansweredPrompts = active.slice(Math.max(startIndex, previousCutIndex + 1, lastAssistantIndex + 1))
                 .flatMap((entry): UnsentPrompt[] => {
                     const message = entry.message;
                     if (message.role !== "user" || message.internal === true) return [];
@@ -831,18 +864,15 @@ export class SessionStore {
                 });
             const unsentPrompts = [
                 ...unansweredPrompts,
-                ...this.queuedPrompts().map(({ content, attachmentIds }) => ({
-                    content,
-                    ...(attachmentIds === undefined ? {} : { attachmentIds }),
-                })),
+                ...queuedPrompts,
             ];
             const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
-            if (turnOpen && active.at(-1)?.message.role !== "user") {
-                const callIndex = active.findLastIndex((entry) =>
+            if (active.at(-1)?.message.role !== "user") {
+                const callIndex = turnEntries.findLastIndex((entry) =>
                     entry.message.role === "assistant"
                     && entry.message.content.some((part) => part.type === "tool_call")
                 );
-                for (const entry of active.slice(Math.max(callIndex, 0))) {
+                for (const entry of turnEntries.slice(Math.max(callIndex, 0))) {
                     const message = entry.message;
                     if (message.role === "assistant") {
                         for (const part of message.content) {
@@ -869,13 +899,55 @@ export class SessionStore {
         return result;
     }
 
+    finishAbortedTurn(): Promise<boolean> {
+        const result = this.pendingAppend.then(async () => {
+            const startId = this.projection.openTurnStartId;
+            if (startId === undefined || this.projection.agentFailure !== undefined) return false;
+            this.requireActive();
+            const active = this.activeEntries();
+            const start = active.findIndex((entry) => entry.id === startId);
+            if (start < 0) return false;
+            const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
+            for (const entry of active.slice(start)) {
+                const message = entry.message;
+                if (message.role === "assistant") {
+                    for (const part of message.content) {
+                        if (part.type === "tool_call") unanswered.set(part.id, part);
+                    }
+                } else if (message.role === "tool_result") {
+                    unanswered.delete(message.toolCallId);
+                }
+            }
+            for (const call of unanswered.values()) {
+                await this.commitMessage({
+                    role: "tool_result", toolCallId: call.id, toolName: call.name,
+                    content: [{ type: "text", text: "Turn aborted" }], isError: true,
+                });
+            }
+            const lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+            const settings = this.modelSettings();
+            await this.commitMessage({
+                role: "assistant", content: [],
+                source: lastAssistant?.role === "assistant" ? lastAssistant.source : {
+                    provider: settings?.provider ?? "unknown", api: "unknown",
+                    model: settings?.model ?? "unknown",
+                },
+                usage: emptyUsage(), stopReason: "aborted", errorMessage: "Turn aborted",
+            });
+            return true;
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
     appendDeliveryMessage(
         deliveryId: string,
         message: ModelMessage,
+        options?: { readonly turnStart?: true },
     ): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitDeliveryMessage(deliveryId, message);
+            return this.commitDeliveryMessage(deliveryId, message, options?.turnStart);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -1185,6 +1257,7 @@ export class SessionStore {
     private async commitMessage(
         message: ModelMessage,
         deliveryId?: string,
+        turnStart?: true,
         queuedPromptId?: string,
     ): Promise<SessionMessageEntry> {
         const snapshot = structuredClone(message);
@@ -1219,12 +1292,16 @@ export class SessionStore {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
-        await this.appendRecord(entry);
+        const record: SessionMessageEntry | SessionTurnStartEntry = turnStart === true
+            ? { ...entry, type: "turn_start" }
+            : entry;
+        await this.appendRecord(record);
 
         this.projection.messageEntries.push(entry);
         this.projection.knownMessageIds.add(entry.id);
         this.projection.leafId = entry.id;
-        if (messageStartsTurn(entry)) this.projection.unsentPrompts = [];
+        applyTurnMessage(this.projection, entry, turnStart === true);
+        if (turnStart === true) this.projection.unsentPrompts = [];
         if (queuedPromptId !== undefined) this.projection.queuedPrompts.delete(queuedPromptId);
         return entry;
     }
@@ -1232,6 +1309,7 @@ export class SessionStore {
     private async commitDeliveryMessage(
         requestedDeliveryId: string,
         message: ModelMessage,
+        turnStart?: true,
     ): Promise<SessionMessageEntry> {
         const deliveryId = nonEmpty(requestedDeliveryId, "delivery ID");
         if (
@@ -1247,7 +1325,7 @@ export class SessionStore {
         ) {
             throw new Error(`Delivery ${deliveryId} is not pending`);
         }
-        return this.commitMessage(message, deliveryId);
+        return this.commitMessage(message, deliveryId, turnStart);
     }
 
     private async commitModelSettings(
@@ -1337,6 +1415,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.harnessMessageEntries.push(entry);
+        if (crashCut === true || unsentPrompts !== undefined) this.projection.openTurnStartId = undefined;
         if (unsentPrompts !== undefined) {
             this.projection.queuedPrompts.clear();
             this.projection.unsentPrompts = structuredClone(unsentPrompts);
@@ -1558,6 +1637,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.leafId = entry.headId;
+        this.projection.openTurnStartId = undefined;
         retainContextMeasurements(this.projection);
         return entry;
     }
@@ -1791,7 +1871,7 @@ export async function readSessionIndexMetadata(
                 }
                 const message = record.message as Record<string, unknown> | undefined;
                 if (
-                    record.type === "message"
+                    (record.type === "message" || record.type === "turn_start")
                     && message?.role === "user"
                     && message.internal !== true
                     && Array.isArray(message.content)
@@ -1874,7 +1954,7 @@ function deliveredMessages(
 export interface SessionTurnState {
     readonly sessionId: string;
     readonly turnOpen: boolean;
-    readonly hasQueuedPrompts: boolean;
+    readonly needsQueueRecovery: boolean;
 }
 
 export async function openSessionForRecovery(path: string): Promise<SessionStore> {
@@ -1895,8 +1975,11 @@ export async function readSessionTurnState(
     );
     return {
         sessionId: loaded.header.id,
-        turnOpen: turnOpenAtTail(active, loaded.state.harnessMessageEntries),
-        hasQueuedPrompts: loaded.state.queuedPrompts.size > 0,
+        turnOpen: loaded.state.agentFailure === undefined
+            && loaded.state.openTurnStartId !== undefined
+            && turnOpenAtTail(active, loaded.state.harnessMessageEntries),
+        needsQueueRecovery: loaded.state.agentFailure === undefined
+            && loaded.state.queuedPrompts.size > 0,
     };
 }
 
@@ -1906,19 +1989,29 @@ function turnOpenAtTail(
     harness: readonly SessionHarnessMessageEntry[],
 ): boolean {
     const last = entries.at(-1);
-    const cut = harness.findLast((entry) => entry.crashCut === true);
-    if (cut !== undefined) {
-        const index = entries.findIndex((entry) => entry.id === cut.afterMessageId);
-        if ((cut.afterMessageId === null || index >= 0) && entries.slice(index + 1).every((entry) =>
-            entry.message.role === "user" && entry.message.internal === true && entry.deliveryId === undefined
-        )) return false;
-    }
     if (last === undefined || harness.some((entry) =>
         entry.crashCut === true && entry.afterMessageId === last.id
     )) return false;
     const tail = last.message;
     if (tail.role === "user" || tail.role === "tool_result") return true;
-    return tail.role === "assistant" && tail.stopReason === "tool_use";
+    return tail.role === "assistant" && (
+        tail.stopReason === "tool_use"
+        || (tail.turnTiming === undefined && (tail.stopReason === "stop" || tail.stopReason === "length"))
+    );
+}
+
+function applyTurnMessage(
+    state: SessionProjectionState,
+    entry: SessionMessageEntry,
+    turnStart: boolean,
+): void {
+    if (turnStart) state.openTurnStartId = entry.id;
+    const message = entry.message;
+    if (message.role === "assistant" && (
+        message.turnTiming !== undefined
+        || message.stopReason === "aborted"
+        || message.stopReason === "error"
+    )) state.openTurnStartId = undefined;
 }
 
 function hasOpenDeliveryTurn(
@@ -1980,6 +2073,7 @@ function projectHarnessMessages(
             afterMessage > 0
             && active[afterMessage - 1]?.message.internal === true
             && entry.crashCut !== true
+            && entry.unsentPrompts === undefined
             && !(entry.text === CRASH_CUT_MESSAGE && entry.tone === "soft")
         ) {
             const nextVisibleUser = active.findIndex((message, index) =>
@@ -2059,6 +2153,7 @@ export interface SessionProjectionState {
     readonly knownAttachmentIds: Set<string>;
     agentFailure: SessionAgentFailureEntry | undefined;
     leafId: string | null;
+    openTurnStartId: string | undefined;
 }
 
 export function createSessionProjectionState(): SessionProjectionState {
@@ -2091,6 +2186,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         knownAttachmentIds: new Set(),
         agentFailure: undefined,
         leafId: null,
+        openTurnStartId: undefined,
     };
 }
 
@@ -2129,6 +2225,7 @@ function copyProjectionState(
         knownAttachmentIds: new Set(state.knownAttachmentIds),
         agentFailure: state.agentFailure,
         leafId: state.leafId,
+        openTurnStartId: state.openTurnStartId,
     };
 }
 
@@ -2177,7 +2274,7 @@ export function ingestSessionRecord(
             `line ${lineNumber} follows the terminal agent failure`,
         );
     }
-    if (value.type === "message") {
+    if (value.type === "message" || value.type === "turn_start") {
         const entry = parseMessageEntry(path, lineNumber, value);
         for (const attachmentId of messageAttachmentIds(entry.message)) {
             if (!knownAttachmentIds.has(attachmentId)) {
@@ -2246,7 +2343,8 @@ export function ingestSessionRecord(
         knownMessageIds.add(entry.id);
         messageEntries.push(entry);
         state.leafId = entry.id;
-        if (messageStartsTurn(entry)) state.unsentPrompts = [];
+        applyTurnMessage(state, entry, value.type === "turn_start");
+        if (value.type === "turn_start") state.unsentPrompts = [];
         return;
     }
     if (value.type === "queued_prompt") {
@@ -2337,6 +2435,7 @@ export function ingestSessionRecord(
             throw invalidSession(path, `line ${lineNumber} has an invalid crash cut position`);
         }
         harnessMessageEntries.push(entry);
+        if (entry.crashCut === true || entry.unsentPrompts !== undefined) state.openTurnStartId = undefined;
         if (entry.unsentPrompts !== undefined) {
             state.queuedPrompts.clear();
             state.unsentPrompts = entry.unsentPrompts;
@@ -2400,6 +2499,7 @@ export function ingestSessionRecord(
     }
     if (value.type === "agent_failure") {
         state.agentFailure = parseAgentFailureEntry(path, lineNumber, value);
+        state.openTurnStartId = undefined;
         return;
     }
     if (value.type === "rewind") {
@@ -2431,6 +2531,7 @@ export function ingestSessionRecord(
             );
         }
         state.leafId = rewind.headId;
+        state.openTurnStartId = undefined;
         retainContextMeasurements(state);
         return;
     }
@@ -3085,7 +3186,7 @@ function parseMessageEntry(
     value: Record<string, unknown>,
 ): SessionMessageEntry {
     if (
-        value.type !== "message"
+        (value.type !== "message" && value.type !== "turn_start")
         || typeof value.id !== "string"
         || value.id.length === 0
         || (value.parentId !== null && typeof value.parentId !== "string")
@@ -3106,7 +3207,9 @@ function parseMessageEntry(
             `line ${lineNumber} is not a valid message entry`,
         );
     }
-    return value as unknown as SessionMessageEntry;
+    return value.type === "turn_start"
+        ? { ...value, type: "message" } as unknown as SessionMessageEntry
+        : value as unknown as SessionMessageEntry;
 }
 
 function isUnsentPrompt(value: unknown): value is UnsentPrompt {
@@ -3125,11 +3228,6 @@ function messageMatchesQueuedPrompt(message: ModelMessage, prompt: UnsentPrompt)
     );
     return text === prompt.content
         && JSON.stringify(attachments) === JSON.stringify(prompt.attachmentIds ?? []);
-}
-
-function messageStartsTurn(entry: SessionMessageEntry): boolean {
-    return entry.message.role === "user"
-        && (entry.message.internal !== true || entry.deliveryId !== undefined);
 }
 
 function parseDeliveryEntry(

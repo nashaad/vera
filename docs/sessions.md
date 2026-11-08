@@ -125,6 +125,10 @@ assistant reply return unsent. The earliest appears in an empty composer; if
 you already have a draft, it stays in place. Use Up to recall the recovered
 prompts, including their image attachments. Vera does not send them until you
 choose to submit them.
+If only queued prompts were left, Vera marks the unsent queue after the last reply.
+
+Session files written by older builds have no turn-start records, so a turn
+cut in one of them is not marked.
 
 ## Where history is stored
 

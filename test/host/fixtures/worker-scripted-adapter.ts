@@ -18,6 +18,7 @@ export default async function scriptedAdapter(
         readonly startupDelayMs?: number;
         readonly requestLogPath?: string;
         readonly delayMs?: number;
+        readonly chunkSize?: number;
     };
     // The worker loads its adapter before its loop listens for events.
     if (configured.startupDelayMs !== undefined) {
@@ -27,7 +28,10 @@ export default async function scriptedAdapter(
         writeFileSync(configured.pidPath, `${process.pid}\n`, "utf8");
     }
     const script = configured.script;
-    const adapter = new FauxAdapter(script, { delayMs: configured.delayMs });
+    const adapter = new FauxAdapter(script, {
+        ...(configured.delayMs === undefined ? {} : { delayMs: configured.delayMs }),
+        ...(configured.chunkSize === undefined ? {} : { chunkSize: configured.chunkSize }),
+    });
     if (configured.requestLogPath === undefined) return adapter;
     const stream = adapter.stream.bind(adapter);
     adapter.stream = (request) => {

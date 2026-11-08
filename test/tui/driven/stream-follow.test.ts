@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 const LINES = 260;
@@ -25,7 +22,7 @@ function newestLine(pane: string): number {
 }
 
 test("a fast stream keeps the body within a few lines of the newest text", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
+    const home = createStubTuiHome("vera-tui-test-");
     const text = reply();
     let delivered = 0;
     let streaming: ReturnType<typeof setInterval> | undefined;

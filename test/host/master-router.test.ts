@@ -144,7 +144,7 @@ test("a stored parent completion waits for crash repair", async () => {
     let sending: Promise<unknown> | undefined;
     try {
         const store = await SessionStore.create(path, { sessionId: "parent", cwd: root });
-        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+        await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
         const stored: RegisteredAgentSummary = {
             id: "parent", live: false, workspace: root, session_path: path, kind: "interactive", status: "closed",
         };

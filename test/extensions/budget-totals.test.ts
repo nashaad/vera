@@ -73,6 +73,18 @@ test("unknown prices, skipped records, nonterminated lines and UTF-8 chunk bound
     });
 });
 
+test("turn-start records contribute assistant usage to both readers", () => {
+    fixture((path, costs) => {
+        fs.writeFileSync(path, [
+            budgetReply(0.5).replace('"type":"message"', '"type":"turn_start"'),
+            '{"type":"queued_prompt","message":{"role":"assistant","usage":{"cost":99}}}\n',
+            '{"type":"queued_prompt_removed","message":{"role":"assistant","usage":{"cost":99}}}\n',
+        ].join(""));
+        expect(conversationCost(path)).toEqual({ dollars: 0.5, priced: 1, unpriced: 0 });
+        expect(costs.read(path)).toEqual(conversationCost(path));
+    });
+});
+
 test("rewind keeps recorded spending and a branch has its own totals", async () => {
     const directory = fs.mkdtempSync(join(tmpdir(), "budget-branches-"));
     const costs = new ConversationCosts();

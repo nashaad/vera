@@ -351,6 +351,9 @@ socketTest("an ownership transfer moves a resident session tree without a crash 
     let childClient: AttachedAgentClient | undefined;
     try {
         await host.registry.create({ id: "parent", workspace: home, sessionPath: parentPath });
+        await host.registry.agents.get("parent")!.store.appendMessage({
+            role: "user", internal: true, content: [{ type: "text", text: "Reference map" }],
+        });
         await SessionStore.create(childPath, { sessionId: "child", cwd: home, parentId: "parent" });
         await host.registry.resume({ sessionPath: childPath });
         await waitUntil(() => host.registry.agents.get("parent")?.agent.idleForShutdown() === true
@@ -358,7 +361,7 @@ socketTest("an ownership transfer moves a resident session tree without a crash 
         for (const id of ["parent", "child"]) {
             await host.registry.agents.get(id)!.store.appendMessage({
                 role: "user", content: [{ type: "text", text: "Inspect the map" }],
-            });
+            }, { turnStart: true });
         }
         expect((await readSessionTurnState(parentPath)).turnOpen).toBe(true);
         expect((await readSessionTurnState(childPath)).turnOpen).toBe(true);
@@ -386,7 +389,7 @@ socketTest("a worker repairs an interrupted session when it opens without a cras
     const home = await mkdtemp("/private/tmp/vhs-");
     const path = join(home, "crow.jsonl");
     const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });
-    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
     await store.appendMessage({
         role: "assistant", content: [{ type: "tool_call", id: "read-map", name: "read", input: { path: "map" } }],
         source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "tool_use",
@@ -420,7 +423,7 @@ socketTest("stored parent completions are serialized before recovery starts a de
     const home = await mkdtemp("/private/tmp/vhs-");
     const path = join(home, "runtime", "sessions", "parent.jsonl");
     const store = await SessionStore.create(path, { sessionId: "parent", cwd: home });
-    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
     const host = await startResidentHost({
         home, config, inProcessWorker: true,
         createAdapter: () => new FauxAdapter([textResponse("The crow has the map.")]),

@@ -23,7 +23,7 @@ import {
 } from "../../src/sdk/agent.ts";
 import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from
     "../../src/engine/prompt-contributions.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { openSessionForRecovery, SessionStore } from "../../src/store/session-store.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -804,6 +804,10 @@ test("Vera.run --session writes a durable SessionStore at the named path", async
         expect(store.messages().some((message) =>
             JSON.stringify(message).includes("Remember this")
         )).toBe(true);
+        const before = readFileSync(sessionPath, "utf8");
+        expect(before.split("\n").filter((line) => line.includes('"type":"turn_start"'))).toHaveLength(1);
+        await openSessionForRecovery(sessionPath);
+        expect(readFileSync(sessionPath, "utf8")).toBe(before);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

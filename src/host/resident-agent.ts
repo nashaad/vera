@@ -828,6 +828,13 @@ export class ResidentAgent {
             && this.attachments.size === 0;
     }
 
+    hasPendingTurn(): boolean {
+        return this.currentStatus !== "idle"
+            || this.unstartedPrompts > 0
+            || this.outstandingDeliveryWakes > 0
+            || this.deliveryTurnQueued;
+    }
+
     idleForReplacement(): boolean {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"

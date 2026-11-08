@@ -60,7 +60,7 @@ export async function readSessionFacts(
             } catch {
                 continue;
             }
-            if (record.type !== "message") continue;
+            if (record.type !== "message" && record.type !== "turn_start") continue;
             const message = record.message as Record<string, unknown> | undefined;
             if (message?.role !== "assistant") continue;
             const source = message.source as Record<string, unknown> | undefined;

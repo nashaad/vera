@@ -47,6 +47,7 @@ test("a replica refuses every write", async () => {
 
     const refused = /cannot write to the session file/;
     expect(replica.appendMessage(userMessage("no"))).rejects.toThrow(refused);
+    expect(replica.finishAbortedTurn()).rejects.toThrow(refused);
     expect(replica.appendName("no")).rejects.toThrow(refused);
     expect(replica.appendApprovalMode("ask")).rejects.toThrow(refused);
     expect(replica.appendHarnessMessage("no", "soft")).rejects.toThrow(refused);
@@ -175,7 +176,7 @@ async function writeRichSession(path: string): Promise<void> {
         now: counterDates(),
         createId: counterIds(),
     });
-    await store.appendMessage(userMessage("first"));
+    await store.appendMessage(userMessage("first"), { turnStart: true });
     await store.appendMessage(assistantMessage("first answer"));
     await store.appendModelSettings({ model: "test-model" }, "user");
     await store.appendApprovalMode("ask", "user");

@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+import { createStubTuiHome } from "../../support/stub-tui-home.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 interface HistoryEntry {
@@ -26,7 +23,7 @@ function historyEntries(): HistoryEntry[] {
 }
 
 async function openScrolledToTop(entries: readonly HistoryEntry[]) {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
+    const home = createStubTuiHome("vera-tui-test-");
     let push: ((update: AgentUpdate) => void) | undefined;
     const session = await startTuiTestSession({
         home,

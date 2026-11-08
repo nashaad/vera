@@ -12,7 +12,7 @@ import {
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ModelFailureLedger } from "../../src/store/model-failures.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const ADAPTER = fileURLToPath(
@@ -277,6 +277,10 @@ test("a parent close effect kills a child worker process tree", async () => {
         });
         await waitForProcessExit(childWorkerPid);
         await waitForProcessExit(toolPid);
+        const childStore = await SessionStore.open(childPath);
+        expect(childStore.messages().at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted" });
+        expect((await readSessionTurnState(childPath)).turnOpen).toBe(false);
+        expect(await childStore.repairCrashedTurn()).toBe(false);
 
         expect(registry.find("child")).toBeUndefined();
         const parentEntry = registry.list().find((entry) =>

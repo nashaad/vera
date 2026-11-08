@@ -2970,7 +2970,7 @@ test("a resumed registry marks an interrupted delivery without retrying it", asy
             type: "text",
             text: "<task_notification>The tests pass.</task_notification>",
         }],
-    });
+    }, { turnStart: true });
     expect(store.pendingDeliveries()).toEqual([]);
     expect(store.hasUnansweredDeliveryTurn()).toBe(true);
     let requests = 0;

@@ -61,7 +61,7 @@ export async function recoverCrashedTurns(
     for (const path of files) {
         const recover = async (): Promise<void> => {
             const state = await readSessionTurnState(path).catch(() => undefined);
-            if (state === undefined || (!state.turnOpen && !state.hasQueuedPrompts)) return;
+            if (state === undefined || (!state.turnOpen && !state.needsQueueRecovery)) return;
             if (!alreadyRecorded.has(state.sessionId)) {
                 appendRestartRecord(
                     { session_id: state.sessionId, cause: "crash", at: now },

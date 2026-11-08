@@ -830,6 +830,8 @@ export interface RegisteredAgentEntry {
     pendingCompletionDeliveries: number;
     completionSequence: number;
     failure?: unknown;
+    closeFailure?: unknown;
+    releasingForTransfer?: boolean;
     /** Set once session_end has been announced, so racing closes report it once. */
     sessionEnded?: boolean;
     /** The last session_updated payload sent, as JSON. */

@@ -285,6 +285,7 @@ test("successful replies automatically run FIFO follow-ups and persist separate 
         "user", "assistant", "user", "assistant", "user", "assistant",
     ]);
     expect(reopened.messages()).toEqual(state.messages);
+    expect(readFileSync(sessionPath, "utf8").split("\n").filter((line) => line.includes('"type":"turn_start"'))).toHaveLength(3);
 });
 
 test("a prompt queued during a tool batch joins the turn before the next request", async () => {
@@ -359,6 +360,7 @@ test("a prompt queued during a tool batch joins the turn before the next request
 
     const reopened = await SessionStore.open(sessionPath);
     expect(reopened.messages()).toEqual(state.messages);
+    expect(readFileSync(sessionPath, "utf8").split("\n").filter((line) => line.includes('"type":"turn_start"'))).toHaveLength(1);
     expect(reopened.messages()[3]).toEqual({
         role: "user",
         content: [{ type: "text", text: "check the rigging too" }],
