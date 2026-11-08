@@ -5,6 +5,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { createMarkdownStyle } from "../../clients/tui/main/chrome.ts";
 import { createTuiMarkdownEntry } from "../../clients/tui/markdown-entry.ts";
 import { FALLBACK_TUI_THEME } from "../../clients/tui/theme.ts";
+import { waitForRender } from "./render-wait.ts";
 
 // The diff grammar normally downloads on first use. This copy of the release asset and
 // of the highlight query Vera registers lets the test run offline.
@@ -63,15 +64,16 @@ async function renderReply(text: string): Promise<Setup> {
         false,
     );
     setup.renderer.root.add(node!);
-    // Highlighting runs in a worker; the hunk header is the first thing to leave the base color.
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
-        if (setup.captureCharFrame().includes("@@ -1,3 +1,3 @@")
-            && !colorsOf(setup, "@@ -1,3 +1,3 @@").every((color) => color.equals(parseColor(theme.text)))) {
-            break;
-        }
+    try {
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return ["@@ -1,3 +1,3 @@", "context line", "-old line", "+new line", "Here is the change.", "Done."]
+                .every((text) => frame.includes(text))
+                && !colorsOf(setup, "@@ -1,3 +1,3 @@").every((color) => color.equals(parseColor(theme.text)));
+        });
+    } catch (error) {
+        setup.renderer.destroy();
+        throw error;
     }
     return setup;
 }

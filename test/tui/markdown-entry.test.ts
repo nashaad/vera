@@ -4,6 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiMarkdownEntry } from "../../clients/tui/markdown-entry.ts";
 import { activateTuiLink } from "../../clients/tui/markdown-links.ts";
+import { waitForRender } from "./render-wait.ts";
 
 test("background completions render finished Markdown", async () => {
     const setup = await createTestRenderer({ width: 60, height: 12 });
@@ -98,9 +99,10 @@ test("mouse activation opens a supported local Markdown link", async () => {
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("See report") && frame.includes("now.");
+        });
         const lines = setup.captureCharFrame().split("\n");
         const row = lines.findIndex((line) => line.includes("report"));
         const column = lines[row]!.indexOf("report");
@@ -142,9 +144,10 @@ test("mouse activation opens a supported Obsidian deep link", async () => {
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(100);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("the Vera Agent index");
+        });
         const lines = setup.captureCharFrame().split("\n");
         const row = lines.findIndex((line) => line.includes("the Vera Agent index"));
         expect(row).toBeGreaterThanOrEqual(0);
@@ -184,9 +187,10 @@ test("mouse activation follows formatted and entity-decoded link labels", async 
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(100);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.split("\n").some((line) => line.includes("bold") && line.includes("a & b"));
+        });
         const lines = setup.captureCharFrame().split("\n");
         const row = lines.findIndex((line) => line.includes("bold") && line.includes("a & b"));
         expect(row).toBeGreaterThanOrEqual(0);
@@ -234,9 +238,10 @@ test("mouse activation uses display columns for wide Unicode labels", async () =
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(100);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("界") && frame.includes("wide") && frame.includes("now.");
+        });
         const lines = setup.captureCharFrame().split("\n");
         const row = lines.findIndex((line) => line.includes("wide"));
         const line = lines[row]!;
@@ -275,9 +280,10 @@ test("mouse activation opens links rendered inside Markdown tables", async () =>
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(100);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("report");
+        });
         const lines = setup.captureCharFrame().split("\n");
         const row = lines.findIndex((line) => line.includes("report"));
         const line = lines[row]!;
@@ -346,9 +352,10 @@ test("an answer that follows no work carries no section rule", async () => {
     setup.renderer.root.add(node!);
 
     try {
-        await setup.flush();
-        await Bun.sleep(50);
-        await setup.flush();
+        await waitForRender(setup, () => {
+            const frame = setup.captureCharFrame();
+            return frame.includes("Final answer");
+        });
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Final answer");
         expect(frame).not.toContain("─".repeat(10));
