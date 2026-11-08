@@ -8,6 +8,7 @@ import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import { assembleAgedToolResults } from "../../src/engine/tool-result-history.ts";
 import { createToolResultSpill } from "../../src/engine/tool-result-spill.ts";
 import {
     limitToolResult,
@@ -92,6 +93,15 @@ test("a spilled result names the file and how to read a range from it", async ()
         expect(await readFile(path as string, "utf8")).toBe(text);
         expect(limited.text).toContain(path as string);
         expect(limited.text).toContain("tail -c +<offset>");
+        expect(limited.text).toBe(
+            `${"y".repeat(32_768)}\n`
+            + "[vera] 134464 bytes omitted from the middle of this result: "
+            + "65536 of 200000 bytes are shown, as a head and a tail.\n"
+            + `[vera] Full output: ${path} (200000 bytes, disposable).\n`
+            + "[vera] Read a byte range from it with: "
+            + `tail -c +<offset> ${path} | head -c <length>\n`
+            + "y".repeat(32_768),
+        );
         // Owner-only: a tool result carries whatever the session touched.
         expect((await stat(path as string)).mode & 0o777).toBe(0o600);
     } finally {
@@ -261,6 +271,98 @@ test("an extension tool passes under the same ceiling, and the numbers are repor
         await rm(workspace, { recursive: true, force: true });
         await rm(scratch, { recursive: true, force: true });
     }
+});
+
+test.each([
+    { capacity: 8_192, ceiling: 65_536, total: undefined, budget: 32_768, clamped: true },
+    { capacity: 200_000, ceiling: 100_000, total: 65_000, budget: 65_000, clamped: true },
+    { capacity: 8_192, ceiling: 8_192, total: undefined, budget: 32_768, clamped: false },
+])("a turn bounds one result by its current total budget: $budget", async (limits) => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-result-budget-"));
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const extensionTool: RegisteredTool = {
+        definition: {
+            name: "extension_dump",
+            description: "Returns a large result.",
+            inputSchema: { type: "object", properties: {} },
+        },
+        execute: async () => ({ kind: "output", output: "x".repeat(120_000), isError: false }),
+    };
+    const toolCall: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "extension_dump", input: {} }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const reply: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+        extensionTools: [extensionTool],
+        toolResultSpill: createToolResultSpill(workspace),
+        readModelSettings: () => ({ provider: "faux", model: "test", contextWindow: limits.capacity }),
+        toolResults: {
+            ceilingBytes: limits.ceiling,
+            ...(limits.total === undefined ? {} : { totalBudgetBytes: limits.total }),
+        },
+    };
+    try {
+        channel.client.send({ type: "prompt", content: "dump it" });
+        await runTurn(new FauxAdapter([toolCall, reply]), "test", state);
+        const finished = observed.find((event) => event.type === "tool_execution_finished");
+        if (finished?.type !== "tool_execution_finished" || finished.truncation === undefined) {
+            throw new Error("tool result was not truncated");
+        }
+        if (limits.clamped) {
+            expect(finished.truncation.retainedBytes).toBeLessThan(limits.budget);
+        } else {
+            expect(finished.truncation.retainedBytes).toBe(limits.ceiling);
+        }
+        const result = state.messages.find((message) => message.role === "tool_result");
+        if (result?.role !== "tool_result") throw new Error("tool result is missing");
+        expect(result.toolResultSource?.spillPath).toBeDefined();
+        const renderedBytes = result.content.reduce((total, block) =>
+            total + Buffer.byteLength(block.text, "utf8"), 0);
+        expect(renderedBytes).toBeLessThanOrEqual(limits.budget);
+        const nextRequest = assembleAgedToolResults(
+            state.messages.map((message) => ({ message })),
+            { capacity: limits.capacity, budgetBytes: limits.budget, pendingUserTurns: 1 },
+        );
+        expect(nextRequest.find((message) => message.role === "tool_result")).toEqual(result);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a rendered byte limit includes a long multibyte spill path and notice", async () => {
+    const spillPath = `/tmp/${"crow-🦜".repeat(80)}`;
+    const text = "🦜".repeat(20_000);
+    const limited = await limitToolResult(text, {
+        toolName: "bash",
+        ceilingBytes: 32_768,
+        maxRenderedBytes: 32_768,
+        spill: { write: async () => spillPath },
+    });
+    expect(Buffer.byteLength(limited.text, "utf8")).toBeLessThanOrEqual(32_768);
+    expect(limited.text).toContain(spillPath);
+    expect(limited.text.startsWith("🦜")).toBe(true);
+    expect(limited.text.endsWith("🦜")).toBe(true);
+    expect(limited.text).not.toContain("�");
 });
 
 test("a scratch file the model wrote is left alone by eviction", async () => {

@@ -342,7 +342,7 @@ export function budgetContextWindow(
     return effectiveContextWindow(declared, limit) ?? limit;
 }
 
-interface ModelWindowEntry {
+export interface ModelWindowEntry {
     readonly provider: string;
     readonly model: string;
     readonly contextWindow?: number;

@@ -129,6 +129,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
                 sessions,
                 include,
                 modelFailureLedgerPath,
+                registry.availableModels,
             ),
         listBackgroundAgents: () => registry.list(),
         readWorkIndex: () => {

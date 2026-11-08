@@ -17,12 +17,17 @@ import {
 import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
-export function createTuiSettingsDependencies(): TuiDependencies {
+export interface TuiSettingsFixtureOptions {
+    readonly contextWindow?: number;
+    readonly configured?: ConfiguredOverrides;
+}
+
+export function createTuiSettingsDependencies(options: TuiSettingsFixtureOptions = {}): TuiDependencies {
     let reasoningEffort: ModelReasoningEffort = "high";
     // The real host derives the rows from what the config holds, so the
     // fixture holds the config and derives them the same way.
-    let configured: ConfiguredOverrides = {};
-    const contextWindow = 200_000;
+    let configured: ConfiguredOverrides = options.configured ?? {};
+    const contextWindow = options.contextWindow ?? 200_000;
     const provider = "faux";
     // Mirrors what a real host sends since nash-50 slice 4b: the running model's
     // own levels ride along on `availableModels`, not a flat effort list.

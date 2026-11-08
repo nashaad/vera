@@ -41,6 +41,7 @@ export interface LimitToolResultOptions {
     readonly toolName: string;
     readonly spill?: ToolResultSpill;
     readonly ceilingBytes?: number;
+    readonly maxRenderedBytes?: number;
 }
 
 export async function limitToolResult(
@@ -49,23 +50,33 @@ export async function limitToolResult(
 ): Promise<LimitedToolResult> {
     const ceiling = options.ceilingBytes ?? TOOL_RESULT_CEILING_BYTES;
     const bytes = Buffer.from(text, "utf8");
-    if (bytes.length <= ceiling) {
+    if (bytes.length <= ceiling
+        && (options.maxRenderedBytes === undefined || bytes.length <= options.maxRenderedBytes)) {
         return { text };
     }
 
     const spillPath = await options.spill?.write(options.toolName, text);
-    const head = decode(bytes.subarray(0, Math.floor(ceiling / 2)));
-    const tail = decode(bytes.subarray(bytes.length - Math.floor(ceiling / 2)));
-    const truncation: ToolResultTruncation = {
-        originalBytes: bytes.length,
-        retainedBytes: Buffer.byteLength(head, "utf8")
-            + Buffer.byteLength(tail, "utf8"),
-        ...(spillPath === undefined ? {} : { spillPath }),
-    };
-    return {
-        text: `${head}\n${omissionMarker(truncation)}\n${tail}`,
-        truncation,
-    };
+    let retainedLimit = Math.min(ceiling, bytes.length);
+    while (true) {
+        const half = Math.floor(retainedLimit / 2);
+        const head = decode(bytes.subarray(0, half));
+        const tail = decode(bytes.subarray(bytes.length - half));
+        const truncation: ToolResultTruncation = {
+            originalBytes: bytes.length,
+            retainedBytes: Buffer.byteLength(head, "utf8")
+                + Buffer.byteLength(tail, "utf8"),
+            ...(spillPath === undefined ? {} : { spillPath }),
+        };
+        const rendered = `${head}\n${omissionMarker(truncation)}\n${tail}`;
+        const excess = options.maxRenderedBytes === undefined
+            ? 0
+            : Buffer.byteLength(rendered, "utf8") - options.maxRenderedBytes;
+        if (excess <= 0) return { text: rendered, truncation };
+        if (retainedLimit === 0) {
+            throw new RangeError("Tool result notice exceeds the rendered byte limit");
+        }
+        retainedLimit = Math.max(0, retainedLimit - excess);
+    }
 }
 
 function omissionMarker(truncation: ToolResultTruncation): string {

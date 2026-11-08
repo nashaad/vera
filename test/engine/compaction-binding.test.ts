@@ -290,3 +290,50 @@ test("a missing slot on the wire binds nothing", () => {
         () => async () => ({ text: "ok", model: "test" }),
     )).toBeUndefined();
 });
+
+test("the summarizer guard reads the window from the catalog it is bound with", async () => {
+    // A model the built-in table does not know still has a window the
+    // host discovered; the guard must refuse a request that cannot fit it.
+    const slots = {
+        summarizer: [{
+            name: "small",
+            provider: "openai" as const,
+            model: "catalog-only-model",
+        }],
+    };
+    const request = {
+        systemPrompt: "summarize",
+        messages: [{
+            role: "user" as const,
+            content: [{ type: "text" as const, text: "x".repeat(40_000) }],
+        }],
+    };
+    const signal = new AbortController().signal;
+
+    const windowed = bindCompaction(
+        profile({ slots }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        undefined,
+        [{ provider: "openai", model: "catalog-only-model", contextWindow: 1_000 }],
+    );
+    const summarize = windowed?.models.summarizer;
+    if (summarize === undefined) throw new Error("summarizer is not bound");
+    await expect(summarize(request, signal)).rejects.toThrow(/skipped/);
+
+    const unwindowed = bindCompaction(
+        profile({ slots }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        undefined,
+        [],
+    );
+    const unknown = unwindowed?.models.summarizer;
+    if (unknown === undefined) throw new Error("summarizer is not bound");
+    const error = await unknown(request, signal).catch((caught: unknown) => caught);
+    expect(String(error)).not.toContain("skipped");
+});

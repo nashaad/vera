@@ -1,6 +1,5 @@
 import { dirname, join } from "node:path";
 
-import type { AgentRegistry } from "../agent-registry.ts";
 import { defaultHostSocketPath } from "../lockfile.ts";
 import type { HostIdentity, HostRequest } from "../protocol.ts";
 import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
@@ -36,7 +35,6 @@ export interface InProcessWorker {
     cutSession(id: string, reason: string): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
-    setAvailableModels(models: AgentRegistry["availableModels"]): void;
     close(): Promise<void>;
 }
 
@@ -125,7 +123,6 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         cutSession: (id, reason) => worker.registry.cutSessionForStop(id, reason),
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
-        setAvailableModels: (models) => { worker.registry.availableModels = models; },
         async close() {
             stopMasterTracking();
             stopWorkerTracking();

@@ -635,6 +635,35 @@ test("turn completion adds the reply to the provider's request count", () => {
     ]);
 });
 
+test("turn completion uses the replied model's capacity when another model was measured", () => {
+    const updates: AgentUpdate[] = [];
+    const lookups: string[] = [];
+    const protocol = createProtocolEncoder(
+        { send: (update): void => void updates.push(update) },
+        undefined,
+        undefined,
+        (provider, model) => {
+            lookups.push(`${provider}/${model}`);
+            return 204_800;
+        },
+    );
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") throw new Error("Expected an assistant message");
+
+    protocol({
+        type: "context_measured",
+        model: "different-model",
+        measurement: { tokens: 1_000, capacity: 8_192, estimated: true },
+    });
+    protocol({ type: "turn_finished", message });
+
+    expect(lookups).toEqual(["faux/test"]);
+    expect(updates[1]).toMatchObject({
+        type: "context",
+        measurement: { tokens: 64_624, capacity: 204_800, estimated: true },
+    });
+});
+
 test("turn completion appends the reply to an exact request projection", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

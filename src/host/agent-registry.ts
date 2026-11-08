@@ -27,7 +27,7 @@ import {
 } from "../engine/protocol.ts";
 import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
-import type { ReviewerModelDefault, ReviewerSettingsPatch } from "../engine/model-settings.ts";
+import { availableModels, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../engine/model-settings.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "../model/catalog-view.ts";
@@ -106,7 +106,7 @@ export class AgentRegistry {
         PendingSubagentConfigurationBatch[]
     >();
     readonly catalog: EffectiveCatalogOptions;
-    availableModels: readonly SuggestedModel[];
+    private readonly readAvailableModels: () => readonly SuggestedModel[];
     readonly rosterListeners = new Set<() => void>();
     readonly processRegistry = new ManagedProcessRegistry();
     readonly options: AgentRegistryOptions;
@@ -117,7 +117,7 @@ export class AgentRegistry {
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
-        this.availableModels = options.availableModels ?? [];
+        this.readAvailableModels = options.readAvailableModels ?? (() => []);
         this.defaultApprovalMode = options.approvalMode;
         this.maxConcurrentBackgroundAgents = validChildAgentLimit(
             options.maxConcurrentBackgroundAgents
@@ -128,6 +128,10 @@ export class AgentRegistry {
         this.catalog = options.cacheDir === undefined
             ? {}
             : { cacheDir: options.cacheDir };
+    }
+
+    get availableModels(): readonly SuggestedModel[] {
+        return this.readAvailableModels();
     }
 
     modelsForClient(): readonly SuggestedModel[] {
@@ -963,6 +967,10 @@ export class AgentRegistry {
                 BUNDLED_COMPACTION_STRATEGIES,
                 this.options.compactionModels,
                 this.options.compactionOverrides,
+                [
+                    ...this.availableModels.filter((model) => model.contextWindow !== undefined),
+                    ...availableModels(),
+                ],
             ),
             ...(this.options.toolResults === undefined
                 ? {}
@@ -1061,6 +1069,10 @@ export class AgentRegistry {
                 BUNDLED_COMPACTION_STRATEGIES,
                 this.options.compactionModels,
                 this.options.compactionOverrides,
+                [
+                    ...this.availableModels.filter((model) => model.contextWindow !== undefined),
+                    ...availableModels(),
+                ],
             );
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) => {
             if (effect.type === "spawn_async_subagent") {

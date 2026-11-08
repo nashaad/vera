@@ -121,7 +121,7 @@ import {
     type ContextMeasurement,
 } from "./context-measurement.ts";
 import { contextContributionParts } from "./context-parts.ts";
-import type { ToolResultLimits } from "./tool-result-history.ts";
+import { toolResultTotalBudgetBytes, type ToolResultLimits } from "./tool-result-history.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import {
     contextCompactionPolicy,
@@ -536,7 +536,12 @@ export async function runHeadlessLoop(
             const declared = settings?.provider === provider
                     && settings.model === replayModel
                 ? settings.contextWindow
-                : contextWindowForModel(provider, replayModel);
+                : contextWindowForModel(
+                    provider,
+                    replayModel,
+                    settings?.availableModels,
+                    availableModels(),
+                );
             return budgetContextWindow(declared, settings?.contextLimit);
         },
         () => store.usageMessages(),
@@ -2785,11 +2790,14 @@ async function executePreparedTool(
     for (const substitution of applied.output.substitutions ?? []) {
         state.events.emit({ type: "model_substituted", substitution });
     }
+    const ceiling = state.toolResults?.ceilingBytes ?? toolResultCeilingBytes(capacity);
+    const totalBudget = state.toolResults?.totalBudgetBytes ?? toolResultTotalBudgetBytes(capacity);
     const bound = await boundToolResult(
         toolCall,
         applied.output,
         state.toolResultSpill,
-        state.toolResults?.ceilingBytes ?? toolResultCeilingBytes(capacity),
+        Math.min(ceiling, totalBudget),
+        ceiling > totalBudget ? totalBudget : undefined,
     );
     const durationMs = performance.now() - startedAt;
     const completed = await finishExecutedTool(

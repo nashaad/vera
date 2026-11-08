@@ -1456,6 +1456,7 @@ export function renderListPickerRows(
                 // The detail pane carries the prose when there is one.
                 ...(state.kind === "model" || state.kind === "session"
                         || state.kind === "session_import" || detailed
+                        || row.option.caution === true
                     ? {}
                     : { description: row.option.description }),
                 meta: row.option.rowMeta

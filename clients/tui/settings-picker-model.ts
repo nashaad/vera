@@ -235,6 +235,14 @@ export function stackedDetailLines(
     option: TuiSettingsPickerOption | undefined,
     width: number,
 ): readonly (readonly TextChunk[])[] {
+    if (state.kind === "overrides_settings" && option?.caution === true) {
+        return [
+            [],
+            ...wrappedTo(option.description, width).map((text) => [fg(TUI_MUTED)(text)]),
+            [],
+            [],
+        ];
+    }
     if (
         state.kind === "model"
         && state.tab === "all"
@@ -428,8 +436,15 @@ export function modelDetailNode(
         line([fg(TUI_TEXT)(clippedTo(option.detailTitle ?? "", width))]);
         line();
         for (const [label, value] of option.detailFacts) {
-            line([fg(TUI_MUTED)(label)]);
-            line([fg(TUI_TEXT)(clippedTo(value, width))]);
+            if (option.caution === true) {
+                line([
+                    fg(TUI_MUTED)(`${label}: `),
+                    fg(TUI_TEXT)(clippedTo(value, Math.max(1, width - label.length - 2))),
+                ]);
+            } else {
+                line([fg(TUI_MUTED)(label)]);
+                line([fg(TUI_TEXT)(clippedTo(value, width))]);
+            }
         }
         line();
         for (const text of wrappedTo(option.note ?? "", width)) {
@@ -577,7 +592,7 @@ export function modelDetailHeight(
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
     if (described && option.detailFacts !== undefined) {
-        return 3 + option.detailFacts.length * 2
+        return 3 + option.detailFacts.length * (option.caution === true ? 1 : 2)
             + wrappedTo(option.note ?? "", width).length;
     }
     if (described && state.kind === "model" && state.modelBrowse !== undefined) {

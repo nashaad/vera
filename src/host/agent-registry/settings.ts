@@ -47,10 +47,7 @@ function savedDefaults(reg: AgentRegistry, settings: ModelTurnSettings): ModelTu
 }
 
 export function modelsForClient(reg: AgentRegistry): readonly SuggestedModel[] {
-        const refreshed = reg.options.refreshAvailableModels?.();
-        if (refreshed !== undefined) {
-            reg.availableModels = refreshed;
-        }
+        reg.options.refreshAvailableModels?.();
         return reg.availableModels;
     }
 
@@ -504,12 +501,7 @@ export async function refreshHostCatalog(
         if (reg.options.refreshCatalog === undefined) {
             return undefined;
         }
-        const refreshed = await reg.options.refreshCatalog(provider);
-        if (refreshed === undefined) {
-            return undefined;
-        }
-        reg.availableModels = refreshed;
-        return refreshed;
+        return await reg.options.refreshCatalog(provider);
     }
 
 export async function refreshCatalog(reg: AgentRegistry, id: string, provider: string): Promise<ModelTurnSettings | undefined> {

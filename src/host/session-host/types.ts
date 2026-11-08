@@ -13,7 +13,7 @@ import type { StartupFindings } from "../startup-findings.ts";
 import type { SessionHandlers } from "./handlers.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
-    "availableModels"
+    "readAvailableModels"
     | "refreshAvailableModels"
     | "providerCatalogs"
     | "refreshableProviders"

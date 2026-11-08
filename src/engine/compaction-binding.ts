@@ -13,7 +13,11 @@ import {
     createRoutedCompletionService,
     type CompleteText,
 } from "./completion-service.ts";
-import { contextWindowForModel } from "./model-settings.ts";
+import {
+    availableModels,
+    contextWindowForModel,
+    type ModelWindowEntry,
+} from "./model-settings.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
 import type { SessionCompactionDiagnostics } from "../store/session-store.ts";
 
@@ -36,6 +40,7 @@ export function bindCompaction(
     strategies: readonly CompactionStrategyDefinition[],
     slotModels?: readonly VeraCatalogModel[],
     overrides?: CompactionOverrides,
+    windows: readonly ModelWindowEntry[] = availableModels(),
 ): SessionCompactionOptions | undefined {
     const assignment = slotModels !== undefined && slotModels.length > 0
         ? slotModels
@@ -74,6 +79,7 @@ export function bindCompaction(
                 const window = contextWindowForModel(
                     model.provider,
                     model.model,
+                    windows,
                 );
                 return {
                     provider: model.provider,

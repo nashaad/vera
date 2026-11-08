@@ -5481,24 +5481,25 @@ test("a catalog refresh reports the newly fetched list, and a refusal reports no
             description: "just fetched",
         },
     ];
+    let models: readonly SuggestedModel[] = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            description: "the list before the refresh",
+        },
+    ];
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         approvalMode: "auto",
-        availableModels: [
-            {
-                provider: "openai-codex",
-                model: "gpt-5.6-sol",
-                label: "GPT-5.6-Sol",
-                description: "the list before the refresh",
-            },
-        ],
+        readAvailableModels: () => models,
         refreshCatalog: (provider) => {
             asked.push(provider);
-            return Promise.resolve(
-                provider === "nowhere" ? undefined : refreshed,
-            );
+            if (provider === "nowhere") return Promise.resolve(undefined);
+            models = refreshed;
+            return Promise.resolve(models);
         },
     });
 
