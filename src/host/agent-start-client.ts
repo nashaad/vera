@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+
 import { connectHost } from "./connection.ts";
 import type { UserMessage } from "../model/types.ts";
 import type { StartupProfile } from "../startup-profile.ts";
@@ -5,6 +7,13 @@ import type { StartupProfile } from "../startup-profile.ts";
 export interface ReadyAgent {
     readonly id: string;
     readonly workspace: string;
+    readonly location?: ReadyAgentLocation;
+}
+
+export interface ReadyAgentLocation {
+    readonly socket_path: string;
+    readonly worker_id: string;
+    readonly worker_generation: number;
 }
 
 export interface BranchedAgent extends ReadyAgent {
@@ -280,9 +289,27 @@ async function requestAgentStart(
         ) {
             throw new Error("Host returned an invalid agent startup response");
         }
+        const hasLocation = response.socket_path !== undefined
+            || response.worker_id !== undefined
+            || response.worker_generation !== undefined;
+        if (hasLocation && (
+            typeof response.socket_path !== "string"
+            || !isAbsolute(response.socket_path)
+            || typeof response.worker_id !== "string"
+            || response.worker_id.length === 0
+            || !Number.isSafeInteger(response.worker_generation)
+            || (response.worker_generation as number) <= 0
+        )) {
+            throw new Error("Host returned an invalid agent startup response");
+        }
         return {
             id: response.agent_id,
             workspace: response.workspace,
+            ...(hasLocation ? { location: {
+                socket_path: response.socket_path as string,
+                worker_id: response.worker_id as string,
+                worker_generation: response.worker_generation as number,
+            } } : {}),
         };
     } finally {
         connection.close();

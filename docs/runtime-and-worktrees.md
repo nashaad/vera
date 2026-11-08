@@ -29,6 +29,11 @@ The first launch should omit `-c`, since there is no prior conversation to
 continue. Starting a TUI from a checkout without this launcher can attach to
 the daily host instead of testing that checkout's code.
 
+For a development instance with a separate session process, run
+`bun run dev:tui --pool`. Clients attach to the session process and use the
+host to find it again after a disconnect. If the session process exits,
+restart the development host to start another process.
+
 When a development instance has to start its own host, that host and the
 worker and supervisor processes it starts run this checkout's code: the
 checkout's packed release if it has one, otherwise the source. They never run

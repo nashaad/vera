@@ -15,9 +15,21 @@ export interface WorkerSpawnSpec {
     readonly args: readonly string[];
 }
 
+export class WorkerGenerations {
+    private readonly values = new Map<string, number>();
+
+    next(workerId: string): number {
+        const generation = (this.values.get(workerId) ?? 0) + 1;
+        if (!Number.isSafeInteger(generation)) throw new Error("Session worker generation exhausted");
+        this.values.set(workerId, generation);
+        return generation;
+    }
+}
+
 export interface SessionWorkerSupervisorOptions {
     readonly home: string;
     readonly socket: string;
+    readonly generation: number;
     readonly bootstrap: WorkerBootstrap;
     readonly handler: ControlHandler;
     readonly onEvent: ControlEventHandler;
@@ -44,6 +56,9 @@ export function controlSocketPath(home: string): string {
 }
 
 export async function startSessionWorkerSupervisor(options: SessionWorkerSupervisorOptions): Promise<SessionWorkerSupervisor> {
+    if (!Number.isSafeInteger(options.generation) || options.generation <= 0) {
+        throw new Error("Invalid session worker generation");
+    }
     const control = controlSocketPath(options.home);
     await removeStaleControlSocket(control);
     let child: ChildProcess | undefined;
@@ -87,7 +102,7 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     await chmod(control, 0o600);
     const owned = await lstat(control);
     const spec = options.spawnSpec ?? sessionWorkerSpawnSpec();
-    const args = [...spec.args, "--worker-index", "0", "--worker-count", "1", "--control", control, "--socket", options.socket];
+    const args = [...spec.args, "--worker-index", "0", "--worker-count", "1", "--worker-generation", String(options.generation), "--control", control, "--socket", options.socket];
     child = spawn(spec.command, args, {
         cwd: process.cwd(), env: { ...process.env, VERA_HOME: options.home }, stdio: ["ignore", "ignore", "pipe"],
     });

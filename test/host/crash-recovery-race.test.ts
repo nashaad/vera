@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { resumeAgentThroughHost, type ReadyAgent } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { connectHost } from "../../src/host/connection.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { CRASH_CUT_MESSAGE, SessionStore, readSessionTurnState } from "../../src/store/session-store.ts";
@@ -99,7 +100,7 @@ for (const inProcessWorker of [false, true]) {
     }, 20_000);
 }
 
-test("an attachment repairs a nonstandard session on the master while the worker starts", async () => {
+test("an attachment repairs a nonstandard session on the worker while another session is repaired", async () => {
     const root = await mkdtemp("/tmp/vera-dev/crash1-startup.");
     const sessions = join(root, "sessions");
     const blockedPath = join(sessions, "a.jsonl");
@@ -143,7 +144,16 @@ test("an attachment repairs a nonstandard session on the master while the worker
             expect((await readSessionTurnState(targetPath)).turnOpen).toBe(false);
             release();
             host = await starting;
-            expect(host.registry.agents.has("crow")).toBe(true);
+            expect(host.registry.agents.has("crow")).toBe(false);
+            const location = await connectHost({ socketPath });
+            try {
+                await location.send({ type: "locate_agent", agent_id: "crow" });
+                expect(await location.receive()).toMatchObject({
+                    type: "agent_location", worker_id: "w0", socket_path: join(root, "runtime", "w0.sock"),
+                });
+            } finally {
+                location.close();
+            }
             expect((await readFile(targetPath, "utf8")).split(CRASH_CUT_MESSAGE)).toHaveLength(2);
         } finally {
             release();

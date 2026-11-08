@@ -56,6 +56,7 @@ export interface HostRouterOptions {
     readonly masterSocket: string;
     readonly workerSocket: string;
     readonly buildId: string;
+    readonly workerGeneration?: () => number;
     readonly reserveDelivery?: (id: string, run: () => Promise<ParentDeliveryOutcome>) => Promise<ParentDeliveryOutcome>;
 }
 
@@ -196,7 +197,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                     type: "agent_location",
                     socket_path: owner === "w0" ? this.options.workerSocket : this.options.masterSocket,
                     worker_id: owner,
-                    worker_generation: 1,
+                    worker_generation: owner === "w0" ? this.options.workerGeneration?.() ?? 1 : 1,
                     build_id: this.options.buildId,
                 };
             } catch (error) {

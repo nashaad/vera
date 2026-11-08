@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import type {
     AgentUpdate,
     ClientCommand,
@@ -155,6 +156,13 @@ export class AgentAttachError extends Error {
     }
 }
 
+export class AgentLocationChangedError extends Error {
+    constructor(readonly socketPath: string) {
+        super("The session moved to another host socket");
+        this.name = "AgentLocationChangedError";
+    }
+}
+
 export class AttachmentReleaseError extends Error {
     constructor(
         message: string,
@@ -214,6 +222,13 @@ export async function attachAgent(
                 : { after_seq: options.afterSequence }),
         });
         const response = await connection.receive();
+        const record = asRecord(response);
+        if (record?.type === "agent_location_changed") {
+            if (typeof record.socket_path !== "string" || !isAbsolute(record.socket_path)) {
+                throw new AgentAttachError(`Host returned an invalid attach response for ${options.agentId}`);
+            }
+            throw new AgentLocationChangedError(record.socket_path);
+        }
         if (isAttachFailure(response, options.agentId)) {
             const providerUnavailable =
                 response.unavailable_reason === "provider_unavailable"

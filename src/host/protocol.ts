@@ -46,6 +46,7 @@ export interface HostIdentity {
     readonly build_id?: string;
     readonly role?: HostRole;
     readonly worker_id?: string;
+    readonly worker_generation?: number;
     readonly worker_index?: number;
     readonly worker_count?: number;
     readonly workers_ready?: number;
@@ -441,6 +442,7 @@ export interface HostIdentityResponse {
     readonly build_id: string;
     readonly role?: HostRole;
     readonly worker_id?: string;
+    readonly worker_generation?: number;
     readonly worker_index?: number;
     readonly worker_count?: number;
     readonly workers_ready?: number;
@@ -463,6 +465,11 @@ export interface AgentLocationFailedResponse {
     readonly type: "agent_location_failed";
     readonly reason: AgentLocationFailureReason;
     readonly message: string;
+}
+
+export interface AgentLocationChangedResponse {
+    readonly type: "agent_location_changed";
+    readonly socket_path: string;
 }
 
 export interface AttachRequest {
@@ -649,6 +656,9 @@ export interface AgentReadyResponse {
     readonly type: "agent_ready";
     readonly agent_id: string;
     readonly workspace: string;
+    readonly socket_path?: string;
+    readonly worker_id?: string;
+    readonly worker_generation?: number;
 }
 
 export interface AgentStartFailedResponse {
@@ -949,6 +959,7 @@ export type HostResponse =
     | HostIdentityResponse
     | AgentLocationResponse
     | AgentLocationFailedResponse
+    | AgentLocationChangedResponse
     | ModelSettingsResponse
     | CatalogRefreshResponse
     | CatalogRefreshFailedResponse
@@ -1922,6 +1933,8 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
         || (response.pid as number) <= 0
         || typeof response.started_at !== "string"
         || Number.isNaN(Date.parse(response.started_at))
+        || (response.worker_generation !== undefined
+            && !isPositiveSafeInteger(response.worker_generation))
     ) {
         return undefined;
     }
@@ -1952,6 +1965,9 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
         ...(typeof response.worker_id === "string"
             && response.worker_id.length > 0
             ? { worker_id: response.worker_id }
+            : {}),
+        ...(isPositiveSafeInteger(response.worker_generation)
+            ? { worker_generation: response.worker_generation }
             : {}),
         ...(isNonNegativeSafeInteger(response.worker_index)
             ? { worker_index: response.worker_index }
