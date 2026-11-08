@@ -15,7 +15,7 @@ import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
 import type { TuiRuntime } from "./runtime.ts";
-import { BoxRenderable, MarkdownRenderable, TextRenderable } from "@opentui/core";
+import { BoxRenderable, MarkdownRenderable, TextRenderable, type Renderable } from "@opentui/core";
 
 export function tipContext(rt: TuiRuntime, inModelPicker: boolean): TuiTipContext {
     const pooled = rt.state.modelSettings?.pooled ?? [];
@@ -333,15 +333,43 @@ export function topmostVisibleTranscriptEntry(rt: TuiRuntime): number | undefine
     return undefined;
 }
 
+// screenY is refreshed only by a render pass, so after calculateLayout the computed layout is the fresh source.
+function transcriptNodeOffset(rt: TuiRuntime, node: BoxRenderable | TextRenderable | MarkdownRenderable): number {
+    let top = 0;
+    for (let at: Renderable | null = node; at !== null; at = at.parent) {
+        if (at === rt.transcript.content) return top - rt.transcript.scrollTop;
+        top += at.getLayoutNode().getComputedLayout().top;
+    }
+    return node.screenY - rt.transcript.viewport.screenY;
+}
+
+// A reflow keeps the middle of the top row at the same share of the entry, so the same text stays at the top.
+function anchoredOffset(
+    anchor: NonNullable<TuiRuntime["pendingTranscriptScrollAnchor"]>,
+    width: number,
+    height: number,
+): number {
+    if (anchor.offset >= 0 || anchor.width === width || anchor.height <= 0) {
+        return anchor.offset;
+    }
+    const hidden = Math.min(-anchor.offset, anchor.height - 1);
+    return -Math.min(
+        Math.floor((hidden + 0.5) * height / anchor.height),
+        Math.max(0, height - 1),
+    );
+}
+
 export function applyTranscriptScrollAnchor(rt: TuiRuntime): void {
     const anchor = rt.pendingTranscriptScrollAnchor;
     if (anchor === undefined) return;
     rt.pendingTranscriptScrollAnchor = undefined;
     const node = rt.entryNodes[anchor.index];
     if (node === undefined) return;
-    const offset = node.screenY - rt.transcript.viewport.screenY;
-    if (offset === anchor.offset) return;
-    rt.transcript.scrollTo(rt.transcript.scrollTop + offset - anchor.offset);
+    const { width, height } = node.getLayoutNode().getComputedLayout();
+    const target = anchoredOffset(anchor, width, height);
+    const offset = transcriptNodeOffset(rt, node);
+    if (offset === target) return;
+    rt.transcript.scrollTo(rt.transcript.scrollTop + offset - target);
 }
 
 export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
@@ -350,9 +378,12 @@ export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
     if (index === undefined) return;
     const node = rt.entryNodes[index];
     if (node === undefined) return;
+    const { width, height } = node.getLayoutNode().getComputedLayout();
     rt.pendingTranscriptScrollAnchor = {
         index,
-        offset: node.screenY - rt.transcript.viewport.screenY,
+        offset: transcriptNodeOffset(rt, node),
+        width,
+        height,
     };
 }
 
