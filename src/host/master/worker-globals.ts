@@ -7,7 +7,8 @@ import type { SuggestedModel } from "../../model/supported-models.ts";
 import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { defaultAuthStoragePath } from "../../providers/auth-storage.ts";
 import { fileReadStamp } from "../../store/read-cache.ts";
-import type { ControlPeer } from "./control.ts";
+import { HostConnectionClosedError } from "../connection.ts";
+import type { WorkerControlLink } from "./worker-link.ts";
 import type { CredentialLease } from "./credentials.ts";
 import type { GlobalChange, PoolCommit } from "./global-services.ts";
 
@@ -26,7 +27,7 @@ export class WorkerGlobals {
     private preferenceGeneration = 0;
 
     constructor(
-        private readonly peer: ControlPeer,
+        private readonly peer: WorkerControlLink,
         private readonly home: string,
         private readonly configPath: string,
         private readonly preferencesPath: string,
@@ -53,7 +54,12 @@ export class WorkerGlobals {
                     }
                 }).finally(() => { this.catalogRequest = undefined; });
             }
-            await this.catalogRequest;
+            try {
+                await this.catalogRequest;
+            } catch (error) {
+                if (error instanceof HostConnectionClosedError) return;
+                throw error;
+            }
         }
     }
 

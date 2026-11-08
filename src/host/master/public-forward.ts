@@ -4,7 +4,7 @@ import { createConnection } from "node:net";
 import { MAX_FRAME_BYTES } from "../connection.ts";
 import { LineBuffer } from "../line-buffer.ts";
 import { parseHostRequest, type HostRequest } from "../protocol.ts";
-import type { ControlPeer } from "./control.ts";
+import type { ControlChannel } from "./control.ts";
 
 type FrameSink = (frame: object) => Promise<void>;
 
@@ -31,7 +31,7 @@ export class ForwardedShutdowns {
     }
 }
 
-export function createPublicForwarder(peer: ControlPeer) {
+export function createPublicForwarder(peer: ControlChannel) {
     const sinks = new Map<string, FrameSink>();
     return {
         async forward(request: HostRequest, send: FrameSink, signal: AbortSignal): Promise<void> {
@@ -55,7 +55,7 @@ export function createPublicForwarder(peer: ControlPeer) {
 }
 
 export async function servePublicRequest(
-    peer: ControlPeer,
+    peer: ControlChannel,
     socketPath: string,
     args: readonly unknown[],
     signal: AbortSignal,

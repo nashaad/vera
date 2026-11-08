@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { withSessionReservations, type RestoringSessions } from "../session-host/storage.ts";
-import type { ControlPeer } from "./control.ts";
+import type { ControlChannel } from "./control.ts";
 
 interface HeldReservation {
     readonly release: () => void;
@@ -40,7 +40,7 @@ export class ControlReservations {
     }
 }
 
-export function remoteReservations(peer: ControlPeer): RestoringSessions {
+export function remoteReservations(peer: ControlChannel): RestoringSessions {
     const reservations: RestoringSessions = new Map();
     reservations.withReservations = async <T>(paths: readonly string[], run: () => Promise<T>): Promise<T> => {
         const token = await peer.request<string>("reservation.acquire", [paths]);

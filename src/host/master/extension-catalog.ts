@@ -2,7 +2,7 @@ import type { ExtensionCommandDescriptor, ExtensionCommandResult } from "../../e
 import type { ExtensionRegisteredTool, ExtensionRegistry } from "../../extensions/registry.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "../../tools/types.ts";
-import type { ControlPeer } from "./control.ts";
+import type { ControlChannel } from "./control.ts";
 
 export const MASTER_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp"]);
 
@@ -36,7 +36,7 @@ export function buildExtensionCatalog(registry: ExtensionRegistry): ExtensionCat
     };
 }
 
-export function remoteExtensions(peer: ControlPeer, catalog: ExtensionCatalog): WorkerExtensionServices {
+export function remoteExtensions(peer: ControlChannel, catalog: ExtensionCatalog): WorkerExtensionServices {
     return {
         catalog,
         tools: catalog.toolCatalog.map(({ extensionId, tool }) => ({

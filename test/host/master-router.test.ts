@@ -199,7 +199,7 @@ test("a lost create reply must not let another worker open the same session", as
         expect(failure).toBeInstanceOf(Error);
         expect(firstSessions.has(id)).toBe(true);
         const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ message: "The session process is unavailable." });
         expect([firstSessions, secondSessions, thirdSessions].filter((sessions) => sessions.has(id))).toHaveLength(1);
         firstSessions.clear();
         router.workerExited("w0");
@@ -258,7 +258,7 @@ for (const operation of ["resume", "locate", "import", "delivery"] as const) {
             }
             expect(sessions[0]!.has(id)).toBe(true);
             const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
-            expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+            expect(unavailable).toMatchObject({ message: "The session process is unavailable." });
             expect(sessions.filter((owned) => owned.has(id))).toHaveLength(1);
         } finally {
             random?.mockRestore();
@@ -286,7 +286,7 @@ test("an uncertain subagent open keeps its worker as owner", async () => {
     firstSessions.set(id, { id, workspace: "/work", sessionPath: path });
     firstReady = false;
     const unavailable = await router.resume(path).then(() => undefined, (error: unknown) => error);
-    expect(unavailable).toMatchObject({ message: "The session worker is unavailable." });
+    expect(unavailable).toMatchObject({ message: "The session process is unavailable." });
     expect(firstSessions.has(id)).toBe(true);
     firstSessions.clear();
     router.workerExited("w0");

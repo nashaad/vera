@@ -30,6 +30,7 @@ interface IncomingRequest {
 
 export type ControlHandler = (method: string, args: readonly unknown[], signal: AbortSignal) => Promise<unknown>;
 export type ControlEventHandler = (event: string, value: unknown) => void;
+export type ControlChannel = Pick<ControlPeer, "setHandler" | "setEventHandler" | "request" | "event">;
 
 const RESPONSE_CHUNK_SIZE = 256 * 1_024;
 const RESPONSE_CHUNK_THRESHOLD = 1_024 * 1_024;

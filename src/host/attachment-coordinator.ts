@@ -63,6 +63,18 @@ export class InteractiveAttachmentCoordinator implements AttachmentCoordinator {
         });
     }
 
+    restore(id: string, agentId: string, clientId: string): Promise<void> {
+        return this.serial(() => {
+            const existing = this.leases.get(id);
+            if (existing !== undefined) {
+                if (existing.agentId !== agentId || existing.clientId !== clientId) throw new Error("Attachment lease conflicts with an existing lease.");
+                return;
+            }
+            if (this.closing.has(agentId)) throw new Error("The conversation is closing.");
+            this.leases.set(id, { agentId, clientId, lease: this.registry.open(agentId, clientId) });
+        });
+    }
+
     detach(leaseId: string, agentId: string): Promise<readonly string[]> {
         return this.serial(async () => {
             this.releaseLease(leaseId);
