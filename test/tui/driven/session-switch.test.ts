@@ -830,6 +830,55 @@ test("resume stays on the source when its tree cannot be stopped", async () => {
     }
 }, 15_000);
 
+for (const stopMethod of ["close", "release"] as const) {
+    test(`resume reports a stalled source ${stopMethod}`, async () => {
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-stalled-stop-"));
+        const scenario = createTuiResumeScenario({ home });
+        let stopCalls = 0;
+        const stalled = async (): Promise<never> => {
+            stopCalls += 1;
+            return new Promise(() => {});
+        };
+        const session = await startTuiTestSession({
+            home,
+            width: 100,
+            height: 30,
+            dependencies: () => ({
+                ...scenario.dependencies,
+                sessionSwitchTimeoutMs: 200,
+                shutdownTimeoutMs: 100,
+                ...(stopMethod === "close"
+                    ? { closeSession: stalled }
+                    : {
+                        client: {
+                            ...scenario.dependencies.client,
+                            supportsHostCapability: () => true,
+                            release: stalled,
+                        },
+                    }),
+            }),
+        });
+
+        try {
+            await session.waitForVisiblePane("Start a conversation");
+            session.sendText("/resume");
+            session.sendKey("Enter");
+            await session.waitForVisiblePane("Continue the theme picker");
+            session.sendKey("Down");
+            session.sendKey("Enter");
+            session.sendKey("Enter");
+            const pane = await session.waitForVisiblePane(
+                "Could not switch conversation: the host could not stop the current conversation",
+            );
+            expect(stopCalls).toBe(1);
+            expect(pane).toContain("current-model");
+            expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
+        } finally {
+            await session.close();
+        }
+    }, 15_000);
+}
+
 test("resume does not show the destination before source quiescence", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-quiescence-"));
     const scenario = createTuiResumeScenario({ home, closeDelayMs: 300 });

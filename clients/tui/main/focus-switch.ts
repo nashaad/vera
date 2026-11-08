@@ -203,13 +203,14 @@ export function applyTimelineTransition(rt: TuiRuntime,
 export function withSessionSwitchDeadline<T>(rt: TuiRuntime, 
     request: Promise<T>,
     discardLate: (value: T) => void,
+    timeoutMessage = "timed out",
 ): Promise<T> {
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
             timedOut = true;
-            reject(new Error("timed out"));
+            reject(new Error(timeoutMessage));
         }, rt.dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
         timeout.unref?.();
     });
@@ -277,10 +278,15 @@ export async function leaveSwitchSource(rt: TuiRuntime,
                 HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
             ) === true
         ) {
-            const released = await candidate.release(
-                disposition === "keep_running"
-                    ? "keep_running"
-                    : "stop_if_last",
+            const released = await withSessionSwitchDeadline(
+                rt,
+                candidate.release(
+                    disposition === "keep_running"
+                        ? "keep_running"
+                        : "stop_if_last",
+                ),
+                () => undefined,
+                closeSessionFailure("failed"),
             );
             result = {
                 sourceOutcome: released.outcome,
@@ -301,7 +307,12 @@ export async function leaveSwitchSource(rt: TuiRuntime,
                     "stopping the current conversation is unavailable",
                 );
             }
-            const closed = await rt.dependencies.closeSession(candidateId);
+            const closed = await withSessionSwitchDeadline(
+                rt,
+                rt.dependencies.closeSession(candidateId),
+                () => undefined,
+                closeSessionFailure("failed"),
+            );
             if (closed.status !== "closed") {
                 throw new Error(closeSessionFailure(closed.reason));
             }
