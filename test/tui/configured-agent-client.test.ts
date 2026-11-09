@@ -1,11 +1,20 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 
 import { createConfiguredTuiAgentClients } from "../../clients/tui/configured-agent-client.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-test("the configured client does not attach to a worker from another build", async () => {
+socketTest("a configured client does not attach to a worker from another build", async () => {
+    await refusesOtherBuild("attach");
+});
+
+socketTest("a paging client does not attach to a worker from another build", async () => {
+    await refusesOtherBuild("attachPaged");
+});
+
+async function refusesOtherBuild(method: "attach" | "attachPaged"): Promise<void> {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-tui-build-");
     const masterPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
@@ -23,14 +32,14 @@ test("the configured client does not attach to a worker from another build", asy
     });
     try {
         const clients = createConfiguredTuiAgentClients(() => masterPath, "crow");
-        await expect(clients.attach("crow")).rejects.toThrow("The session worker is unavailable");
+        await expect(clients[method]("crow")).rejects.toThrow("The session worker is unavailable");
         expect(masterRequests).toEqual(["host_identity", "locate_agent", "locate_agent"]);
         expect(workerRequests).toEqual(["host_identity", "host_identity"]);
     } finally {
         await Promise.all([close(master), close(worker)]);
         await rm(root, { recursive: true, force: true });
     }
-});
+}
 
 async function listen(path: string, respond: (request: Record<string, unknown>) => object): Promise<Server> {
     const server = createServer((socket) => {

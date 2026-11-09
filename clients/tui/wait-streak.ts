@@ -78,6 +78,7 @@ export function withWaitPoll(
     processId: string,
     command: string,
     live: boolean,
+    entryId?: string,
 ): TuiTranscriptEntry[] {
     const previousIndex = entries.findLastIndex((entry) => !isSkippable(entry));
     const previous = entries[previousIndex];
@@ -128,6 +129,7 @@ export function withWaitPoll(
         prefix: CALL_PREFIX,
         text: command,
         waitProcessId: processId,
+        ...(entryId === undefined ? {} : { entryId }),
     };
     return [...entries, headerEntry, callEntry];
 }
@@ -138,6 +140,7 @@ export function withWaitResult(
     entries: readonly TuiTranscriptEntry[],
     processId: string | undefined,
     resultText: string | undefined,
+    entryId?: string,
 ): TuiTranscriptEntry[] | undefined {
     const callIndex = waitCallIndex(entries, processId);
     if (callIndex === -1) return undefined;
@@ -202,6 +205,7 @@ export function withWaitResult(
             prefix: CALL_PREFIX,
             text: resultText,
             waitProcessId,
+            ...(entryId === undefined ? {} : { entryId }),
         });
     }
     return next;

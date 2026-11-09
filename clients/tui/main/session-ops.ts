@@ -26,6 +26,7 @@ import { appendTuiError, appendTuiNotice, applyAgentUpdate, createTuiState, drop
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { requestPermissionsChange } from "./pool-admission.ts";
+import { resetHistoryPaging } from "./history-paging.ts";
 
 export function switchToClient(rt: TuiRuntime, 
     next: TuiAgentClient,
@@ -36,6 +37,7 @@ export function switchToClient(rt: TuiRuntime,
     const previous = rt.client;
     if (options.preserveReconnectTranscript !== true) rt.composer.clearRecoveredPrompts();
     rt.clientGeneration += 1;
+    resetHistoryPaging(rt);
     rt.agentFailedThisAttachment = false;
     for (const pending of [...rt.pendingOneshots.values()]) {
         pending.reject(new Error("The conversation changed"));

@@ -17,6 +17,7 @@ import {
     attachReconnectingAgent,
     HostBuildChangedError,
 } from "../../src/host/reconnecting-agent-client.ts";
+import { PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import type {
@@ -26,6 +27,8 @@ import type {
 
 export interface ConfiguredTuiAgentClients {
     attach(agentId: string): Promise<IdentifiedTuiAgentClient>;
+    /** The primary TUI requests history paging; panes keep `attach`. */
+    attachPaged(agentId: string): Promise<IdentifiedTuiAgentClient>;
     create(
         workspace: string,
         approvalMode?: string,
@@ -71,9 +74,20 @@ export function createConfiguredTuiAgentClients(
         failOnDisconnect: true,
         ...(initialLocation === undefined ? {} : { initialLocation }),
     });
+    const attachPaged = (agentId: string, initialLocation?: ReadyAgentLocation) => attachReconnectingAgent({
+        socketPath,
+        agentId,
+        buildId,
+        interactive: true,
+        clientId,
+        failOnDisconnect: true,
+        requestedCapabilities: PAGING_CAPABILITIES,
+        ...(initialLocation === undefined ? {} : { initialLocation }),
+    });
     const pairedSocket = () => pairedHostSocket(socketPath(), buildId);
     return {
         attach,
+        attachPaged,
         async create(workspace, approvalMode, lifetime = "durable") {
             const ready = await createAgentThroughHost(
                 await pairedSocket(),
@@ -81,7 +95,7 @@ export function createConfiguredTuiAgentClients(
                 approvalMode,
                 lifetime,
             );
-            return attach(ready.id, ready.location);
+            return attachPaged(ready.id, ready.location);
         },
         async branch(
             sourceAgentId,
@@ -105,10 +119,10 @@ export function createConfiguredTuiAgentClients(
                         signal,
                     },
                 );
-                return attach(ready.id);
+                return attachPaged(ready.id, ready.location);
             } catch (error) {
                 if (error instanceof AgentBranchCommitError) {
-                    return attach(error.agentId);
+                    return attachPaged(error.agentId);
                 }
                 throw error;
             }
@@ -122,7 +136,7 @@ export function createConfiguredTuiAgentClients(
                 agentId,
                 "at",
             );
-            return attach(ready.id, ready.location);
+            return attachPaged(ready.id, ready.location);
         },
         async fork(agentId, boundaryId) {
             const ready = await branchAgentThroughHost(
@@ -134,11 +148,11 @@ export function createConfiguredTuiAgentClients(
             if (ready.prompt === undefined) {
                 throw new Error("Host did not return the fork prompt");
             }
-            return { client: await attach(ready.id), prompt: ready.prompt };
+            return { client: await attachPaged(ready.id, ready.location), prompt: ready.prompt };
         },
         async resume(sessionPath) {
             const ready = await resumeAgentThroughHost(await pairedSocket(), sessionPath);
-            return attach(ready.id, ready.location);
+            return attachPaged(ready.id, ready.location);
         },
     };
 }

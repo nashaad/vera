@@ -354,6 +354,18 @@ export interface TuiRuntime {
     themeApplicationVersion: number;
     pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
     clientGeneration: number;
+    earlierHistoryRequest: {
+        readonly generation: number;
+        readonly before: string;
+    } | undefined;
+    earlierHistoryRetryAt: number | undefined;
+    earlierHistoryNeedsScroll: boolean;
+    earlierHistoryBlocked: boolean;
+    pendingHistoryAnchor: {
+        readonly entryId: string;
+        readonly offset: number;
+        placed?: boolean;
+    } | undefined;
     composeSurfaceGeneration: number;
     resumeListVersion: number;
     importListVersion: number;

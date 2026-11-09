@@ -28,6 +28,7 @@ export interface TuiAgentClient {
     onStopWait?: AttachedAgentClient["onStopWait"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
+    requestHistoryPage?: AttachedAgentClient["requestHistoryPage"];
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
     runExtensionCommand?: AttachedAgentClient["runExtensionCommand"];
     release?: AttachedAgentClient["release"];

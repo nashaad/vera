@@ -9,8 +9,21 @@ import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
 import {
     applyThreadUpdate,
     EMPTY_THREAD_FACTS,
+    projectStoredEntries,
     type ThreadFacts,
 } from "../shared/thread-facts.ts";
+import {
+    EMPTY_HISTORY_WINDOW,
+    historyUserPrompts,
+    historyUserTexts,
+    mergeHistoryUpdate,
+    mergeKnownUserPrompts,
+    mergeKnownUserTexts,
+    prependHistoryPage,
+    type HistoryPageSlice,
+    type HistoryUserPrompt,
+    type HistoryWindow,
+} from "../shared/history-window.ts";
 import { formatHookContext, formatModelSubstitution } from "../../src/engine/protocol.ts";
 import type { HookContextPhase } from "../../src/engine/protocol.ts";
 import type {
@@ -84,6 +97,13 @@ import {
     TUI_TEXT,
 } from "./palette.ts";
 
+export type EarlierHistoryStatus = "loading" | "failed" | "too_large";
+
+export const EARLIER_HISTORY_LOADING_TEXT = "Loading earlier history…";
+export const EARLIER_HISTORY_FAILED_TEXT =
+    "Earlier history could not be loaded. Scroll up to retry.";
+export const EARLIER_HISTORY_TOO_LARGE_TEXT = "Earlier history is too large to show.";
+
 export type TuiTranscriptEntryKind =
     | "user"
     | "assistant"
@@ -104,6 +124,8 @@ export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
     readonly entryId?: string;
+    // The earlier-history rows are TUI notices, not session entries.
+    readonly historyStatus?: EarlierHistoryStatus;
     // Rows derived from a session's import facts; rebuilt, never stored.
     readonly importRow?: true;
     readonly attachments?: readonly string[];
@@ -177,6 +199,12 @@ export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     /** What `thread.entries()` hands extensions; kept apart from the rendered rows. */
     readonly threadFacts?: ThreadFacts;
+    /** The stored transcript loaded so far; live rows stay out of it. */
+    readonly historyWindow?: HistoryWindow;
+    readonly earlierHistory?: EarlierHistoryStatus;
+    /** User texts from every loaded page, oldest first, kept across window replacement. */
+    readonly knownUserTexts?: readonly string[];
+    readonly knownUserPrompts?: readonly HistoryUserPrompt[];
     readonly working: boolean;
     readonly transcriptStarted?: boolean;
     readonly reopenedTurnFinishedAt?: number;
@@ -287,6 +315,9 @@ export function createTuiState(): TuiState {
         working: false,
         queuedPrompts: [],
         queueDraining: false,
+        historyWindow: EMPTY_HISTORY_WINDOW,
+        knownUserTexts: [],
+        knownUserPrompts: [],
     };
 }
 
@@ -368,10 +399,200 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     const current = update.type === "assistant_delta"
         ? state
         : dropPendingAssistantText(state);
-    const next = applyTuiUpdate(current, update);
+    const history = update.type === "history"
+        ? mergeHistoryUpdate(current.historyWindow ?? EMPTY_HISTORY_WINDOW, update)
+        : undefined;
+    const historyWindow = history?.window ?? current.historyWindow;
+    const knownUserTexts = history === undefined
+        ? current.knownUserTexts
+        : mergeKnownUserTexts(
+            current.knownUserTexts ?? [],
+            history,
+            update.type === "history" ? update.entries : [],
+        );
+    const knownUserPrompts = history === undefined
+        ? current.knownUserPrompts
+        : mergeKnownUserPrompts(
+            current.knownUserPrompts ?? [],
+            history,
+            update.type === "history" ? update.entries : [],
+        );
+    const effective = history !== undefined && update.type === "history"
+        ? { ...update, entries: history.window.entries }
+        : update;
+    const next = applyTuiUpdate({ ...current, historyWindow, knownUserTexts, knownUserPrompts }, effective);
     const before = state.threadFacts ?? EMPTY_THREAD_FACTS;
-    const threadFacts = applyThreadUpdate(before, update, Date.now());
-    return threadFacts === before ? next : { ...next, threadFacts };
+    const threadFacts = applyThreadUpdate(before, effective, Date.now());
+    const withFacts = threadFacts === before ? next : { ...next, threadFacts };
+    return historyWindow === current.historyWindow
+        && knownUserTexts === current.knownUserTexts
+        && knownUserPrompts === current.knownUserPrompts
+        ? withFacts
+        : { ...withFacts, historyWindow, knownUserTexts, knownUserPrompts };
+}
+
+function earlierHistoryText(status: EarlierHistoryStatus): string {
+    if (status === "loading") return EARLIER_HISTORY_LOADING_TEXT;
+    if (status === "failed") return EARLIER_HISTORY_FAILED_TEXT;
+    return EARLIER_HISTORY_TOO_LARGE_TEXT;
+}
+
+function withEarlierHistoryRow(
+    entries: readonly TuiTranscriptEntry[],
+    status: EarlierHistoryStatus | undefined,
+): TuiTranscriptEntry[] {
+    return status === undefined
+        ? [...entries]
+        : [{ kind: "notice", text: earlierHistoryText(status), historyStatus: status }, ...entries];
+}
+
+function withoutEarlierHistoryRow(
+    entries: readonly TuiTranscriptEntry[],
+): TuiTranscriptEntry[] {
+    return entries.filter((entry) =>
+        entry.kind === "diff" || entry.historyStatus === undefined
+    );
+}
+
+export function setEarlierHistoryStatus(
+    state: TuiState,
+    status: EarlierHistoryStatus | undefined,
+): TuiState {
+    return {
+        ...state,
+        earlierHistory: status,
+        entries: withEarlierHistoryRow(withoutEarlierHistoryRow(state.entries), status),
+    };
+}
+
+// A stored row can still be streaming; its delta lives on the rendered row, not
+// in the checkpoint, so keep the longer text and the live tool state.
+function withLiveRowContent(
+    canonical: readonly TuiTranscriptEntry[],
+    current: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    const liveById = new Map<string, TuiTranscriptEntry>();
+    for (const row of current) {
+        if (row.kind !== "diff" && row.entryId !== undefined) {
+            liveById.set(row.entryId, row);
+        }
+    }
+    return canonical.map((row) => {
+        if (row.kind === "diff" || row.entryId === undefined) return row;
+        const live = liveById.get(row.entryId);
+        if (live === undefined) return row;
+        if (
+            live.kind === "assistant" && row.kind === "assistant"
+            && live.text.length > row.text.length
+            && live.text.startsWith(row.text)
+        ) {
+            return { ...row, text: live.text };
+        }
+        if (
+            live.kind === "tool" && row.kind === "tool"
+            && ((live.active === true && row.active !== true)
+                || (live.hasResult === true && row.hasResult !== true))
+        ) {
+            return {
+                ...row,
+                ...(live.active === true ? { active: true } : {}),
+                ...(live.hasResult === true ? { hasResult: true } : {}),
+                ...(live.result === true ? { result: true } : {}),
+            };
+        }
+        return row;
+    });
+}
+
+function rebuildStoredEntries(
+    state: TuiState,
+    wireEntries: readonly TranscriptEntry[],
+    reopenedTurnFinishedAt: number | undefined,
+    liveTail: readonly TuiTranscriptEntry[],
+    preserveStreaming: boolean,
+): readonly TuiTranscriptEntry[] {
+    const canonical = applyToolDetailPreference(
+        toTuiTranscriptEntries(wireEntries, reopenedTurnFinishedAt),
+        state.toolDetailsExpanded,
+    );
+    const base = preserveStreaming
+        ? withLiveRowContent(canonical, state.entries)
+        : preserveLiveReviewEntries(state.entries, canonical);
+    const combined = [...base, ...liveTail];
+    return settleTrailingThoughts(foldAdjacentThoughts(hoistStrandedThoughts(combined)));
+}
+
+function trailingLiveRows(
+    entries: readonly TuiTranscriptEntry[],
+    loaded: HistoryWindow,
+    merged: HistoryWindow,
+): TuiTranscriptEntry[] {
+    const loadedIds = new Set(
+        loaded.entries.flatMap((entry) => {
+            const id = "id" in entry ? entry.id : undefined;
+            return id === undefined ? [] : [id];
+        }),
+    );
+    const mergedIds = new Set(
+        merged.entries.flatMap((entry) => {
+            const id = "id" in entry ? entry.id : undefined;
+            return id === undefined ? [] : [id];
+        }),
+    );
+    let lastStored = -1;
+    for (let index = 0; index < entries.length; index += 1) {
+        const row = entries[index]!;
+        if (row.kind !== "diff" && row.entryId !== undefined && loadedIds.has(row.entryId)) {
+            lastStored = index;
+        }
+    }
+    const storedUserTexts = new Set(
+        merged.entries.flatMap((entry) => entry.kind === "user" ? [entry.text] : []),
+    );
+    return entries.slice(lastStored + 1).filter((row) => {
+        if (row.kind === "diff") return true;
+        if (row.entryId !== undefined && mergedIds.has(row.entryId)) return false;
+        if (row.kind === "user" && storedUserTexts.has(row.text)) return false;
+        return true;
+    });
+}
+
+export function applyHistoryPage(
+    state: TuiState,
+    page: HistoryPageSlice,
+): TuiState {
+    const loaded = state.historyWindow ?? EMPTY_HISTORY_WINDOW;
+    const merged = prependHistoryPage(loaded, page);
+    if (merged.kind === "keep") {
+        return setEarlierHistoryStatus(state, undefined);
+    }
+    if (merged.kind === "advance") {
+        return {
+            ...setEarlierHistoryStatus(state, undefined),
+            historyWindow: merged.window,
+        };
+    }
+    const entries = rebuildStoredEntries(
+        state,
+        merged.window.entries,
+        state.reopenedTurnFinishedAt,
+        trailingLiveRows(state.entries, loaded, merged.window),
+        true,
+    );
+    const facts = state.threadFacts ?? EMPTY_THREAD_FACTS;
+    return {
+        ...state,
+        historyWindow: merged.window,
+        earlierHistory: undefined,
+        knownUserTexts: historyUserTexts(merged.window.entries),
+        knownUserPrompts: historyUserPrompts(merged.window.entries),
+        entries,
+        threadFacts: {
+            stored: projectStoredEntries(merged.window.entries),
+            live: facts.live,
+        },
+        transcriptStarted: state.transcriptStarted === true || merged.window.entries.length > 0,
+    };
 }
 
 function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
@@ -632,11 +853,11 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             ...state,
             transcriptStarted: state.transcriptStarted === true || update.entries.length > 0,
             reopenedTurnFinishedAt,
-            entries: settleTrailingThoughts(foldAdjacentThoughts(
+            entries: withEarlierHistoryRow(settleTrailingThoughts(foldAdjacentThoughts(
                 hoistStrandedThoughts(
                     preserveLiveReviewEntries(state.entries, canonicalEntries),
                 ),
-            )),
+            )), state.earlierHistory),
             ...(update.context === undefined
                 ? {}
                 : {
@@ -2069,6 +2290,7 @@ function withToolEntry(
     args: Readonly<Record<string, unknown>>,
     active: boolean,
     withheld = false,
+    entryId?: string,
 ): TuiTranscriptEntry[] {
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
@@ -2084,6 +2306,7 @@ function withToolEntry(
     if (!active && repeated) {
         const counted: TuiTranscriptEntry = {
             ...previous,
+            ...(previous.entryId === undefined && entryId !== undefined ? { entryId } : {}),
             repeat: (previous.repeat ?? 1) + 1,
         };
         return entries.map((entry, index) =>
@@ -2104,6 +2327,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
             text: row,
+            ...(entryId === undefined ? {} : { entryId }),
             ...(activity === undefined ? {} : { activity }),
         } satisfies TuiTranscriptEntry];
         if (!active) {
@@ -2144,6 +2368,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: "  └ ",
             text: row,
+            ...(entryId === undefined ? {} : { entryId }),
             ...(activity === undefined ? {} : { activity }),
         },
     ];
@@ -2510,12 +2735,20 @@ function toTuiTranscriptEntries(
                 ? undefined
                 : processReadId(entry.tool, entry.args);
             converted = waitProcessId === undefined
-                ? withToolEntry(converted, entry.tool, entry.args, false, withheld.has(entry))
+                ? withToolEntry(
+                    converted,
+                    entry.tool,
+                    entry.args,
+                    false,
+                    withheld.has(entry),
+                    entry.id,
+                )
                 : withWaitPoll(
                     converted,
                     waitProcessId,
                     waitCommandText(converted, waitProcessId),
                     false,
+                    entry.id,
                 );
         } else if (!blankAssistant && entry.kind === "tool_result") {
             const call = pairs.get(entry);
@@ -2530,11 +2763,13 @@ function toTuiTranscriptEntries(
                     entry.output,
                     entry.classifierOutcome,
                     entry.processId,
+                    entry.id,
                 )
                 : withWaitResult(
                     converted,
                     entry.processId ?? waitProcessId,
                     toolResultText(entry.output, entry.tool),
+                    entry.id,
                 ) ?? converted;
         } else if (entry.kind === "reasoning") {
             converted = insertBeforeTrailingAssistantEntries(converted, withStoreEntryId({
@@ -2684,6 +2919,7 @@ function withHistoricalToolResult(
     output: string,
     classifierOutcome: ClassifierOutcome | undefined,
     processId?: string,
+    entryId?: string,
 ): TuiTranscriptEntry[] {
     const callIndex = entries.findIndex((entry) =>
         entry.kind === "tool"
@@ -2731,6 +2967,7 @@ function withHistoricalToolResult(
         result: true,
         prefix: "  └ ",
         text: toolResultText(output, tool),
+        ...(entryId === undefined ? {} : { entryId }),
     }, ...outcomeRows);
     return next;
 }

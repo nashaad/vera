@@ -326,10 +326,11 @@ import { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, 
 import { submitPrompt } from "./main/submit-prompt.ts";
 import { leaveJsonlCommandMode, refuseJsonlCommand, availableCommandSuggestions, availableCommandCompletion, routeVisibleAgentPrompt, attachImagesToSidebar, offerMessageToExtensions, attachPastedImage, attachPastedImages, releaseDroppedImage } from "./main/prompt-routing.ts";
 import { receiveAgentUpdates } from "./main/agent-updates.ts";
+import { applyPendingHistoryScroll, maybeRequestEarlierHistory } from "./main/history-paging.ts";
 import { sendCommand, requestExtensionModelSettingsUpdate, settleExtensionModelSettings, rejectPendingExtensionSettingsFor, notifyExtensionSettings, requireSidebarOwner, resolvePooledModel, requestExtensionOneshot, requestExtensionPicker, loadExtensionCommands, supportsSkillCommands, requestSkillCommands, receiveSkillCatalog, receiveSkillInvocation, failPendingSkillInvocations } from "./main/extension-bridge.ts";
 import { activeOverlayFocus, focusActiveSurface, activeFlightSurface, applyTimelineTransition, withSessionSwitchDeadline, recordSessionSwitchOutcome, discardSwitchTarget, leaveSwitchSource, stopClientForShutdown, discardCreatedSwitchTarget, beginFork, beginHostReconnect, settleLostHost, reportConnectionError } from "./main/focus-switch.ts";
-import { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, clearTranscriptAnchorPadding, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail } from "./main/transcript-nodes.ts";
-import { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfaces, anyOverlayOpen, shiftTranscriptEntrySlots, reseedTranscriptNodes, clearTranscriptNodes } from "./main/render-state.ts";
+import { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, clearTranscriptAnchorPadding, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, shiftTranscriptEntrySlots, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail } from "./main/transcript-nodes.ts";
+import { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfaces, anyOverlayOpen, reseedTranscriptNodes, clearTranscriptNodes } from "./main/render-state.ts";
 import { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, openModelPicker, modelRequestOptionsFacts, modelPickerActionOptions, isModelShortlisted, refreshableProvidersOf, catalogSizeOf, currentModelAssignmentRows, openModelAssignmentPicker, bindModelAssignmentFromPicker, configureDisplayPath, configureFiles, openConfigurePicker, openConfigureEditor, modelLevelFacts, currentModelLevels, openReasoningPicker, openPermissionsPicker, openThemePicker, openPreferencesList, openStandingNudges, providerHasCredential, openProviderEditForm, openProviderPicker, connectProvider, homeNeedsProvider, onboardingInput } from "./main/model-pickers.ts";
 import { requestExtensionSecret, forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest } from "./main/provider-forms.ts";
 import { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo } from "./main/palette-jump.ts";
@@ -355,7 +356,7 @@ export { openJumpMenuOverlay, openWorkTab, toggleWorkspaceSidebar, openWorkspace
 export { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo };
 export { forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest };
 export { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, openModelPicker, modelRequestOptionsFacts, modelPickerActionOptions, isModelShortlisted, refreshableProvidersOf, catalogSizeOf, currentModelAssignmentRows, openModelAssignmentPicker, bindModelAssignmentFromPicker, configureDisplayPath, configureFiles, openConfigurePicker, openConfigureEditor, modelLevelFacts, currentModelLevels, openReasoningPicker, openPermissionsPicker, openThemePicker, openPreferencesList, openStandingNudges, providerHasCredential, openProviderEditForm, openProviderPicker, connectProvider, homeNeedsProvider };
-export { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfaces, anyOverlayOpen, shiftTranscriptEntrySlots, reseedTranscriptNodes, clearTranscriptNodes };
+export { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfaces, anyOverlayOpen, reseedTranscriptNodes, clearTranscriptNodes };
 export { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail };
 export { activeOverlayFocus, focusActiveSurface, activeFlightSurface, applyTimelineTransition, withSessionSwitchDeadline, recordSessionSwitchOutcome, discardSwitchTarget, leaveSwitchSource, stopClientForShutdown, discardCreatedSwitchTarget, beginFork, beginHostReconnect, settleLostHost, reportConnectionError };
 export { sendCommand, requestExtensionModelSettingsUpdate, settleExtensionModelSettings, rejectPendingExtensionSettingsFor, notifyExtensionSettings, requireSidebarOwner, resolvePooledModel, requestExtensionOneshot, requestExtensionPicker, loadExtensionCommands, supportsSkillCommands, requestSkillCommands, receiveSkillCatalog, receiveSkillInvocation, failPendingSkillInvocations };
@@ -784,7 +785,7 @@ export async function startConfiguredTui(
             refreshCatalog: async (provider, workspace) =>
                 refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
         })
-        : await agentClients.attach(agentId);
+        : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
@@ -795,7 +796,7 @@ export async function startConfiguredTui(
     } catch (error) {
         process.stderr.write(`${recentSessionSaveFailure(error)}\n`);
     }
-    const attach = (id: string) => agentClients.attach(id);
+    const attach = (id: string) => agentClients.attachPaged(id);
     try {
         const listAgents = async () => listAgentsThroughHost(await pairedSocket());
         const listSessionPage = async (options: ListAgentsOptions) =>
@@ -1128,6 +1129,11 @@ export async function startTui(
     rt.reasoning = false;
     rt.themeApplicationVersion = 0;
     rt.clientGeneration = 0;
+    rt.earlierHistoryRequest = undefined;
+    rt.earlierHistoryRetryAt = undefined;
+    rt.earlierHistoryNeedsScroll = false;
+    rt.earlierHistoryBlocked = false;
+    rt.pendingHistoryAnchor = undefined;
     rt.composeSurfaceGeneration = 0;
     rt.resumeListVersion = 0;
     rt.importListVersion = 0;
@@ -2558,17 +2564,20 @@ export async function startTui(
         }
         if (
             rt.pendingSearchTarget === undefined
+            && rt.pendingHistoryAnchor === undefined
             && !maybeSnapTranscriptWindowToTail(rt)
             && !maybeMaterializeEarlierTranscriptEntries(rt)
             && !maybeMaterializeLaterTranscriptEntries(rt)
         ) {
             maybeEvictTranscriptEntries(rt);
         }
+        applyPendingHistoryScroll(rt);
         if (rt.pendingTranscriptScrollAnchor !== undefined) {
             rt.renderer.root.calculateLayout();
             applyTranscriptScrollAnchor(rt);
         }
         showSearchTarget(rt);
+        maybeRequestEarlierHistory(rt);
     });
 
     startStatusTimer(rt);

@@ -24,6 +24,24 @@ const themeParts = new WeakMap<BoxRenderable, TuiUserEntryThemeParts>();
 const markedBands = new WeakSet<BoxRenderable>();
 
 const CARET = "› ";
+const USER_PADDING = 1;
+const USER_RULE_COLUMNS = 1;
+
+// The transcript row estimate reads these, so a change here moves both.
+export const USER_ENTRY_CHROME_ROWS = USER_PADDING * 2;
+export const USER_ENTRY_CHROME_COLUMNS = USER_RULE_COLUMNS + USER_PADDING * 2 + CARET.length;
+
+/** The text the band lays out, after any injected prefix is dropped. */
+export function tuiUserEntryText(entry: TuiTranscriptEntry): string {
+    const injected = entry.kind === "diff" ? 0 : entry.dimmedPrefix ?? 0;
+    return injected > 0 && injected < entry.text.length
+        ? entry.text.slice(injected)
+        : entry.text;
+}
+
+export function tuiUserEntryAttachments(entry: TuiTranscriptEntry): readonly string[] {
+    return entry.kind === "diff" ? [] : entry.attachments ?? [];
+}
 
 export function createTuiUserEntry(
     renderer: RenderContext,
@@ -41,7 +59,7 @@ export function createTuiUserEntry(
     });
     const rule = new BoxRenderable(renderer, {
         id: `${id}-rule-column`,
-        width: 1,
+        width: USER_RULE_COLUMNS,
         flexShrink: 0,
         backgroundColor: marked ? TUI_NOTICE : TUI_ELEMENT,
     });
@@ -52,10 +70,10 @@ export function createTuiUserEntry(
         flexShrink: 1,
         flexDirection: "column",
         backgroundColor: TUI_ELEMENT,
-        paddingTop: 1,
-        paddingBottom: 1,
-        paddingLeft: 1,
-        paddingRight: 1,
+        paddingTop: USER_PADDING,
+        paddingBottom: USER_PADDING,
+        paddingLeft: USER_PADDING,
+        paddingRight: USER_PADDING,
     });
     band.add(body);
     const line = new BoxRenderable(renderer, {
@@ -72,19 +90,16 @@ export function createTuiUserEntry(
         flexShrink: 0,
     });
     line.add(caret);
-    const injected = entry.kind === "diff" ? 0 : entry.dimmedPrefix ?? 0;
     const text = new TextRenderable(renderer, {
         id: `${id}-text`,
-        content: injected > 0 && injected < entry.text.length
-            ? entry.text.slice(injected)
-            : entry.text,
+        content: tuiUserEntryText(entry),
         fg: TUI_TEXT,
         bg: TUI_ELEMENT,
         flexGrow: 1,
         wrapMode: "word",
         selectable: true,
     });
-    const attachments = entry.kind === "diff" ? [] : entry.attachments ?? [];
+    const attachments = tuiUserEntryAttachments(entry);
     const chipOnCaretLine = entry.text.length === 0 && attachments.length > 0;
     if (!chipOnCaretLine) line.add(text);
     body.add(line);

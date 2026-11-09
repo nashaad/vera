@@ -1,6 +1,7 @@
 import { openInspectEditor } from "./inspect-editor.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
+import { reanchorTranscriptWindowAboveView, settleTranscriptScrollState } from "./transcript-nodes.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
 import { handleTuiModelSwitcherKey } from "../model-switcher.ts";
 import { applyModelSwitcherSelection, openBrowseFromSwitcher, openModelSwitcher, switcherNeedsProviders, toggleModelSwitcherFavorite } from "../main/model-switcher-ops.ts";
@@ -65,6 +66,11 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
     if (scrollLines === undefined || scrollLines > 0) {
         clearTranscriptAnchorPadding(rt);
     }
+    if (scrollLines !== undefined && scrollLines < 0) {
+        rt.earlierHistoryNeedsScroll = false;
+    }
+    rt.pendingHistoryAnchor = undefined;
+    settleTranscriptScrollState(rt);
     if (scrollLines === undefined) {
         resumeTuiTranscriptFollow(rt.transcript);
         renderJumpToBottom(rt, false);
@@ -72,6 +78,7 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         const previousTop = rt.transcript.scrollTop;
         rt.transcript.scrollBy(scrollLines);
         updateTranscriptScrollFollow(rt, previousTop, scrollLines < 0 ? "up" : "down");
+        reanchorTranscriptWindowAboveView(rt);
     }
     return true;
 }
