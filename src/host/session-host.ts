@@ -124,6 +124,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             .map((entry) => entry.tool);
     const registry: AgentRegistry = new AgentRegistry({
         ...services.models,
+        hostLog,
         ...(options.workerGlobals === undefined ? {} : {
             prepareModelCatalog: () => {
                 applyConfigDefaults(registry, currentConfig());

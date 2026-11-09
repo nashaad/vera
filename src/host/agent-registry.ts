@@ -64,7 +64,7 @@ import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts
 import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
 
 import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type ClosedMember, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
-import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
+import { ReportedWorkerFailure, supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
 import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
 import { investigateSession, type SessionInvestigateCall } from "./agent-registry/investigate.ts";
@@ -1468,11 +1468,22 @@ export class AgentRegistry {
         ).catch(async (error: unknown) => {
             entry.inbox?.release();
             if (!agent.closed) {
-                entry.failure = error;
+                const failure = error instanceof Error ? error : new Error(String(error));
+                entry.failure = failure;
                 const failureId = randomUUID();
-                const detail = error instanceof WorkerCapReachedError
-                    ? error.message
-                    : "Resident agent stopped unexpectedly";
+                const detail = failure.message.trim() || "Resident agent stopped unexpectedly";
+                if (!(failure instanceof ReportedWorkerFailure)) {
+                    try {
+                        this.options.hostLog?.({
+                            type: "resident_agent_failed",
+                            level: "error",
+                            session_id: agent.id,
+                            message: detail,
+                            stack: failure.stack ?? new Error(detail).stack,
+                        });
+                    } catch {
+                    }
+                }
                 try {
                     await store.appendAgentFailure(failureId, detail);
                 } catch {

@@ -613,6 +613,8 @@ export async function readSessionSeed(path: string): Promise<WorkerSessionSeed> 
     };
 }
 
+export class ReportedWorkerFailure extends Error {}
+
 export function workerOutcomeDetail(outcome: WorkerOutcome): string {
     switch (outcome.kind) {
         case "failed":

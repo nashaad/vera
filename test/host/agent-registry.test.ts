@@ -4632,7 +4632,7 @@ test("a failure-record write error still reaches live attachments", async () => 
         const failure = await attachment.receive();
         expect(failure).toMatchObject({
             type: "agent_failed",
-            detail: "Resident agent stopped unexpectedly",
+            detail: expect.stringContaining("EISDIR"),
         });
         await expect(attachment.receive()).rejects.toThrow();
         expect(() => attachment.send({

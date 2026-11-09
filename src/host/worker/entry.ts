@@ -22,6 +22,7 @@ import {
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 import { installLiveProcess } from "../../live-process.ts";
+import { createHostLogger, defaultHostLogPath } from "../host-log.ts";
 import {
     createSessionBlockLatch,
     type SessionBlockLatch,
@@ -76,6 +77,7 @@ export async function runWorker(
 
     const options = await started;
     let failure: string | undefined;
+    let failureError: Error | undefined;
     let activationFailure: string | undefined;
     let inbound: InboundCommandRouter | undefined;
     const activationFailures: ExtensionRegistryFailure[] = [];
@@ -97,7 +99,8 @@ export async function runWorker(
                 },
             });
         } catch (error) {
-            failure = error instanceof Error ? error.message : String(error);
+            failureError = error instanceof Error ? error : new Error(String(error));
+            failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
         }
     }
     if (activationFailures.length > 0) {
@@ -243,11 +246,21 @@ export async function runWorker(
             replicaFailure,
         ]);
         } catch (error) {
-            failure = error instanceof Error ? error.message : String(error);
+            failureError = error instanceof Error ? error : new Error(String(error));
+            failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
         }
     }
     blockLatch?.close();
     await extensions?.close();
+    if (failure !== undefined && failureError !== undefined) {
+        createHostLogger({ path: defaultHostLogPath(options.home) })({
+            type: "resident_agent_failed",
+            level: "error",
+            session_id: options.session.header.id,
+            message: failure,
+            stack: failureError.stack ?? new Error(failure).stack,
+        });
+    }
     pipe.notify({
         method: "worker.finished",
         ...(failure === undefined ? {} : { error: failure }),

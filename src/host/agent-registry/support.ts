@@ -1,4 +1,5 @@
 import type { HostModelCatalogSettings } from "../model-catalog-settings.ts";
+import type { HostLog } from "../host-log.ts";
 import type { TrustNoticeStore } from "../trust-notice.ts";
 import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
@@ -306,6 +307,7 @@ export function importedSessionSummary(
 }
 
 export interface AgentRegistryOptions {
+    readonly hostLog?: HostLog;
     // Flag directory read on every turn start; see src/host/session-block.ts.
     readonly sessionBlockDirectory?: string;
     /** True while a host stop holds new turns. */

@@ -135,14 +135,7 @@ export function listLiveProcessesIn(
         if (!/^\d+\.json$/.test(name)) continue;
         const path = join(directory, name);
         const record = readLiveProcessFile(path);
-        if (record === undefined) {
-            try {
-                unlinkSync(path);
-            } catch {
-                // A unreadable file must not block the rest of the board.
-            }
-            continue;
-        }
+        if (record === undefined || name !== `${record.pid}.json`) continue;
         if (!processIsAlive(record.pid)) {
             dropLiveProcessIn(veraHome, record.pid);
             continue;
@@ -353,9 +346,9 @@ function readLiveProcessFile(path: string): LiveProcessRecord | undefined {
     if (typeof value !== "object" || value === null) return undefined;
     const record = value as Partial<LiveProcessRecord>;
     if (record.schema_version !== LIVE_PROCESS_SCHEMA_VERSION) return undefined;
-    if (!Number.isInteger(record.pid) || record.pid === undefined) return undefined;
+    if (!Number.isSafeInteger(record.pid) || record.pid === undefined || record.pid <= 0) return undefined;
     if (!isLiveProcessKind(record.kind)) return undefined;
-    if (typeof record.started_at !== "string" || record.started_at.length === 0) {
+    if (typeof record.started_at !== "string" || Number.isNaN(Date.parse(record.started_at))) {
         return undefined;
     }
     if (typeof record.runtime_dir !== "string" || record.runtime_dir.length === 0) {

@@ -15,6 +15,7 @@ export function heartbeatAge(
 
 if (import.meta.main) {
     installLiveProcess("watchdog");
+    process.once("SIGTERM", () => process.exit(0));
     const [pidText, heartbeatPath, logPath, instanceId] = process.argv.slice(2);
     const pid = Number(pidText);
     if (

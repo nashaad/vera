@@ -5,6 +5,8 @@ import { HostStartupInProgressError, type HostStartupClaim } from "../startup-cl
 import { acquireStopStartupClaim } from "../stop-claim.ts";
 import { stopRecordedWorkers } from "./stop-worker.ts";
 import { readRecordedWorkers, removeStoppedPoolLock } from "./worker-records.ts";
+import { listLiveProcessesIn } from "../../live-process.ts";
+import { removeSocketFile, removeUnusedSocketFile, socketFileIdentity } from "../socket-file.ts";
 
 export interface ForcePoolStopResult {
     readonly masterPid?: number;
@@ -69,6 +71,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
                 return false;
             }
             if (inspection.state === "valid") {
+                const socket = await socketFileIdentity(inspection.record.socket_path);
                 const outcome = await forceStopHostProcess(inspection.record, {
                     firstSignal: "SIGKILL", sigkillGraceMs: 1_000, pollIntervalMs: 25,
                 });
@@ -77,6 +80,14 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
                     throw new Error(`Resident Vera host PID ${outcome.pid} is still running.`);
                 }
                 if (outcome.endedBy === "sigkill") masterPid = outcome.pid;
+                if (outcome.endedBy === "sigkill" || outcome.endedBy === "already_dead" || outcome.endedBy === "not_ours") {
+                    const current = await inspectHostLockFile(lockPath);
+                    if (current.state === "valid" && current.record.pid === inspection.record.pid
+                        && current.record.started_at === inspection.record.started_at) {
+                        if (outcome.endedBy === "sigkill") await removeSocketFile(inspection.record.socket_path, socket);
+                        else await removeUnusedSocketFile(inspection.record.socket_path, socket);
+                    }
+                }
             }
             for (const pid of await stopRecordedWorkers(home, options.onWorkerStopped)) workerPids.add(pid);
             if (inspection.state === "valid") await removeStoppedPoolLock(home, lockPath, inspection.record);
@@ -96,6 +107,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
             stopped = await stopCurrent() || stopped;
         }
         if (!stopped) return undefined;
+        listLiveProcessesIn(home);
         return { ...(masterPid === undefined ? {} : { masterPid }), workerPids: [...workerPids] };
     } finally {
         if (ownsClaim) await claim?.release();

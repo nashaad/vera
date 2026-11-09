@@ -320,12 +320,13 @@ export class StopWhenIdle implements StopWhenIdleControl {
         this.finished = true;
         this.recordedThisWait.clear();
         this.clearTimer();
-        if (this.announced !== undefined) {
-            this.announced = undefined;
-            this.emit({ type: "wait_cleared", reason: "stopped" });
+        const announced = this.announced !== undefined;
+        this.announced = undefined;
+        if (announced || this.pending === null) {
+            await this.emit({ type: "wait_cleared", reason: "stopped" });
         }
         if (this.pending !== null && this.pending !== undefined) {
-            this.emit({ type: "restarting", build_id: this.pending });
+            await this.emit({ type: "restarting", build_id: this.pending });
         }
         await this.broadcast({ type: "stopped" });
         await this.options.onStopped();
@@ -352,13 +353,24 @@ export class StopWhenIdle implements StopWhenIdleControl {
         this.lastKey = undefined;
         if (this.announced !== undefined) {
             this.announced = undefined;
-            this.emit({ type: "wait_cleared", reason: "abandoned", message });
+            await this.emit({ type: "wait_cleared", reason: "abandoned", message });
         }
         await this.broadcast({ type: "abandoned", message });
     }
 
-    private emit(event: StopWaitEvent): void {
-        for (const observer of [...this.observers]) safelyObserve(observer, event);
+    private async emit(event: StopWaitEvent): Promise<void> {
+        await Promise.all([...this.observers].map(async (observer) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await Promise.race([
+                    Promise.resolve().then(() => observer(event)),
+                    new Promise<void>((resolve) => { timer = setTimeout(resolve, 1_000); }),
+                ]);
+            } catch {
+            } finally {
+                clearTimeout(timer);
+            }
+        }));
     }
 
     private clearTimer(): void {

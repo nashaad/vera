@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { UiResponseCommand, UserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import type { HostStopWaitEvent } from "../../src/host/protocol.ts";
 import type { CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
@@ -29,15 +30,15 @@ export function applyStopWaitEvent(
     return undefined;
 }
 
-// A wait that clears as "stopped" means the host is going away on purpose. A new wait means it is not.
+// A stopped notice marks a planned stop; a new wait means the host is still running.
 export function nextPlannedHostStop(
     previous: boolean | undefined,
-    wait: TuiStopWait | undefined,
+    _wait: TuiStopWait | undefined,
     event: HostStopWaitEvent,
 ): boolean {
     if (event.type === "host_stop_wait") return false;
     if (event.type === "host_stop_wait_cleared" && event.reason === "stopped") {
-        return wait !== undefined || previous === true;
+        return true;
     }
     return previous === true;
 }
@@ -50,6 +51,7 @@ export const STOP_WAIT_STOP_CHOICE = "stop";
 export interface TuiStopWaitCard {
     readonly key: string;
     readonly open: boolean;
+    readonly requestId: string;
 }
 
 export function stopWaitKey(wait: TuiStopWait): string {
@@ -63,11 +65,11 @@ export function nextStopWaitCard(
     if (wait === undefined) return undefined;
     const key = stopWaitKey(wait);
     if (current?.key === key) return current;
-    return { key, open: true };
+    return { key, open: true, requestId: `${STOP_WAIT_CARD_REQUEST_ID}:${randomUUID()}` };
 }
 
 export function closeStopWaitCard(card: TuiStopWaitCard): TuiStopWaitCard {
-    return { key: card.key, open: false };
+    return { ...card, open: false };
 }
 
 function stopWaitCardTitle(wait: TuiStopWait): string {
@@ -86,7 +88,7 @@ export function stopWaitCardUpdate(
     if (wait === undefined || card === undefined || !card.open) return undefined;
     return {
         type: "ui_request",
-        requestId: STOP_WAIT_CARD_REQUEST_ID,
+        requestId: card.requestId,
         seq: 0,
         request: {
             type: "user_question",
@@ -104,7 +106,7 @@ export function stopWaitCardUpdate(
 }
 
 export function isStopWaitCardUpdate(update: UserQuestionUiRequestUpdate): boolean {
-    return update.requestId === STOP_WAIT_CARD_REQUEST_ID;
+    return update.requestId.startsWith(`${STOP_WAIT_CARD_REQUEST_ID}:`);
 }
 
 // Only an explicit "Stop it now" stops anything. Keep waiting, Escape, and any other answer do not.

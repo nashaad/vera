@@ -939,24 +939,28 @@ export async function runCli(
                 }
             };
             if (force) {
-                if (dependencies.stopHost === undefined && dependencies.forceStopHost === undefined) {
+                const stopPool = async (): Promise<boolean> => {
+                    if (dependencies.stopHost !== undefined || dependencies.forceStopHost !== undefined) return false;
                     const pool = await forceStopPool(veraHomeDirectory());
-                    if (pool !== undefined) {
-                        if (pool.masterPid !== undefined) {
-                            output.write(`Stopped resident Vera host PID ${pool.masterPid}.\n`);
-                        }
-                        for (const pid of pool.workerPids) {
-                            output.write(`Stopped session process PID ${pid}.\n`);
-                        }
-                        if (pool.masterPid === undefined && pool.workerPids.length === 0) {
-                            output.write("No resident Vera host is recorded.\n");
-                        }
-                        return 0;
+                    if (pool === undefined) return false;
+                    if (pool.masterPid !== undefined) {
+                        output.write(`Stopped resident Vera host PID ${pool.masterPid}.\n`);
                     }
+                    for (const pid of pool.workerPids) {
+                        output.write(`Stopped session process PID ${pid}.\n`);
+                    }
+                    if (pool.masterPid === undefined && pool.workerPids.length === 0) {
+                        output.write("No resident Vera host is recorded.\n");
+                    }
+                    return true;
+                };
+                let cut;
+                try {
+                    cut = await (dependencies.stopHost ?? stopResidentHostWhenIdle)({ onWaiting, force: true });
+                } catch (error) {
+                    if (await stopPool()) return 0;
+                    throw error;
                 }
-                const cut = await (
-                    dependencies.stopHost ?? stopResidentHostWhenIdle
-                )({ onWaiting, force: true });
                 if (cut !== undefined && !cutNeedsSignal(cut)) {
                     const rendered = cut.endedBy === "stopped"
                         ? {
@@ -967,6 +971,7 @@ export async function runCli(
                     output.write(rendered.text);
                     return rendered.exitCode;
                 }
+                if (await stopPool()) return 0;
                 if (cut === undefined) {
                     output.write("No resident Vera host is recorded.\n");
                     return 0;

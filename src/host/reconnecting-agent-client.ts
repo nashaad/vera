@@ -134,6 +134,7 @@ export function createReconnectingAgentClient(
     let closed = false;
     let receiving = false;
     let reconnectInFlight: Promise<AttachedAgentClient> | undefined;
+    let terminalFailureDelivered = false;
     const lifecycle = new AbortController();
     const pendingPrivateRequests = new Set<string>();
     const pendingPrompts: string[] = [];
@@ -155,6 +156,8 @@ export function createReconnectingAgentClient(
         Parameters<AttachedAgentClient["onStopWait"]>[0]
     >();
     let stopWait = current.stopWait;
+    let updateHandoff = stopWait?.kind === "update";
+    let stoppedByNotice = false;
     let stopStopWaitUpdates = current.onStopWait(publishStopWait);
 
     const client: AttachedAgentClient = {
@@ -243,6 +246,8 @@ export function createReconnectingAgentClient(
                 throw new Error("Agent attachment already has a pending receive");
             }
             receiving = true;
+            let reconnects = 0;
+            let reconnectDeadline: AbortSignal | undefined;
             try {
                 while (!closed) {
                     try {
@@ -252,22 +257,35 @@ export function createReconnectingAgentClient(
                             pendingPrivateRequests.delete(requestId);
                         }
                         settlePendingPrompt(pendingPrompts, update);
+                        if (update.type === "agent_failed") terminalFailureDelivered = true;
                         return update;
                     } catch (error) {
-                        if (closed || signal?.aborted === true) {
+                        if (closed || signal?.aborted === true || terminalFailureDelivered) {
                             throw error;
                         }
-                        if (policy.failOnDisconnect === true && current.closed
-                            && policy.retryDirectDisconnect?.() !== true) {
+                        if (policy.failOnDisconnect === true && current.closed && !current.failed
+                            && (stoppedByNotice || policy.retryDirectDisconnect?.() !== true)) {
                             throw error;
                         }
-                        if (pendingPrivateRequests.size > 0
-                            || pendingPrompts.length > 0) {
+                        if (!current.failed && (pendingPrivateRequests.size > 0
+                            || pendingPrompts.length > 0)) {
                             throw new Error(
                                 "Host connection closed while an attachment-private request was pending",
                             );
                         }
-                        reconnectInFlight = retryReconnect(error, signal);
+                        reconnectDeadline ??= AbortSignal.timeout(policy.deadlineMs ?? RECONNECT_DEADLINE_MS);
+                        const retrySignal = AbortSignal.any([
+                            lifecycle.signal,
+                            reconnectDeadline,
+                            ...(signal === undefined ? [] : [signal]),
+                        ]);
+                        if (reconnects > 0) {
+                            const delays = policy.delaysMs ?? RECONNECT_DELAYS_MS;
+                            const retryDelay = Math.max(25, delays[Math.min(reconnects, delays.length - 1)] ?? 0);
+                            await delay(retryDelay, retrySignal);
+                        }
+                        reconnects += 1;
+                        reconnectInFlight = retryReconnect(error, retrySignal);
                         try {
                             current = await reconnectInFlight;
                         } finally {
@@ -330,8 +348,20 @@ export function createReconnectingAgentClient(
     return client;
 
     function publishStopWait(event: HostStopWaitEvent): void {
-        if (event.type === "host_stop_wait") stopWait = event;
-        if (event.type === "host_stop_wait_cleared") stopWait = undefined;
+        if (event.type === "host_stop_wait") {
+            stopWait = event;
+            updateHandoff = event.kind === "update";
+            stoppedByNotice = false;
+        }
+        if (event.type === "host_stop_wait_cleared") {
+            stopWait = undefined;
+            stoppedByNotice = event.reason === "stopped" && !updateHandoff;
+            if (event.reason !== "stopped") updateHandoff = false;
+        }
+        if (event.type === "host_restarting") {
+            updateHandoff = false;
+            stoppedByNotice = false;
+        }
         for (const listener of [...stopWaitListeners]) {
             try {
                 listener(event);
@@ -389,7 +419,7 @@ export function createReconnectingAgentClient(
             deadline,
             ...(signal === undefined ? [] : [signal]),
         ]);
-        let afterSequence = current.supportsHostCapability(
+        let afterSequence = !current.failed && current.supportsHostCapability(
                 HOST_CAPABILITY_AGENT_ATTACH_RESUME,
             )
             ? current.lastSequence
@@ -427,6 +457,10 @@ export function createReconnectingAgentClient(
                     publishStopWait({ type: "host_stop_wait_cleared", reason: "stopped" });
                 } else if (next.stopWait !== undefined) {
                     publishStopWait(next.stopWait);
+                }
+                if (next.stopWait === undefined) {
+                    updateHandoff = false;
+                    stoppedByNotice = false;
                 }
                 for (const listener of backgroundAgentListeners) {
                     try {
