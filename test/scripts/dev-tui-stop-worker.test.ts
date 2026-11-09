@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { candidateHomePath, runDevTui } from "../../scripts/dev-tui.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { acquireHostStartupClaim } from "../../src/host/startup-claim.ts";
+import { testTempBase } from "../support/temp-root.ts";
 
 test("dev:tui --stop reports a live recorded session process when the host lock is absent", async () => {
-    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE!, "dev-stop-"));
+    const root = mkdtempSync(join(testTempBase(), "dev-stop-"));
     const home = candidateHomePath(process.cwd(), root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
@@ -39,7 +40,7 @@ test("dev:tui --stop reports a live recorded session process when the host lock 
 });
 
 test("dev:tui --stop keeps its no-host message for an empty home", async () => {
-    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE!, "dev-stop-empty-"));
+    const root = mkdtempSync(join(testTempBase(), "dev-stop-empty-"));
     const messages: string[] = [];
     try {
         const code = await runDevTui(["--stop"], process.cwd(), {
@@ -54,7 +55,7 @@ test("dev:tui --stop keeps its no-host message for an empty home", async () => {
 });
 
 test("dev:tui --stop refuses an unverified session process without signalling it", async () => {
-    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE!, "dev-stop-unverified-"));
+    const root = mkdtempSync(join(testTempBase(), "dev-stop-unverified-"));
     const home = candidateHomePath(process.cwd(), root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
@@ -96,7 +97,7 @@ test("dev:tui --stop refuses an unverified session process without signalling it
 });
 
 test("dev:tui --stop reports a stopped session process when another cannot be verified", async () => {
-    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE!, "dev-stop-partial-"));
+    const root = mkdtempSync(join(testTempBase(), "dev-stop-partial-"));
     const home = candidateHomePath(process.cwd(), root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
@@ -147,7 +148,7 @@ test("dev:tui --stop reports a stopped session process when another cannot be ve
 });
 
 test("dev:tui --stop refuses an empty home while startup holds the claim", async () => {
-    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE!, "dev-stop-starting-"));
+    const root = mkdtempSync(join(testTempBase(), "dev-stop-starting-"));
     const home = candidateHomePath(process.cwd(), root);
     const claim = await acquireHostStartupClaim({ path: join(home, "runtime", "host.sock.starting") });
     const messages: string[] = [];

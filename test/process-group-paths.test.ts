@@ -3,6 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { processIdentityState, signalVerifiedProcess } from "../src/process-group.ts";
+import { testTempBase } from "./support/temp-root.ts";
 
 interface Scenario {
     readonly name: string;
@@ -91,7 +92,7 @@ const scenarios: readonly Scenario[] = [
 
 for (const scenario of scenarios) {
     test(`${scenario.name} does not signal a group when its leader check fails`, async () => {
-        const root = await mkdtemp(join(process.env.VERA_TEST_TEMP_BASE!, "group-path-"));
+        const root = await mkdtemp(join(testTempBase(), "group-path-"));
         const pidPath = join(root, "child.pid");
         const startedAt = new Date().toISOString();
         const ps = join(root, "ps");

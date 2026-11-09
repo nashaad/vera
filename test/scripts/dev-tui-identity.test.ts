@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { evictHome } from "../../scripts/dev-tui.ts";
+import { testTempBase } from "../support/temp-root.ts";
 
 test("a stale home-process listing cannot signal an unrelated process", async () => {
     const unrelated = Bun.spawn(["/bin/sleep", "60"], {
@@ -58,7 +59,7 @@ test("eviction checks the same start time again before SIGKILL", async () => {
 });
 
 test("eviction stops a process whose home and start time were verified", async () => {
-    const home = join(process.env.VERA_TEST_TEMP_BASE!, `evict-${process.pid}`);
+    const home = join(testTempBase(), `evict-${process.pid}`);
     const child = Bun.spawn([process.execPath, "-e", "console.log('ready'); setInterval(() => {}, 1000);"], {
         env: { VERA_HOME: home },
         stdout: "pipe",

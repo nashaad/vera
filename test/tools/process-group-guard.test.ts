@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { processIsAlive, processStartedAt } from "../../src/host/process-identity.ts";
 import { signalVerifiedProcess, type ProcessGroupIdentity } from "../../src/process-group.ts";
 import { ManagedProcessRegistry } from "../../src/tools/process-runtime.ts";
+import { testTempBase } from "../support/temp-root.ts";
 
 test("a tool stops a live group whose leader has exited", async () => {
-    const root = await mkdtemp(join(process.env.VERA_TEST_TEMP_BASE!, "group-guard-"));
+    const root = await mkdtemp(join(testTempBase(), "group-guard-"));
     const pidPath = join(root, "child-pid");
     const registry = new ManagedProcessRegistry({ stopWaitMs: 150 });
     const scope = registry.scope("session-a");
