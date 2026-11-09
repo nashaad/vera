@@ -179,17 +179,50 @@ export function sessionPreviewWindow(
     rows: number,
     width: number,
 ): readonly SessionPreviewDisplayLine[] {
+    const wrapped = wrappedPreviewLines(lines, Math.max(1, width));
+    const start = Math.max(0, Math.min(scroll, Math.max(0, wrapped.length - rows)));
+    return wrapped.slice(start, start + Math.max(1, rows)).map((line) => ({ ...line }));
+}
+
+interface WrappedPreview {
+    readonly lines: readonly string[];
+    readonly width: number;
+    readonly wrapped: readonly SessionPreviewDisplayLine[];
+}
+
+const wrappedPreviews = new WeakMap<readonly string[], WrappedPreview>();
+
+function wrappedPreviewLines(
+    lines: readonly string[],
+    width: number,
+): readonly SessionPreviewDisplayLine[] {
+    const cached = wrappedPreviews.get(lines);
+    // A changed width or any in-place line edit invalidates the wrapped preview.
+    if (cached !== undefined && Object.is(cached.width, width)
+        && samePreviewLines(cached.lines, lines)) {
+        return cached.wrapped;
+    }
     const wrapped = lines.flatMap((line, index) => {
         const tone = previewLineTone(line, lines[index - 1]);
         if (line === "") return [{ tone: "blank" as const, text: "" }];
-        const parts = wrappedTo(line, Math.max(1, width));
+        const parts = wrappedTo(line, width);
         return (parts.length === 0 ? [line] : parts).map((text) => ({
             tone,
             text,
         }));
     });
-    const start = Math.max(0, Math.min(scroll, Math.max(0, wrapped.length - rows)));
-    return wrapped.slice(start, start + Math.max(1, rows));
+    wrappedPreviews.set(lines, { lines: lines.slice(), width, wrapped });
+    return wrapped;
+}
+
+function samePreviewLines(before: readonly string[], after: readonly string[]): boolean {
+    if (before.length !== after.length) return false;
+    for (let index = 0; index < before.length; index += 1) {
+        if ((index in before) !== (index in after) || before[index] !== after[index]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 export interface SessionPreviewDisplayLine {

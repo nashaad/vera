@@ -124,12 +124,33 @@ function editLines(
         if (index > 0) {
             lines.push({ text: "", tone: "muted" });
         }
-        lines.push(...tuiEditHunkLines(
-            stringField(hunk, "old_string") ?? "",
-            stringField(hunk, "new_string") ?? "",
-        ));
+        lines.push(...cachedEditHunkLines(hunk));
     });
     return lines;
+}
+
+interface CachedEditHunk {
+    readonly oldString: string;
+    readonly newString: string;
+    readonly lines: readonly TuiApprovalLine[];
+}
+
+const editHunks = new WeakMap<object, CachedEditHunk>();
+
+function cachedEditHunkLines(hunk: Record<string, unknown>): readonly TuiApprovalLine[] {
+    const oldString = stringField(hunk, "old_string") ?? "";
+    const newString = stringField(hunk, "new_string") ?? "";
+    const cacheable = typeof hunk === "object" && hunk !== null;
+    const cached = cacheable ? editHunks.get(hunk) : undefined;
+    // Edits can be updated in place, so either string invalidates the hunk.
+    const lines = cached !== undefined
+        && cached.oldString === oldString && cached.newString === newString
+        ? cached.lines
+        : tuiEditHunkLines(oldString, newString);
+    if (cacheable && (cached === undefined || cached.lines !== lines)) {
+        editHunks.set(hunk, { oldString, newString, lines });
+    }
+    return lines.map((line) => ({ ...line }));
 }
 
 /** The change between two strings as plain-data hunks: unchanged lines dimmed with one leading space and no marker, removed lines `-`, added lines `+`. */
