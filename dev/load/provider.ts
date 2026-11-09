@@ -4,6 +4,7 @@ import { assertTrialHome, hash, log, random } from "./common.ts";
 interface ChatMessage {
     role: string;
     content?: unknown;
+    tool_call_id?: string;
     tool_calls?: { id: string }[];
 }
 interface ChatRequest {
@@ -20,6 +21,7 @@ export interface FauxOptions {
 
 export function startProvider(options: FauxOptions) {
     const speed = options.speed ?? 1;
+    const highestIssuedRound = new Map<string, number>();
     const record = (event: object) => { if (options.logPath) log(options.logPath, event); };
     const server = Bun.serve({
         hostname: "127.0.0.1", port: 0, idleTimeout: 255,
@@ -42,12 +44,14 @@ export function startProvider(options: FauxOptions) {
             const key = marker ? `${marker[1]}:${marker[2]}` : String(hash(raw));
             const turnRng = random(options.seed ^ hash(key));
             const rounds = 6 + Math.floor(turnRng() * 7);
-            const round = messages.slice(userIndex + 1).filter((message) => message.role === "tool").length;
+            const observedRound = messages.slice(userIndex + 1).filter((message) => message.role === "tool").length;
+            const round = marker ? Math.max(observedRound, (highestIssuedRound.get(key) ?? -1) + 1) : observedRound;
             const rng = random(options.seed ^ hash(`${key}:${round}`));
             const firstMs = 600 + rng() * 900;
             const intervalMs = 40 + rng() * 20;
             const tokensPerSecond = 40 + rng() * 40;
             const tool = scripted && round < rounds;
+            if (tool && body.stream !== false) highestIssuedRound.set(key, round);
             const outputTokens = tool ? 36 : scripted ? 300 + Math.floor(rng() * 501) : 80;
             const inputTokens = Math.ceil(Buffer.byteLength(raw) / 4);
             const path = `sessions/${marker?.[1] ?? "crow-0000"}.txt`;
@@ -60,7 +64,10 @@ export function startProvider(options: FauxOptions) {
             const content = tool ? args : text;
             const id = `call-${hash(key)}-${round}`;
             const usage = { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens };
-            record({ type: "request", key, round, rounds, scripted, tool: tool ? toolName : null, inputTokens, outputTokens, firstMs, intervalMs, tokensPerSecond });
+            const markerLost = marker === null && messages.some((message) =>
+                /^call-\d+-\d+$/.test(message.tool_call_id ?? "")
+                || message.tool_calls?.some((call) => /^call-\d+-\d+$/.test(call.id)));
+            record({ type: "request", key, round, rounds, scripted, ...(markerLost ? { markerLost } : {}), tool: tool ? toolName : null, inputTokens, outputTokens, firstMs, intervalMs, tokensPerSecond });
             if (body.stream === false) {
                 await Bun.sleep(firstMs / speed);
                 return Response.json({ id, model: body.model, choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }], usage });

@@ -9,7 +9,7 @@ import { assertTrialHome, command, LOAD_ROOT, REPO, rows, waitFor } from "./comm
 import { buildFactory, cloneFactory, configureHome, FACTORY_VERSION } from "./factory.ts";
 import { ProcessOwner, type StopMeasurement } from "./processes.ts";
 import { checkFailed, collectResult, footprintDetails, table, type Footprint, type Result, type Scenario } from "./results.ts";
-import { sampleFootprints } from "./metrics.ts";
+import { processReadings, sampleFootprints } from "./metrics.ts";
 import { failedTurnRecords, killActiveWorker, workerLocations, type KillPlan } from "./kill.ts";
 import { profileRuntime } from "./profile.ts";
 import { parseLoadOptions } from "./options.ts";
@@ -63,10 +63,18 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
         await waitFor(() => { if (provider.exitCode !== null) throw new Error("Provider exited"); return existsSync(join(run, "provider-ready.json")); }, 10_000, "provider start");
         const { port } = await Bun.file(join(run, "provider-ready.json")).json();
         await configureHome(home, port, scenario.extensions, scenario.workers);
+        const memorySampling = process.env.LOAD_MEMHEAP === "1";
         const bunOptions = [`--preload=${join(REPO, "dev/load/drift.ts")}`];
+        if (memorySampling) bunOptions.push(`--preload=${join(REPO, "dev/load/memheap.ts")}`);
+        const memoryPhase = async (phase: string): Promise<void> => {
+            if (!memorySampling) return;
+            const pids = (await processReadings(host!.pid)).map((process) => process.pid);
+            await Bun.write(join(run, "memheap-phase"), phase);
+            await waitFor(() => pids.every((pid) => existsSync(join(run, `memheap-${phase}-${pid}.done`))), 120_000, `memory ${phase}`);
+        };
         const runtime = options.cpuProfile === true ? await profileRuntime(run) : undefined;
         const hostEnv: Record<string, string> = {
-            BUN_OPTIONS: bunOptions.join(" "), ...(scenario.pinWorker === true ? { LOAD_PIN_WORKER: "1" } : {}),
+            BUN_OPTIONS: bunOptions.join(" "), ...(memorySampling ? { LOAD_MEMHEAP_SNAPSHOT: process.env.LOAD_MEMHEAP_SNAPSHOT ?? "0" } : {}), ...(scenario.pinWorker === true ? { LOAD_PIN_WORKER: "1" } : {}),
         };
         host = owner.start("host", join(REPO, "clients/host/main.ts"), hostEnv, undefined, [], runtime);
         await waitFor(async () => {
@@ -78,6 +86,7 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
             return lock.state === "valid" && lock.record.pid === host!.pid && identity?.pid === host!.pid
                 && (workers === 0 ? lock.record.worker_count === undefined : identity.workers_ready === workers);
         }, 60_000, "host and session processes");
+        await memoryPhase("host_ready");
         await sampleFootprints(run, host.pid, "host_ready");
         const ids = manifest.sessions.slice(0, scenario.sessions).map((session) => session.id);
         await Bun.write(join(run, "scenario.json"), JSON.stringify({ ...scenario, factory, factoryBytes: manifest.bytes, factorySessions: manifest.sessions.length, resumed: manifest.sessions.slice(0, scenario.sessions), includedExtensions: scenario.extensions === "none" ? [] : includedExtensionIds() }, null, 2));
@@ -124,6 +133,7 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
         if (scenario.pinWorker === true) {
             await Bun.write(join(run, "pin-owners.ndjson"), locations.map((location) => JSON.stringify(location)).join("\n") + "\n");
         }
+        await memoryPhase("ready");
         const initialSamples = await sampleFootprints(run, host.pid, "ready");
         const initialHost = initialSamples.find((sample) => sample.pid === host!.pid);
         initial = { bytes: initialHost?.bytes ?? null, path: initialHost?.path ?? "", ...(initialHost?.error === undefined ? {} : { error: initialHost.error }) };
@@ -143,6 +153,7 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
         const awakeMs = performance.now() - startedAwake;
         await Bun.write(join(run, "measurement-timing.json"), JSON.stringify({ wallMs, awakeMs }));
         if (wallMs - awakeMs > 1_000) errors.push(`Measurement interrupted by system sleep or a clock change (${Math.round(wallMs - awakeMs)} ms)`);
+        await memoryPhase("end");
         const finalSamples = await sampleFootprints(run, host.pid, "end");
         const finalHost = finalSamples.find((sample) => sample.pid === host!.pid);
         final = { bytes: finalHost?.bytes ?? null, path: finalHost?.path ?? "", ...(finalHost?.error === undefined ? {} : { error: finalHost.error }) };
@@ -152,7 +163,7 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
         end = Date.now();
         process.stderr.write(`${error}\n`);
     } finally {
-        if (host !== undefined && host.exitCode === null) {
+        if (process.env.LOAD_MEMHEAP !== "1" && host !== undefined && host.exitCode === null) {
             try {
                 stopped = await owner.stopHost();
                 if (stopped.commandExit !== 0) errors.push(`Stop command exit: ${stopped.commandExit}`);

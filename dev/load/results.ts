@@ -20,6 +20,7 @@ interface Sample {
     workers?: number;
     working?: number;
     tokens?: number;
+    markerLost?: boolean;
     ok?: boolean;
     outcome?: string;
     children?: { pid: number; command: string }[];
@@ -120,6 +121,7 @@ export function collectResult(run: string, scenario: Scenario, start: number, en
     const physicalValues = physicalTotals.flatMap((sample) => sample.bytes === null ? [] : [sample.bytes]);
     const seconds = (end - start) / 1000;
     const requests = provider.filter((row) => row.type === "request").length;
+    const markerLostRequests = provider.filter((row) => row.type === "request" && row.markerLost === true).length;
     const turns = clients.filter((row) => window(row) && row.type === "turn" && row.outcome === "ok").length;
     const streamedTokens = provider.reduce((total, row) => total + (row.type === "tokens" ? row.tokens ?? 0 : 0), 0);
     const measurementErrors: string[] = [];
@@ -141,7 +143,7 @@ export function collectResult(run: string, scenario: Scenario, start: number, en
     return {
         schemaVersion: 1, gitSha: sha, scenario, run, start, end, measuredSeconds: seconds,
         attachments: { path: scenario.relay === true ? "relay" : "routed", ...attachmentCounts },
-        rates: { modelRequests: requests, turns, streamedTokens, modelRequestsPerSecond: requests / seconds, turnsPerSecond: turns / seconds, streamedTokensPerSecond: streamedTokens / seconds },
+        rates: { modelRequests: requests, markerLostRequests, turns, streamedTokens, modelRequestsPerSecond: requests / seconds, turnsPerSecond: turns / seconds, streamedTokensPerSecond: streamedTokens / seconds },
         hostCpuPercent: summary(processes.map((row) => row.cpu!)),
         hostRssBytes: { start: rss[0] ?? null, peak: rss.length ? Math.max(...rss) : null, end: rss.at(-1) ?? null },
         totalCpuPercent: summary(totals.map((sample) => sample.cpu)),
@@ -208,7 +210,7 @@ export function checkFailed(result: Result): boolean {
 }
 export function table(results: Result[]): string {
     const n = (value: number | null, digits = 1) => value === null ? "n/a" : value.toFixed(digits);
-    const headings = ["Mode", "Attach path", "Direct", "Via master", "Unknown", "Sessions", "Clients/session", "Req/s", "Turns/s", "Tokens/s", "CPU mean/p90 %", "Total CPU mean/p90 %",
+    const headings = ["Mode", "Attach path", "Direct", "Via master", "Unknown", "Sessions", "Clients/session", "Req/s", "Marker lost", "Turns/s", "Tokens/s", "CPU mean/p90 %", "Total CPU mean/p90 %",
         "RSS peak MB", "Sum RSS peak MB", "Footprint ready/peak/end MB", "Loop p99/max ms", "Worker loop worst p99/max ms",
         "Identity p90/max ms", "Misses", "Diagnostics p90 ms", "Attach p90 ms", "Workers max", "Pin CPU mean/p90 %",
         "Pin identity p90/max ms", "Pin loop p99/max ms", "Pin agent list p90/max ms", "Pin list failures", "Pin errors owned/other", "Pin loss",
@@ -222,7 +224,7 @@ export function table(results: Result[]): string {
             const mb = (value: number | null): string => n(value === null ? null : value / 1e6);
             const values = [
                 mode, r.attachments.path, r.attachments.direct, r.attachments.master, r.attachments.unknown,
-                r.scenario.sessions, r.scenario.clients, n(r.rates.modelRequestsPerSecond, 2),
+                r.scenario.sessions, r.scenario.clients, n(r.rates.modelRequestsPerSecond, 2), r.rates.markerLostRequests,
                 n(r.rates.turnsPerSecond, 2), n(r.rates.streamedTokensPerSecond),
                 `${n(r.hostCpuPercent.mean)}/${n(r.hostCpuPercent.p90)}`,
                 `${n(r.totalCpuPercent.mean)}/${n(r.totalCpuPercent.p90)}`,
