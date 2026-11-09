@@ -1,6 +1,6 @@
+import { CORE_PERMISSION_OPERATIONS } from "../engine/permission-operations.ts";
 import { migratePermissionPredicate } from "../engine/permission-compat.ts";
 import {
-    CORE_PERMISSION_OPERATIONS,
     type PermissionMode,
     type PermissionOutcome,
     type PermissionPredicate,

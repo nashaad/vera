@@ -2,7 +2,6 @@ import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { downloadPublicFile } from "./web-fetch.ts";
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 export function downloadDirectory(workspace: string): string {
@@ -42,6 +41,7 @@ export const webDownloadTool: RegisteredTool = {
         if (typeof input.url !== "string" || input.url.trim().length === 0) {
             throw new Error("web_download requires a non-empty url");
         }
+        const { downloadPublicFile } = await import("./web-fetch.ts");
         const { path, bytes } = await downloadPublicFile(
             input.url.trim(),
             downloadDirectory(context.workspace),

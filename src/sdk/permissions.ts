@@ -19,3 +19,8 @@ export function parseApprovalMode(value: unknown): ApprovalMode | undefined {
     }
     return undefined;
 }
+
+export function isBuiltInPermissionMode(value: string): value is BuiltInPermissionModeName {
+    return value === "readonly" || value === "ask" || value === "auto"
+        || value === "full_access";
+}

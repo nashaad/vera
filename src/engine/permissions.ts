@@ -1,9 +1,12 @@
+import { CORE_PERMISSION_OPERATIONS } from "./permission-operations.ts";
+export { CORE_PERMISSION_OPERATIONS } from "./permission-operations.ts";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, parse, resolve, sep } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import {
     isApprovalMode,
+    isBuiltInPermissionMode,
     parseApprovalMode,
     type ApprovalMode,
     type BuiltInPermissionModeName,
@@ -589,29 +592,6 @@ const GIT_READ_SUBCOMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     config: readingConfig,
 };
 
-export const CORE_PERMISSION_OPERATIONS = new Set([
-    "agent.close",
-    "agent.inbox",
-    "agent.message",
-    "agent.roster",
-    "agent.spawn",
-    "extension.storage.read",
-    "extension.storage.write",
-    "function.call",
-    "git.clone",
-    "git.commit",
-    "git.fetch",
-    "git.ls_remote",
-    "git.pull",
-    "git.push",
-    "git.remote_update",
-    "memory.write",
-    "process.kill",
-    "process.read",
-    "web.download",
-    "web.fetch",
-    "web.search",
-]);
 
 const GIT_OPTIONS_WITH_VALUE = new Set([
     "-C",
@@ -768,8 +748,7 @@ export function permissionModeNoWiderThan(
 export function builtInPermissionMode(
     name: string,
 ): PermissionMode | undefined {
-    return name === "readonly" || name === "ask" || name === "auto"
-            || name === "full_access"
+    return isBuiltInPermissionMode(name)
         ? BUILT_IN_PERMISSION_MODES[name]
         : undefined;
 }
