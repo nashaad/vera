@@ -15,6 +15,7 @@ import {
     type ModelAdapter,
     type ModelFailure,
     type ModelMessage,
+    type ModelRequest,
     type ModelReasoningEffort,
     type ModelSource,
     type ModelSubstitution,
@@ -105,7 +106,7 @@ import {
     type HistoryLineage,
     PromptHistoryTracker,
 } from "./prompt-history-drift.ts";
-import { projectModelRequest } from "./model-request.ts";
+import { projectModelRequest, type ModelRequestSnapshot } from "./model-request.ts";
 import { formatScratchTodo, readScratchTodo } from "./scratch-state.ts";
 import { createToolResultSpill } from "./tool-result-spill.ts";
 import {
@@ -1009,6 +1010,15 @@ function fallbackFor(
     return { fallback };
 }
 
+function modelSelectionChanged(
+    previous: ModelTurnSettings,
+    next: ModelTurnSettings,
+): boolean {
+    return previous.provider !== next.provider
+        || previous.model !== next.model
+        || previous.reasoningEffort !== next.reasoningEffort;
+}
+
 export async function runTurn(
     adapter: ModelAdapter,
     model: string,
@@ -1036,15 +1046,15 @@ export async function runTurn(
     );
 
     try {
-        const modelSettings = turn.modelSettings
+        let turnSettings = turn.modelSettings
             ?? state.readModelSettings?.()
             ?? {
                 provider: "unknown",
                 model,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             };
-        let activeModel = modelSettings.model;
-        let turnReasoningEffort = modelSettings.reasoningEffort;
+        let activeModel = turnSettings.model;
+        let turnReasoningEffort = turnSettings.reasoningEffort;
         const pendingSubstitutions: ModelSubstitution[] = [];
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
@@ -1099,7 +1109,7 @@ export async function runTurn(
             hasImageAttachments
             && !acceptsImageInput(
                 adapter,
-                modelSettings.provider,
+                turnSettings.provider,
                 activeModel,
             )
         ) {
@@ -1139,7 +1149,7 @@ export async function runTurn(
             state,
             turn.signal,
             userMessages,
-            compactionContextForSettings(modelSettings, activeModel),
+            compactionContextForSettings(turnSettings, activeModel),
         );
         if (userMessages.length === 0) {
             state.events.emit({ type: "delivery_turn_started" });
@@ -1193,28 +1203,28 @@ export async function runTurn(
                 state.toolRuntime.allowedTools = applied.allowedTools;
             }
             // The check above sized the turn for the configured model; a smaller one may not fit.
-            if (activeModel !== modelSettings.model) {
+            if (activeModel !== turnSettings.model) {
                 await compactDuringTurn(
                     state,
                     turn.signal,
                     [],
-                    compactionContextForSettings(modelSettings, activeModel),
+                    compactionContextForSettings(turnSettings, activeModel),
                 );
             }
         }
 
         const catalogModels = availableModels();
         const capacityForModel = (model: string): number | undefined => {
-            const declared = (model === modelSettings.model
-                ? modelSettings.contextWindow
+            const declared = (model === turnSettings.model
+                ? turnSettings.contextWindow
                 : undefined)
             ?? contextWindowForModel(
-                modelSettings.provider,
+                turnSettings.provider,
                 model,
-                modelSettings.availableModels,
+                turnSettings.availableModels,
                 catalogModels,
             );
-            return budgetContextWindow(declared, modelSettings.contextLimit);
+            return budgetContextWindow(declared, turnSettings.contextLimit);
         };
 
         while (true) {
@@ -1226,6 +1236,23 @@ export async function runTurn(
                 await commitMessage(state, assistantMessage);
                 break;
             }
+            const nextSettings = state.readModelSettings?.();
+            if (nextSettings !== undefined
+                && modelSelectionChanged(turnSettings, nextSettings)) {
+                const modelChanged = nextSettings.provider !== turnSettings.provider
+                    || nextSettings.model !== turnSettings.model;
+                turnSettings = nextSettings;
+                activeModel = nextSettings.model;
+                turnReasoningEffort = nextSettings.reasoningEffort;
+                if (modelChanged) {
+                    await compactDuringTurn(
+                        state,
+                        turn.signal,
+                        [],
+                        compactionContextForSettings(turnSettings, activeModel),
+                    );
+                }
+            }
             // Before the request, not after a refusal: a level the pool already knows this model rejects would otherwise be sent again every single turn, buying the same refusal each time.
             const preflight = state.effortPool === undefined
                     || turnReasoningEffort === undefined
@@ -1233,7 +1260,7 @@ export async function runTurn(
                 : preflightEffort(
                     state.effortPool,
                     {
-                        provider: modelSettings.provider ?? "",
+                        provider: turnSettings.provider ?? "",
                         model: activeModel,
                     },
                     turnReasoningEffort,
@@ -1334,17 +1361,17 @@ export async function runTurn(
                 }
             }
             const tools = denialBreaker.filterOffered(scopedTools);
-            const projection = projectModelRequest({
-                ...(modelSettings.provider === undefined
+            const requestSnapshot = {
+                ...(turnSettings.provider === undefined
                     ? {}
-                    : { provider: modelSettings.provider }),
+                    : { provider: turnSettings.provider }),
                 model: activeModel,
                 maxTokens,
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
                 messages: state.modelContext?.(
-                    compactionContextForSettings(modelSettings, activeModel),
+                    compactionContextForSettings(turnSettings, activeModel),
                 ) ?? state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
@@ -1370,7 +1397,8 @@ export async function runTurn(
                     ? {}
                     : { agentInstructions: selected.instructions }),
                 signal: turn.signal,
-            });
+            } satisfies ModelRequestSnapshot;
+            const projection = projectModelRequest(requestSnapshot);
             const request = projection.request;
             const promptContributions = promptContributionMetadata(
                 projection.promptContributions,
@@ -1462,8 +1490,14 @@ export async function runTurn(
                     (block) => block.type === "image_attachment",
                 )
             );
-            let modelRequest;
+            let omitImages = false;
+            let modelRequest: ModelRequest;
             try {
+                omitImages = carriesImage && !acceptsImageInput(
+                    adapter,
+                    turnSettings.provider,
+                    activeModel,
+                );
                 modelRequest = {
                     ...request,
                     ...(state.sessionId === undefined
@@ -1473,11 +1507,7 @@ export async function runTurn(
                         request.messages,
                         requireImageReader(state),
                         imageCache,
-                        carriesImage && !acceptsImageInput(
-                            adapter,
-                            modelSettings.provider,
-                            activeModel,
-                        ),
+                        omitImages,
                         state.imageSource,
                     ),
                 };
@@ -1611,7 +1641,7 @@ export async function runTurn(
                             scope: "model",
                         });
                         turnReasoningEffort = reasoningEffortForModel(
-                            modelSettings.provider,
+                            turnSettings.provider,
                             fallback.toModel,
                             turnReasoningEffort,
                         );
@@ -1635,8 +1665,60 @@ export async function runTurn(
                     },
                     ...fallbackFor(
                         state.modelFallback,
-                        modelSettings.provider,
+                        turnSettings.provider,
                     ),
+                    refresh: async () => {
+                        const live = state.readModelSettings?.();
+                        if (live === undefined
+                            || !modelSelectionChanged(turnSettings, live)) {
+                            return undefined;
+                        }
+                        const modelChanged = live.provider !== turnSettings.provider
+                            || live.model !== turnSettings.model;
+                        turnSettings = live;
+                        activeModel = live.model;
+                        turnReasoningEffort = live.reasoningEffort;
+                        let retryMessages: ModelRequest["messages"] | undefined;
+                        if (modelChanged) {
+                            await compactDuringTurn(
+                                state,
+                                turn.signal,
+                                [],
+                                compactionContextForSettings(turnSettings, activeModel),
+                            );
+                            const projected = projectModelRequest({
+                                ...requestSnapshot,
+                                messages: state.modelContext?.(
+                                    compactionContextForSettings(turnSettings, activeModel),
+                                ) ?? state.messages,
+                            });
+                            omitImages = projected.request.messages.some((message) =>
+                                message.role === "user"
+                                && message.content.some((block) => block.type === "image_attachment")
+                            ) && !acceptsImageInput(adapter, live.provider, live.model);
+                            retryMessages = await hydrateImageAttachments(
+                                projected.request.messages,
+                                requireImageReader(state),
+                                imageCache,
+                                omitImages,
+                                state.imageSource,
+                            );
+                            modelRequest = { ...modelRequest, messages: retryMessages };
+                        }
+                        // Attempts recorded before the switch no longer describe this request.
+                        substitutions.splice(0, substitutions.length);
+                        return {
+                            ...(live.provider === undefined ? {} : { provider: live.provider }),
+                            model: live.model,
+                            ...(live.reasoningEffort === undefined
+                                ? {}
+                                : { reasoningEffort: live.reasoningEffort }),
+                            ...(retryMessages === undefined
+                                ? {}
+                                : { messages: retryMessages }),
+                            ...fallbackFor(state.modelFallback, live.provider),
+                        };
+                    },
                     ...(state.effortPool === undefined
                         ? {}
                         : { coarsening: { pool: state.effortPool } }),
@@ -1658,14 +1740,14 @@ export async function runTurn(
             };
             if (
                 state.effortPool !== undefined
-                && modelSettings.provider !== undefined
+                && turnSettings.provider !== undefined
                 && assistantMessage.stopReason !== "error"
                 && assistantMessage.stopReason !== "aborted"
             ) {
                 recordAcceptedImage(
                     state.effortPool,
                     {
-                        provider: modelSettings.provider,
+                        provider: turnSettings.provider,
                         model: activeModel,
                     },
                     modelRequest.messages,
@@ -1911,7 +1993,7 @@ export async function runTurn(
                     (prompt.attachmentIds ?? []).length === 0
                     || acceptsImageInput(
                         adapter,
-                        modelSettings.provider,
+                        turnSettings.provider,
                         activeModel,
                     )
                 );

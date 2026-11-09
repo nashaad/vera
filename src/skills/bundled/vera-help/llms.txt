@@ -72,8 +72,9 @@ Outrider guided setup is hidden by default; enable `experimental.outrider_onboar
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
-## Models and providers [lines=29]
-Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
+## Models and providers [lines=30]
+Switch model changes the model from the next request, including during a running turn.
+The Models page browses the catalog without changing the model.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 Ctrl+X then H shows a card of the common keys while you keep typing; the same keys close it.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches favorites, or every connected model when you have none or press Ctrl+G.

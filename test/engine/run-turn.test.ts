@@ -1649,7 +1649,7 @@ test("an unknown image capability still reaches the provider", async () => {
     expect(result).toMatchObject({ stopReason: "stop" });
 });
 
-test("model settings are snapshotted once when each turn starts", async () => {
+test("a model switch during a turn applies from the next request", async () => {
     const responses: AssistantMessage[] = [
         {
             role: "assistant",
@@ -1687,13 +1687,14 @@ test("model settings are snapshotted once when each turn starts", async () => {
         },
     };
     let settings: {
+        readonly provider?: string;
         readonly model: string;
         readonly reasoningEffort?: ModelReasoningEffort;
     } = {
+        provider: "faux",
         model: "first-model",
         reasoningEffort: "low",
     };
-    let settingsReadCount = 0;
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state: RunTurnState & {
@@ -1706,10 +1707,7 @@ test("model settings are snapshotted once when each turn starts", async () => {
         events,
         hooks: new ToolHooks(),
         approvalMode: "auto",
-        readModelSettings: () => {
-            settingsReadCount += 1;
-            return settings;
-        },
+        readModelSettings: () => settings,
     };
 
     channel.client.send({ type: "prompt", content: "first turn" });
@@ -1723,16 +1721,24 @@ test("model settings are snapshotted once when each turn starts", async () => {
     await requestStarted;
 
     settings = {
+        provider: "faux",
         model: "second-model",
         reasoningEffort: "high",
     };
-    expect(requests[0]?.model).toBe("first-model");
-    expect(requests[0]?.reasoningEffort).toBe("low");
+    // The request already streaming keeps the model it started with.
+    expect(requests[0]).toMatchObject({
+        provider: "faux",
+        model: "first-model",
+        reasoningEffort: "low",
+    });
     await receiveThroughTurnFinished(channel);
     await firstTurn;
-    expect(requests[1]?.model).toBe("first-model");
-    expect(requests[1]?.reasoningEffort).toBe("low");
-    expect(settingsReadCount).toBe(1);
+    // The length continuation is the turn's next request.
+    expect(requests[1]).toMatchObject({
+        provider: "faux",
+        model: "second-model",
+        reasoningEffort: "high",
+    });
 
     requestStarted = new Promise<void>((resolve) => {
         signalRequestStarted = resolve;
@@ -1750,11 +1756,138 @@ test("model settings are snapshotted once when each turn starts", async () => {
     });
     await requestStarted;
 
-    expect(requests[2]?.model).toBe("second-model");
-    expect(requests[2]?.reasoningEffort).toBe("high");
-    expect(settingsReadCount).toBe(2);
+    expect(requests[2]).toMatchObject({
+        provider: "faux",
+        model: "second-model",
+        reasoningEffort: "high",
+    });
     await receiveThroughTurnFinished(channel);
     await secondTurn;
+});
+
+test("a switch between a tool step and the next request applies to it", async () => {
+    const responses = [
+        toolResponse("call-1", "bash", { command: "printf hi" }),
+        assistantText("done"),
+    ];
+    const requests: ModelRequest[] = [];
+    let switched = false;
+    let settings: {
+        readonly provider?: string;
+        readonly model: string;
+        readonly reasoningEffort?: ModelReasoningEffort;
+    } = {
+        provider: "alpha",
+        model: "model-a",
+        reasoningEffort: "low",
+    };
+    const faux = new FauxAdapter(responses);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            if (!switched) {
+                switched = true;
+                settings = {
+                    provider: "beta",
+                    model: "model-b",
+                    reasoningEffort: "high",
+                };
+            }
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState & {
+        readonly readModelSettings: () => typeof settings;
+    } = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        readModelSettings: () => settings,
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(adapter, "startup-model", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+        provider: "alpha",
+        model: "model-a",
+        reasoningEffort: "low",
+    });
+    expect(requests[1]).toMatchObject({
+        provider: "beta",
+        model: "model-b",
+        reasoningEffort: "high",
+    });
+});
+
+test("a model switch to a smaller window compacts before the next request", async () => {
+    const responses = [
+        toolResponse("call-1", "bash", { command: "printf hi" }),
+        assistantText("done"),
+    ];
+    const order: string[] = [];
+    let switched = false;
+    let settings: {
+        readonly provider?: string;
+        readonly model: string;
+        readonly contextWindow?: number;
+    } = {
+        provider: "alpha",
+        model: "wide",
+        contextWindow: 200_000,
+    };
+    const faux = new FauxAdapter(responses);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            order.push(`request:${request.model}`);
+            if (!switched) {
+                switched = true;
+                settings = {
+                    provider: "alpha",
+                    model: "narrow",
+                    contextWindow: 1_000,
+                };
+            }
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState & {
+        readonly readModelSettings: () => typeof settings;
+    } = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        readModelSettings: () => settings,
+        compact: async (_signal, pending, context) => {
+            if ((pending?.length ?? 0) > 0) {
+                return;
+            }
+            order.push(`compact:${context?.model}`);
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(adapter, "startup-model", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(order.filter((entry) => entry === "compact:narrow")).toHaveLength(1);
+    expect(order.slice(-2)).toEqual(["compact:narrow", "request:narrow"]);
 });
 
 test("permission changes apply before a tool executes in the active turn", async () => {

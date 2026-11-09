@@ -45,8 +45,9 @@ highlighted favorite.
 Switch model has no filters, sort, scores, prices, or details panel. Those are
 in `/models`.
 
-In a conversation, the selection applies to its next request. From Home, it
-opens a conversation. The composer footer shows the current model's name and effort, with a short code for the provider in front of the name.
+In a conversation, the selection applies to its next request, including
+inside a turn that is already running; a request already streaming finishes on
+the model it started with. From Home, it opens a conversation. The composer footer shows the current model's name and effort, with a short code for the provider in front of the name.
 
 You can also open Switch model from Ctrl+P, or press Ctrl+X, release Ctrl,
 and press M. Escape cancels that shortcut without changing your draft.
