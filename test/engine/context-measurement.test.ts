@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import {
     IMAGE_TOKENS,
@@ -11,6 +12,61 @@ import type { ProjectedModelRequest } from "../../src/engine/model-request.ts";
 import type { PromptContribution } from "../../src/engine/prompt-contributions.ts";
 import type { ModelMessage, ModelTool } from "../../src/model/types.ts";
 import { emptyUsage } from "../../src/model/types.ts";
+import { syntheticMeasurementStages } from "../support/engine-cpu-fixture.ts";
+
+test("large projections match the prior measurement across history changes", () => {
+    const expected = [
+        ["4757a2626ddfd1d101e1e4ac7d0226a8815043471e1136beef65354eec36ee88", 38264],
+        ["dbefddb6e373fa7d352bbf9d299d0d07a989b6ee758f7ec047bab1440e082c69", 38296],
+        ["cb56baeca50c913ffb72a2ab7472e9352895220c68fb5946382d0bc13fd00657", 30551],
+        ["b94cca6d5eed1b0ca76d90212efa275519e58cf572bd2727b9ff86b523085912", 19043],
+        ["c4826d91456dae393139e08c1461cbf14b2269c0ab5977babfc6598e8ed07a55", 3930],
+    ] as const;
+    const schema: ModelTool = {
+        name: "read",
+        description: "Read charts",
+        inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+        },
+    };
+    for (const [index, messages] of syntheticMeasurementStages().entries()) {
+        const reference = expected[index]!;
+        const projected = {
+            ...request({ systemPrompt: "Chart safely.", messages, tools: [schema] }),
+            model: "crow",
+        };
+        const measurement = measureProjectedRequest(
+            projected,
+            100_000,
+            { promptContributions: [] },
+        );
+        expect(createHash("sha256").update(JSON.stringify(measurement)).digest("hex"))
+            .toBe(reference[0]);
+        expect(measureMessages(messages, "crow")).toBe(reference[1]);
+    }
+});
+
+test("tool labels preserve the first matching call and later calls", () => {
+    const messages = syntheticMeasurementStages()[0]!;
+    const measured = measureProjectedRequest(
+        request({ messages }),
+        undefined,
+        { promptContributions: [] },
+    );
+    const labels = measured.projection!.components.slice(-8).map((part) => part.displayName);
+    expect(labels).toEqual([
+        "read next.md",
+        "assistant message",
+        "assistant message",
+        "assistant message",
+        "read result",
+        "assistant message",
+        "tool tool",
+        "read result",
+    ]);
+});
 
 test("the measurement counts everything the request carries, not just the chat", () => {
     const withoutTools = measureProjectedRequest(request({

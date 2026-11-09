@@ -18,6 +18,72 @@ import { measureMessages } from "../../src/engine/context-measurement.ts";
 import { toolResultCeilingBytes } from "../../src/tools/tool-result-limit.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
+test("pending and committed messages can cross the aging gate differently", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-aging-gate-"));
+    try {
+        const output = "src/chart.ts:12:buried chest\n".repeat(180);
+        const path = join(directory, "grep.txt");
+        await writeFile(path, output);
+        const entries = agedEntries("grep", output, path);
+        for (let index = 0; index < 1_000; index += 1) {
+            entries.push(user(`turn ${index}`), assistant(`charted ${index}`), {
+                message: {
+                    role: "tool_result",
+                    toolCallId: `synthetic-${index}`,
+                    toolName: "read",
+                    content: [{ type: "text", text: "small result" }],
+                    isError: false,
+                },
+            });
+        }
+        let pending = user("x");
+        let history = entries.map((entry) => entry.message);
+        for (let adjustment = 0; adjustment < 4; adjustment += 1) {
+            pending = user("x".repeat(adjustment + 1));
+            if (measureMessages(history) + measureMessages([pending.message])
+                === measureMessages([...history, pending.message]) + 1) break;
+        }
+        if (measureMessages(history) + measureMessages([pending.message])
+            !== measureMessages([...history, pending.message]) + 1) {
+            entries.push(user("x"));
+            history = entries.map((entry) => entry.message);
+            pending = user("x");
+        }
+        expect(measureMessages(history) + measureMessages([pending.message]))
+            .toBe(measureMessages([...history, pending.message]) + 1);
+        const fixedOverhead = 60_000
+            - measureMessages(history)
+            - measureMessages([pending.message]);
+        expect(fixedOverhead).toBeGreaterThan(0);
+        const cache = new ToolResultDigestCache();
+        const beforePolicy = {
+            capacity: 100_000,
+            level: "normal" as const,
+            ageAfterTurns: 1,
+            budgetBytes: 2_000_000,
+            overheadTokens: fixedOverhead + measureMessages([pending.message]),
+            pendingUserTurns: 1,
+        };
+        const before = assembleAgedToolResults(entries, beforePolicy, cache);
+        expect(before).toEqual(assembleAgedToolResults(entries, beforePolicy, null));
+        expect(resultTexts(before)[0]).toContain("Digest of older grep");
+
+        const committed = [...entries, pending];
+        const afterPolicy = {
+            capacity: 100_000,
+            level: "normal" as const,
+            ageAfterTurns: 1,
+            budgetBytes: 2_000_000,
+            overheadTokens: fixedOverhead,
+        };
+        const after = assembleAgedToolResults(committed, afterPolicy, cache);
+        expect(after).toEqual(assembleAgedToolResults(committed, afterPolicy, null));
+        expect(resultTexts(after)[0]).toBe(output);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("cached assembly matches fresh assembly as spills and history change", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-"));
     try {

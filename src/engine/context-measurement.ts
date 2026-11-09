@@ -3,6 +3,7 @@ import type {
     ModelMessage,
     ModelTool,
     ModelUsage,
+    ToolCallContent,
 } from "../model/types.ts";
 import {
     apportionPartTokens,
@@ -65,6 +66,8 @@ export function measureProjectedRequest(
     } = {},
 ): ContextMeasurement {
     const extensionToolNames = new Set(options.extensionToolNames ?? []);
+    // Appends, branch switches, rewinds, and compaction require a fresh index.
+    const toolCalls = indexToolCalls(request.messages);
     const parts = [
         ...systemParts(request.systemPrompt, options.promptContributions),
         ...request.tools.map((tool) => ({
@@ -82,7 +85,7 @@ export function measureProjectedRequest(
             id: `message:${index + 1}`,
             owner: "session",
             source: message.role,
-            displayName: messageDisplayName(message, request.messages),
+            displayName: messageDisplayName(message, toolCalls),
             count: 1,
             characters: measureMessage(message),
             fixedTokens: TOKENS_PER_MESSAGE
@@ -441,30 +444,39 @@ function measureTool(tool: ModelTool): number {
 
 function messageDisplayName(
     message: ModelMessage,
-    messages: readonly ModelMessage[],
+    toolCalls: ReadonlyMap<string, ToolCallContent>,
 ): string {
     if (message.role !== "tool_result") {
         return `${message.role} message`;
     }
     const name = safeToolLabel(message.toolName);
-    const path = toolResultPath(message.toolCallId, messages);
+    const path = toolResultPath(message.toolCallId, toolCalls);
     return path === undefined ? `${name} result` : `${name} ${path}`;
+}
+
+function indexToolCalls(
+    messages: readonly ModelMessage[],
+): ReadonlyMap<string, ToolCallContent> {
+    const calls = new Map<string, ToolCallContent>();
+    for (const message of messages) {
+        if (message.role !== "assistant") continue;
+        for (const block of message.content) {
+            if (block.type === "tool_call" && !calls.has(block.id)) {
+                calls.set(block.id, block);
+            }
+        }
+    }
+    return calls;
 }
 
 function toolResultPath(
     toolCallId: string,
-    messages: readonly ModelMessage[],
+    toolCalls: ReadonlyMap<string, ToolCallContent>,
 ): string | undefined {
-    for (const message of messages) {
-        if (message.role !== "assistant") continue;
-        for (const block of message.content) {
-            if (block.type !== "tool_call" || block.id !== toolCallId) continue;
-            const path = block.input.path;
-            if (typeof path !== "string") return undefined;
-            return safeToolLabel(basename(path));
-        }
-    }
-    return undefined;
+    const call = toolCalls.get(toolCallId);
+    if (call === undefined) return undefined;
+    const path = call.input.path;
+    return typeof path === "string" ? safeToolLabel(basename(path)) : undefined;
 }
 
 function basename(path: string): string {
