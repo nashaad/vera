@@ -296,9 +296,11 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             storageStarted = true;
             if (storageOptions?.scan === false) publishStoredSessions(storedSessionIndex);
             else void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog, options.shard).then(publishStoredSessions);
-            parkIdleTimer = setInterval(() => {
-                void parkIdle().catch(() => { });
-            }, 30_000);
+            if (options.sessionWorker !== true) {
+                parkIdleTimer = setInterval(() => {
+                    void parkIdle().catch(() => { });
+                }, 30_000);
+            }
         },
         stopMaintenance,
         async clearProviderSelection(provider) {
