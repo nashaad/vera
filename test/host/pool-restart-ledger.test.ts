@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { RestartLedger } from "../../src/host/master/restart-ledger.ts";
+import { RestartLedger } from "../../src/host/pool/restart-ledger.ts";
 import { MAX_RESTART_RECORDS } from "../../src/store/restart-records.ts";
 
 test("concurrent pool record operations preserve order, unknown lines, and the cap", async () => {

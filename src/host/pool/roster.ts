@@ -4,11 +4,11 @@ export type WorkerOwner = `w${number}`;
 export type SessionOwner = "host" | WorkerOwner;
 
 export function mergeRoster(
-    master: readonly RegisteredAgentSummary[],
+    host: readonly RegisteredAgentSummary[],
     worker: readonly RegisteredAgentSummary[],
     ownerOf: (id: string) => SessionOwner | undefined,
 ): RegisteredAgentSummary[] {
-    return mergeRosters([["host", master], ["w0", worker]], ownerOf);
+    return mergeRosters([["host", host], ["w0", worker]], ownerOf);
 }
 
 export function mergeRosters(

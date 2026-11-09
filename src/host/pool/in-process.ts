@@ -9,7 +9,7 @@ import { sessionEndpoint } from "../session-host/endpoint.ts";
 import type { StopWaitEvent, StopWaitTarget } from "../stop-when-idle.ts";
 import { prepareRoutedHost } from "./routing.ts";
 import { ForwardedShutdowns, forwardLocalRequest } from "./public-forward.ts";
-import { MasterInboxBridge, WorkerInboxBridge } from "./inbox.ts";
+import { HostInboxBridge, WorkerInboxBridge } from "./inbox.ts";
 
 export function inProcessWorkerSocket(home: string, index = 0): string {
     if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid session worker index");
@@ -21,9 +21,9 @@ export function inProcessWorkerSocket(home: string, index = 0): string {
 }
 
 export interface InProcessWorkerOptions {
-    readonly master: SessionHost;
+    readonly host: SessionHost;
     readonly sessionOptions: StartSessionHostOptions;
-    readonly masterSocket: string;
+    readonly hostSocket: string;
     readonly workerSocket: string;
     readonly lockPath: string;
     readonly buildId: string;
@@ -31,7 +31,7 @@ export interface InProcessWorkerOptions {
 }
 
 export interface InProcessWorker {
-    readonly masterHandlers: Partial<StartHostServerOptions>;
+    readonly hostHandlers: Partial<StartHostServerOptions>;
     workerHealth?(): readonly WorkerHealth[];
     stopPids?(): readonly number[];
     start(identity: Pick<HostIdentity, "pid" | "started_at">): Promise<void>;
@@ -83,7 +83,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
     const started = Promise.withResolvers<void>();
     const finishStarting = (): void => { workerStarting = false; started.resolve(); };
     const routed = prepareRoutedHost({
-        master: options.master, worker: sessionEndpoint(worker), masterSocket: options.masterSocket,
+        host: options.host, worker: sessionEndpoint(worker), hostSocket: options.hostSocket,
         workerSocket: options.workerSocket, buildId: options.buildId, reservations: restoringSessions,
         workerGeneration: () => 1,
         workerReady: () => workerReady,
@@ -94,10 +94,10 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         onWorkerChanged: (listener) => worker.handlers.onRosterChanged(listener),
     });
     const { router } = routed;
-    const masterInbox: MasterInboxBridge = new MasterInboxBridge(options.master.inboxDelivery, (method, args, signal): Promise<unknown> =>
+    const hostInbox: HostInboxBridge = new HostInboxBridge(options.host.inboxDelivery, (method, args, signal): Promise<unknown> =>
         workerInbox.handle(method, args, signal ?? new AbortController().signal), (id) => router.inboxOwner(id) === "w0");
     const workerInbox: WorkerInboxBridge = new WorkerInboxBridge((method, args, signal): Promise<unknown> =>
-        masterInbox.handle(method, args, signal));
+        hostInbox.handle(method, args, signal));
     worker.inboxDelivery.setSessionBridge(workerInbox);
     worker.setExtensionSessions(router);
     worker.registry.peerSessions = router;
@@ -125,7 +125,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
     worker.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
     let server: HostListener | undefined;
     return {
-        masterHandlers: routed.masterHandlers,
+        hostHandlers: routed.hostHandlers,
         async start(identity) {
             workerStarting = true;
             try {
@@ -138,8 +138,8 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
                     capabilities: options.capabilities,
                     pid: identity.pid,
                     startedAt: identity.started_at,
-                    forwardMasterRequest: (request, send, signal) =>
-                        forwardedShutdowns.forward(request, () => forwardLocalRequest(options.masterSocket, request, send, signal)),
+                    forwardHostRequest: (request, send, signal) =>
+                        forwardedShutdowns.forward(request, () => forwardLocalRequest(options.hostSocket, request, send, signal)),
                     findAgent: async (id) => await routed.reserveAgent(id, async (reserved) => {
                         if (!await router.find("w0", id, reserved)) return undefined;
                         await routed.snapshots.wait();
@@ -168,7 +168,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
             if (workerStarting) await started.promise;
             if (!workerReady) return false;
             const owner = router.inboxOwner(id);
-            const sessions = owner === "host" ? await options.master.handlers.listAgents() : await worker.handlers.listAgents();
+            const sessions = owner === "host" ? await options.host.handlers.listAgents() : await worker.handlers.listAgents();
             return sessions.some((session) => session.id === id);
         },
         waitForForwardedShutdowns: () => forwardedShutdowns.wait(),
@@ -188,7 +188,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
                 try { await worker.close(); }
                 finally {
                     await workerInbox.drain();
-                    masterInbox.close();
+                    hostInbox.close();
                 }
             }
         },

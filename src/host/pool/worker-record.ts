@@ -17,7 +17,7 @@ export interface WorkerRecord {
     readonly socket_path: string;
     readonly control_path: string;
     readonly build_id: string;
-    readonly master_pid: number;
+    readonly host_pid: number;
     readonly count?: number;
 }
 
@@ -52,7 +52,7 @@ export async function publishWorkerRecord(home: string, hello: WorkerHello, cont
     const path = join(directory, `${hello.id}.json`);
     const record: WorkerRecord = {
         id: hello.id, index: hello.index, pid: hello.pid, started_at: hello.started_at,
-        socket_path: hello.socket, control_path: controlPath, build_id: hello.build_id, master_pid: process.pid,
+        socket_path: hello.socket, control_path: controlPath, build_id: hello.build_id, host_pid: process.pid,
         count: hello.count,
     };
     const contents = `${JSON.stringify(record)}\n`;
@@ -237,7 +237,7 @@ export async function adoptWorkerRecord(home: string, previous: WorkerRecord, he
         throw new Error(`Session process record changed: ${path}`);
     }
     const updated: WorkerRecord = {
-        ...current, master_pid: process.pid, control_path: controlPath, count: hello.count,
+        ...current, host_pid: process.pid, control_path: controlPath, count: hello.count,
     };
     const contents = `${JSON.stringify(updated)}\n`;
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -276,7 +276,7 @@ function parseWorkerRecord(source: string): WorkerRecord | undefined {
             || typeof item.started_at !== "string" || !Number.isFinite(Date.parse(item.started_at))
             || typeof item.socket_path !== "string" || typeof item.control_path !== "string"
             || typeof item.build_id !== "string" || item.build_id.length === 0
-            || !Number.isSafeInteger(item.master_pid) || (item.master_pid as number) <= 0
+            || !Number.isSafeInteger(item.host_pid) || (item.host_pid as number) <= 0
             || (item.count !== undefined && (!Number.isSafeInteger(item.count) || (item.count as number) <= (item.index as number)))) {
             return undefined;
         }

@@ -9,7 +9,7 @@ import { listLiveProcessesIn } from "../../live-process.ts";
 import { removeSocketFile, removeUnusedSocketFile, socketFileIdentity } from "../socket-file.ts";
 
 export interface ForcePoolStopResult {
-    readonly masterPid?: number;
+    readonly hostPid?: number;
     readonly workerPids: readonly number[];
 }
 
@@ -21,7 +21,7 @@ export interface ForcePoolStopOptions {
 export class ForcePoolStartupInProgressError extends HostStartupInProgressError {
     constructor(
         holderPid: number | undefined,
-        readonly stoppedMasterPid: number | undefined,
+        readonly stoppedHostPid: number | undefined,
         readonly stoppedWorkerPids: readonly number[],
     ) {
         super(holderPid);
@@ -57,7 +57,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
         busy = error;
     }
     try {
-        let masterPid: number | undefined;
+        let hostPid: number | undefined;
         const workerPids = new Set<number>();
         const stopCurrent = async (): Promise<boolean> => {
             const inspection = await inspectHostLockFile(lockPath);
@@ -79,7 +79,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
                 if (outcome.endedBy === "survived") {
                     throw new Error(`Resident Vera host PID ${outcome.pid} is still running.`);
                 }
-                if (outcome.endedBy === "sigkill") masterPid = outcome.pid;
+                if (outcome.endedBy === "sigkill") hostPid = outcome.pid;
                 if (outcome.endedBy === "sigkill" || outcome.endedBy === "already_dead" || outcome.endedBy === "not_ours") {
                     const current = await inspectHostLockFile(lockPath);
                     if (current.state === "valid" && current.record.pid === inspection.record.pid
@@ -99,7 +99,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
                 claim = await acquireStopStartupClaim(claimPath);
             } catch (error) {
                 if (error instanceof HostStartupInProgressError) {
-                    throw new ForcePoolStartupInProgressError(error.holderPid, masterPid, [...workerPids]);
+                    throw new ForcePoolStartupInProgressError(error.holderPid, hostPid, [...workerPids]);
                 }
                 throw error;
             }
@@ -108,7 +108,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
         }
         if (!stopped) return undefined;
         listLiveProcessesIn(home);
-        return { ...(masterPid === undefined ? {} : { masterPid }), workerPids: [...workerPids] };
+        return { ...(hostPid === undefined ? {} : { hostPid }), workerPids: [...workerPids] };
     } finally {
         if (ownsClaim) await claim?.release();
     }

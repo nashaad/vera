@@ -2,7 +2,7 @@ import { spyOn } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import * as supervisor from "../../../src/host/master/supervisor.ts";
+import * as supervisor from "../../../src/host/pool/supervisor.ts";
 import { startResidentHost } from "../../../src/host/runtime.ts";
 
 const home = process.env.VERA_HOME!;

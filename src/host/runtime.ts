@@ -57,14 +57,14 @@ import {
 } from "./capabilities.ts";
 import { createAsyncHostLogger, createHostLogger, defaultHostLogPath, type HostLog, type HostLogEntry } from "./host-log.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
-import { removeStoppedPoolLock } from "./master/worker-records.ts";
-import { hasInterruptedPoolScan } from "./master/crash-scan.ts";
-import { stopRecordedWorkers } from "./master/stop-worker.ts";
-import { RestartLedger } from "./master/restart-ledger.ts";
+import { removeStoppedPoolLock } from "./pool/worker-records.ts";
+import { hasInterruptedPoolScan } from "./pool/crash-scan.ts";
+import { stopRecordedWorkers } from "./pool/stop-worker.ts";
+import { RestartLedger } from "./pool/restart-ledger.ts";
 import { acquireHostStartupClaim, type HostStartupClaim } from "./startup-claim.ts";
 import { HostSocketHeldError } from "./server.ts";
-import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./master/worker-record.ts";
-import { occupiedWorkerSockets, workerCountFromReconnect } from "./master/worker-sockets.ts";
+import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./pool/worker-record.ts";
+import { occupiedWorkerSockets, workerCountFromReconnect } from "./pool/worker-sockets.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -169,14 +169,14 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
-import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./master/in-process.ts";
+import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./pool/in-process.ts";
 import type { SessionShard } from "./shard.ts";
-import { prepareProcessWorker } from "./master/process-worker.ts";
-import { controlSocketPath } from "./master/supervisor.ts";
-import { cachedHostAuthStorage, createCredentialBroker } from "./master/credentials.ts";
-import type { GlobalChange } from "./master/global-services.ts";
-import type { WorkerGlobals } from "./master/worker-globals.ts";
-import type { WorkerExtensionServices } from "./master/extension-catalog.ts";
+import { prepareProcessWorker } from "./pool/process-worker.ts";
+import { controlSocketPath } from "./pool/supervisor.ts";
+import { cachedHostAuthStorage, createCredentialBroker } from "./pool/credentials.ts";
+import type { GlobalChange } from "./pool/global-services.ts";
+import type { WorkerGlobals } from "./pool/worker-globals.ts";
+import type { WorkerExtensionServices } from "./pool/extension-catalog.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -187,7 +187,7 @@ export interface StartResidentHostOptions {
     readonly processWorker?: boolean;
     readonly processWorkerCount?: number;
     readonly processWorkerHeartbeatDeadlineMs?: number;
-    readonly processWorkerMasterGraceMs?: number;
+    readonly processWorkerHostGraceMs?: number;
     readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
@@ -233,7 +233,7 @@ export interface StartResidentHostOptions {
 export interface HostHealth {
     readonly annex: "ok" | "failed";
     readonly annexReason?: string;
-    readonly workers?: readonly import("./master/in-process.ts").WorkerHealth[];
+    readonly workers?: readonly import("./pool/in-process.ts").WorkerHealth[];
 }
 
 export interface ResidentHost {
@@ -632,9 +632,9 @@ async function startHostRuntime(
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
         ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
-        ...(credentials === undefined ? {} : { masterCredentialLease: credentials.lease }),
+        ...(credentials === undefined ? {} : { hostCredentialLease: credentials.lease }),
         ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
-        ...(options.processWorker === true ? { poolMaster: true } : {}),
+        ...(options.processWorker === true ? { poolHost: true } : {}),
         ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
@@ -1111,7 +1111,7 @@ async function startHostRuntime(
         sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
             const workerOptions = {
-                master: sessionHost, sessionOptions, masterSocket: socketPath,
+                host: sessionHost, sessionOptions, hostSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
             };
@@ -1167,7 +1167,7 @@ async function startHostRuntime(
             "server_listen_and_lockfile",
             () => startHostServer({
                 ...sessionHost.handlers,
-                ...inProcessWorker?.masterHandlers,
+                ...inProcessWorker?.hostHandlers,
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,

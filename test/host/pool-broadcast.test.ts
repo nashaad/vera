@@ -1,11 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { connectHost } from "../../src/host/connection.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
 
 interface CapturedFrames {
     next(): Promise<Buffer>;
@@ -68,7 +69,7 @@ async function withRawPeers(
     }
 }
 
-test("broadcast serializes once and preserves each peer's original bytes and ordering", async () => {
+socketTest("broadcast serializes once and preserves each peer's original bytes and ordering", async () => {
     await withRawPeers([1024, 1024, 1024], async (peers, captures) => {
         const value = { summaries: [{ id: "crow", title: "海 🦜\n\\\"" }], workIndex: { rows: [] } };
         await peers[0]!.event("snapshot", value);
@@ -88,7 +89,7 @@ test("broadcast serializes once and preserves each peer's original bytes and ord
     });
 });
 
-test("an oversized or closed peer does not block the other peers or later frames", async () => {
+socketTest("an oversized or closed peer does not block the other peers or later frames", async () => {
     await withRawPeers([128, 1024, 1024], async (peers, captures) => {
         peers[2]!.close();
         const value = { title: "x".repeat(200) };
@@ -100,7 +101,7 @@ test("an oversized or closed peer does not block the other peers or later frames
     });
 });
 
-test("a frame exactly at the receiving connection's byte limit is sent", async () => {
+socketTest("a frame exactly at the receiving connection's byte limit is sent", async () => {
     const value = { title: "海 🦜" };
     const line = JSON.stringify({ type: "event", event: "snapshot", value });
     await withRawPeers([Buffer.byteLength(line)], async (peers, captures) => {

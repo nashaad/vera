@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadVeraConfig } from "../../../src/config.ts";
-import { inProcessWorkerSocket } from "../../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../../src/host/protocol.ts";
 import { startResidentHost } from "../../../src/host/runtime.ts";
 
@@ -14,7 +14,7 @@ const configPath = join(home, "config.json");
 const host = await startResidentHost({
     home, configPath, config: loadVeraConfig({ path: configPath }),
     ...(auto ? {} : { processWorker: true, processWorkerCount: count }),
-    processWorkerMasterGraceMs: grace, skipStartupDiscovery: true,
+    processWorkerHostGraceMs: grace, skipStartupDiscovery: true,
     webRoot: join(home, "web"),
 });
 const workers = await Promise.all(Array.from({ length: count }, (_, index) =>

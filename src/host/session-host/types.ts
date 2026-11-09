@@ -14,9 +14,9 @@ import type { StartupFindings } from "../startup-findings.ts";
 import type { SessionHandlers } from "./handlers.ts";
 import type { RestoringSessions } from "./storage.ts";
 import type { SessionShard } from "../shard.ts";
-import type { WorkerGlobals } from "../master/worker-globals.ts";
-import type { LeaseCredential } from "../master/leased-adapter.ts";
-import type { WorkerExtensionServices } from "../master/extension-catalog.ts";
+import type { WorkerGlobals } from "../pool/worker-globals.ts";
+import type { LeaseCredential } from "../pool/leased-adapter.ts";
+import type { WorkerExtensionServices } from "../pool/extension-catalog.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
     "readAvailableModels"
@@ -53,9 +53,9 @@ export interface StartSessionHostOptions {
     readonly sessionWorker?: boolean;
     readonly disableTurnWorker?: boolean;
     readonly workerGlobals?: WorkerGlobals;
-    readonly masterCredentialLease?: LeaseCredential;
+    readonly hostCredentialLease?: LeaseCredential;
     readonly onPreferencesChanged?: () => void;
-    readonly poolMaster?: boolean;
+    readonly poolHost?: boolean;
     readonly remoteExtensions?: WorkerExtensionServices;
     readonly config: VeraConfig;
     readonly currentConfig: () => VeraConfig;

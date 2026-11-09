@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadVeraConfig } from "../../../src/config.ts";
-import * as supervisor from "../../../src/host/master/supervisor.ts";
+import * as supervisor from "../../../src/host/pool/supervisor.ts";
 import { startResidentHost } from "../../../src/host/runtime.ts";
 import { runResidentHostProcess } from "../../../clients/host/process-lifecycle.ts";
 import { installLiveProcess } from "../../../src/live-process.ts";

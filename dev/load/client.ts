@@ -33,7 +33,7 @@ const attachments = new Map<string, ObservedAttachment>();
 const stopObserving = observeAttachments((event) => {
     if (event.state === "attached") attachments.set(event.id, event);
     log(output, { type: event.state === "attached" ? "attach_path" : "attach_closed", id: event.id, batch,
-        connection: event.connection, via: event.socketPath === undefined ? "unknown" : event.socketPath === socketPath ? "master" : "direct",
+        connection: event.connection, via: event.socketPath === undefined ? "unknown" : event.socketPath === socketPath ? "routed" : "direct",
         socketPath: event.socketPath ?? null, capabilities: event.capabilities, interactive: event.interactive });
 });
 let stopping = false;

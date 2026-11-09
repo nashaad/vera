@@ -24,7 +24,7 @@ interface InboxRegistration {
     readonly heldWakes?: readonly number[];
 }
 
-interface MasterSession {
+interface HostSession {
     readonly label: string;
     readonly session: InboxDeliverySession;
     readonly claim: InboxClaim;
@@ -41,8 +41,8 @@ interface InboxClaim {
 const coordinatorClaims = new WeakMap<InboxDeliveryCoordinator, Map<string, InboxClaim>>();
 const coordinatorHeldWakes = new WeakMap<InboxDeliveryCoordinator, Map<string, Set<number>>>();
 
-export class MasterInboxBridge {
-    private readonly sessions = new Map<string, MasterSession>();
+export class HostInboxBridge {
+    private readonly sessions = new Map<string, HostSession>();
     private readonly claims: Map<string, InboxClaim>;
     private readonly heldWakes: Map<string, Set<number>>;
     private readonly stopped = new AbortController();
@@ -89,7 +89,7 @@ export class MasterInboxBridge {
                 for (const seq of registration.heldWakes) held.add(seq);
             }
             this.claims.set(registration.label, claim);
-            let entry: MasterSession;
+            let entry: HostSession;
             const callback = (name: string, values: readonly unknown[] = [], callbackSignal?: AbortSignal) => {
                 if (!this.owns(registration.label)) return Promise.reject(new Error("Inbox session is owned by another worker"));
                 return this.callback(name, [token, ...values], callbackSignal);
@@ -192,7 +192,7 @@ export class MasterInboxBridge {
         return [...this.heldWakes.keys()].filter((label) => this.owns(label));
     }
 
-    private forgetAcknowledged(entry: MasterSession): void {
+    private forgetAcknowledged(entry: HostSession): void {
         const offset = entry.session.consumer.offset();
         for (const seq of entry.wakes) if (seq <= offset) entry.wakes.delete(seq);
         const held = this.heldWakes.get(entry.label);
@@ -201,7 +201,7 @@ export class MasterInboxBridge {
         if (held.size === 0) this.heldWakes.delete(entry.label);
     }
 
-    private release(token: string, entry: MasterSession): void {
+    private release(token: string, entry: HostSession): void {
         this.sessions.delete(token);
         entry.session.release();
         if (this.claims.get(entry.label) === entry.claim) this.claims.delete(entry.label);
@@ -231,7 +231,7 @@ interface WorkerSession {
 export class WorkerInboxBridge implements InboxSessionBridge {
     private readonly sessions = new Map<string, WorkerSession>();
 
-    constructor(private readonly master: InboxCall) {}
+    constructor(private readonly host: InboxCall) {}
 
     attach(request: AttachInboxConsumerRequest, session: InboxDeliverySession): RemoteInboxSession {
         const token = randomUUID();
@@ -247,7 +247,7 @@ export class WorkerInboxBridge implements InboxSessionBridge {
         this.sessions.set(token, entry);
         const attaching = new AbortController();
         const enqueue = (method: string, args: readonly unknown[] = [], signal?: AbortSignal): Promise<void> => {
-            const result = entry.pending.then(async () => { await this.master(method, [token, ...args], signal); });
+            const result = entry.pending.then(async () => { await this.host(method, [token, ...args], signal); });
             entry.pending = result.then(() => undefined, () => undefined);
             return result;
         };
@@ -274,11 +274,11 @@ export class WorkerInboxBridge implements InboxSessionBridge {
     }
 
     async append(entry: InboxEntryInput, admitted: boolean): Promise<InboxEntry> {
-        return await this.master(admitted ? "appendAdmitted" : "append", [entry]) as InboxEntry;
+        return await this.host(admitted ? "appendAdmitted" : "append", [entry]) as InboxEntry;
     }
 
     async appendOnce(source: string, key: string, entry: InboxEntryInput): Promise<{ readonly entry: InboxEntry; readonly created: boolean }> {
-        return await this.master("appendOnce", [source, key, entry]) as { readonly entry: InboxEntry; readonly created: boolean };
+        return await this.host("appendOnce", [source, key, entry]) as { readonly entry: InboxEntry; readonly created: boolean };
     }
 
     async handle(method: string, args: readonly unknown[], signal: AbortSignal): Promise<unknown> {
@@ -331,16 +331,16 @@ export class WorkerInboxBridge implements InboxSessionBridge {
                 requestAdmission: entry.request.requestAdmission !== undefined,
                 initialOffset: offset, heldWakes,
             };
-            await this.master("attach", [token, registration]);
-            if (!entry.active) await this.master("release", [token]);
+            await this.host("attach", [token, registration]);
+            if (!entry.active) await this.host("release", [token]);
         }
     }
 
     async activate(): Promise<void> {
         for (const [token, entry] of [...this.sessions]) {
             if (!entry.active) continue;
-            await this.master("attachment", [token, entry.attached]);
-            await this.master("pump", [token]);
+            await this.host("attachment", [token, entry.attached]);
+            await this.host("pump", [token]);
         }
     }
 }

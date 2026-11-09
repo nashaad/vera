@@ -4,7 +4,7 @@ import { ToolRuntime } from "../../tools/runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "../../tools/types.ts";
 import type { ControlChannel } from "./control.ts";
 
-export const MASTER_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp"]);
+export const HOST_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp"]);
 
 export interface CatalogTool {
     readonly extensionId: string;
@@ -30,9 +30,9 @@ export function buildExtensionCatalog(registry: ExtensionRegistry): ExtensionCat
     return {
         extensionOrder: registry.extensionIds(),
         toolCatalog: registry.toolsByExtension()
-            .filter(({ extensionId }) => MASTER_EXTENSION_IDS.has(extensionId))
+            .filter(({ extensionId }) => HOST_EXTENSION_IDS.has(extensionId))
             .map(({ extensionId, tool }) => ({ extensionId, tool: toolMetadata(tool) })),
-        commandCatalog: registry.commands().filter((command) => MASTER_EXTENSION_IDS.has(command.source)),
+        commandCatalog: registry.commands().filter((command) => HOST_EXTENSION_IDS.has(command.source)),
     };
 }
 
@@ -78,8 +78,8 @@ export async function serveExtensionRequest(
             throw new Error("Invalid extension tool request");
         }
         const registered = registry.toolsByExtension().find(({ extensionId, tool }) =>
-            MASTER_EXTENSION_IDS.has(extensionId) && tool.definition.name === name);
-        if (registered === undefined) throw new Error("Master extension tool is unavailable");
+            HOST_EXTENSION_IDS.has(extensionId) && tool.definition.name === name);
+        if (registered === undefined) throw new Error("Host extension tool is unavailable");
         const runtime = new ToolRuntime(context.workspace, undefined, undefined, undefined, undefined, undefined, context.isSubagent);
         runtime.sessionId = context.sessionId as string | undefined;
         try { return await registered.tool.execute(input, runtime, signal); }
@@ -93,8 +93,8 @@ export async function serveExtensionRequest(
             throw new Error("Invalid extension command request");
         }
         const command = registry.commands().find((entry) =>
-            MASTER_EXTENSION_IDS.has(entry.source) && entry.name === name);
-        if (command === undefined) throw new Error("Master extension command is unavailable");
+            HOST_EXTENSION_IDS.has(entry.source) && entry.name === name);
+        if (command === undefined) throw new Error("Host extension command is unavailable");
         return await registry.invokeCommand(name, argumentsText, workspace, signal, sessionId, sessionPath);
     }
     throw new Error("Unknown extension control request");

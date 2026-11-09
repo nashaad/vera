@@ -1,13 +1,14 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../../support/socket-probe.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
-import { forceStopPool } from "../../../src/host/master/force-stop-pool.ts";
-import { stopWorkerProcess } from "../../../src/host/master/stop-worker.ts";
-import { readRecordedWorkers } from "../../../src/host/master/worker-records.ts";
+import { forceStopPool } from "../../../src/host/pool/force-stop-pool.ts";
+import { stopWorkerProcess } from "../../../src/host/pool/stop-worker.ts";
+import { readRecordedWorkers } from "../../../src/host/pool/worker-records.ts";
 import { processIsAlive } from "../../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../../src/host/reconnecting-agent-client.ts";
@@ -22,7 +23,7 @@ async function until(check: () => boolean | Promise<boolean>, label: string): Pr
 }
 
 for (const force of [false, true]) {
-    test(`a pooled TUI shows host stopped promptly after a ${force ? "forced" : "waiting"} stop`, async () => {
+    socketAndLoopbackTest(`a pooled TUI shows host stopped promptly after a ${force ? "forced" : "waiting"} stop`, async () => {
         const root = await mkdtemp("/private/tmp/vera-dev/pool-stop-tui-");
         const home = join(root, "host");
         const web = join(home, "web");

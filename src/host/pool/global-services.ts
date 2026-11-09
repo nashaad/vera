@@ -19,8 +19,8 @@ export interface PoolCommit {
     readonly learned?: LearnedFacts;
 }
 
-export function createMasterGlobals(options: {
-    readonly master: SessionHost;
+export function createHostGlobals(options: {
+    readonly host: SessionHost;
     readonly home: string;
     readonly lease: (provider: string, rejected?: string) => Promise<CredentialLease>;
     readonly changed: (kind: GlobalChange) => void;
@@ -28,7 +28,7 @@ export function createMasterGlobals(options: {
     readonly configPath: string;
     readonly forgetRestartRecords: (id: string) => void | Promise<void>;
 }) {
-    const registry = options.master.registry;
+    const registry = options.host.registry;
     const poolPath = join(options.home, "pool.json");
     return {
         async handle(method: string, args: readonly unknown[]): Promise<unknown> {

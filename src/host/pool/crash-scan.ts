@@ -47,7 +47,7 @@ export async function hasInterruptedPoolScan(lockPath: string, workers: WorkerRe
         ...workers.pending.map((worker) => worker.record),
         ...workers.stopped,
         ...workers.stale,
-    ].some((record) => record.master_pid !== stale.pid);
+    ].some((record) => record.host_pid !== stale.pid);
 }
 
 export interface CrashScanWorker {

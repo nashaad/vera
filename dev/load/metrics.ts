@@ -16,13 +16,13 @@ export interface ProcessFootprint {
     readonly error?: string;
 }
 
-export async function processReadings(masterPid: number, existingTable?: string): Promise<ProcessReading[]> {
+export async function processReadings(hostPid: number, existingTable?: string): Promise<ProcessReading[]> {
     const table = existingTable ?? await command(["/bin/ps", "-axo", "pid=,ppid=,command="]);
     const entries = table.split("\n").flatMap((line) => {
         const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
         return match === null ? [] : [{ pid: Number(match[1]), parent: Number(match[2]), command: match[3]! }];
     });
-    const hosts = [{ pid: masterPid, role: "host" }];
+    const hosts = [{ pid: hostPid, role: "host" }];
     let changed = true;
     while (changed) {
         changed = false;
@@ -46,8 +46,8 @@ export async function processReadings(masterPid: number, existingTable?: string)
     return hosts.map((host) => ({ ...host, cpu: metrics.get(host.pid)?.cpu ?? null, rssBytes: metrics.get(host.pid)?.rssBytes ?? null }));
 }
 
-export async function sampleFootprints(run: string, masterPid: number, phase: "host_ready" | "ready" | "replacement_ready" | "sample" | "end"): Promise<ProcessFootprint[]> {
-    const processes = await processReadings(masterPid);
+export async function sampleFootprints(run: string, hostPid: number, phase: "host_ready" | "ready" | "replacement_ready" | "sample" | "end"): Promise<ProcessFootprint[]> {
+    const processes = await processReadings(hostPid);
     const samples = await Promise.all(processes.map(async (process): Promise<ProcessFootprint> => {
         const path = phase === "sample" ? undefined : join(run, `footprint-${phase}-${process.pid}.txt`);
         try {

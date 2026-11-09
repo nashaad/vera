@@ -14,7 +14,7 @@ import {
     stopLeftoverPoolWorkers,
     type StartHost,
 } from "./upgrade.ts";
-import { readRecordedWorkers } from "../host/master/worker-records.ts";
+import { readRecordedWorkers } from "../host/pool/worker-records.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";

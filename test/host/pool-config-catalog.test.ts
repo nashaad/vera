@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,13 +8,13 @@ import * as config from "../../src/config.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
-import * as globalServices from "../../src/host/master/global-services.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
+import * as globalServices from "../../src/host/pool/global-services.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 
-test("worker settings writes go through the master and catalog replies are cached", async () => {
+socketTest("worker settings writes go through the host and catalog replies are cached", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7cs-");
     const configPath = join(home, "config.json");
     const initial = {
@@ -33,8 +34,8 @@ test("worker settings writes go through the master and catalog replies are cache
         if (event === "config_changed" && value === "config") notified.add(this);
         return sendEvent.call(this, event, value);
     });
-    const createGlobals = globalServices.createMasterGlobals;
-    const globalsSpy = spyOn(globalServices, "createMasterGlobals").mockImplementation((options) => {
+    const createGlobals = globalServices.createHostGlobals;
+    const globalsSpy = spyOn(globalServices, "createHostGlobals").mockImplementation((options) => {
         const globals = createGlobals(options);
         return { async handle(method, args) {
             if (method === "globals.catalog") catalogRequests += 1;
@@ -136,7 +137,7 @@ test("worker settings writes go through the master and catalog replies are cache
     }
 }, 90_000);
 
-test("the master migrates configuration before starting a worker", async () => {
+socketTest("the host migrates configuration before starting a worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7cm-");
     const path = join(home, "config.json");
     const initial = {
@@ -176,7 +177,7 @@ test("the master migrates configuration before starting a worker", async () => {
     }
 }, 60_000);
 
-test("an override saved through one worker is reloaded by another with the selected home", async () => {
+socketTest("an override saved through one worker is reloaded by another with the selected home", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7co-");
     const initial = {
         schema_version: 1 as const, provider: "stub", model: "stub-model", approval_mode: "auto" as const, curated_models_url: "",
@@ -219,7 +220,7 @@ test("an override saved through one worker is reloaded by another with the selec
     }
 }, 60_000);
 
-test("project inbox admissions from both workers and the master are written by the master", async () => {
+socketTest("project inbox admissions from both workers and the host are written by the host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7ch-");
     const workspace = await mkdtemp("/private/tmp/vera-dev/h7cw-");
     const path = join(workspace, ".vera", "config.json");
@@ -246,8 +247,8 @@ test("project inbox admissions from both workers and the master are written by t
         for (const session of [first, second]) {
             pids.push((await requestHostIdentity(session.location!.socket_path))!.pid);
         }
-        const master = await host.registry.create({ workspace });
-        const sessions = [first, second, master];
+        const hostSession = await host.registry.create({ workspace });
+        const sessions = [first, second, hostSession];
         for (const session of sessions) {
             const client = await attachAgent({ socketPath: host.server.socketPath, agentId: session.id });
             clients.push(client);

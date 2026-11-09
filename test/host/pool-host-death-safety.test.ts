@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { CRASH_CUT_MESSAGE, readSessionTurnState, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
 interface PoolHostInfo {
@@ -25,7 +26,7 @@ interface StartedProcess {
     readonly command: string;
 }
 
-test("ordinary discovery does not reopen a session held by a surviving worker", async () => {
+socketAndLoopbackTest("ordinary discovery does not reopen a session held by a surviving worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-safety-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -76,7 +77,7 @@ test("ordinary discovery does not reopen a session held by a surviving worker", 
         await waitFor(() => stopped(info!.workerPid), "worker to stop");
         child.kill("SIGKILL");
         await child.exited;
-        await waitFor(() => !alive(child.pid), "master exit");
+        await waitFor(() => !alive(child.pid), "host exit");
 
         const lockfile = createHostLockfile({
             path: join(home, "runtime", "host.json"), socketPath: info.socket,
@@ -97,7 +98,7 @@ test("ordinary discovery does not reopen a session held by a surviving worker", 
         const afterRecovery = await readFile(path, "utf8");
         const resumed = await resumeAgentThroughHost(replacement!.server.socketPath, path);
         expect(resumed.id).toBe(session.id);
-        console.info(`Master ${info.pid}, worker ${info.workerPid}, replacement ${process.pid}`);
+        console.info(`Host ${info.pid}, worker ${info.workerPid}, replacement ${process.pid}`);
         expect({
             replacementOwnsSession: replacement!.registry.agents.has(session.id),
             crashCutWritten: afterRecovery.includes(CRASH_CUT_MESSAGE),

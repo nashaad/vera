@@ -26,7 +26,7 @@ const paging = process.env.LOAD_PAGING === "1";
 const attachId = process.env.LOAD_ATTACH_ID!;
 const stopObserving = observeAttachments((event) => {
     if (event.state === "attached") log(output, { type: "attach_path", id: event.id,
-        via: event.socketPath === undefined ? "unknown" : event.socketPath === socketPath ? "master" : "direct" });
+        via: event.socketPath === undefined ? "unknown" : event.socketPath === socketPath ? "routed" : "direct" });
 });
 let stopping = false;
 const sampledReplacements = new Set<number>();
@@ -94,8 +94,8 @@ try { await Promise.all([
             return match && Number(match[2]) === pid ? [{ pid: Number(match[1]), command: match[3] }] : [];
         });
         const hosts = await processReadings(pid, processes);
-        const master = hosts.find((host) => host.pid === pid);
-        log(output, { type: "process", cpu: master?.cpu, rssBytes: master?.rssBytes, children, hosts });
+        const host = hosts.find((host) => host.pid === pid);
+        log(output, { type: "process", cpu: host?.cpu, rssBytes: host?.rssBytes, children, hosts });
         const events = rows<{ type: string; pid?: number }>(join(home, "runtime", "logs", "host.jsonl"));
         for (const event of events) {
             if (event.type !== "session_process_replaced" || event.pid === undefined || sampledReplacements.has(event.pid)

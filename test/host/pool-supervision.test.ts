@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { createServer, type Server } from "node:net";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
@@ -12,9 +13,9 @@ import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-c
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
-import { MasterInboxBridge } from "../../src/host/master/inbox.ts";
-import type { ControlPeer } from "../../src/host/master/control.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import { HostInboxBridge } from "../../src/host/pool/inbox.ts";
+import type { ControlPeer } from "../../src/host/pool/control.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost, type StartResidentHostOptions } from "../../src/host/runtime.ts";
 import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
@@ -113,7 +114,7 @@ async function fixture(options: FixtureOptions = {}) {
     };
 }
 
-test("session process losses and replacements are recorded in the host log", async () => {
+socketTest("session process losses and replacements are recorded in the host log", async () => {
     const harness = await fixture({
         async prepare(home) {
             await writeFile(join(home, "stderr-marker.ts"), 'console.error("x".repeat(17_000) + "worker stderr tail");\n');
@@ -157,7 +158,7 @@ test("session process losses and replacements are recorded in the host log", asy
     } finally { await harness.close(); }
 }, 30_000);
 
-test("vera ls keeps the last summaries while a session process is unavailable", async () => {
+socketTest("vera ls keeps the last summaries while a session process is unavailable", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const harness = await fixture({
@@ -195,7 +196,7 @@ test("vera ls keeps the last summaries while a session process is unavailable", 
     }
 }, 30_000);
 
-test("a pending pool stop holds new turns on every session process", async () => {
+socketTest("a pending pool stop holds new turns on every session process", async () => {
     const waiting = Promise.withResolvers<void>();
     const stub = slowStopProvider();
     const harness = await fixture({ workerCount: 3, provider: stub });
@@ -229,7 +230,7 @@ test("a pending pool stop holds new turns on every session process", async () =>
     }
 }, 30_000);
 
-test("a replacement session process holds turns during a pending stop", async () => {
+socketTest("a replacement session process holds turns during a pending stop", async () => {
     const waiting = Promise.withResolvers<void>();
     const stub = slowStopProvider();
     const harness = await fixture({ workerCount: 3, provider: stub });
@@ -269,7 +270,7 @@ test("a replacement session process holds turns during a pending stop", async ()
     }
 }, 30_000);
 
-for (const kind of ["event", "request", "response"] as const) test(`non-heartbeat ${kind} frames keep a session process alive until it goes silent`, async () => {
+for (const kind of ["event", "request", "response"] as const) socketTest(`non-heartbeat ${kind} frames keep a session process alive until it goes silent`, async () => {
     let peer: ControlPeer | undefined;
     let activity = "";
     let stop = "";
@@ -280,7 +281,7 @@ for (const kind of ["event", "request", "response"] as const) test(`non-heartbea
         async prepare(home) {
             activity = join(home, "activity");
             stop = join(home, "stop-activity");
-            const control = join(process.cwd(), "src/host/master/control.ts");
+            const control = join(process.cwd(), "src/host/pool/control.ts");
             await writeFile(join(home, "delay-heartbeats.ts"), `import { appendFileSync, existsSync } from "node:fs";
 import { ControlPeer } from ${JSON.stringify(control)};
 const original = ControlPeer.prototype.event;
@@ -339,7 +340,7 @@ ControlPeer.prototype.event = function(event, value) {
     }
 }, 30_000);
 
-test("a hard-looping worker misses its heartbeat while identity and locate remain responsive", async () => {
+socketTest("a hard-looping worker misses its heartbeat while identity and locate remain responsive", async () => {
     let marker = "";
     const harness = await fixture({
         heartbeatMs: 900,
@@ -387,7 +388,7 @@ export function activate(vera) { vera.requests.handle("block", () => { writeFile
     }
 }, 30_000);
 
-test("three worker deaths trip the breaker while another worker keeps serving", async () => {
+socketTest("three worker deaths trip the breaker while another worker keeps serving", async () => {
     const harness = await fixture();
     try {
         const socket = harness.host.server.socketPath;
@@ -410,7 +411,7 @@ test("three worker deaths trip the breaker while another worker keeps serving", 
     } finally { await harness.close(); }
 }, 30_000);
 
-test("repeated startup failures trip one slot without stopping the host", async () => {
+socketTest("repeated startup failures trip one slot without stopping the host", async () => {
     const harness = await fixture({
         spawnSpec: (options) => options.index === 0 ? { command: process.execPath, args: ["-e", "process.exit(7)"] } : undefined,
     });
@@ -423,7 +424,7 @@ test("repeated startup failures trip one slot without stopping the host", async 
     } finally { await harness.close(); }
 }, 30_000);
 
-test("closing the host while a replacement is starting reaps the replacement", async () => {
+socketTest("closing the host while a replacement is starting reaps the replacement", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const harness = await fixture({ beforeStart: async (options) => {
@@ -444,7 +445,7 @@ test("closing the host while a replacement is starting reaps the replacement", a
     }
 }, 30_000);
 
-test("a live process answering at the worker socket is not displaced", async () => {
+socketTest("a live process answering at the worker socket is not displaced", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const harness = await fixture({ beforeStart: async (options) => {
@@ -480,7 +481,7 @@ test("a live process answering at the worker socket is not displaced", async () 
     }
 }, 30_000);
 
-test("an inbox entry held during worker replacement is delivered once", async () => {
+socketTest("an inbox entry held during worker replacement is delivered once", async () => {
     const watching = Promise.withResolvers<WatchRuntimeContext>();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -532,7 +533,7 @@ test("an inbox entry held during worker replacement is delivered once", async ()
     }
 }, 30_000);
 
-for (const savedMessage of [false, true]) test(`an inbox wake interrupted by a worker exit stays held (${savedMessage ? "saved message" : "no saved message"})`, async () => {
+for (const savedMessage of [false, true]) socketTest(`an inbox wake interrupted by a worker exit stays held (${savedMessage ? "saved message" : "no saved message"})`, async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const watching = Promise.withResolvers<WatchRuntimeContext>();
@@ -632,7 +633,7 @@ for (const savedMessage of [false, true]) test(`an inbox wake interrupted by a w
     }
 }, 30_000);
 
-test("an extension inbox wake interrupted before acknowledgement remains held", async () => {
+socketTest("an extension inbox wake interrupted before acknowledgement remains held", async () => {
     const recording = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const harness = await fixture({
@@ -649,8 +650,8 @@ test("an extension inbox wake interrupted before acknowledgement remains held", 
             return { extension };
         },
     });
-    const original = MasterInboxBridge.prototype.handle;
-    const probe = spyOn(MasterInboxBridge.prototype, "handle").mockImplementation(async function (this: MasterInboxBridge, method, args, signal) {
+    const original = HostInboxBridge.prototype.handle;
+    const probe = spyOn(HostInboxBridge.prototype, "handle").mockImplementation(async function (this: HostInboxBridge, method, args, signal) {
         if (method === "noteDelivered") {
             recording.resolve();
             await release.promise;

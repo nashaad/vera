@@ -7,9 +7,9 @@ if (!run || !process.env.VERA_HOME?.includes("/vera-dev/")) {
 }
 const workerArgument = process.argv.indexOf("--worker-index");
 const workerIndex = workerArgument === -1 ? undefined : Number(process.argv[workerArgument + 1]);
-const master = process.argv.some((arg) => arg.endsWith("/clients/host/main.ts"));
-if (master || workerIndex !== undefined) {
-    const path = master ? join(run, "drift.ndjson") : join(run, `drift-worker-${process.pid}.ndjson`);
+const host = process.argv.some((arg) => arg.endsWith("/clients/host/main.ts"));
+if (host || workerIndex !== undefined) {
+    const path = host ? join(run, "drift.ndjson") : join(run, `drift-worker-${process.pid}.ndjson`);
     let previous = performance.now();
     let pending = "";
     const flush = (): void => {

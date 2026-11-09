@@ -1,13 +1,14 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import { stopRecordedWorkers, stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/master/stop-worker.ts";
-import { readRecordedWorkers } from "../../src/host/master/worker-records.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { stopRecordedWorkers, stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/stop-worker.ts";
+import { readRecordedWorkers } from "../../src/host/pool/worker-records.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { socketFileIdentity } from "../../src/host/socket-file.ts";
@@ -18,7 +19,7 @@ import {
     cloneRelease, createFixture, currentBuild, processAlive, readHostLock, stopHostProcess, waitUntil,
 } from "../support/handoff-e2e.ts";
 
-test("a packed pool upgrades after a turn and leaves no old processes or records", async () => {
+socketAndLoopbackTest("a packed pool upgrades after a turn and leaves no old processes or records", async () => {
     const env = await createFixture({ pool: true });
     const previousHome = process.env.VERA_HOME;
     const previousDev = process.env.VERA_DEV_INSTANCE;
@@ -34,7 +35,7 @@ test("a packed pool upgrades after a turn and leaves no old processes or records
         const records = await readRecordedWorkers(env.home);
         expect(records).toHaveLength(count);
         for (const record of records) {
-            expect(record.masterPid).toBe(oldLock.pid);
+            expect(record.hostPid).toBe(oldLock.pid);
             oldWorkers.push(record);
         }
         const sockets = [socket, join(env.home, "runtime", "control.sock"),
@@ -64,7 +65,7 @@ test("a packed pool upgrades after a turn and leaves no old processes or records
         client = undefined;
 
         await waitUntil(() => !processAlive(oldLock.pid) && oldWorkers.every((worker) => !processAlive(worker.pid)),
-            15_000, "the old master and session processes to exit");
+            15_000, "the old host and session processes to exit");
         expect(currentBuild(env.prefix)).toBe(build2);
         const lock = await inspectHostLockFile(join(env.home, "runtime", "host.json"));
         expect(lock.state).toBe("valid");
@@ -81,7 +82,7 @@ test("a packed pool upgrades after a turn and leaves no old processes or records
         const nextWorkers = await readRecordedWorkers(env.home);
         expect(nextWorkers).toHaveLength(count);
         for (const worker of nextWorkers) {
-            expect(worker.masterPid).toBe(lock.record.pid);
+            expect(worker.hostPid).toBe(lock.record.pid);
             expect(oldWorkers.some((old) => old.pid === worker.pid)).toBe(false);
             const identity = await requestHostIdentity(inProcessWorkerSocket(env.home, Number(worker.id.slice(1))));
             expect(identity?.pid).toBe(worker.pid);

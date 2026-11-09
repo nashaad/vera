@@ -12,7 +12,7 @@ export interface WorkerStopIdentity {
 export interface RecordedWorker extends WorkerStopIdentity {
     readonly id: string;
     readonly path: string;
-    readonly masterPid?: number;
+    readonly hostPid?: number;
 }
 
 export async function readRecordedWorkers(home: string): Promise<readonly RecordedWorker[]> {
@@ -45,8 +45,8 @@ export async function readRecordedWorkers(home: string): Promise<readonly Record
         }
         records.push({
             id: record.id, pid: record.pid, started_at: record.started_at, path,
-            ...(typeof record.master_pid === "number" && Number.isSafeInteger(record.master_pid) && record.master_pid > 0
-                ? { masterPid: record.master_pid } : {}),
+            ...(typeof record.host_pid === "number" && Number.isSafeInteger(record.host_pid) && record.host_pid > 0
+                ? { hostPid: record.host_pid } : {}),
         });
     }
     return records;

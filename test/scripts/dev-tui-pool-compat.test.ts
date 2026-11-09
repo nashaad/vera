@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -6,10 +7,10 @@ import { runDevTui } from "../../scripts/dev-tui.ts";
 import { synthesizeFactoryHome } from "../../scripts/synthesize-factory-home.ts";
 import { forceStopHostProcess } from "../../src/host/force-stop.ts";
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
-test("the development pool flag respects the single-process setting", async () => {
+socketTest("the development pool flag respects the single-process setting", async () => {
     await mkdir("/private/tmp/vera-dev", { recursive: true });
     const root = await mkdtemp("/private/tmp/vera-dev/pc-");
     const sourceHome = join(root, "factory");

@@ -12,7 +12,7 @@ import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
-socketTest("master extensions reach the session owner before and after a move", async () => {
+socketTest("host extensions reach the session owner before and after a move", async () => {
     const home = await mkdtemp(join(tmpdir(), "vhr-"));
     const previousHome = process.env.VERA_HOME;
     const extension = join(home, "extensions", "route-test");

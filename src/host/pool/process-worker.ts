@@ -7,7 +7,7 @@ import { prepareRoutedHost } from "./routing.ts";
 import { SESSION_WORKER_STARTUP_TIMEOUT_MS, startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupervisor } from "./supervisor.ts";
 import { COMMON_METHODS, type WorkerBootstrap, type WorkerStartOptions } from "./worker-control.ts";
 import { ControlPeer } from "./control.ts";
-import { MasterInboxBridge } from "./inbox.ts";
+import { HostInboxBridge } from "./inbox.ts";
 import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
 import type { SessionEndpoint } from "./session-endpoint.ts";
@@ -16,7 +16,7 @@ import { readSessionSnapshot, readSessionTurnState } from "../../store/session-s
 import { recoveryFileStamp, sameRecoveryFile } from "./recovery-file.ts";
 import { startWorkerControlServer, type WorkerControlServer } from "./control-server.ts";
 import type { createCredentialBroker } from "./credentials.ts";
-import { createMasterGlobals, type GlobalChange } from "./global-services.ts";
+import { createHostGlobals, type GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
 import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
 import { stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
@@ -54,7 +54,7 @@ interface WorkerSlot {
     exited: PromiseWithResolvers<void>;
     readonly endpoint: SessionEndpoint;
     broker: ControlReservations;
-    inbox: MasterInboxBridge;
+    inbox: HostInboxBridge;
     peer?: ControlPeer;
     supervisor?: SessionWorkerSupervisor;
     generation: number;
@@ -106,10 +106,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let startupDeadline = 0;
     const deadline = options.hostOptions.processWorkerHeartbeatDeadlineMs ?? 10_000;
     if (!Number.isFinite(deadline) || deadline <= 0) throw new Error("Invalid worker heartbeat deadline");
-    const masterGraceMs = options.hostOptions.processWorkerMasterGraceMs ?? 30_000;
-    if (!Number.isFinite(masterGraceMs) || masterGraceMs <= 0) throw new Error("Invalid worker master grace");
-    const makeInbox = (index: number, connection: () => Promise<ControlPeer>): MasterInboxBridge => new MasterInboxBridge(
-        options.master.inboxDelivery,
+    const hostGraceMs = options.hostOptions.processWorkerHostGraceMs ?? 30_000;
+    if (!Number.isFinite(hostGraceMs) || hostGraceMs <= 0) throw new Error("Invalid worker host grace");
+    const makeInbox = (index: number, connection: () => Promise<ControlPeer>): HostInboxBridge => new HostInboxBridge(
+        options.host.inboxDelivery,
         async (method, args, signal) => await (await connection()).request(`inbox.${method}`, args, signal),
         (id) => routed.router.inboxOwner(id) === `w${index}`,
     );
@@ -131,12 +131,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         return slot;
     });
     const notifyGlobalChange = (kind: GlobalChange): void => {
-        if (kind === "config") applyConfigDefaults(options.master.registry, options.sessionOptions.currentConfig());
+        if (kind === "config") applyConfigDefaults(options.host.registry, options.sessionOptions.currentConfig());
         for (const slot of slots) void slot.peer?.event("config_changed", kind).catch(() => {});
     };
     options.onGlobalChangeReady(notifyGlobalChange);
-    const globals = createMasterGlobals({
-        master: options.master,
+    const globals = createHostGlobals({
+        host: options.host,
         home: options.sessionOptions.home,
         lease: options.credentials.lease,
         changed: notifyGlobalChange,
@@ -155,7 +155,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     });
     const first = slots[0]!;
     const routed = prepareRoutedHost({
-        master: options.master, worker: first.endpoint, masterSocket: options.masterSocket,
+        host: options.host, worker: first.endpoint, hostSocket: options.hostSocket,
         workerSocket: first.socket, buildId: options.buildId, reservations,
         workerGeneration: () => first.generation,
         workerReady: () => first.ready,
@@ -195,12 +195,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         ...(hostOptions.arcConfigPath === undefined ? {} : { arcConfigPath: hostOptions.arcConfigPath }),
     };
     const bootstrap: WorkerBootstrap = {
-        options: childOptions, masterSocket: options.masterSocket, lockPath: options.lockPath,
+        options: childOptions, hostSocket: options.hostSocket, lockPath: options.lockPath,
         buildId: options.buildId, capabilities: options.capabilities,
-        extensionCatalog: buildExtensionCatalog(options.master.extensions),
+        extensionCatalog: buildExtensionCatalog(options.host.extensions),
         heartbeatIntervalMs: Math.max(1, Math.min(1_000, Math.floor(deadline / 3))),
         get turnsHeld() { return turnsHeld; },
-        masterGraceMs,
+        hostGraceMs,
     };
     const startSlot = async (slot: WorkerSlot): Promise<void> => {
         const adopted = adopting.get(slot.index);
@@ -270,12 +270,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     }
                     if (method.startsWith("globals.")) return await globals.handle(method, args);
                     if (method.startsWith("extension.")) {
-                        return await serveExtensionRequest(options.master.extensions, method, args, signal);
+                        return await serveExtensionRequest(options.host.extensions, method, args, signal);
                     }
                     if (method.startsWith("inbox.")) return await slot.inbox.handle(method.slice(6), args, signal);
                     if (method === "public.request") {
                         if (slot.peer === undefined) throw new Error("Worker control is unavailable");
-                        await servePublicRequest(slot.peer, options.masterSocket, args, signal, forwardedShutdowns);
+                        await servePublicRequest(slot.peer, options.hostSocket, args, signal, forwardedShutdowns);
                         return;
                     }
                     if (method === "reservation.acquire") {
@@ -319,7 +319,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                         const invoke = routed.common[name] as (...values: unknown[]) => unknown;
                         return await invoke(...args);
                     }
-                    throw new Error("Unknown master control request");
+                    throw new Error("Unknown host control request");
                 },
             });
             slot.spawnIdentity ??= { pid: slot.supervisor.pid, started_at: slot.supervisor.startedAt };
@@ -546,7 +546,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                         const record: WorkerRecord = {
                             id: hello.id, index: hello.index, pid: hello.pid, started_at: hello.started_at,
                             socket_path: hello.socket, control_path: control!.path, build_id: hello.build_id,
-                            master_pid: process.pid, count: hello.count,
+                            host_pid: process.pid, count: hello.count,
                         };
                         adopting.set(slot.index, { record, identity, unrecorded: true });
                         try {
@@ -618,7 +618,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         recoveryWork = finishRecovery().then(() => { deferredRecovery = false; }, recoveryFailure);
     };
     return {
-        masterHandlers: routed.masterHandlers,
+        hostHandlers: routed.hostHandlers,
         async recoverCrashedTurns(scanOptions) {
             try {
                 return await recoverPoolCrashedTurns({
@@ -782,7 +782,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     }
                 }
             }));
-            return [...options.master.registry.stopWaitTargets(), ...workers.flat()];
+            return [...options.host.registry.stopWaitTargets(), ...workers.flat()];
         },
         async hasSession(id) {
             return (await Promise.all(slots.map(async (slot) => {
@@ -811,7 +811,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         async knowsSession(id) {
             while (true) {
                 const owner = routed.router.inboxOwner(id);
-                if (owner === "host") return (await options.master.handlers.listAgents()).some((session) => session.id === id);
+                if (owner === "host") return (await options.host.handlers.listAgents()).some((session) => session.id === id);
                 const slot = slots.find((candidate) => candidate.id === owner);
                 if (slot === undefined) return false;
                 if (slot.starting && slot.generation > 1) return knownSessions.has(id) || routed.router.knownPath(id) !== undefined;

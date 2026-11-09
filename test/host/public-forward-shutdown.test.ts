@@ -1,14 +1,15 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
 import { HOST_PROTOCOL_VERSION, requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import * as hostServer from "../../src/host/server.ts";
 
-test("a forwarded shutdown reply is delivered before the worker stops", async () => {
+socketTest("a forwarded shutdown reply is delivered before the worker stops", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-reply-");
     const frameHeld = Promise.withResolvers<void>();
     const releaseFrame = Promise.withResolvers<void>();
@@ -45,11 +46,11 @@ test("a forwarded shutdown reply is delivered before the worker stops", async ()
                 providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:9/v1", credential: "none" } },
             },
         });
-        const master = await requestHostIdentity(host.server.socketPath);
+        const hostIdentity = await requestHostIdentity(host.server.socketPath);
         const workerPath = join(home, "runtime", "w0.sock");
         workerPid = (await requestHostIdentity(workerPath))!.pid;
         response = request(workerPath, {
-            type: "shutdown_if_idle", pid: master!.pid, started_at: master!.started_at,
+            type: "shutdown_if_idle", pid: hostIdentity!.pid, started_at: hostIdentity!.started_at,
             requester_protocol_version: HOST_PROTOCOL_VERSION,
         });
         void response.catch(() => {});

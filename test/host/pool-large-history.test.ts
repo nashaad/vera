@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,11 +8,11 @@ import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../src/host/connection.ts";
-import { HostRouter } from "../../src/host/master/router.ts";
+import { HostRouter } from "../../src/host/pool/router.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
-test("large histories attach through the master and directly while routing is delayed", async () => {
+socketTest("large histories attach through the host and directly while routing is delayed", async () => {
     const home = await mkdtemp(join(tmpdir(), "pd-large-"));
     const directory = join(home, "runtime", "sessions");
     const path = join(directory, "crow.jsonl");
@@ -42,7 +43,7 @@ test("large histories attach through the master and directly while routing is de
         restoreRouting = () => probe.mockRestore();
         const results: Array<{ via: string; bytes?: number; error?: string }> = [];
         for (const [via, socketPath, capabilities] of [
-            ["master", host.server.socketPath, []],
+            ["host", host.server.socketPath, []],
             ["session", session.location!.socket_path, [HOST_CAPABILITY_SESSION_ROUTING]],
         ] as const) {
             try {

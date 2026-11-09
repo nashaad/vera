@@ -235,7 +235,7 @@ realProcessTest(
 );
 
 realProcessTest(
-    "a surviving session process finishes a turn after the TUI reconnects the master",
+    "a surviving session process finishes a turn after the TUI reconnects the host",
     async () => {
         const tempBase = join(tmpdir(), "vera-dev");
         mkdirSync(tempBase, { recursive: true });
@@ -302,7 +302,7 @@ realProcessTest(
             killedHost = readHostPid(trialHome);
             if (killedHost === undefined || !verifiedHost(killedHost, trialHome)) throw new Error("Could not verify the trial host");
             process.kill(killedHost, "SIGKILL");
-            await waitUntil(() => !isAlive(killedHost!), "master exit");
+            await waitUntil(() => !isAlive(killedHost!), "host exit");
             expect(isAlive(workerPid!)).toBe(true);
             tmux("send-keys", "-t", "hostdrop-pool", "C-p");
             await waitUntil(() => pane().includes("Commands"), "commands");
@@ -312,7 +312,7 @@ realProcessTest(
             await waitUntil(() => {
                 const pid = readHostPid(trialHome);
                 return pid !== undefined && pid !== killedHost;
-            }, "replacement master");
+            }, "replacement host");
             for (const pid of workerPids(trialHome)) startedWorkers.add(pid);
             expect((await requestHostIdentity(workerSocket))?.pid).toBe(workerPid);
             release.resolve();

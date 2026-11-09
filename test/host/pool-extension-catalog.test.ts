@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -175,7 +176,7 @@ async function waitFor(check: () => boolean): Promise<void> {
     }
 }
 
-test("three workers share master MCP tools and commands with the single-host tool list", async () => {
+socketAndLoopbackTest("three workers share host MCP tools and commands with the single-host tool list", async () => {
     const single = await runCase(false);
     const pool = await runCase(true);
     expect(JSON.stringify(pool.tools)).toBe(JSON.stringify(single.tools));

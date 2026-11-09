@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -11,7 +12,7 @@ import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.
 import { defaultSessionDirectory, SessionStore } from "../../src/store/session-store.ts";
 import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
-test("a schedule created by a worker session lands in the master scheduler", async () => {
+socketAndLoopbackTest("a schedule created by a worker session lands in the host scheduler", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-tool-");
     const pidPath = join(home, "tool.pid");
     let command = "";

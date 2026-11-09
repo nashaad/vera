@@ -2,8 +2,8 @@ import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
 
-import { recoverPoolCrashedTurns } from "../../src/host/master/crash-scan.ts";
-import { RestartLedger } from "../../src/host/master/restart-ledger.ts";
+import { recoverPoolCrashedTurns } from "../../src/host/pool/crash-scan.ts";
+import { RestartLedger } from "../../src/host/pool/restart-ledger.ts";
 
 test("the crash scan deadline includes candidate enumeration", async () => {
     await fs.mkdir("/tmp/vera-dev", { recursive: true });

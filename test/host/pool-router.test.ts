@@ -4,9 +4,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/master/router.ts";
-import { RoutedSnapshots } from "../../src/host/master/snapshots.ts";
-import { mergeRoster } from "../../src/host/master/roster.ts";
+import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/pool/router.ts";
+import { RoutedSnapshots } from "../../src/host/pool/snapshots.ts";
+import { mergeRoster } from "../../src/host/pool/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
 import { CRASH_CUT_MESSAGE, SessionStore, openSessionForRecovery, readSessionTurnState } from "../../src/store/session-store.ts";
@@ -100,13 +100,13 @@ test("an opening worker session survives an older roster snapshot until a fresh 
     const path = join(root, "crow.jsonl");
     const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
     const session = { id: "crow", workspace: root, sessionPath: path };
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const entered = deferred();
     const release = deferred();
     worker.find = async () => { entered.resolve(); await release.promise; return session; };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test", keepResidentOwner: true,
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test", keepResidentOwner: true,
     });
     const stale = router.snapshotRevision();
     let locating: ReturnType<HostRouter["locate"]> | undefined;
@@ -132,7 +132,7 @@ test("an opening worker session survives an older roster snapshot until a fresh 
 });
 
 test("overlapping roster refreshes share a trailing snapshot without delaying earlier waiters", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const first = deferred();
     const second = deferred();
@@ -146,7 +146,7 @@ test("overlapping roster refreshes share a trailing snapshot without delaying ea
             summaries: [], work: [], unreadSources: [] };
     };
     const observed: string[] = [];
-    const snapshots = new RoutedSnapshots(master, [{
+    const snapshots = new RoutedSnapshots(host, [{
         id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
     }], () => 0, (owner, snapshot) => {
         if (owner === "w0") observed.push(...snapshot.residents.map((session) => session.id));
@@ -176,7 +176,7 @@ test("overlapping roster refreshes share a trailing snapshot without delaying ea
 });
 
 test("a roster change during a trailing pass publishes the latest state", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const first = deferred();
     const second = deferred();
@@ -200,7 +200,7 @@ test("a roster change during a trailing pass publishes the latest state", async 
             unreadSources: [],
         };
     };
-    const snapshots = new RoutedSnapshots(master, [{
+    const snapshots = new RoutedSnapshots(host, [{
         id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
     }], () => 0, () => {});
     const delivered: Array<{ roster?: string; work?: string }> = [];
@@ -232,7 +232,7 @@ test("a roster change during a trailing pass publishes the latest state", async 
 });
 
 test("a delayed roster from a lost worker cannot replace its successor's snapshot", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const old = deferred();
     let generation = 1;
@@ -245,7 +245,7 @@ test("a delayed roster from a lost worker cannot replace its successor's snapsho
         return { residents: [session], summaries: [], work: [], unreadSources: [] };
     };
     const observed: string[] = [];
-    const snapshots = new RoutedSnapshots(master, [{
+    const snapshots = new RoutedSnapshots(host, [{
         id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => generation, ready: () => true,
     }], () => 0, (owner, snapshot) => {
         if (owner === "w0") observed.push(...snapshot.residents.map((session) => session.id));
@@ -259,7 +259,7 @@ test("a delayed roster from a lost worker cannot replace its successor's snapsho
 });
 
 test("a lost session process keeps its last roster without restoring its lease", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const summary: RegisteredAgentSummary = {
         id: "crow", live: true, workspace: "/work", session_path: "/sessions/crow.jsonl",
@@ -268,7 +268,7 @@ test("a lost session process keeps its last roster without restoring its lease",
     worker.snapshot = async () => ({ residents: [], summaries: [summary], work: [], unreadSources: [] });
     let ready = true;
     const observed: string[] = [];
-    const snapshots = new RoutedSnapshots(master, [{
+    const snapshots = new RoutedSnapshots(host, [{
         id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1,
         ready: () => ready, pid: () => 123,
     }], () => 0, (owner) => observed.push(owner));
@@ -287,16 +287,16 @@ test("a lost create reply must not let another worker open the same session", as
     const id = "00000000-0000-4000-8000-000000000001";
     const path = `/sessions/${id}.jsonl`;
     const random = spyOn(crypto, "randomUUID").mockReturnValue(id);
-    const masterSessions = new Map<string, RoutedSession>();
+    const hostSessions = new Map<string, RoutedSession>();
     const firstSessions = new Map<string, RoutedSession>();
     const secondSessions = new Map<string, RoutedSession>();
     const thirdSessions = new Map<string, RoutedSession>();
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const first = endpoint(firstSessions);
     const second = endpoint(secondSessions);
     const third = endpoint(thirdSessions);
     let firstReady = true;
-    master.inspect = async (sessionPath) => ({ id, sessionPath });
+    host.inspect = async (sessionPath) => ({ id, sessionPath });
     first.create = async (options) => {
         firstSessions.set(id, { id, workspace: options.workspace, sessionPath: path });
         firstReady = false;
@@ -310,7 +310,7 @@ test("a lost create reply must not let another worker open the same session", as
         };
     }
     const router = new HostRouter({
-        master, worker: first, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker: first, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
         workerReady: () => firstReady,
         extraWorkers: [
             { id: "w1", endpoint: second, socket: "/w1.sock", generation: () => 1, ready: () => true },
@@ -344,11 +344,11 @@ for (const operation of ["resume", "locate", "import", "delivery"] as const) {
             : "00000000-0000-4000-8000-000000000002";
         const path = `/sessions/${id}.jsonl`;
         const random = operation === "import" ? spyOn(crypto, "randomUUID").mockReturnValue(id) : undefined;
-        const master = endpoint(new Map());
+        const host = endpoint(new Map());
         const sessions = [new Map<string, RoutedSession>(), new Map<string, RoutedSession>(), new Map<string, RoutedSession>()];
         const [first, second, third] = sessions.map(endpoint) as [SessionEndpoint, SessionEndpoint, SessionEndpoint];
         let firstReady = true;
-        master.inspect = async (sessionPath) => ({ id, sessionPath });
+        host.inspect = async (sessionPath) => ({ id, sessionPath });
         const loseReply = async (): Promise<never> => {
             sessions[0]!.set(id, { id, workspace: "/work", sessionPath: path });
             firstReady = false;
@@ -366,7 +366,7 @@ for (const operation of ["resume", "locate", "import", "delivery"] as const) {
             };
         }
         const router = new HostRouter({
-            master, worker: first, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+            host, worker: first, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
             workerReady: () => firstReady,
             extraWorkers: [
                 { id: "w1", endpoint: second, socket: "/w1.sock", generation: () => 1, ready: () => true },
@@ -395,11 +395,11 @@ test("an uncertain subagent open keeps its worker as owner", async () => {
     const id = "00000000-0000-4000-8000-000000000001";
     const path = `/sessions/${id}.jsonl`;
     const firstSessions = new Map<string, RoutedSession>();
-    const master = endpoint(new Map());
-    master.inspect = async (sessionPath) => ({ id, sessionPath });
+    const host = endpoint(new Map());
+    host.inspect = async (sessionPath) => ({ id, sessionPath });
     let firstReady = true;
     const router = new HostRouter({
-        master, worker: endpoint(firstSessions), masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker: endpoint(firstSessions), hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
         workerReady: () => firstReady,
         extraWorkers: [
             { id: "w1", endpoint: endpoint(new Map()), socket: "/w1.sock", generation: () => 1, ready: () => true },
@@ -423,10 +423,10 @@ test("closing a cross-owner tree quiesces it before ordered lifecycle events", a
     const grandchild = { id: "grandchild", workspace: "/work", sessionPath: "/sessions/grandchild.jsonl", parentId: "child" };
     const hostSessions = new Map([[parent.id, parent], [grandchild.id, grandchild]]);
     const workerSessions = new Map([[child.id, child]]);
-    const master = endpoint(hostSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
     const events: string[] = [];
-    for (const [label, target, sessions] of [["host", master, hostSessions], ["worker", worker, workerSessions]] as const) {
+    for (const [label, target, sessions] of [["host", host, hostSessions], ["worker", worker, workerSessions]] as const) {
         target.quiesceClose = async (ids) => {
             events.push(`quiesce ${label}`);
             return ids.map((id) => ({ id, token: id }));
@@ -439,7 +439,7 @@ test("closing a cross-owner tree quiesces it before ordered lifecycle events", a
             return session === undefined ? undefined : { id: ticket.id, sessionPath: session.sessionPath };
         };
     }
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     expect(await router.close(parent.id, "idle")).toEqual({ status: "closed", sessionRetained: true });
     expect(events.slice(0, 2)).toEqual(["quiesce host", "quiesce worker"]);
     expect(events.slice(4)).toEqual(["idle parent", "idle grandchild", "idle child"]);
@@ -448,14 +448,14 @@ test("closing a cross-owner tree quiesces it before ordered lifecycle events", a
 test("blocking aborts a session that becomes resident during the block", async () => {
     const root = { id: "root", workspace: "/work", sessionPath: "/sessions/root.jsonl" };
     const late = { id: "late", workspace: "/work", sessionPath: "/sessions/late.jsonl", parentId: root.id };
-    const master = endpoint(new Map([[root.id, root]]));
+    const host = endpoint(new Map([[root.id, root]]));
     const workerSessions = new Map<string, RoutedSession>();
     const worker = endpoint(workerSessions);
     const writing = deferred();
     const resume = deferred();
     let aborted = false;
-    master.blockHasSession = async () => true;
-    master.blockWrite = async () => {
+    host.blockHasSession = async () => true;
+    host.blockWrite = async () => {
         writing.resolve();
         await resume.promise;
         return true;
@@ -463,7 +463,7 @@ test("blocking aborts a session that becomes resident during the block", async (
     worker.blockAbort = async (ids) => {
         if (ids.includes(late.id) && workerSessions.has(late.id)) aborted = true;
     };
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     const blocking = router.block({ type: "block_session", target_agent_id: root.id, session_ids: [late.id], reason: null });
     try {
         await writing.promise;
@@ -484,13 +484,13 @@ for (const childOwner of ["host", "worker"] as const) {
         const grandchild = { id: "later", workspace: "/work", sessionPath: "/sessions/later.jsonl", parentId: child.id };
         const hostSessions = new Map<string, RoutedSession>([[root.id, root]]);
         const workerSessions = new Map<string, RoutedSession>();
-        const master = endpoint(hostSessions);
+        const host = endpoint(hostSessions);
         const worker = endpoint(workerSessions);
         const rootWritten = deferred();
         const writes: string[][] = [];
         const aborted = new Set<string>();
-        master.blockHasSession = async () => true;
-        master.blockWrite = async (_request, ids) => {
+        host.blockHasSession = async () => true;
+        host.blockWrite = async (_request, ids) => {
             writes.push([...ids]);
             if (writes.length === 1) rootWritten.resolve();
             if (ids.includes(child.id)) {
@@ -498,12 +498,12 @@ for (const childOwner of ["host", "worker"] as const) {
             }
             return true;
         };
-        for (const [target, owned] of [[master, hostSessions], [worker, workerSessions]] as const) {
+        for (const [target, owned] of [[host, hostSessions], [worker, workerSessions]] as const) {
             target.blockAbort = async (ids) => {
                 for (const id of ids) if (owned.has(id)) aborted.add(id);
             };
         }
-        const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+        const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
         expect(await router.reserveSubagentStart(root.id, 1)).toBe(true);
         const blocking = router.block({ type: "block_session", target_agent_id: root.id, session_ids: [], reason: null });
         try {
@@ -525,35 +525,35 @@ test("trash records closed members when another owner cannot quiesce", async () 
     const root = { id: "root", workspace: "/work", sessionPath: "/sessions/root.jsonl" };
     const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl", parentId: root.id };
     const hostSessions = new Map([[root.id, root]]);
-    const master = endpoint(hostSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(new Map([[child.id, child]]));
     const recorded: string[] = [];
-    for (const target of [master, worker]) {
+    for (const target of [host, worker]) {
         target.reserveTrash = async () => ({ status: "reserved", plans: [] });
     }
-    master.quiesceClose = async () => [{ id: root.id, token: "root-ticket" }];
+    host.quiesceClose = async () => [{ id: root.id, token: "root-ticket" }];
     worker.quiesceClose = async () => { throw new Error("worker unavailable"); };
-    master.finishCloseMember = async () => {
+    host.finishCloseMember = async () => {
         hostSessions.delete(root.id);
         return { id: root.id, sessionPath: root.sessionPath };
     };
-    master.recordTrashOutcome = async (_id, closed, trashed) => {
+    host.recordTrashOutcome = async (_id, closed, trashed) => {
         expect(trashed).toBe(false);
         recorded.push(...closed.map((member) => member.id));
     };
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     await expect(router.trash(root.id)).rejects.toThrow("worker unavailable");
     expect(recorded).toEqual([root.id]);
     expect(hostSessions.has(root.id)).toBe(false);
 });
 
 test("session facts for stored sessions go to the worker", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const seen: string[] = [];
-    master.facts = async (rows) => { seen.push(...rows.map((row) => `host:${row.id}`)); return rows; };
+    host.facts = async (rows) => { seen.push(...rows.map((row) => `host:${row.id}`)); return rows; };
     worker.facts = async (rows) => { seen.push(...rows.map((row) => `worker:${row.id}`)); return rows; };
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     const stored: RegisteredAgentSummary = {
         id: "stored", live: false, workspace: "/work", session_path: "/sessions/stored.jsonl", kind: "interactive", status: "closed",
     };
@@ -575,7 +575,7 @@ test("a stored parent completion waits for crash repair", async () => {
         const stored: RegisteredAgentSummary = {
             id: "parent", live: false, workspace: root, session_path: path, kind: "interactive", status: "closed",
         };
-        const master = endpoint(new Map());
+        const host = endpoint(new Map());
         const worker = endpoint(new Map());
         worker.list = async () => [stored];
         let delivered = false;
@@ -585,7 +585,7 @@ test("a stored parent completion waits for crash repair", async () => {
             return await (await SessionStore.open(path)).recordDelivery(delivery) ? "recorded" : "duplicate";
         };
         const router = new HostRouter({
-            master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+            host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
             reserveDelivery: (_id, run) => withSessionReservation(path, reservations, run),
         });
         scanning = withSessionReservation(path, reservations, async () => {
@@ -617,38 +617,38 @@ test("a stored parent completion waits for crash repair", async () => {
 
 test("a move waits for an ongoing write and for the old host to release", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
-    const masterSessions = new Map([[session.id, session]]);
+    const hostSessions = new Map([[session.id, session]]);
     const workerSessions = new Map<string, RoutedSession>();
     const write = deferred();
     const writeStarted = deferred();
     const release = deferred();
     const releaseStarted = deferred();
     const events: string[] = [];
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
-    master.rename = async () => {
+    host.rename = async () => {
         events.push("write started");
         writeStarted.resolve();
         await write.promise;
         events.push("write finished");
         return { status: "renamed", name: "map" };
     };
-    master.release = async (id) => {
+    host.release = async (id) => {
         events.push("release started");
         releaseStarted.resolve();
         await release.promise;
-        masterSessions.delete(id);
+        hostSessions.delete(id);
         events.push("release finished");
         return [id];
     };
     worker.resume = async () => {
-        expect(masterSessions.has(session.id)).toBe(false);
+        expect(hostSessions.has(session.id)).toBe(false);
         events.push("worker opened");
         workerSessions.set(session.id, session);
         return session;
     };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     const rename = router.rename(session.id, "map");
     await writeStarted.promise;
@@ -666,11 +666,11 @@ test("a move waits for an ongoing write and for the old host to release", async 
 
 test("a failed release leaves the old owner available for a retry", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
-    const master = endpoint(new Map([[session.id, session]]));
+    const host = endpoint(new Map([[session.id, session]]));
     const worker = endpoint(new Map());
-    master.release = async () => { throw new Error("busy"); };
+    host.release = async () => { throw new Error("busy"); };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     await expect(router.resume(session.sessionPath)).rejects.toThrow("busy");
     expect(await router.locate(session.id)).toMatchObject({ type: "agent_location", socket_path: "/host.sock" });
@@ -679,16 +679,16 @@ test("a failed release leaves the old owner available for a retry", async () => 
 test("a tree move reserves every member and preserves transfer resumes", async () => {
     const parent = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
     const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl" };
-    const masterSessions = new Map([[parent.id, parent], [child.id, child]]);
+    const hostSessions = new Map([[parent.id, parent], [child.id, child]]);
     const workerSessions = new Map<string, RoutedSession>();
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
     const inspect = async (path: string) => ({ id: path === child.sessionPath ? child.id : parent.id, sessionPath: path });
-    master.inspect = inspect;
+    host.inspect = inspect;
     worker.inspect = inspect;
-    master.tree = async () => [parent.id, child.id];
-    master.release = async () => {
-        masterSessions.clear();
+    host.tree = async () => [parent.id, child.id];
+    host.release = async () => {
+        hostSessions.clear();
         return [parent.id, child.id];
     };
     const resumed: Array<{ path: string; options?: SessionResumeOptions }> = [];
@@ -699,12 +699,12 @@ test("a tree move reserves every member and preserves transfer resumes", async (
         return session;
     };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
 
     await expect(router.resume(parent.sessionPath, new Set([parent.sessionPath])))
         .rejects.toBeInstanceOf(SessionTransferReservationsChanged);
-    expect([...masterSessions.keys()]).toEqual([parent.id, child.id]);
+    expect([...hostSessions.keys()]).toEqual([parent.id, child.id]);
     expect(resumed).toEqual([]);
     expect(await router.resume(parent.sessionPath, new Set([parent.sessionPath, child.sessionPath]))).toEqual(parent);
     expect(resumed).toEqual([
@@ -715,18 +715,18 @@ test("a tree move reserves every member and preserves transfer resumes", async (
 
 test("a branch in progress keeps its source on the current host", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
-    const masterSessions = new Map([[session.id, session]]);
+    const hostSessions = new Map([[session.id, session]]);
     const workerSessions = new Map<string, RoutedSession>();
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
-    master.release = async (id) => { masterSessions.delete(id); return [id]; };
+    host.release = async (id) => { hostSessions.delete(id); return [id]; };
     worker.resume = async () => { workerSessions.set(session.id, session); return session; };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     expect(await router.beginBranch("host", session.id)).toBe(true);
     expect(await router.resume(session.sessionPath)).toEqual(session);
-    expect(masterSessions.has(session.id)).toBe(true);
+    expect(hostSessions.has(session.id)).toBe(true);
     expect(workerSessions.has(session.id)).toBe(false);
     router.endBranch(session.id);
     expect(await router.resume(session.sessionPath)).toEqual(session);
@@ -735,13 +735,13 @@ test("a branch in progress keeps its source on the current host", async () => {
 test("an in-flight extension request leaves other sessions available and prevents a move", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
     const other = { id: "two", workspace: "/work", sessionPath: "/sessions/two.jsonl" };
-    const masterSessions = new Map([[session.id, session], [other.id, other]]);
+    const hostSessions = new Map([[session.id, session], [other.id, other]]);
     const workerSessions = new Map<string, RoutedSession>();
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
     const started = deferred();
     let ownerSawAbort = false;
-    master.askSession = async (_call, signal) => {
+    host.askSession = async (_call, signal) => {
         started.resolve();
         await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => { ownerSawAbort = true; resolve(); }, { once: true });
@@ -749,10 +749,10 @@ test("an in-flight extension request leaves other sessions available and prevent
         signal.throwIfAborted();
         throw new Error("unreachable");
     };
-    master.release = async (id) => { masterSessions.delete(id); return [id]; };
+    host.release = async (id) => { hostSessions.delete(id); return [id]; };
     worker.resume = async () => { workerSessions.set(session.id, session); return session; };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     const controller = new AbortController();
     const pending = router.askSession({ sessionId: session.id, question: "Where is the map?" }, controller.signal);
@@ -764,7 +764,7 @@ test("an in-flight extension request leaves other sessions available and prevent
         ]);
         expect(location).toMatchObject({ type: "agent_location", socket_path: "/host.sock" });
         expect(await router.resume(session.sessionPath)).toEqual(session);
-        expect(masterSessions.has(session.id)).toBe(true);
+        expect(hostSessions.has(session.id)).toBe(true);
         expect(workerSessions.has(session.id)).toBe(false);
     } finally {
         controller.abort();
@@ -777,14 +777,14 @@ test("an in-flight extension request leaves other sessions available and prevent
 test("a closed session is not reopened on another owner until its write completes", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
     const other = { id: "two", workspace: "/work", sessionPath: "/sessions/two.jsonl" };
-    const masterSessions = new Map([[session.id, session], [other.id, other]]);
+    const hostSessions = new Map([[session.id, session], [other.id, other]]);
     const workerSessions = new Map<string, RoutedSession>();
-    const master = endpoint(masterSessions);
+    const host = endpoint(hostSessions);
     const worker = endpoint(workerSessions);
     const started = deferred();
     const release = deferred();
     let reopened = false;
-    master.setSessionTitle = async () => {
+    host.setSessionTitle = async () => {
         started.resolve();
         await release.promise;
         return "set";
@@ -794,10 +794,10 @@ test("a closed session is not reopened on another owner until its write complete
         workerSessions.set(id, session);
         return session;
     };
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     const write = router.setSessionTitle(session.id, "Crow map");
     await started.promise;
-    masterSessions.delete(session.id);
+    hostSessions.delete(session.id);
     const location = router.locate(session.id);
     try {
         expect(await Promise.race([location.then(() => "finished"), Bun.sleep(30).then(() => "waiting")])).toBe("waiting");
@@ -814,12 +814,12 @@ test("a closed session is not reopened on another owner until its write complete
 test("peer delivery can finish if its sender closes during delivery", async () => {
     const sender = { id: "sender", workspace: "/work", sessionPath: "/sessions/sender.jsonl" };
     const recipient = { id: "recipient", workspace: "/work", sessionPath: "/sessions/recipient.jsonl" };
-    const masterSessions = new Map([[sender.id, sender]]);
-    const master = endpoint(masterSessions);
+    const hostSessions = new Map([[sender.id, sender]]);
+    const host = endpoint(hostSessions);
     const worker = endpoint(new Map([[recipient.id, recipient]]));
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     worker.peerSend = async () => {
-        masterSessions.delete(sender.id);
+        hostSessions.delete(sender.id);
         expect(await router.peerLabel(sender.id)).toBeUndefined();
         return { kind: "output", output: "delivered", isError: false };
     };
@@ -834,21 +834,21 @@ test("peer delivery can finish if its sender closes during delivery", async () =
 test("closing a child that disappears during the request returns not found", async () => {
     const parent = { id: "parent", workspace: "/work", sessionPath: "/sessions/parent.jsonl" };
     const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl", parentId: parent.id };
-    const master = endpoint(new Map([[parent.id, parent]]));
+    const host = endpoint(new Map([[parent.id, parent]]));
     const workerSessions = new Map([[child.id, child]]);
     const worker = endpoint(workerSessions);
     worker.suppressCompletion = async (_id, suppress) => { if (suppress) workerSessions.delete(child.id); };
-    const router = new HostRouter({ master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
     expect(await Promise.race([router.closeSubagent(parent.id, child.id), Bun.sleep(1_000).then(() => undefined)]))
         .toEqual({ status: "not_found" });
 });
 
 test("a duplicate resident session is rejected", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
-    const master = endpoint(new Map([[session.id, session]]));
+    const host = endpoint(new Map([[session.id, session]]));
     const worker = endpoint(new Map([[session.id, session]]));
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     await expect(router.resume(session.sessionPath)).rejects.toThrow("both hosts");
     expect(await router.locate(session.id)).toMatchObject({
@@ -858,7 +858,7 @@ test("a duplicate resident session is rejected", async () => {
 
 test("a slow search does not block session location", async () => {
     const session = { id: "one", workspace: "/work", sessionPath: "/sessions/one.jsonl" };
-    const master = endpoint(new Map([[session.id, session]]));
+    const host = endpoint(new Map([[session.id, session]]));
     const worker = endpoint(new Map());
     const started = deferred();
     const release = deferred();
@@ -868,7 +868,7 @@ test("a slow search does not block session location", async () => {
         return { results: [], truncated: false };
     };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     const search = router.search({ query: "map" });
     await started.promise;
@@ -885,11 +885,11 @@ test("a slow search does not block session location", async () => {
 });
 
 test("a search fails when either owner cannot answer", async () => {
-    const master = endpoint(new Map());
+    const host = endpoint(new Map());
     const worker = endpoint(new Map());
     worker.searchShard = async () => { throw new Error("worker unavailable"); };
     const router = new HostRouter({
-        master, worker, masterSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
     });
     const error = await router.search({ query: "map" }).then(() => undefined, (failure: Error) => failure.message);
     expect(error).toBe("worker unavailable");
@@ -900,9 +900,9 @@ test("the roster prefers each owner and omits stale copies", () => {
         id, live, workspace: "/work", session_path: `/sessions/${id}.jsonl`, kind: "interactive", status: "idle",
     });
     const merged = mergeRoster(
-        [row("master", true), row("worker", false), row("trashed", false)],
-        [row("master", false), row("worker", true)],
-        (id) => id === "master" ? "host" : "w0",
+        [row("host", true), row("worker", false), row("trashed", false)],
+        [row("host", false), row("worker", true)],
+        (id) => id === "host" ? "host" : "w0",
     );
-    expect(merged.map((item) => [item.id, item.live])).toEqual([["master", true], ["worker", true]]);
+    expect(merged.map((item) => [item.id, item.live])).toEqual([["host", true], ["worker", true]]);
 });

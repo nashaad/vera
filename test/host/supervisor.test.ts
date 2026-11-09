@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { controlSocketPath, startSessionWorkerSupervisor, WorkerGenerations } from "../../src/host/master/supervisor.ts";
+import { controlSocketPath, startSessionWorkerSupervisor, WorkerGenerations } from "../../src/host/pool/supervisor.ts";
 
 test("worker generations increase independently for each worker id", () => {
     const generations = new WorkerGenerations();
@@ -12,7 +13,7 @@ test("worker generations increase independently for each worker id", () => {
     expect(generations.next("w1")).toBe(2);
 });
 
-test("a worker that exits before ready is reaped", async () => {
+socketTest("a worker that exits before ready is reaped", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-supervisor-");
     await mkdir(join(home, "runtime"));
     let pid: number | undefined;
@@ -23,7 +24,7 @@ test("a worker that exits before ready is reaped", async () => {
             generation: 1,
             bootstrap: {
                 options: { home, config: { schema_version: 1, provider: "openrouter", model: "stub", approval_mode: "auto" } },
-                masterSocket: join(home, "runtime", "host.sock"),
+                hostSocket: join(home, "runtime", "host.sock"),
                 lockPath: join(home, "runtime", "host.json"), buildId: "test", capabilities: [],
                 extensionCatalog: { extensionOrder: [], toolCatalog: [], commandCatalog: [] },
             },

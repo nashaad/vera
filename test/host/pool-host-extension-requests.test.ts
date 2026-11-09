@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -84,7 +85,7 @@ function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-test("the master serves recap label requests in pool mode", async () => {
+socketAndLoopbackTest("the host serves recap label requests in pool mode", async () => {
     await withPool(async ({ socket, requests, create }) => {
         const agent = await create();
         const workerPid = (await requestHostIdentity(agent.location!.socket_path))!.pid;
@@ -97,7 +98,7 @@ test("the master serves recap label requests in pool mode", async () => {
     });
 }, 30_000);
 
-test("the master sends an artifact comment to its worker session", async () => {
+socketAndLoopbackTest("the host sends an artifact comment to its worker session", async () => {
     await withPool(async ({ home, socket, requests, create }) => {
         const agent = await create();
         const workerPid = (await requestHostIdentity(agent.location!.socket_path))!.pid;
@@ -122,7 +123,7 @@ test("the master sends an artifact comment to its worker session", async () => {
     });
 }, 30_000);
 
-test("a worker artifact tool returns the master's annex page URL", async () => {
+socketAndLoopbackTest("a worker artifact tool returns the host's annex page URL", async () => {
     await withPool(async ({ socket, create }) => {
         const agent = await create();
         const workerPid = (await requestHostIdentity(agent.location!.socket_path))!.pid;

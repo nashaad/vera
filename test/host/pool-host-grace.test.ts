@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -8,8 +9,8 @@ import { projectTranscript } from "../../src/engine/protocol.ts";
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
@@ -102,13 +103,13 @@ async function fixture(graceMs: number, count = 1, queuePrompts = false, failDis
         const worker = info.workers[0]!;
         return {
             home, webRoot, config, info, session, sessions, path, worker, client, clients, paths, notices,
-            async killMaster() {
+            async killHost() {
                 child.kill("SIGKILL");
                 await child.exited;
-                await waitFor(() => !alive(child.pid), "master exit");
+                await waitFor(() => !alive(child.pid), "host exit");
             },
             freeze() { signalStarted(started, worker, "SIGSTOP"); },
-            async startMaster(configuredCount?: number) {
+            async startHost(configuredCount?: number) {
                 host = await startResidentHost({ home, config, webRoot, skipStartupDiscovery: true, processWorkerHeartbeatDeadlineMs: 500,
                     ...(configuredCount === undefined ? {} : { processWorkerCount: configuredCount }),
                     startupLog: (entry) => { if (typeof entry.message === "string") notices.push(entry.message); } });
@@ -149,10 +150,10 @@ async function fixture(graceMs: number, count = 1, queuePrompts = false, failDis
     }
 }
 
-test("responsive workers record their cut turns once and exit without a master", async () => {
+socketAndLoopbackTest("responsive workers record their cut turns once and exit without a host", async () => {
     const harness = await fixture(800, 2, true);
     try {
-        await harness.killMaster();
+        await harness.killHost();
         for (const [index, worker] of harness.info.workers.entries()) {
             await waitFor(() => !alive(worker), "worker exit");
             const path = harness.paths[index]!;
@@ -177,10 +178,10 @@ test("responsive workers record their cut turns once and exit without a master",
     } finally { await harness.close(); }
 }, 30_000);
 
-test("an orphan records its failed turn even if extension cleanup fails", async () => {
+socketAndLoopbackTest("an orphan records its failed turn even if extension cleanup fails", async () => {
     const harness = await fixture(800, 1, true, true);
     try {
-        await harness.killMaster();
+        await harness.killHost();
         await waitFor(() => !alive(harness.worker), "worker exit");
         const log = await readFile(harness.path, "utf8");
         expect(log.split(WORKER_EXIT_TURN_MESSAGE)).toHaveLength(2);
@@ -191,13 +192,13 @@ test("an orphan records its failed turn even if extension cleanup fails", async 
     } finally { await harness.close(); }
 }, 30_000);
 
-test("a new master replaces a silent worker and records its cut turn once", async () => {
+socketAndLoopbackTest("a new host replaces a silent worker and records its cut turn once", async () => {
     const harness = await fixture(15_000, 2);
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
-        await harness.killMaster();
-        const host = await harness.startMaster();
+        await harness.killHost();
+        const host = await harness.startHost();
         expect(alive(harness.worker)).toBe(false);
         expect(harness.notices).toContain(`Session process PID ${harness.worker} is not answering.`);
         const identity = await requestHostIdentity(inProcessWorkerSocket(harness.home));
@@ -222,14 +223,14 @@ test("a new master replaces a silent worker and records its cut turn once", asyn
     } finally { await harness.close(); }
 }, 30_000);
 
-test("recovery does not write a session held by an answering worker with a missing record", async () => {
+socketAndLoopbackTest("recovery does not write a session held by an answering worker with a missing record", async () => {
     const harness = await fixture(15_000, 2);
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
-        await harness.killMaster();
+        await harness.killHost();
         await unlink(join(harness.home, "runtime", "workers", "w1.json"));
-        const host = await harness.startMaster();
+        const host = await harness.startHost();
         const survivorPid = harness.info.workers[1]!;
         await waitForAsync(async () => {
             try {
@@ -254,17 +255,17 @@ test("recovery does not write a session held by an answering worker with a missi
     } finally { await harness.close(); }
 }, 30_000);
 
-test("an unrecorded worker reconnects and is adopted with its resident session", async () => {
+socketAndLoopbackTest("an unrecorded worker reconnects and is adopted with its resident session", async () => {
     const harness = await fixture(15_000, 2);
     try {
-        await harness.killMaster();
+        await harness.killHost();
         await unlink(join(harness.home, "runtime", "workers", "w1.json"));
-        const host = await harness.startMaster();
+        const host = await harness.startHost();
         const pid = harness.info.workers[1]!;
         await waitForAsync(async () => {
             try {
                 const record = JSON.parse(await readFile(join(harness.home, "runtime", "workers", "w1.json"), "utf8"));
-                return record.pid === pid && record.master_pid === process.pid
+                return record.pid === pid && record.host_pid === process.pid
                     && host.health.workers?.[1]?.state === "ready";
             } catch { return false; }
         }, "unrecorded worker adoption");
@@ -277,7 +278,7 @@ test("an unrecorded worker reconnects and is adopted with its resident session",
     } finally { await harness.close(); }
 }, 30_000);
 
-test("an unrecorded worker that does not reconnect exits before recovery scans", async () => {
+socketAndLoopbackTest("an unrecorded worker that does not reconnect exits before recovery scans", async () => {
     const harness = await fixture(8_000, 3);
     const start = supervisor.startSessionWorkerSupervisor;
     const refuseReconnect = spyOn(supervisor, "startSessionWorkerSupervisor").mockImplementation((options) =>
@@ -285,9 +286,9 @@ test("an unrecorded worker that does not reconnect exits before recovery scans",
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
-        await harness.killMaster();
+        await harness.killHost();
         await unlink(join(harness.home, "runtime", "workers", "w1.json"));
-        const host = await harness.startMaster();
+        const host = await harness.startHost();
         const waitingPid = harness.info.workers[1]!;
         expect(alive(waitingPid)).toBe(true);
         expect(await readFile(harness.paths[0]!, "utf8")).not.toContain(WORKER_EXIT_TURN_MESSAGE);
@@ -322,14 +323,14 @@ test("an unrecorded worker that does not reconnect exits before recovery scans",
     }
 }, 35_000);
 
-test("a pool without worker records takes its size from a control reconnect", async () => {
+socketAndLoopbackTest("a pool without worker records takes its size from a control reconnect", async () => {
     const harness = await fixture(15_000, 2);
     try {
-        await harness.killMaster();
+        await harness.killHost();
         for (let index = 0; index < 2; index += 1) {
             await unlink(join(harness.home, "runtime", "workers", `w${index}.json`));
         }
-        const host = await harness.startMaster();
+        const host = await harness.startHost();
         expect(host.health.workers).toHaveLength(2);
         await waitForAsync(async () => {
             const workers = host.health.workers ?? [];
@@ -343,17 +344,17 @@ test("a pool without worker records takes its size from a control reconnect", as
     } finally { await harness.close(); }
 }, 35_000);
 
-test("a silent worker record without a count uses the configured pool size", async () => {
+socketAndLoopbackTest("a silent worker record without a count uses the configured pool size", async () => {
     const harness = await fixture(15_000);
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
-        await harness.killMaster();
+        await harness.killHost();
         const path = join(harness.home, "runtime", "workers", "w0.json");
         const record = JSON.parse(await readFile(path, "utf8"));
         delete record.count;
         await writeFile(path, JSON.stringify(record));
-        const host = await harness.startMaster(1);
+        const host = await harness.startHost(1);
         expect(host.health.workers).toHaveLength(1);
         expect(alive(harness.worker)).toBe(false);
         expect((await requestHostIdentity(inProcessWorkerSocket(harness.home)))?.pid).not.toBe(harness.worker);
@@ -361,16 +362,16 @@ test("a silent worker record without a count uses the configured pool size", asy
     } finally { await harness.close(); }
 }, 30_000);
 
-test("recovery waits for an answering worker-shaped socket outside the pool", async () => {
+socketAndLoopbackTest("recovery waits for an answering worker-shaped socket outside the pool", async () => {
     const harness = await fixture(15_000, 2);
     const extra = createServer((socket) => socket.end("{}\n"));
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
-        await harness.killMaster();
+        await harness.killHost();
         await new Promise<void>((resolve, reject) => extra.once("error", reject)
             .listen(join(harness.home, "runtime", "w-held.sock"), resolve));
-        const host = await harness.startMaster();
+        const host = await harness.startHost();
         expect(await readFile(harness.paths[0]!, "utf8")).not.toContain(WORKER_EXIT_TURN_MESSAGE);
         expect(await locate(host.server.socketPath, harness.sessions[1]!.id)).toMatchObject({
             type: "agent_location", worker_id: "w1",

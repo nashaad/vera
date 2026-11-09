@@ -18,7 +18,7 @@ import {
     type LiveProcessRecord,
 } from "../src/live-process.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
-import { readRecordedWorkers } from "../src/host/master/worker-records.ts";
+import { readRecordedWorkers } from "../src/host/pool/worker-records.ts";
 
 const DEFAULT_MAX_AGE_DAYS = 2;
 const SIGTERM_GRACE_MS = 3_000;
@@ -173,12 +173,12 @@ export async function sweepDevInstances(
             schema_version: 1 as const, pid: worker.pid, kind: "worker" as const,
             started_at: worker.started_at, runtime_dir: join(instance.home, "runtime"),
         }))];
-        const staleMasters = new Set(live.filter((record) => record.kind === "host"
+        const staleHosts = new Set(live.filter((record) => record.kind === "host"
             && ageMs(record, now) >= request.maxAgeMs).map((record) => record.pid));
         // At the boundary the process goes, so --days 0 means everything.
         const stale = combined.filter((record) => ageMs(record, now) >= request.maxAgeMs
-            || workers.some((worker) => worker.pid === record.pid && worker.masterPid !== undefined
-                && staleMasters.has(worker.masterPid)));
+            || workers.some((worker) => worker.pid === record.pid && worker.hostPid !== undefined
+                && staleHosts.has(worker.hostPid)));
         kept += combined.length - stale.length;
         if (stale.length === 0) continue;
         batches.push({

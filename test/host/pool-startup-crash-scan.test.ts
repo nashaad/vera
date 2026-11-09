@@ -1,13 +1,14 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import type { ControlPeer } from "../../src/host/master/control.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/master/stop-worker.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import type { ControlPeer } from "../../src/host/pool/control.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/stop-worker.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { defaultHostLogPath } from "../../src/host/host-log.ts";
 import { checkRecordIdentity, processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
@@ -53,20 +54,20 @@ function start(home: string, port = 1): Promise<ResidentHost> {
     });
 }
 
-test("each crash tail is repaired on its owner without the master opening a session file", async () => {
+socketTest("each crash tail is repaired on its owner without the host opening a session file", async () => {
     const data = await fixture();
     const paths = new Set(data.sessions.map((session) => session.path));
-    const masterReads: Array<{ pid: number; path: string }> = [];
+    const hostReads: Array<{ pid: number; path: string }> = [];
     const dispatches: Array<{ pid: number | undefined; index: number; session: { id: string; path: string } }> = [];
     const pids = new Map<number, number>();
     const originalOpen = fs.open;
     const originalRead = fs.readFile;
     const openProbe = spyOn(fs, "open").mockImplementation((async (path: Parameters<typeof fs.open>[0], ...args: unknown[]) => {
-        if (paths.has(String(path))) masterReads.push({ pid: process.pid, path: String(path) });
+        if (paths.has(String(path))) hostReads.push({ pid: process.pid, path: String(path) });
         return await Reflect.apply(originalOpen, fs, [path, ...args]);
     }) as typeof fs.open);
     const readProbe = spyOn(fs, "readFile").mockImplementation(((path: Parameters<typeof fs.readFile>[0], ...args: unknown[]) => {
-        if (paths.has(String(path))) masterReads.push({ pid: process.pid, path: String(path) });
+        if (paths.has(String(path))) hostReads.push({ pid: process.pid, path: String(path) });
         return Reflect.apply(originalRead, fs, [path, ...args]);
     }) as typeof fs.readFile);
     const startWorker = supervisor.startSessionWorkerSupervisor;
@@ -91,10 +92,10 @@ test("each crash tail is repaired on its owner without the master opening a sess
     try {
         await readSessionHeader(data.sessions[0]!.path);
         await readSessionTurnState(data.sessions[1]!.path);
-        expect(masterReads).toEqual(data.sessions.map((session) => ({ pid: process.pid, path: session.path })));
-        masterReads.length = 0;
+        expect(hostReads).toEqual(data.sessions.map((session) => ({ pid: process.pid, path: session.path })));
+        hostReads.length = 0;
         host = await start(data.home);
-        expect(masterReads).toEqual([]);
+        expect(hostReads).toEqual([]);
         openProbe.mockRestore();
         readProbe.mockRestore();
         for (const session of data.sessions) {
@@ -120,7 +121,7 @@ test("each crash tail is repaired on its owner without the master opening a sess
     }
 }, 40_000);
 
-test("two files with the same session ID are both repaired", async () => {
+socketTest("two files with the same session ID are both repaired", async () => {
     const data = await fixture();
     const first = data.sessions[0]!;
     const alias = join(data.home, "runtime", "sessions", "another-name.jsonl");
@@ -140,7 +141,7 @@ test("two files with the same session ID are both repaired", async () => {
     }
 }, 40_000);
 
-test("a queued prompt without an open turn is recorded and recovered", async () => {
+socketTest("a queued prompt without an open turn is recorded and recovered", async () => {
     const data = await fixture();
     const id = "queued-only";
     const path = join(data.home, "runtime", "sessions", `${id}.jsonl`);
@@ -159,7 +160,7 @@ test("a queued prompt without an open turn is recorded and recovered", async () 
     }
 }, 40_000);
 
-test("session processes send concurrent restart-record clears to the master", async () => {
+socketTest("session processes send concurrent restart-record clears to the host", async () => {
     const data = await fixture();
     const peers = new Map<number, ControlPeer>();
     const startWorker = supervisor.startSessionWorkerSupervisor;
@@ -193,7 +194,7 @@ test("session processes send concurrent restart-record clears to the master", as
     }
 }, 40_000);
 
-test("the startup scan leaves old sessions and paths outside its directory untouched", async () => {
+socketTest("the startup scan leaves old sessions and paths outside its directory untouched", async () => {
     const data = await fixture();
     const path = join(data.home, "runtime", "sessions", "older.jsonl");
     const store = await SessionStore.create(path, { sessionId: "older", cwd: data.home });
@@ -218,9 +219,9 @@ test("the startup scan leaves old sessions and paths outside its directory untou
     }
 }, 40_000);
 
-for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replacement"] as const) test({
-    adopt: "a master killed during the scan is followed by one complete recovery",
-    replace: "a master and session process killed during the scan are followed by one complete recovery",
+for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replacement"] as const) socketTest({
+    adopt: "a host killed during the scan is followed by one complete recovery",
+    replace: "a host and session process killed during the scan are followed by one complete recovery",
     unready_adoption: "an interrupted scan continues when an adopted process is not ready",
     unready_replacement: "an interrupted scan continues when a replacement process is not ready",
 }[scenario], async () => {
@@ -244,7 +245,7 @@ for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replace
     try {
         const deadline = Date.now() + 10_000;
         while (true) {
-            if (child.exitCode !== null) throw new Error(`Master exited during recovery: ${await stderr}`);
+            if (child.exitCode !== null) throw new Error(`Host exited during recovery: ${await stderr}`);
             const paused = await fs.stat(join(data.home, "scan-paused")).then(() => true, () => false);
             const repaired = (await fs.readFile(finished.path, "utf8")).includes(CRASH_CUT_MESSAGE);
             if (paused && repaired) break;
@@ -332,7 +333,7 @@ for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replace
     }
 }, 40_000);
 
-test("the crash scan shares the session-process startup deadline", async () => {
+socketTest("the crash scan shares the session-process startup deadline", async () => {
     const data = await fixture();
     const startWorker = supervisor.startSessionWorkerSupervisor;
     const probe = spyOn(supervisor, "startSessionWorkerSupervisor").mockImplementation(async (options) => {
@@ -374,7 +375,7 @@ test("the crash scan shares the session-process startup deadline", async () => {
     }
 }, 25_000);
 
-test("an unavailable shard is logged and its session is repaired on resume", async () => {
+socketTest("an unavailable shard is logged and its session is repaired on resume", async () => {
     const data = await fixture();
     const missing = data.sessions.find((session) => sessionShardIndex(session.id, 2) === 1)!;
     const startWorker = supervisor.startSessionWorkerSupervisor;
@@ -409,7 +410,7 @@ test("an unavailable shard is logged and its session is repaired on resume", asy
     }
 }, 40_000);
 
-test("a failed shard scan is logged and its session is repaired on resume", async () => {
+socketTest("a failed shard scan is logged and its session is repaired on resume", async () => {
     const data = await fixture();
     const session = data.sessions[0]!;
     const startWorker = supervisor.startSessionWorkerSupervisor;
@@ -445,7 +446,7 @@ test("a failed shard scan is logged and its session is repaired on resume", asyn
     }
 }, 40_000);
 
-test("a resume during crash recovery waits for the repaired tail", async () => {
+socketTest("a resume during crash recovery waits for the repaired tail", async () => {
     const data = await fixture();
     const session = data.sessions[0]!;
     const entered = Promise.withResolvers<void>();
@@ -493,7 +494,7 @@ test("a resume during crash recovery waits for the repaired tail", async () => {
     }
 }, 40_000);
 
-test("identity answers while a crash record waits for disk sync", async () => {
+socketTest("identity answers while a crash record waits for disk sync", async () => {
     const data = await fixture();
     const recordPath = defaultRestartRecordPath(data.home);
     const entered = Promise.withResolvers<void>();
@@ -535,7 +536,7 @@ test("identity answers while a crash record waits for disk sync", async () => {
     }
 }, 40_000);
 
-test("a session created during the scan is left running on its assigned worker", async () => {
+socketTest("a session created during the scan is left running on its assigned worker", async () => {
     const data = await fixture();
     const directory = join(data.home, "runtime", "sessions");
     const listing = Promise.withResolvers<void>();

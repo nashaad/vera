@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
-import { createCredentialBroker } from "../../src/host/master/credentials.ts";
+import { createCredentialBroker } from "../../src/host/pool/credentials.ts";
 import { fetchCodexCatalog } from "../../src/model/codex-catalog.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 

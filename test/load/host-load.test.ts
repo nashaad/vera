@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { loopbackTest, socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -23,7 +24,7 @@ async function trial(): Promise<string> {
     return mkdtemp(join(base, "load-test-"));
 }
 
-test("faux streaming uses the chat adapter with paced chunks, tools and usage", async () => {
+loopbackTest("faux streaming uses the chat adapter with paced chunks, tools and usage", async () => {
     const server = startProvider({ seed: 1 });
     try {
         const adapter = createCustomOpenAIAdapter({ provider: "faux-0", baseUrl: `http://127.0.0.1:${server.port}/v1` });
@@ -46,7 +47,7 @@ test("faux streaming uses the chat adapter with paced chunks, tools and usage", 
     } finally { server.stop(true); }
 }, 10_000);
 
-test("scripted turns have six to twelve rounds, a final reply, and plain side replies", async () => {
+loopbackTest("scripted turns have six to twelve rounds, a final reply, and plain side replies", async () => {
     const server = startProvider({ seed: 19, speed: 100 });
     try {
         const adapter = createCustomOpenAIAdapter({ provider: "faux-0", baseUrl: `http://127.0.0.1:${server.port}/v1` });
@@ -121,19 +122,19 @@ test("result rows label the attach path and count observed destinations", async 
     const footprint = { start: { bytes: null, path: "" }, end: { bytes: null, path: "" } };
     try {
         await write([
-            { at: 1_100, type: "attach_path", id: "a", via: "master", connection: 1 },
+            { at: 1_100, type: "attach_path", id: "a", via: "routed", connection: 1 },
             { at: 1_200, type: "attach_path", id: "a", via: "direct", connection: 2 },
-            { at: 1_300, type: "attach_path", id: "b", via: "master", connection: 3 },
+            { at: 1_300, type: "attach_path", id: "b", via: "routed", connection: 3 },
         ]);
         const routed = collectResult(root, scenario, 1_000, 2_000, "test", footprint, []);
-        expect(routed.attachments).toEqual({ path: "routed", direct: 1, master: 1, unknown: 0 });
+        expect(routed.attachments).toEqual({ path: "routed", direct: 1, routed: 1, unknown: 0 });
         expect(table([routed])).toContain("| pool | routed | 1 | 1 | 0 |");
         await write([
-            { at: 1_100, type: "attach_path", id: "a", via: "master", connection: 1 },
-            { at: 1_200, type: "attach_path", id: "b", via: "master", connection: 2 },
+            { at: 1_100, type: "attach_path", id: "a", via: "routed", connection: 1 },
+            { at: 1_200, type: "attach_path", id: "b", via: "routed", connection: 2 },
         ]);
         const relay = collectResult(root, { ...scenario, relay: true }, 1_000, 2_000, "test", footprint, []);
-        expect(relay.attachments).toEqual({ path: "relay", direct: 0, master: 2, unknown: 0 });
+        expect(relay.attachments).toEqual({ path: "relay", direct: 0, routed: 2, unknown: 0 });
         expect(table([relay])).toContain("| pool | relay | 0 | 2 | 0 |");
     } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -199,7 +200,7 @@ test("pin results separate owned errors and retain a worker loss as a finding", 
     } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("startup limits connection bursts and the smoke records measurements", async () => {
+socketAndLoopbackTest("startup limits connection bursts and the smoke records measurements", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -207,7 +208,7 @@ test("startup limits connection bursts and the smoke records measurements", asyn
         const result = await runScenario({ sessions: 2, clients: 5, duration: 15, extensions: "included", seed: 7, small: true, workers: 0 }, root);
         expect(result.errors).toEqual([]);
         expect(result.readyClients).toBe(10);
-        expect(result.attachments).toEqual({ path: "routed", direct: 0, master: 10, unknown: 0 });
+        expect(result.attachments).toEqual({ path: "routed", direct: 0, routed: 10, unknown: 0 });
         expect(result.rates.modelRequests).toBeGreaterThan(0);
         expect(result.rates.streamedTokens).toBeGreaterThan(0);
         expect(result.hostCpuPercent.count).toBeGreaterThan(0);
@@ -252,7 +253,7 @@ test("startup limits connection bursts and the smoke records measurements", asyn
     }
 }, 90_000);
 
-for (const relay of [false, true]) test(`paging works with ${relay ? "relay" : "routed"} attachments`, async () => {
+for (const relay of [false, true]) socketAndLoopbackTest(`paging works with ${relay ? "relay" : "routed"} attachments`, async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -260,7 +261,7 @@ for (const relay of [false, true]) test(`paging works with ${relay ? "relay" : "
         const result = await runScenario({ sessions: 1, clients: 1, duration: 5, extensions: "included", seed: 7,
             small: true, workers: 1, relay, paging: true }, root);
         expect(result.errors).toEqual([]);
-        expect(result.attachments).toEqual({ path: relay ? "relay" : "routed", direct: relay ? 0 : 1, master: relay ? 1 : 0, unknown: 0 });
+        expect(result.attachments).toEqual({ path: relay ? "relay" : "routed", direct: relay ? 0 : 1, routed: relay ? 1 : 0, unknown: 0 });
         const events = (await Bun.file(join(result.run, "client-0-0.ndjson")).text()).trim().split("\n").map((line) => JSON.parse(line));
         const attached = events.find((event) => event.type === "attach_path");
         expect(attached.capabilities).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
@@ -268,7 +269,7 @@ for (const relay of [false, true]) test(`paging works with ${relay ? "relay" : "
         expect(attached.interactive).toBe(!relay);
         expect(events.some((event) => event.type === "paged")).toBe(true);
         const probe = (await Bun.file(join(result.run, "probe.ndjson")).text()).trim().split("\n").map((line) => JSON.parse(line));
-        expect(probe.find((event) => event.type === "attach_path")?.via).toBe(relay ? "master" : "direct");
+        expect(probe.find((event) => event.type === "attach_path")?.via).toBe(relay ? "routed" : "direct");
         expect(result.stop?.remainingPids).toEqual([]);
     } finally {
         if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
@@ -276,7 +277,7 @@ for (const relay of [false, true]) test(`paging works with ${relay ? "relay" : "
     }
 }, 90_000);
 
-test("worker kill reconnects affected clients and leaves the other worker serving", async () => {
+socketAndLoopbackTest("worker kill reconnects affected clients and leaves the other worker serving", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -290,7 +291,7 @@ test("worker kill reconnects affected clients and leaves the other worker servin
         expect(result.kill!.reattachedClients).toBe(result.kill!.expectedClients);
         expect(result.kill!.reattachMs).toBeGreaterThan(0);
         expect(result.kill!.otherErrors).toBe(0);
-        expect(result.attachments).toEqual({ path: "routed", direct: 2, master: 0, unknown: 0 });
+        expect(result.attachments).toEqual({ path: "routed", direct: 2, routed: 0, unknown: 0 });
         const replacement = result.physicalFootprint.processes.find((process) => process.role === `${result.kill!.worker}-g2`);
         expect(replacement?.ready).toBeGreaterThan(0);
         expect(result.stop?.remainingPids).toEqual([]);
@@ -301,7 +302,7 @@ test("worker kill reconnects affected clients and leaves the other worker servin
     }
 }, 90_000);
 
-test("worker pin samples the selected process for the measured window", async () => {
+socketAndLoopbackTest("worker pin samples the selected process for the measured window", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -309,7 +310,7 @@ test("worker pin samples the selected process for the measured window", async ()
         const result = await runScenario({ sessions: 2, clients: 1, duration: 15, extensions: "included", seed: 7, small: true, workers: 2, pinWorker: true }, root);
         expect(result.errors).toEqual([]);
         expect(result.pin?.worker).toBe(0);
-        expect(result.attachments).toEqual({ path: "routed", direct: 2, master: 0, unknown: 0 });
+        expect(result.attachments).toEqual({ path: "routed", direct: 2, routed: 0, unknown: 0 });
         expect(result.pin?.iterations).toBeGreaterThan(0);
         expect(result.pin?.cpuPercent.count).toBeGreaterThan(0);
         expect(result.pin?.eventLoopDelayMs.p99).toBeGreaterThan(50);

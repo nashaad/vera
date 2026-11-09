@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,7 +9,7 @@ import { join } from "node:path";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { AgentLocationChangedError, attachAgent } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
-import { forwardSessionConnection } from "../../src/host/master/forward.ts";
+import { forwardSessionConnection } from "../../src/host/pool/forward.ts";
 import { HOST_MIN_COMPATIBLE_PROTOCOL_VERSION, HOST_PROTOCOL_VERSION, type AgentLocationResponse } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
@@ -21,7 +22,7 @@ interface WorkerProcess {
     readonly exited: Promise<void>;
 }
 
-test("pool-off create, resume, and identity replies keep their existing bytes", async () => {
+socketTest("pool-off create, resume, and identity replies keep their existing bytes", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-wire-");
     const socketPath = join(root, "host.sock");
     const host = await startHostServer({
@@ -46,7 +47,7 @@ test("pool-off create, resume, and identity replies keep their existing bytes", 
     }
 });
 
-test("a client without a returned worker socket attaches to the master", async () => {
+socketTest("a client without a returned worker socket attaches to the host", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-old-");
     const socketPath = join(root, "host.sock");
     const requests: string[] = [];
@@ -88,7 +89,7 @@ test("a client without a returned worker socket attaches to the master", async (
     }
 });
 
-test("a partial worker location in an agent-ready reply is rejected", async () => {
+socketTest("a partial worker location in an agent-ready reply is rejected", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-bad-ready-");
     const socketPath = join(root, "host.sock");
     const host = await listen(socketPath, (_request, socket) => {
@@ -102,21 +103,21 @@ test("a partial worker location in an agent-ready reply is rejected", async () =
     }
 });
 
-test("a restarted worker is located again and an unavailable replay falls back to history", async () => {
+socketTest("a restarted worker is located again and an unavailable replay falls back to history", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-reconnect-");
-    const masterPath = join(root, "host.sock");
+    const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const log = join(root, "worker.log");
     let location: AgentLocationResponse | undefined = workerLocation(workerPath, "w0", 1);
-    const masterRequests: string[] = [];
-    const master = await masterServer(masterPath, () => location, masterRequests);
+    const hostRequests: string[] = [];
+    const host = await hostServer(hostPath, () => location, hostRequests);
     const workers: WorkerProcess[] = [];
     let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
     try {
         const first = await startWorker(workerPath, "w0", 1, log);
         workers.push(first);
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: "crow", buildId: BUILD,
+            socketPath: () => hostPath, agentId: "crow", buildId: BUILD,
             initialLocation: location, failOnDisconnect: true,
         });
         expect(await client.receive()).toMatchObject({ type: "history", seq: 5 });
@@ -131,31 +132,31 @@ test("a restarted worker is located again and an unavailable replay falls back t
         const attaches = readRequests(log).filter((request) => request.type === "attach");
         expect(attaches.some((request) => request.after_seq === 5)).toBe(true);
         expect(attaches.at(-1)?.after_seq).toBeUndefined();
-        expect(masterRequests).toContain("locate_agent");
+        expect(hostRequests).toContain("locate_agent");
     } finally {
         client?.close();
         for (const worker of workers) await stopWorker(worker);
-        await closeServer(master);
+        await closeServer(host);
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
 
-test("a real stale worker redirects once to the owner resolved by the master", async () => {
+socketTest("a real stale worker redirects once to the owner resolved by the host", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-redirect-");
-    const masterPath = join(root, "host.sock");
+    const hostPath = join(root, "host.sock");
     const stalePath = join(root, "stale.sock");
     const ownerPath = join(root, "owner.sock");
     const staleLog = join(root, "stale.log");
     const ownerLog = join(root, "owner.log");
     const requests: string[] = [];
-    const master = await masterServer(masterPath, () => workerLocation(ownerPath, "w1", 1), requests);
+    const host = await hostServer(hostPath, () => workerLocation(ownerPath, "w1", 1), requests);
     const workers: WorkerProcess[] = [];
     let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
     try {
         workers.push(await startWorker(ownerPath, "w1", 1, ownerLog));
         workers.push(await startWorker(stalePath, "w0", 1, staleLog, ownerPath));
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: "crow", buildId: BUILD,
+            socketPath: () => hostPath, agentId: "crow", buildId: BUILD,
             initialLocation: workerLocation(stalePath, "w0", 1),
         });
         expect((await client.receive()).type).toBe("history");
@@ -169,26 +170,26 @@ test("a real stale worker redirects once to the owner resolved by the master", a
         workers.push(await startWorker(ownerPath, "w1", 1, ownerLog, stalePath));
         requests.length = 0;
         await expect(attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: "crow", buildId: BUILD,
+            socketPath: () => hostPath, agentId: "crow", buildId: BUILD,
             initialLocation: workerLocation(stalePath, "w0", 1),
         })).rejects.toBeInstanceOf(AgentLocationChangedError);
         expect(requests.filter((request) => request === "locate_agent")).toHaveLength(1);
     } finally {
         client?.close();
         for (const worker of workers) await stopWorker(worker);
-        await closeServer(master);
+        await closeServer(host);
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
 
-test("a generation mismatch is resolved again before attaching", async () => {
+socketTest("a generation mismatch is resolved again before attaching", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-generation-");
-    const masterPath = join(root, "host.sock");
+    const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const log = join(root, "worker.log");
     const requests: string[] = [];
     let locations = 0;
-    const master = await masterServer(masterPath, () => {
+    const host = await hostServer(hostPath, () => {
         locations += 1;
         return locations < 2 ? undefined : workerLocation(workerPath, "w0", 2);
     }, requests);
@@ -197,7 +198,7 @@ test("a generation mismatch is resolved again before attaching", async () => {
     try {
         worker = await startWorker(workerPath, "w0", 2, log);
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: "crow", buildId: BUILD,
+            socketPath: () => hostPath, agentId: "crow", buildId: BUILD,
             initialLocation: workerLocation(workerPath, "w0", 1),
         });
         expect((await client.receive()).type).toBe("history");
@@ -206,18 +207,18 @@ test("a generation mismatch is resolved again before attaching", async () => {
     } finally {
         client?.close();
         if (worker !== undefined) await stopWorker(worker);
-        await closeServer(master);
+        await closeServer(host);
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
 
-test("a starting location gets one retry after the worker has time to report", async () => {
+socketTest("a starting location gets one retry after the worker has time to report", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
-    const masterPath = join(root, "host.sock");
+    const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const requests: string[] = [];
     let firstLocate = 0;
-    const master = await masterServer(masterPath, () => {
+    const host = await hostServer(hostPath, () => {
         if (firstLocate === 0) firstLocate = Date.now();
         return Date.now() - firstLocate >= 300 ? workerLocation(workerPath, "w0", 1) : undefined;
     }, requests);
@@ -225,42 +226,42 @@ test("a starting location gets one retry after the worker has time to report", a
     let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
     try {
         worker = await startWorker(workerPath, "w0", 1, join(root, "worker.log"));
-        client = await attachReconnectingAgent({ socketPath: () => masterPath, agentId: "crow", buildId: BUILD });
+        client = await attachReconnectingAgent({ socketPath: () => hostPath, agentId: "crow", buildId: BUILD });
         expect((await client.receive()).type).toBe("history");
         expect(requests.filter((request) => request === "locate_agent")).toHaveLength(2);
     } finally {
         client?.close();
         if (worker !== undefined) await stopWorker(worker);
-        await closeServer(master);
+        await closeServer(host);
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
 
-test("a master-forwarded legacy attachment heals a worker redirect", async () => {
+socketTest("a host-forwarded legacy attachment heals a worker redirect", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs5-legacy-redirect-");
-    const masterPath = join(root, "host.sock");
+    const hostPath = join(root, "host.sock");
     const stalePath = join(root, "stale.sock");
     const ownerPath = join(root, "owner.sock");
     const workers: WorkerProcess[] = [];
-    const master = createServer((socket) => {
+    const host = createServer((socket) => {
         socket.once("data", (chunk: Buffer) => {
             const line = chunk.toString("utf8").split("\n")[0]!;
             void forwardSessionConnection(socket, stalePath, line, true).catch(() => socket.destroy());
         });
     });
-    await new Promise<void>((resolve, reject) => { master.once("error", reject); master.listen(masterPath, resolve); });
+    await new Promise<void>((resolve, reject) => { host.once("error", reject); host.listen(hostPath, resolve); });
     let client: Awaited<ReturnType<typeof attachAgent>> | undefined;
     try {
         workers.push(await startWorker(ownerPath, "w1", 1, join(root, "owner.log")));
         workers.push(await startWorker(stalePath, "w0", 1, join(root, "stale.log"), ownerPath));
-        client = await attachAgent({ socketPath: masterPath, agentId: "crow", requestedCapabilities: [HOST_CAPABILITY_SESSION_ROUTING] });
+        client = await attachAgent({ socketPath: hostPath, agentId: "crow", requestedCapabilities: [HOST_CAPABILITY_SESSION_ROUTING] });
         expect((await client.receive()).type).toBe("history");
         expect(readRequests(join(root, "stale.log")).filter((request) => request.type === "attach")).toHaveLength(1);
         expect(readRequests(join(root, "owner.log")).filter((request) => request.type === "attach")).toHaveLength(1);
     } finally {
         client?.close();
         for (const worker of workers) await stopWorker(worker);
-        await closeServer(master);
+        await closeServer(host);
         await rm(root, { recursive: true, force: true });
     }
 }, 20_000);
@@ -269,7 +270,7 @@ function workerLocation(socketPath: string, workerId: string, generation: number
     return { type: "agent_location", socket_path: socketPath, worker_id: workerId, worker_generation: generation, build_id: BUILD };
 }
 
-async function masterServer(path: string, location: () => AgentLocationResponse | undefined, requests: string[]): Promise<Server> {
+async function hostServer(path: string, location: () => AgentLocationResponse | undefined, requests: string[]): Promise<Server> {
     return await listen(path, (request, socket) => {
         requests.push(request.type as string);
         const response = request.type === "host_identity"

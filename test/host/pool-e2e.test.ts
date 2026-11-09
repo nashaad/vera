@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -13,7 +14,7 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
-test("a real worker serves sessions and preserves an existing owner", async () => {
+socketAndLoopbackTest("a real worker serves sessions and preserves an existing owner", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-pool-");
     let turns = 0;
     let modelLists = 0;
@@ -55,18 +56,18 @@ test("a real worker serves sessions and preserves an existing owner", async () =
         workerPid = workerIdentity!.pid;
         expect(workerPid).not.toBe(process.pid);
 
-        const master = await host.registry.create({ workspace: home });
-        const entry = host.registry.agents.get(master.id)!;
+        const hostSession = await host.registry.create({ workspace: home });
+        const entry = host.registry.agents.get(hostSession.id)!;
         const writing = Promise.withResolvers<void>();
         write = entry.store.exclusively(async () => { writing.resolve(); await releaseWrite.promise; });
         await writing.promise;
         const resumed = await resumeAgentThroughHost(socket, entry.store.path);
-        expect(resumed.id).toBe(master.id);
+        expect(resumed.id).toBe(hostSession.id);
         expect(resumed.location?.worker_id).toBe("host");
-        expect(host.registry.agents.has(master.id)).toBe(true);
+        expect(host.registry.agents.has(hostSession.id)).toBe(true);
         releaseWrite.resolve();
         await write;
-        expect((await locate(socket, master.id)).worker_id).toBe("host");
+        expect((await locate(socket, hostSession.id)).worker_id).toBe("host");
         client = await attachAgent({ socketPath: socket, agentId: created.id });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Where is the map?" });
@@ -89,7 +90,7 @@ test("a real worker serves sessions and preserves an existing owner", async () =
     }
 }, 30_000);
 
-test("abrupt socket closure releases attachments on both owners", async () => {
+socketAndLoopbackTest("abrupt socket closure releases attachments on both owners", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-drop-");
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
@@ -113,15 +114,15 @@ test("abrupt socket closure releases attachments on both owners", async () => {
             },
         });
         const socket = host.server.socketPath;
-        const master = await host.registry.create({ workspace: home });
-        client = await attachAgent({ socketPath: socket, agentId: master.id });
+        const hostSession = await host.registry.create({ workspace: home });
+        client = await attachAgent({ socketPath: socket, agentId: hostSession.id });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Find the map." });
         while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
-        expect(master.attached).toBe(true);
+        expect(hostSession.attached).toBe(true);
         client.close();
         client = undefined;
-        await waitFor(() => !master.attached);
+        await waitFor(() => !hostSession.attached);
 
         const worker = await createAgentThroughHost(socket, home);
         const location = await locate(socket, worker.id);
@@ -163,7 +164,7 @@ test("abrupt socket closure releases attachments on both owners", async () => {
     }
 }, 25_000);
 
-test("a killed session worker repairs its turn and re-offers a queued prompt once", async () => {
+socketAndLoopbackTest("a killed session worker repairs its turn and re-offers a queued prompt once", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-crash-");
     const started = deferred();
     const release = deferred();
@@ -245,7 +246,7 @@ test("a killed session worker repairs its turn and re-offers a queued prompt onc
     }
 }, 30_000);
 
-test("a worker durably accepts, rejects, withdraws, and clears queued prompts", async () => {
+socketAndLoopbackTest("a worker durably accepts, rejects, withdraws, and clears queued prompts", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-queue-");
     const started = deferred();
     const release = deferred();
@@ -318,7 +319,7 @@ test("a worker durably accepts, rejects, withdraws, and clears queued prompts", 
     }
 }, 30_000);
 
-test("extension calls cross the process boundary and blocked moves attach to the owner", async () => {
+socketAndLoopbackTest("extension calls cross the process boundary and blocked moves attach to the owner", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs4-ext-");
     const previousHome = process.env.VERA_HOME;
     const extension = join(home, "extensions", "route-test");
@@ -375,9 +376,9 @@ test("extension calls cross the process boundary and blocked moves attach to the
         const worker = await createAgentThroughHost(socket, home);
         const location = await locate(socket, worker.id);
         workerPid = (await requestHostIdentity(location.socket_path))!.pid;
-        const master = await host.registry.create({ workspace: home });
-        const path = host.registry.agents.get(master.id)!.store.path;
-        for (const id of [master.id, worker.id]) {
+        const hostSession = await host.registry.create({ workspace: home });
+        const path = host.registry.agents.get(hostSession.id)!.store.path;
+        for (const id of [hostSession.id, worker.id]) {
             client = await attachAgent({ socketPath: socket, agentId: id });
             expect((await client.receive()).type).toBe("history");
             await client.send({ type: "prompt", content: "Where is the map?" });
@@ -386,7 +387,7 @@ test("extension calls cross the process boundary and blocked moves attach to the
             client.close();
             client = undefined;
         }
-        await waitFor(() => !master.attached);
+        await waitFor(() => !hostSession.attached);
         const invoke = (name: string, id: string, question = "Where is the map?", signal = new AbortController().signal) =>
             host!.extensions.handleRequest("test.route", name, { id, question, title: "Crow map", text: "Message from the lookout." }, signal);
         expect(await invoke("title", worker.id)).toBe("set");
@@ -411,10 +412,10 @@ test("extension calls cross the process boundary and blocked moves attach to the
 
         const fromWorker = (name: string, question: string, signal = new AbortController().signal) =>
             requestExtensionThroughHost(location.socket_path, "test.route", name,
-                { id: master.id, question, title: "Master map", text: "Message from the lookout." }, signal);
+                { id: hostSession.id, question, title: "Host map", text: "Message from the lookout." }, signal);
         expect(await fromWorker("title", "unused")).toBe("set");
         for (const name of ["ask", "investigate"] as const) {
-            const phrase = `cancel ${name} at the master`;
+            const phrase = `cancel ${name} at the host`;
             const hold = { started: deferred(), aborted: deferred(), release: deferred() };
             holds.set(phrase, hold);
             const controller = new AbortController();
@@ -429,15 +430,15 @@ test("extension calls cross the process boundary and blocked moves attach to the
         expect(await fromWorker("ask", "Where is the map?")).toMatchObject({ text: "The crow found the map." });
 
         const hold = { started: deferred(), aborted: deferred(), release: deferred() };
-        holds.set("hold master ask", hold);
+        holds.set("hold host ask", hold);
         const controller = new AbortController();
-        const pending = invoke("ask", master.id, "hold master ask", controller.signal);
+        const pending = invoke("ask", hostSession.id, "hold host ask", controller.signal);
         const settled = pending.then(() => "resolved", () => "rejected");
         await within(hold.started.promise);
-        expect((await resumeAgentThroughHost(socket, path)).id).toBe(master.id);
-        expect(host.registry.agents.has(master.id)).toBe(true);
-        expect((await locate(socket, master.id)).worker_id).toBe("host");
-        client = await attachAgent({ socketPath: socket, agentId: master.id });
+        expect((await resumeAgentThroughHost(socket, path)).id).toBe(hostSession.id);
+        expect(host.registry.agents.has(hostSession.id)).toBe(true);
+        expect((await locate(socket, hostSession.id)).worker_id).toBe("host");
+        client = await attachAgent({ socketPath: socket, agentId: hostSession.id });
         expect((await client.receive()).type).toBe("history");
         await client.detach();
         client.close();
@@ -445,7 +446,7 @@ test("extension calls cross the process boundary and blocked moves attach to the
         controller.abort();
         await within(hold.aborted.promise);
         expect(await settled).toBe("rejected");
-        holds.delete("hold master ask");
+        holds.delete("hold host ask");
 
         const branching = deferred();
         const originalBranch = host.registry.branch;
@@ -454,12 +455,12 @@ test("extension calls cross the process boundary and blocked moves attach to the
             await branchGate.promise;
             return await originalBranch.apply(host!.registry, args);
         };
-        branch = branchAgentThroughHost(socket, master.id, "at", undefined, { lifetime: "ephemeral" });
+        branch = branchAgentThroughHost(socket, hostSession.id, "at", undefined, { lifetime: "ephemeral" });
         await within(branching.promise);
-        expect((await resumeAgentThroughHost(socket, path)).id).toBe(master.id);
-        expect(host.registry.agents.has(master.id)).toBe(true);
-        expect((await locate(socket, master.id)).worker_id).toBe("host");
-        client = await attachAgent({ socketPath: socket, agentId: master.id });
+        expect((await resumeAgentThroughHost(socket, path)).id).toBe(hostSession.id);
+        expect(host.registry.agents.has(hostSession.id)).toBe(true);
+        expect((await locate(socket, hostSession.id)).worker_id).toBe("host");
+        client = await attachAgent({ socketPath: socket, agentId: hostSession.id });
         expect((await client.receive()).type).toBe("history");
         await client.detach();
         client.close();

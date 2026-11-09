@@ -132,7 +132,7 @@ if the host ignores it, and says which of these happened.
 In pool mode, an ordinary stop waits for running turns on every session
 process, then stops all session processes before removing the host lock. A
 forced stop asks the host to cut its turns first. If it cannot answer, the
-command stops the master, then each verified session process.
+command stops the host, then each verified session process.
 If a session process is unavailable, `vera ls` keeps its last known session
 summaries and names the unavailable process after the table. Reconnect host
 and automatic restart use the home configuration when they start a host.

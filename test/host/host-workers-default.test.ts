@@ -1,16 +1,17 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join } from "node:path";
 
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/master/stop-worker.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/stop-worker.ts";
 import { checkRecordIdentity, processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
 interface WorkerRecord extends WorkerStopIdentity {
-    readonly master_pid: number;
+    readonly host_pid: number;
 }
 
 async function runHost(workers: number | undefined, args: readonly string[] = []): Promise<void> {
@@ -42,7 +43,7 @@ async function runHost(workers: number | undefined, args: readonly string[] = []
                 expect(lock.record.worker_count).toBe(expected === 0 ? undefined : expected);
                 for (let index = 0; index < expected; index += 1) {
                     const record = JSON.parse(await readFile(join(home, "runtime", "workers", `w${index}.json`), "utf8")) as WorkerRecord;
-                    expect(record.master_pid).toBe(child.pid);
+                    expect(record.host_pid).toBe(child.pid);
                     expect(record.pid).not.toBe(child.pid);
                     expect((await requestHostIdentity(inProcessWorkerSocket(home, index)))?.pid).toBe(record.pid);
                     owned.push(record);
@@ -61,7 +62,7 @@ async function runHost(workers: number | undefined, args: readonly string[] = []
         const directory = join(home, "runtime", "workers");
         for (const name of await readdir(directory).catch(() => [])) {
             const record = JSON.parse(await readFile(join(directory, name), "utf8")) as WorkerRecord;
-            if (record.master_pid === child.pid && !owned.some((worker) => worker.pid === record.pid)) owned.push(record);
+            if (record.host_pid === child.pid && !owned.some((worker) => worker.pid === record.pid)) owned.push(record);
         }
         for (const worker of owned) await stopWorkerProcess(worker);
         await stderr;
@@ -69,23 +70,23 @@ async function runHost(workers: number | undefined, args: readonly string[] = []
     }
 }
 
-test("a normal host start uses the default session-process pool", async () => {
+socketTest("a normal host start uses the default session-process pool", async () => {
     await runHost(undefined);
 }, 60_000);
 
-test("a normal host start uses the configured number of session processes", async () => {
+socketTest("a normal host start uses the configured number of session processes", async () => {
     await runHost(2);
 }, 60_000);
 
-test("a normal host start with zero workers uses one host process", async () => {
+socketTest("a normal host start with zero workers uses one host process", async () => {
     await runHost(0);
 }, 60_000);
 
-test("the compatibility pool flag respects a zero worker setting", async () => {
+socketTest("the compatibility pool flag respects a zero worker setting", async () => {
     await runHost(0, ["--pool"]);
 }, 60_000);
 
-for (const nextCount of [0, 1]) test(`a change to ${nextCount} workers applies on the next start after a master crash`, async () => {
+for (const nextCount of [0, 1]) socketTest(`a change to ${nextCount} workers applies on the next start after a host crash`, async () => {
     await mkdir("/tmp/vera-dev", { recursive: true });
     const root = await mkdtemp(join(await realpath("/tmp/vera-dev"), "pd-mode-"));
     const home = join(root, "h");
@@ -121,7 +122,7 @@ for (const nextCount of [0, 1]) test(`a change to ${nextCount} workers applies o
         expect((await waitForLock(first.pid)).worker_count).toBe(2);
         for (let index = 0; index < 2; index += 1) {
             const record = JSON.parse(await readFile(join(home, "runtime", "workers", `w${index}.json`), "utf8")) as WorkerRecord;
-            expect(record.master_pid).toBe(first.pid);
+            expect(record.host_pid).toBe(first.pid);
             owned.push(record);
         }
         await writeFile(configPath, JSON.stringify({ ...config, host: { workers: nextCount } }));
@@ -142,7 +143,7 @@ for (const nextCount of [0, 1]) test(`a change to ${nextCount} workers applies o
             expect(newWorker?.pid).toBeDefined();
             expect(owned.some((worker) => worker.pid === newWorker?.pid)).toBe(false);
             const record = JSON.parse(await readFile(join(home, "runtime", "workers", "w0.json"), "utf8")) as WorkerRecord;
-            expect(record.master_pid).toBe(second.pid);
+            expect(record.host_pid).toBe(second.pid);
             owned.push(record);
         }
     } finally {

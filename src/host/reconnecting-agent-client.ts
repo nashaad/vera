@@ -68,12 +68,12 @@ export async function attachReconnectingAgent(
         afterSequence: number | undefined,
         signal: AbortSignal,
     ): Promise<AttachedAgentClient> => {
-        const masterSocket = options.socketPath();
-        const masterIdentity = await confirmHostBuild(masterSocket, options.buildId, signal);
+        const hostSocket = options.socketPath();
+        const hostIdentity = await confirmHostBuild(hostSocket, options.buildId, signal);
         let location: RoutingLocation | undefined = routing ? initialLocation : undefined;
         initialLocation = undefined;
-        if (location === undefined && routing && (masterIdentity.workers_ready !== undefined || directAttached)) {
-            location = await locateAgent(masterSocket, options.agentId, signal);
+        if (location === undefined && routing && (hostIdentity.workers_ready !== undefined || directAttached)) {
+            location = await locateAgent(hostSocket, options.agentId, signal);
         }
         const attachAt = (socketPath: string): Promise<AttachedAgentClient> => attachAgent({
             socketPath,
@@ -86,32 +86,32 @@ export async function attachReconnectingAgent(
             signal,
         });
         if (location === undefined) {
-            const client = await attachAt(masterSocket);
+            const client = await attachAt(hostSocket);
             directAttached = false;
             return client;
         }
         let lastError: unknown = new Error("The session worker is unavailable");
         for (let attempt = 0; attempt < 2; attempt += 1) {
             const target = location;
-            const isMaster = target.worker_id === "host" && target.socket_path === masterSocket;
-            const identity = isMaster ? masterIdentity : await requestHostIdentity(target.socket_path);
+            const isHost = target.worker_id === "host" && target.socket_path === hostSocket;
+            const identity = isHost ? hostIdentity : await requestHostIdentity(target.socket_path);
             signal.throwIfAborted();
             const matches = target.build_id === undefined || target.build_id === options.buildId;
-            const verified = isMaster ? matches : matches && identity?.role === "worker"
+            const verified = isHost ? matches : matches && identity?.role === "worker"
                 && identity.build_id === options.buildId
                 && identity.worker_id === target.worker_id
                 && identity.worker_generation === target.worker_generation;
             if (verified) {
                 try {
                     const client = await attachAt(target.socket_path);
-                    directAttached = !isMaster;
+                    directAttached = !isHost;
                     return client;
                 } catch (error) {
                     if (!(error instanceof AgentLocationChangedError) && !isRefusedSocket(error)) throw error;
                     lastError = error;
                 }
             }
-            if (attempt === 0) location = await locateAgent(masterSocket, options.agentId, signal);
+            if (attempt === 0) location = await locateAgent(hostSocket, options.agentId, signal);
         }
         throw lastError;
     };

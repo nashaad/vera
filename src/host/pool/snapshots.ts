@@ -20,7 +20,7 @@ export class RoutedSnapshots {
     private readonly lastWorkers = new Map<SessionOwner, SessionSnapshot>();
 
     constructor(
-        private readonly master: SessionEndpoint,
+        private readonly host: SessionEndpoint,
         private readonly workers: readonly RouterWorker[],
         private readonly revision: () => number,
         private readonly observe: (owner: SessionOwner, snapshot: SessionSnapshot, revision: number) => void,
@@ -51,7 +51,7 @@ export class RoutedSnapshots {
     private async refreshOnce(): Promise<void> {
         const revision = this.revision();
         const owners: Array<[SessionOwner, SessionEndpoint]> = [
-            ["host", this.master], ...this.workers.filter((worker) => worker.ready()).map((worker): [SessionOwner, SessionEndpoint] => [worker.id, worker.endpoint]),
+            ["host", this.host], ...this.workers.filter((worker) => worker.ready()).map((worker): [SessionOwner, SessionEndpoint] => [worker.id, worker.endpoint]),
         ];
         const generations = new Map(this.workers.map((worker) => [worker.id, worker.generation()]));
         const snapshots = await Promise.all(owners.map(([, endpoint]) => endpoint.snapshot()));
@@ -87,7 +87,7 @@ export class RoutedSnapshots {
             if (!cached) this.observe(owner, snapshot, revision);
             return snapshot.work;
         }).map((fact) => unread.has(fact.id) ? { ...fact, unread_result: true } : fact);
-        const schedules = await this.master.workSchedules(agents);
+        const schedules = await this.host.workSchedules(agents);
         this.summaries = mergeRosters(current.map(({ owner, snapshot }) => [owner, snapshot.summaries] as const),
             (id) => residentOwners.get(id));
         this.index = buildWorkIndex(agents, schedules);

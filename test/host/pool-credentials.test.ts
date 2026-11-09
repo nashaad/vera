@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,13 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import * as credentials from "../../src/host/master/credentials.ts";
+import * as credentials from "../../src/host/pool/credentials.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { createAuthStorage, defaultAuthStoragePath } from "../../src/providers/auth-storage.ts";
 import { OPENAI_CODEX_PROVIDER_ID } from "../../src/providers/openai-codex-oauth.ts";
 
-test("three workers share a refresh and pick up a client credential write", async () => {
+socketAndLoopbackTest("three workers share a refresh and pick up a client credential write", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7ca-");
     const authPath = defaultAuthStoragePath(home);
     const disk = createAuthStorage({ path: authPath });
@@ -108,7 +109,7 @@ test("three workers share a refresh and pick up a client credential write", asyn
     const pids: number[] = [];
     let host: ResidentHost | undefined;
     let annexPid: number | undefined;
-    let masterClient: AttachedAgentClient | undefined;
+    let hostClient: AttachedAgentClient | undefined;
     try {
         host = await startResidentHost({
             home, processWorker: true, processWorkerCount: 3, skipStartupDiscovery: true, authStorage,
@@ -141,13 +142,13 @@ test("three workers share a refresh and pick up a client credential write", asyn
         expect(leases).toBe(6);
         expect(requests).toBe(6);
 
-        const master = await host.registry.create({ workspace: home });
-        masterClient = await attachAgent({ socketPath: host.server.socketPath, agentId: master.id });
-        expect((await masterClient.receive()).type).toBe("history");
+        const hostSession = await host.registry.create({ workspace: home });
+        hostClient = await attachAgent({ socketPath: host.server.socketPath, agentId: hostSession.id });
+        expect((await hostClient.receive()).type).toBe("history");
         lifetimeSeconds = 3600;
         minimumLeasesForRefresh = 10;
         disk.setCredential(OPENAI_CODEX_PROVIDER_ID, expired());
-        await runTurns([...clients, masterClient]);
+        await runTurns([...clients, hostClient]);
         expect({ refreshes, writes }).toEqual({ refreshes: 3, writes: 3 });
         expect(leases).toBe(10);
         expect(requests).toBe(10);
@@ -184,7 +185,7 @@ test("three workers share a refresh and pick up a client credential write", asyn
     } finally {
         releaseFailedRefresh.resolve();
         releaseRejections.resolve();
-        masterClient?.close();
+        hostClient?.close();
         for (const client of clients) client.close();
         try { await host?.close(); }
         finally {
@@ -206,7 +207,7 @@ test("three workers share a refresh and pick up a client credential write", asyn
     }
 }, 90_000);
 
-test("a worker obtains the current API key once per request", async () => {
+socketAndLoopbackTest("a worker obtains the current API key once per request", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7ck-");
     const disk = createAuthStorage({ path: defaultAuthStoragePath(home) });
     const first = randomUUID();

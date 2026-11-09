@@ -101,7 +101,7 @@ import {
 } from "./capabilities.ts";
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
-import { forwardSessionConnection } from "./master/forward.ts";
+import { forwardSessionConnection } from "./pool/forward.ts";
 import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./attachment-coordinator.ts";
 
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
@@ -144,7 +144,7 @@ export interface RestartRecordsPort {
 
 type ForwardableHostRequest = Extract<HostRequest, { readonly type: "attach" | "branch_agent" }>;
 
-function isMasterOnlyRequest(request: HostRequest): boolean {
+function isHostOnlyRequest(request: HostRequest): boolean {
     switch (request.type) {
         case "create_agent":
         case "resume_agent":
@@ -200,7 +200,7 @@ export interface StartHostServerOptions {
     readonly readyLocation?: (agentId: string) => Promise<AgentLocationResponse | undefined>;
     readonly readWorkersReady?: () => number;
     readonly readUnavailableWorkers?: () => readonly string[];
-    readonly forwardMasterRequest?: (
+    readonly forwardHostRequest?: (
         request: HostRequest,
         send: (message: object) => Promise<void>,
         signal: AbortSignal,
@@ -520,7 +520,7 @@ async function startListener(
             options.readyLocation,
             options.readWorkersReady,
             options.readUnavailableWorkers,
-            options.forwardMasterRequest,
+            options.forwardHostRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
@@ -718,7 +718,7 @@ function receiveConnection(
     readyLocation: StartHostServerOptions["readyLocation"],
     readWorkersReady: StartHostServerOptions["readWorkersReady"],
     readUnavailableWorkers: StartHostServerOptions["readUnavailableWorkers"],
-    forwardMasterRequest: StartHostServerOptions["forwardMasterRequest"],
+    forwardHostRequest: StartHostServerOptions["forwardHostRequest"],
     routeRequest: StartHostServerOptions["routeRequest"],
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
@@ -1322,12 +1322,12 @@ function receiveConnection(
 
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
-        if (request !== undefined && forwardMasterRequest !== undefined && isMasterOnlyRequest(request)) {
+        if (request !== undefined && forwardHostRequest !== undefined && isHostOnlyRequest(request)) {
             clearDeadline();
             finished = true;
             const controller = new AbortController();
             socket.once("close", () => controller.abort());
-            void forwardMasterRequest(request, send, controller.signal)
+            void forwardHostRequest(request, send, controller.signal)
                 .then(() => socket.end(), () => socket.destroy());
             return;
         }

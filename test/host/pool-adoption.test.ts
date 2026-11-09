@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -9,9 +10,9 @@ import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
@@ -31,7 +32,7 @@ interface StartedProcess {
     readonly command: string;
 }
 
-test("a new master adopts both workers and a running turn survives its death", async () => {
+socketAndLoopbackTest("a new host adopts both workers and a running turn survives its death", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -85,13 +86,13 @@ test("a new master adopts both workers and a running turn survives its death", a
         await Promise.race([entered.promise, Bun.sleep(10_000).then(() => { throw new Error("Provider did not start"); })]);
         child.kill("SIGKILL");
         await child.exited;
-        await waitFor(() => !alive(child.pid), "master exit");
+        await waitFor(() => !alive(child.pid), "host exit");
         release.resolve();
         while ((await clients[0]!.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
         for (const pid of info.workers) expect(alive(pid)).toBe(true);
         await Promise.race([
             expect(createAgentThroughHost(first.location!.socket_path, home)).rejects.toThrow("host connection closed"),
-            Bun.sleep(2_000).then(() => { throw new Error("Create did not fail during the master outage"); }),
+            Bun.sleep(2_000).then(() => { throw new Error("Create did not fail during the host outage"); }),
         ]);
         await clients[0]!.send({ type: "update_model_settings", requestId: "during-gap", patch: { contextLimit: 42_000 } });
         while (true) {
@@ -184,7 +185,7 @@ test("a new master adopts both workers and a running turn survives its death", a
     }
 }, 40_000);
 
-test("a lost adopted session process logs unavailable exit details", async () => {
+socketTest("a lost adopted session process logs unavailable exit details", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-log-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -238,7 +239,7 @@ test("a lost adopted session process logs unavailable exit details", async () =>
     }
 }, 40_000);
 
-test("a stop requested during adoption closes the host after startup", async () => {
+socketTest("a stop requested during adoption closes the host after startup", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-stop-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -303,7 +304,7 @@ test("a stop requested during adoption closes the host after startup", async () 
     }
 }, 35_000);
 
-test("a stop during adoption holds and waits for the surviving turn", async () => {
+socketAndLoopbackTest("a stop during adoption holds and waits for the surviving turn", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-stop-turn-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -403,7 +404,7 @@ test("a stop during adoption holds and waits for the surviving turn", async () =
     }
 }, 35_000);
 
-test("adoption clears a stop wait abandoned by a dead master", async () => {
+socketAndLoopbackTest("adoption clears a stop wait abandoned by a dead host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-abandoned-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -450,7 +451,7 @@ test("adoption clears a stop wait abandoned by a dead master", async () => {
         await client.send({ type: "prompt", content: "Inspect the map." });
         await Promise.race([turnEntered.promise, Bun.sleep(10_000).then(() => { throw new Error("Provider did not start"); })]);
         const identity = await requestHostIdentity(info.socket);
-        if (identity === undefined) throw new Error("Master identity is unavailable");
+        if (identity === undefined) throw new Error("Host identity is unavailable");
         stop = requestHostStop(info.socket, identity, () => waiting.resolve());
         await Promise.race([waiting.promise, Bun.sleep(10_000).then(() => { throw new Error("No stop wait"); })]);
         await waitFor(() => client?.stopWait?.kind === "stop", "stop notification");
@@ -484,7 +485,7 @@ test("adoption clears a stop wait abandoned by a dead master", async () => {
     }
 }, 35_000);
 
-test("a reconnect waits until an adopted worker has restored its attachment services", async () => {
+socketTest("a reconnect waits until an adopted worker has restored its attachment services", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-ready-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -596,7 +597,7 @@ async function waitFor(predicate: () => boolean, label: string): Promise<void> {
         await Bun.sleep(10);
     }
 }
-test("a stop refused during adoption never takes effect later", async () => {
+socketAndLoopbackTest("a stop refused during adoption never takes effect later", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h9-adopt-slow-stop-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

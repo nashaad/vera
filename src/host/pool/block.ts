@@ -9,7 +9,7 @@ export async function blockAcrossOwners(
     sessions: readonly OwnedSession[], request: BlockSessionRequest,
     residents: () => Promise<readonly OwnedSession[]>, waitForStarts: (ids: readonly string[]) => Promise<void>,
 ): Promise<BlockSessionOutcome> {
-    const master = endpoints.get("host")!;
+    const host = endpoints.get("host")!;
     const worker = endpoints.get(primary)!;
     const root = sessions.find((entry) => entry.session.id === request.target_agent_id);
     const writer = endpoints.get(root?.owner ?? primary)!;
@@ -18,12 +18,12 @@ export async function blockAcrossOwners(
     const ids: string[] = [];
     let current = sessions;
     while (true) {
-        const masterPaths = current.filter((entry) => entry.owner === "host").map((entry) => entry.session.sessionPath);
-        const [masterRows, workerRows] = await Promise.all([
-            master.blockTreeShard(masterPaths), worker.blockTreeShard(undefined, masterPaths),
+        const hostPaths = current.filter((entry) => entry.owner === "host").map((entry) => entry.session.sessionPath);
+        const [hostRows, workerRows] = await Promise.all([
+            host.blockTreeShard(hostPaths), worker.blockTreeShard(undefined, hostPaths),
         ]);
         const parents = new Map<string, string>();
-        for (const row of [...masterRows, ...workerRows].sort((left, right) => left.order - right.order)) {
+        for (const row of [...hostRows, ...workerRows].sort((left, right) => left.order - right.order)) {
             if (row.parent !== undefined) parents.set(row.id, row.parent);
         }
         for (const entry of current) {

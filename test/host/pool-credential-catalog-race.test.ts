@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,13 +8,13 @@ import { fileURLToPath } from "node:url";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { connectHost, type HostConnection } from "../../src/host/connection.ts";
-import * as credentials from "../../src/host/master/credentials.ts";
+import * as credentials from "../../src/host/pool/credentials.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { createAuthStorage, defaultAuthStoragePath } from "../../src/providers/auth-storage.ts";
 
 for (const order of ["catalog-first", "request-first", "catalog-rejected", "forget-during-refresh"] as const) {
-test(`${order}: credential writes are coordinated`, async () => {
+socketAndLoopbackTest(`${order}: credential writes are coordinated`, async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7cx-");
     const disk = createAuthStorage({ path: defaultAuthStoragePath(home) });
     const initialAccess = randomUUID();

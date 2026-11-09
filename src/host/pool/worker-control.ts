@@ -37,14 +37,14 @@ export type WorkerStartOptions = Pick<StartResidentHostOptions,
 
 export interface WorkerBootstrap {
     readonly options: WorkerStartOptions;
-    readonly masterSocket: string;
+    readonly hostSocket: string;
     readonly lockPath: string;
     readonly buildId: string;
     readonly capabilities: readonly string[];
     readonly extensionCatalog: ExtensionCatalog;
     readonly heartbeatIntervalMs?: number;
     readonly turnsHeld?: boolean;
-    readonly masterGraceMs?: number;
+    readonly hostGraceMs?: number;
     readonly adopt?: true;
 }
 
@@ -76,7 +76,7 @@ function remoteCommon(peer: ControlChannel): RemoteCommon {
 
 export async function startControlledWorker(
     peer: WorkerControlLink, bootstrap: WorkerBootstrap, hello: WorkerHello, generation: number, onShutdown: () => void,
-): Promise<{ adopt(signal: AbortSignal, heartbeatIntervalMs?: number): Promise<void>; close(masterLost?: boolean): Promise<void> }> {
+): Promise<{ adopt(signal: AbortSignal, heartbeatIntervalMs?: number): Promise<void>; close(hostLost?: boolean): Promise<void> }> {
     const home = bootstrap.options.home;
     if (home === undefined) throw new Error("Worker home is unavailable");
     const globals = new WorkerGlobals(peer, home,
@@ -333,7 +333,7 @@ export async function startControlledWorker(
             pid: hello.pid,
             startedAt: hello.started_at,
             attachmentCoordinator: attachments,
-            forwardMasterRequest: publicForwarder.forward,
+            forwardHostRequest: publicForwarder.forward,
             stopWaitObserver: stopWait,
             onRosterChanged: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
             listBackgroundAgents: () => summaries,
@@ -385,12 +385,12 @@ export async function startControlledWorker(
             applyChange("auth");
             applyChange("preferences");
         },
-        close(masterLost = false) {
+        close(hostLost = false) {
             if (closing === undefined) {
                 closing = (async () => {
                     stopTracking();
                     const cutStores: SessionStore[] = [];
-                    if (masterLost) {
+                    if (hostLost) {
                         for (const target of host.registry.stopWaitTargets()) {
                             const entry = host.registry.agents.get(target.session_id);
                             if (entry !== undefined) {
@@ -406,7 +406,7 @@ export async function startControlledWorker(
                     finally {
                         try { await runtime.close(); }
                         finally {
-                            if (masterLost) {
+                            if (hostLost) {
                                 for (const store of cutStores) {
                                     await store.exclusively(async () => {});
                                     await store.repairCrashedTurn({ workerExited: true });

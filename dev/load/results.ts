@@ -12,7 +12,7 @@ interface Sample {
     id?: string;
     batch?: string;
     connection?: number;
-    via?: "direct" | "master" | "unknown";
+    via?: "direct" | "routed" | "unknown";
     ms?: number;
     delayMs?: number;
     cpu?: number;
@@ -78,10 +78,10 @@ export function collectResult(run: string, scenario: Scenario, start: number, en
     for (const sample of clients.filter((row) => row.type === "attach_path" && row.at <= end).toSorted((a, b) => a.at - b.at)) {
         if (sample.id !== undefined && sample.batch !== undefined) lastAttachments.set(`${sample.batch}/${sample.id}`, sample);
     }
-    const attachmentCounts = { direct: 0, master: 0, unknown: Math.max(0, scenario.sessions * scenario.clients - lastAttachments.size) };
+    const attachmentCounts = { direct: 0, routed: 0, unknown: Math.max(0, scenario.sessions * scenario.clients - lastAttachments.size) };
     for (const sample of lastAttachments.values()) {
         if (sample.via === "direct") attachmentCounts.direct += 1;
-        else if (sample.via === "master") attachmentCounts.master += 1;
+        else if (sample.via === "routed") attachmentCounts.routed += 1;
         else attachmentCounts.unknown += 1;
     }
     const pinErrors = clients.filter((row) => window(row) && row.type === "error" && row.id !== undefined);
@@ -208,7 +208,7 @@ export function checkFailed(result: Result): boolean {
 }
 export function table(results: Result[]): string {
     const n = (value: number | null, digits = 1) => value === null ? "n/a" : value.toFixed(digits);
-    const headings = ["Mode", "Attach path", "Direct", "Via master", "Unknown", "Sessions", "Clients/session", "Req/s", "Turns/s", "Tokens/s", "CPU mean/p90 %", "Total CPU mean/p90 %",
+    const headings = ["Mode", "Attach path", "Direct", "Routed", "Unknown", "Sessions", "Clients/session", "Req/s", "Turns/s", "Tokens/s", "CPU mean/p90 %", "Total CPU mean/p90 %",
         "RSS peak MB", "Sum RSS peak MB", "Footprint ready/peak/end MB", "Loop p99/max ms", "Worker loop worst p99/max ms",
         "Identity p90/max ms", "Misses", "Diagnostics p90 ms", "Attach p90 ms", "Workers max", "Pin CPU mean/p90 %",
         "Pin identity p90/max ms", "Pin loop p99/max ms", "Pin agent list p90/max ms", "Pin list failures", "Pin errors owned/other", "Pin loss",
@@ -221,7 +221,7 @@ export function table(results: Result[]): string {
                 : r.scenario.pinWorker ? "pool pin" : r.scenario.killWorker ? "pool kill" : "pool";
             const mb = (value: number | null): string => n(value === null ? null : value / 1e6);
             const values = [
-                mode, r.attachments.path, r.attachments.direct, r.attachments.master, r.attachments.unknown,
+                mode, r.attachments.path, r.attachments.direct, r.attachments.routed, r.attachments.unknown,
                 r.scenario.sessions, r.scenario.clients, n(r.rates.modelRequestsPerSecond, 2),
                 n(r.rates.turnsPerSecond, 2), n(r.rates.streamedTokensPerSecond),
                 `${n(r.hostCpuPercent.mean)}/${n(r.hostCpuPercent.p90)}`,

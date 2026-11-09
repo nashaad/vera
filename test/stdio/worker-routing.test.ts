@@ -1,12 +1,13 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 
 import { attachAgent } from "../../src/host/attached-client.ts";
-import * as forwarding from "../../src/host/master/forward.ts";
+import * as forwarding from "../../src/host/pool/forward.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 
-test("stdio attaches to the worker returned by the master", async () => {
+socketAndLoopbackTest("stdio attaches to the worker returned by the host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-stdio-");
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,

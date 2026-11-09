@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { expect, test } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
+import { expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -21,7 +22,7 @@ interface PoolInfo {
     readonly socket: string;
 }
 
-test("an entry due while the master is gone wakes the adopted session once", async () => {
+socketTest("an entry due while the host is gone wakes the adopted session once", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-inbox-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

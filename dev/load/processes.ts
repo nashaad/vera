@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { assertTrialHome, command, log, REPO } from "./common.ts";
-import { readRecordedWorkers } from "../../src/host/master/worker-records.ts";
+import { readRecordedWorkers } from "../../src/host/pool/worker-records.ts";
 import type { ProfileRuntime } from "./profile.ts";
 
 interface OwnedProcess {

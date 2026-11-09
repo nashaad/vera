@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ async function waitFor(check: () => boolean): Promise<void> {
     }
 }
 
-test("a ten-megabyte MCP result keeps master identity responsive", async () => {
+socketAndLoopbackTest("a ten-megabyte MCP result keeps host identity responsive", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7bl-");
     await writeFile(join(home, "hold-result"), "");
     const stub = Bun.serve({

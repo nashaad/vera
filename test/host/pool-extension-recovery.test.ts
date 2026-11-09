@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,14 +8,14 @@ import { fileURLToPath } from "node:url";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 
 const MCP = fileURLToPath(new URL("../../extensions/mcp", import.meta.url));
 const SERVER = fileURLToPath(new URL("../extensions/fixtures/mcp-reconnect-server.ts", import.meta.url));
 
-test("a master MCP server and its commands survive worker replacement", async () => {
+socketAndLoopbackTest("a host MCP server and its commands survive worker replacement", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8m-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

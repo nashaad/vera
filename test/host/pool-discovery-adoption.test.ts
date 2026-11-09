@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { ensureResidentHost } from "../../src/host/discovery.ts";
 import { createHostLockfile } from "../../src/host/lockfile.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
@@ -18,7 +19,7 @@ interface PoolInfo {
     readonly socket: string;
 }
 
-test("ordinary discovery answers while the master supervises a silent worker", async () => {
+socketTest("ordinary discovery answers while the host supervises a silent worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-discovery-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

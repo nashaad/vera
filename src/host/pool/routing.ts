@@ -13,9 +13,9 @@ import type { SessionOwner } from "./roster.ts";
 import { RoutedSnapshots } from "./snapshots.ts";
 
 export interface RoutedHostOptions {
-    readonly master: SessionHost;
+    readonly host: SessionHost;
     readonly worker: SessionEndpoint;
-    readonly masterSocket: string;
+    readonly hostSocket: string;
     readonly workerSocket: string;
     readonly buildId: string;
     readonly workerGeneration: () => number;
@@ -38,7 +38,7 @@ export interface RoutedHostOptions {
 }
 
 export function prepareRoutedHost(options: RoutedHostOptions) {
-    const masterEndpoint = sessionEndpoint(options.master);
+    const hostEndpoint = sessionEndpoint(options.host);
     const workerEndpoint = options.worker;
     const workers: readonly RouterWorker[] = [{
         id: "w0", endpoint: workerEndpoint, socket: options.workerSocket,
@@ -47,35 +47,35 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     }, ...options.extraWorkers ?? []];
     const readyWorkers = (): readonly RouterWorker[] => workers.filter((worker) => worker.ready());
     const router = new HostRouter({
-        master: masterEndpoint, worker: workerEndpoint, masterSocket: options.masterSocket,
+        host: hostEndpoint, worker: workerEndpoint, hostSocket: options.hostSocket,
         workerSocket: options.workerSocket, buildId: options.buildId,
         workerGeneration: options.workerGeneration,
         workerReady: options.workerReady,
         extraWorkers: options.extraWorkers,
         keepResidentOwner: options.keepResidentOwner,
         ownershipUncertain: options.ownershipUncertain,
-        sessionPathForId: options.master.registry.options.sessionPathForId,
+        sessionPathForId: options.host.registry.options.sessionPathForId,
         reserveDelivery: (id, run) => reserveAgent(id, () => run()),
     });
     const attachments = new InteractiveAttachmentCoordinator(
         () => router.attachmentTree(), (id) => router.close(id, "detached"),
     );
-    options.master.setExtensionSessions(router);
-    options.master.registry.peerSessions = router;
-    options.master.registry.subagentSessions = router;
-    options.master.registry.subagentAdmission = router;
-    options.master.setParkIdle(() => router.parkIdle());
-    options.master.registry.openGuard = {
-        beginCreate: (id, path, parentId) => router.beginMasterCreate(id, path, parentId),
-        beginResume: (path) => router.beginMasterResume(path),
-        end: (id) => router.endMasterOpen(id),
+    options.host.setExtensionSessions(router);
+    options.host.registry.peerSessions = router;
+    options.host.registry.subagentSessions = router;
+    options.host.registry.subagentAdmission = router;
+    options.host.setParkIdle(() => router.parkIdle());
+    options.host.registry.openGuard = {
+        beginCreate: (id, path, parentId) => router.beginHostCreate(id, path, parentId),
+        beginResume: (path) => router.beginHostResume(path),
+        end: (id) => router.endHostOpen(id),
     };
-    options.master.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
-    const snapshots = new RoutedSnapshots(masterEndpoint, workers, () => router.snapshotRevision(), (owner, snapshot, revision) => {
+    options.host.handlers.setImportedSourceHash((summary) => router.importedSourceHash(summary));
+    const snapshots = new RoutedSnapshots(hostEndpoint, workers, () => router.snapshotRevision(), (owner, snapshot, revision) => {
         router.observe(owner, snapshot.residents, revision);
         router.observeStored(owner, snapshot.summaries);
     });
-    const stopMasterTracking = options.master.handlers.onRosterChanged(() => snapshots.refresh());
+    const stopHostTracking = options.host.handlers.onRosterChanged(() => snapshots.refresh());
     const stopWorkerTracking = options.onWorkerChanged(() => snapshots.refresh());
     snapshots.refresh();
 
@@ -86,12 +86,12 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     };
     async function reserveAgent<T>(id: string, run: (reserved: boolean, path?: string) => Promise<T>): Promise<T> {
         let path = options.keepResidentOwner === true ? router.knownPath(id) : undefined;
-        if (options.keepResidentOwner === true && path === undefined) path = await options.master.handlers.storedSessionPath(id);
+        if (options.keepResidentOwner === true && path === undefined) path = await options.host.handlers.storedSessionPath(id);
         if (options.keepResidentOwner !== true) {
-            const local = await masterEndpoint.resident(id);
+            const local = await hostEndpoint.resident(id);
             const residents = await Promise.all(readyWorkers().map((worker) => worker.endpoint.resident(id)));
             const rows = await Promise.all(readyWorkers().map((worker) => worker.endpoint.list()));
-            path = local?.sessionPath ?? await options.master.handlers.storedSessionPath(id)
+            path = local?.sessionPath ?? await options.host.handlers.storedSessionPath(id)
                 ?? residents.find((resident) => resident !== undefined)?.sessionPath
                 ?? rows.flat().find((row) => row.id === id)?.session_path;
         }
@@ -123,8 +123,8 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         while (true) {
             const inspected = await router.inspectForResume(path);
             router.assertResumeAvailable(inspected.id, inspected.parentId);
-            const tree = await masterEndpoint.tree(inspected.id);
-            const members = await Promise.all(tree.map((id) => masterEndpoint.resident(id)));
+            const tree = await hostEndpoint.tree(inspected.id);
+            const members = await Promise.all(tree.map((id) => hostEndpoint.resident(id)));
             const paths = [inspected.sessionPath, ...members.flatMap((member) =>
                 member === undefined ? [] : [member.sessionPath]
             )];
@@ -151,9 +151,9 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             const locating = (async () => {
                 await router.waitForImports();
                 if (readyWorkers().length === 0) {
-                    if (await masterEndpoint.resident(id) !== undefined) {
+                    if (await hostEndpoint.resident(id) !== undefined) {
                         return {
-                            type: "agent_location" as const, socket_path: options.masterSocket,
+                            type: "agent_location" as const, socket_path: options.hostSocket,
                             worker_id: "host", worker_generation: 1, build_id: options.buildId,
                         };
                     }
@@ -223,7 +223,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
                 router.endBranch(request.sourceId);
             }
         };
-    const masterHandlers: Partial<StartHostServerOptions> = {
+    const hostHandlers: Partial<StartHostServerOptions> = {
         ...common,
         readWorkersReady: () => readyWorkers().length,
         ...(options.keepResidentOwner === true ? {
@@ -237,32 +237,32 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         findAgent: async (id) => {
             await router.waitForImports();
             if (readyWorkers().length === 0) {
-                if (await masterEndpoint.resident(id) !== undefined) return options.master.registry.find(id);
+                if (await hostEndpoint.resident(id) !== undefined) return options.host.registry.find(id);
                 await requireWorker();
             }
             return await reserveAgent(id, async (reserved) => {
                 if (!await router.find("host", id, reserved)) return undefined;
                 await snapshots.wait();
-                return options.master.registry.find(id);
+                return options.host.registry.find(id);
             });
         },
-        branchAgent: branch("host", options.master),
+        branchAgent: branch("host", options.host),
         routeRequest: route("host"),
-        canShutdown: async () => options.master.handlers.canShutdown() && await options.workerCanShutdown()
+        canShutdown: async () => options.host.handlers.canShutdown() && await options.workerCanShutdown()
             && (await Promise.all((options.extraWorkers ?? []).map((worker) => worker.canShutdown()))).every(Boolean),
-        canReplace: async () => options.master.handlers.canReplace() && await options.workerCanReplace()
+        canReplace: async () => options.host.handlers.canReplace() && await options.workerCanReplace()
             && (await Promise.all((options.extraWorkers ?? []).map((worker) => worker.canReplace()))).every(Boolean),
     };
     return {
-        router, attachments, common, branch, route, reserveAgent, snapshots, masterHandlers,
+        router, attachments, common, branch, route, reserveAgent, snapshots, hostHandlers,
         close() {
-            options.master.setExtensionSessions(options.master.localExtensionSessions);
-            options.master.registry.peerSessions = undefined;
-            options.master.registry.subagentSessions = undefined;
-            options.master.registry.subagentAdmission = undefined;
-            options.master.registry.openGuard = undefined;
-            options.master.handlers.setImportedSourceHash(undefined);
-            stopMasterTracking();
+            options.host.setExtensionSessions(options.host.localExtensionSessions);
+            options.host.registry.peerSessions = undefined;
+            options.host.registry.subagentSessions = undefined;
+            options.host.registry.subagentAdmission = undefined;
+            options.host.registry.openGuard = undefined;
+            options.host.handlers.setImportedSourceHash(undefined);
+            stopHostTracking();
             stopWorkerTracking();
         },
     };

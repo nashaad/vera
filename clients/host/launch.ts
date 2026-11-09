@@ -32,7 +32,7 @@ import {
     releaseBinaryPath,
 } from "../../src/release/layout.ts";
 
-export { sessionWorkerSpawnSpec } from "../../src/host/master/worker-launch.ts";
+export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,

@@ -46,9 +46,9 @@ import {
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
 import { releaseBuildId } from "../src/release/build-id.ts";
 import { requestHostIdentity } from "../src/host/protocol.ts";
-import { controlSocketPath } from "../src/host/master/supervisor.ts";
-import { inProcessWorkerSocket } from "../src/host/master/in-process.ts";
-import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/master/force-stop-pool.ts";
+import { controlSocketPath } from "../src/host/pool/supervisor.ts";
+import { inProcessWorkerSocket } from "../src/host/pool/in-process.ts";
+import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/pool/force-stop-pool.ts";
 import { HostStartupInProgressError } from "../src/host/startup-claim.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
 

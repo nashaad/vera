@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,10 +9,10 @@ import { branchAgentThroughHost, createAgentThroughHost, resumeAgentThroughHost 
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
-import * as remoteRouting from "../../src/host/master/remote-routing.ts";
-import { HostRouter } from "../../src/host/master/router.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
+import * as remoteRouting from "../../src/host/pool/remote-routing.ts";
+import { HostRouter } from "../../src/host/pool/router.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
@@ -77,7 +78,7 @@ function poolOptions(home: string, port: number | undefined) {
     };
 }
 
-test("three workers scan thirty sessions, own each once, and search fails closed", async () => {
+socketAndLoopbackTest("three workers scan thirty sessions, own each once, and search fails closed", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-scan-");
     const directory = join(home, "runtime", "sessions");
     await mkdir(directory, { recursive: true });
@@ -107,7 +108,7 @@ test("three workers scan thirty sessions, own each once, and search fails closed
         for (let index = 0; index < 3; index += 1) {
             const record = JSON.parse(await readFile(join(home, "runtime", "workers", `w${index}.json`), "utf8"));
             expect(record).toMatchObject({
-                id: `w${index}`, index, pid: probe.pidsByIndex.get(index), master_pid: process.pid,
+                id: `w${index}`, index, pid: probe.pidsByIndex.get(index), host_pid: process.pid,
                 socket_path: join(home, "runtime", `w${index}.sock`),
                 control_path: join(home, "runtime", "control.sock"),
             });
@@ -164,7 +165,7 @@ test("three workers scan thirty sessions, own each once, and search fails closed
     }
 }, 90_000);
 
-test("creates balance resident sessions, concurrent resumes converge, and two workers run turns", async () => {
+socketAndLoopbackTest("creates balance resident sessions, concurrent resumes converge, and two workers run turns", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-turn-");
     const stub = stubProvider();
     const probe = probePool();
@@ -231,7 +232,7 @@ test("creates balance resident sessions, concurrent resumes converge, and two wo
     }
 }, 90_000);
 
-test("control loss stops the child before its replacement reclaims sessions", async () => {
+socketAndLoopbackTest("control loss stops the child before its replacement reclaims sessions", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-control-loss-");
     const stub = stubProvider();
     const probe = probePool();
@@ -293,7 +294,7 @@ test("control loss stops the child before its replacement reclaims sessions", as
     }
 }, 90_000);
 
-test("a resume fails while its unindexed hash owner is still starting", async () => {
+socketAndLoopbackTest("a resume fails while its unindexed hash owner is still starting", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-owner-start-");
     const directory = join(home, "runtime", "sessions");
     await mkdir(directory, { recursive: true });
@@ -340,7 +341,7 @@ test("a resume fails while its unindexed hash owner is still starting", async ()
     }
 }, 90_000);
 
-test("a lost create reply must not leave one session open on two workers", async () => {
+socketAndLoopbackTest("a lost create reply must not leave one session open on two workers", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-loss-");
     const stub = stubProvider();
     const probe = probePool(true);
@@ -412,7 +413,7 @@ test("a lost create reply must not leave one session open on two workers", async
     }
 }, 90_000);
 
-test("imports keep their assigned owner and deduplicate after the pool restarts", async () => {
+socketAndLoopbackTest("imports keep their assigned owner and deduplicate after the pool restarts", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-import-");
     const source = join(home, "source.jsonl");
     const stub = stubProvider();
@@ -459,7 +460,7 @@ test("imports keep their assigned owner and deduplicate after the pool restarts"
     }
 }, 90_000);
 
-test("a branch being published cannot be resumed on its hash owner", async () => {
+socketAndLoopbackTest("a branch being published cannot be resumed on its hash owner", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-branch-");
     const stub = stubProvider();
     const probe = probePool();

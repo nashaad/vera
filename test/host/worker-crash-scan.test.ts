@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { discoverCrashSession } from "../../src/host/master/worker-crash-scan.ts";
+import { discoverCrashSession } from "../../src/host/pool/worker-crash-scan.ts";
 
 test("crash-session discovery reads long headers and rejects a header without a newline inside the cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "crash-header-"));

@@ -1,12 +1,13 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
-import type { ControlPeer } from "../../src/host/master/control.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import type { ControlPeer } from "../../src/host/pool/control.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { CRASH_CUT_MESSAGE, SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
@@ -184,7 +185,7 @@ async function fixture(options: FixtureOptions) {
     };
 }
 
-test("replacement recovers its resident without opening a shard of stored sessions", async () => {
+socketAndLoopbackTest("replacement recovers its resident without opening a shard of stored sessions", async () => {
     const harness = await fixture({ count: 200 });
     try {
         await harness.interrupt();
@@ -192,7 +193,7 @@ test("replacement recovers its resident without opening a shard of stored sessio
     } finally { await harness.close(); }
 }, 40_000);
 
-test("replacement leaves an older stored crash tail for normal recovery on open", async () => {
+socketAndLoopbackTest("replacement leaves an older stored crash tail for normal recovery on open", async () => {
     const harness = await fixture({ count: 1, olderTail: true });
     try {
         const stored = harness.stored[0]!;
@@ -206,13 +207,13 @@ test("replacement leaves an older stored crash tail for normal recovery on open"
     } finally { await harness.close(); }
 }, 40_000);
 
-test("a worker lost before a resume reply still repairs the turn opened between snapshots", async () => {
+socketAndLoopbackTest("a worker lost before a resume reply still repairs the turn opened between snapshots", async () => {
     const harness = await fixture({ count: 1, pendingDelivery: true, holdResume: "after" });
     try { await harness.interruptOpening(true); }
     finally { await harness.close(); }
 }, 40_000);
 
-test("a worker lost before an old session opens leaves the old crash tail alone", async () => {
+socketAndLoopbackTest("a worker lost before an old session opens leaves the old crash tail alone", async () => {
     const harness = await fixture({ count: 1, olderTail: true, holdResume: "before" });
     try {
         const stored = harness.stored[0]!;

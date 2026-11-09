@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { readSessionHeader } from "../../store/session-store.ts";
-import type { SessionEndpoint, RoutedSession } from "../master/router.ts";
+import type { SessionEndpoint, RoutedSession } from "../pool/router.ts";
 import type { SessionHost } from "./types.ts";
 import { applyBranchSync, branchSourceReady, branchSyncDelta, branchSyncInfo } from "../agent-registry/context-sync.ts";
 import { localMessageSubagent } from "../agent-registry/subagent.ts";

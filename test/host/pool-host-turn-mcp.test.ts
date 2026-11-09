@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-test("a master-owned turn does not start another MCP server", async () => {
+socketAndLoopbackTest("a host-owned turn does not start another MCP server", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7bm-");
     const webRoot = join(home, "web");
     const previous = process.env.VERA_WORKER_EXTENSIONS;

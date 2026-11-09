@@ -2,7 +2,7 @@ import { unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { selectedVeraHome } from "../profile-paths.ts";
 import { listLiveProcessesIn } from "../live-process.ts";
-import { assertRecordedWorkersStopped, readRecordedWorkers, removeStoppedPoolLock } from "./master/worker-records.ts";
+import { assertRecordedWorkersStopped, readRecordedWorkers, removeStoppedPoolLock } from "./pool/worker-records.ts";
 import type { HostStartupClaim } from "./startup-claim.ts";
 import { acquireStopStartupClaim } from "./stop-claim.ts";
 import { removeSocketFile, removeUnusedSocketFile, socketFileIdentity, type SocketFileIdentity } from "./socket-file.ts";

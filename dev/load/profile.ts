@@ -31,5 +31,5 @@ export async function profileRuntime(run: string): Promise<ProfileRuntime> {
     const entry = join(REPO, "clients", "host", "session-worker.ts");
     await writeFile(worker, `#!/bin/sh\nset -eu\nif [ "$2" = "0" ]; then\n    exec ${quote(executable)} --cpu-prof --cpu-prof-dir=${quote(directory)} --cpu-prof-name="worker-w\${2}-g\${6}.cpuprofile" ${quote(entry)} "$@"\nfi\nexec ${quote(executable)} ${quote(entry)} "$@"\n`);
     await chmod(worker, 0o755);
-    return { executable, flags: ["--cpu-prof", `--cpu-prof-dir=${directory}`, "--cpu-prof-name=master.cpuprofile"] };
+    return { executable, flags: ["--cpu-prof", `--cpu-prof-dir=${directory}`, "--cpu-prof-name=host.cpuprofile"] };
 }

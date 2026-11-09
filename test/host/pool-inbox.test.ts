@@ -3,24 +3,24 @@ import { expect, test } from "bun:test";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
-import { MasterInboxBridge, WorkerInboxBridge } from "../../src/host/master/inbox.ts";
+import { HostInboxBridge, WorkerInboxBridge } from "../../src/host/pool/inbox.ts";
 import { Inbox } from "../../src/store/inbox.ts";
 
-for (const masterAdmits of [true, false]) {
-    test(`the master ${masterAdmits ? "admits" : "holds"} a worker inbox entry`, async () => {
+for (const hostAdmits of [true, false]) {
+    test(`the host ${hostAdmits ? "admits" : "holds"} a worker inbox entry`, async () => {
         const inbox = Inbox.open(":memory:");
-        const master = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
-            admission: new InboxAdmissionPolicy({ user: masterAdmits ? ["arc"] : [] }),
+        const host = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
+            admission: new InboxAdmissionPolicy({ user: hostAdmits ? ["arc"] : [] }),
         });
         const worker = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
-            admission: new InboxAdmissionPolicy({ user: masterAdmits ? [] : ["arc"] }),
+            admission: new InboxAdmissionPolicy({ user: hostAdmits ? [] : ["arc"] }),
         });
-        const masterBridge: MasterInboxBridge = new MasterInboxBridge(master, (method, args, signal): Promise<unknown> =>
+        const hostBridge: HostInboxBridge = new HostInboxBridge(host, (method, args, signal): Promise<unknown> =>
             workerBridge.handle(method, args, signal ?? new AbortController().signal));
         const workerBridge: WorkerInboxBridge = new WorkerInboxBridge((method, args, signal): Promise<unknown> =>
-            masterBridge.handle(method, args, signal));
+            hostBridge.handle(method, args, signal));
         worker.setSessionBridge(workerBridge);
-        worker.setExternalPump((seq) => master.pumpLocal(seq));
+        worker.setExternalPump((seq) => host.pumpLocal(seq));
         const starts: number[] = [];
         const session = worker.attach({
             label: "crow", session: "crow", notify: () => {}, canStartTurn: () => true,
@@ -29,17 +29,17 @@ for (const masterAdmits of [true, false]) {
         try {
             session.clientAttachmentChanged(true);
             await session.pump();
-            await master.append({ source: "arc", kind: "arc.post", address: "crow", payload: "{}" });
-            await master.pumpAll();
+            await host.append({ source: "arc", kind: "arc.post", address: "crow", payload: "{}" });
+            await host.pumpAll();
             await worker.pumpAll();
-            expect(starts).toEqual(masterAdmits ? [1] : []);
-            expect(session.hasAdmittedPending()).toBe(masterAdmits);
+            expect(starts).toEqual(hostAdmits ? [1] : []);
+            expect(session.hasAdmittedPending()).toBe(hostAdmits);
         } finally {
             session.release();
             await worker.drainRemote();
-            masterBridge.close();
+            hostBridge.close();
             worker.close();
-            master.close();
+            host.close();
             inbox.close();
         }
     });
@@ -47,23 +47,23 @@ for (const masterAdmits of [true, false]) {
 
 test("a second worker waits until the first releases the same inbox session", async () => {
     const inbox = Inbox.open(":memory:");
-    const master = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
+    const host = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
         admission: new InboxAdmissionPolicy({ user: ["arc"] }),
     });
     const starts: string[] = [];
     const makeWorker = (name: string) => {
         const worker = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"));
-        const masterBridge: MasterInboxBridge = new MasterInboxBridge(master, (method, args, signal): Promise<unknown> =>
+        const hostBridge: HostInboxBridge = new HostInboxBridge(host, (method, args, signal): Promise<unknown> =>
             workerBridge.handle(method, args, signal ?? new AbortController().signal));
         const workerBridge: WorkerInboxBridge = new WorkerInboxBridge((method, args, signal): Promise<unknown> =>
-            masterBridge.handle(method, args, signal));
+            hostBridge.handle(method, args, signal));
         worker.setSessionBridge(workerBridge);
         const session = worker.attach({
             label: "crow", session: "crow", notify: () => {}, canStartTurn: () => true,
             startTurn: () => { starts.push(name); },
         });
         session.clientAttachmentChanged(true);
-        return { worker, masterBridge, session };
+        return { worker, hostBridge, session };
     };
     const first = makeWorker("first");
     let second: ReturnType<typeof makeWorker> | undefined;
@@ -75,40 +75,40 @@ test("a second worker waits until the first releases the same inbox session", as
             secondPump.then(() => "ready"),
             Bun.sleep(50).then(() => "waiting"),
         ])).toBe("waiting");
-        await master.append({ source: "arc", kind: "arc.post", address: null, payload: "{}" });
+        await host.append({ source: "arc", kind: "arc.post", address: null, payload: "{}" });
         expect(starts).toEqual(["first"]);
         await first.session.acknowledge(1);
         first.session.release();
         await first.worker.drainRemote();
         await secondPump;
-        await master.pumpAll();
+        await host.pumpAll();
         expect(starts).toEqual(["first"]);
     } finally {
         first.session.release();
         second?.session.release();
         await first.worker.drainRemote();
         await second?.worker.drainRemote();
-        first.masterBridge.close();
-        second?.masterBridge.close();
+        first.hostBridge.close();
+        second?.hostBridge.close();
         first.worker.close();
         second?.worker.close();
-        master.close();
+        host.close();
         inbox.close();
     }
 });
 
 test("an entry arriving while a worker registers its inbox remains unread", async () => {
     const inbox = Inbox.open(":memory:");
-    const master = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
+    const host = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"), {
         admission: new InboxAdmissionPolicy({ user: ["arc"] }),
     });
     const worker = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node", true));
     const release = Promise.withResolvers<void>();
-    const masterBridge: MasterInboxBridge = new MasterInboxBridge(master, (method, args, signal): Promise<unknown> =>
+    const hostBridge: HostInboxBridge = new HostInboxBridge(host, (method, args, signal): Promise<unknown> =>
         workerBridge.handle(method, args, signal ?? new AbortController().signal));
     const workerBridge: WorkerInboxBridge = new WorkerInboxBridge(async (method, args, signal): Promise<unknown> => {
         if (method === "attach") await release.promise;
-        return await masterBridge.handle(method, args, signal);
+        return await hostBridge.handle(method, args, signal);
     });
     worker.setSessionBridge(workerBridge);
     const starts: number[] = [];
@@ -119,7 +119,7 @@ test("an entry arriving while a worker registers its inbox remains unread", asyn
     try {
         session.clientAttachmentChanged(true);
         const pumping = session.pump();
-        await master.append({ source: "arc", kind: "arc.post", address: "crow", payload: "{}" });
+        await host.append({ source: "arc", kind: "arc.post", address: "crow", payload: "{}" });
         release.resolve();
         await pumping;
         expect(starts).toEqual([1]);
@@ -128,24 +128,24 @@ test("an entry arriving while a worker registers its inbox remains unread", asyn
         release.resolve();
         session.release();
         await worker.drainRemote();
-        masterBridge.close();
+        hostBridge.close();
         worker.close();
-        master.close();
+        host.close();
         inbox.close();
     }
 });
 
 test("an interrupted start stays held across claims while a later entry wakes normally", async () => {
     const inbox = Inbox.open(":memory:");
-    const master = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"));
+    const host = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node"));
     const sent = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const first = new MasterInboxBridge(master, async (method) => {
+    const first = new HostInboxBridge(host, async (method) => {
         if (method === "start") { sent.resolve(); await release.promise; }
     });
     const starts: number[] = [];
     const notices: number[] = [];
-    const second = new MasterInboxBridge(master, async (method, args) => {
+    const second = new HostInboxBridge(host, async (method, args) => {
         if (method === "start") starts.push((args[1] as { seq: number }).seq);
         if (method === "notify") notices.push((args[1] as { unreadCount: number }).unreadCount);
     });
@@ -153,7 +153,7 @@ test("an interrupted start stays held across claims while a later entry wakes no
     try {
         await first.handle("attach", ["first", registration]);
         await first.handle("attachment", ["first", true]);
-        await master.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "first" });
+        await host.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "first" });
         await sent.promise;
         first.interrupt();
         first.close();
@@ -166,7 +166,7 @@ test("an interrupted start stays held across claims while a later entry wakes no
         await second.handle("pump", ["second"]);
         expect(notices).toEqual([1]);
         expect(starts).toEqual([]);
-        await master.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "second" });
+        await host.appendAdmitted({ source: "arc", kind: "arc.post", address: "crow", payload: "second" });
         expect(starts).toEqual([2]);
         await second.handle("acknowledge", ["second", 1]);
         await second.handle("acknowledge", ["second", 2]);
@@ -176,7 +176,7 @@ test("an interrupted start stays held across claims while a later entry wakes no
         release.resolve();
         first.close();
         second.close();
-        master.close();
+        host.close();
         inbox.close();
     }
 });
