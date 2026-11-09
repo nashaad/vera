@@ -8,7 +8,6 @@ import {
     isVeraProviderId,
     loadOptionalVeraConfig,
     startingVeraConfig,
-    VeraConfigError,
     type VeraConfig,
 } from "../../src/config.ts";
 import { shippedProviderIds } from "../../src/providers/definitions.ts";
@@ -42,9 +41,7 @@ import type {
 } from "../../src/host/session-import-service.ts";
 import {
     createHostLockfile,
-    HostBuildMismatchError,
     HostLockUnreadableError,
-    HostProtocolMismatchError,
     HostUnresponsiveError,
     assertMatchingHostBuild,
     type HostLockRecord,
@@ -65,6 +62,9 @@ import {
     superviseHost,
 } from "../../src/host/supervision.ts";
 import { residentHostEntrypoint } from "../host/launch.ts";
+import { renderCliFailure } from "./failure.ts";
+
+export { renderCliFailure } from "./failure.ts";
 import {
     parseStdioArgs,
     runStdioProcess,
@@ -72,7 +72,6 @@ import {
 } from "../stdio/process.ts";
 import {
     dispatchToHostRelease,
-    RetainedReleaseMissingError,
 } from "../../src/release/dispatch.ts";
 import { defaultInstallPrefix } from "../../src/release/layout.ts";
 import {
@@ -98,7 +97,6 @@ import {
     veraBlockedDirectory,
     veraHomeDirectory,
     veraRuntimeDirectory,
-    VeraProfileError,
 } from "../../src/profile-paths.ts";
 import { defaultSessionDirectory } from "../../src/store/session-store.ts";
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
@@ -1431,36 +1429,6 @@ export async function runCliMain(
         output.write(`${renderCliFailure(error)}\n`);
         return 1;
     }
-}
-
-export function renderCliFailure(error: unknown): string {
-    if (error instanceof VeraProfileError) {
-        return error.message;
-    }
-    if (error instanceof HostUnresponsiveError) {
-        return `${error.message}\n`
-            + "Run 'vera host stop --force' to kill it.";
-    }
-    if (error instanceof HostProtocolMismatchError) {
-        return `Vera host upgrade required: ${error.message}\n`
-            + "Close the older Vera client and retry, or run 'vera host stop'.";
-    }
-    if (error instanceof HostBuildMismatchError) {
-        return error.message;
-    }
-    if (error instanceof HostLockUnreadableError) {
-        return error.message;
-    }
-    if (error instanceof RetainedReleaseMissingError) {
-        return error.message;
-    }
-    if (error instanceof VeraConfigError) {
-        return `${error.message}\n`
-            + `Fix or remove ${error.path} and run Vera again.`;
-    }
-    return `Vera failed: ${
-        error instanceof Error ? error.message : String(error)
-    }`;
 }
 
 export function renderAgentList(
