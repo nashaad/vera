@@ -1,12 +1,11 @@
+import { BOOT_FAILURE_LIMIT, countsAsBootFailure, HostBootLoopError, recentBootFailures, recordBootFailure } from "./boot-failures.ts";
+
+export { clearBootFailures, countsAsBootFailure, HostBootLoopError, recentBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./boot-failures.ts";
+
 import { spawn } from "node:child_process";
 import {
     existsSync,
-    mkdirSync,
-    readFileSync,
-    renameSync,
     statSync,
-    unlinkSync,
-    writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,13 +16,11 @@ import {
 } from "../../src/host/discovery.ts";
 import {
     createHostLockfile,
-    HOST_STARTUP_RACE_EXIT_CODE,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
     selectedVeraHome,
-    veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
 import {
@@ -122,71 +119,6 @@ function insideLinkedWorktree(cwd: string): boolean {
         const parent = dirname(directory);
         if (parent === directory) return false;
         directory = parent;
-    }
-}
-
-/** How recently and how often a spawned host may die before spawning stops. A host that exits during boot would otherwise be respawned by every retry and every next `vera`. */
-const BOOT_FAILURE_WINDOW_MS = 30_000;
-const BOOT_FAILURE_LIMIT = 2;
-
-export { HOST_STARTUP_RACE_EXIT_CODE };
-
-export class HostBootLoopError extends Error {
-    constructor(count: number) {
-        super(
-            `The resident host exited during startup ${count} times in a row;`
-                + " not respawning it. Fix the host build, then retry."
-                + " Run 'vera host stop --force' after you fix the build.",
-        );
-        this.name = "HostBootLoopError";
-    }
-}
-
-export function countsAsBootFailure(
-    code: number | null,
-    elapsedMs: number,
-): boolean {
-    if (code === 0 || code === HOST_STARTUP_RACE_EXIT_CODE) return false;
-    return elapsedMs <= BOOT_FAILURE_WINDOW_MS;
-}
-
-function bootFailuresPath(): string {
-    return join(veraRuntimeDirectory(), "host-boot-failures.json");
-}
-
-export function recentBootFailures(nowMs: number): number[] {
-    let timestamps: unknown;
-    try {
-        timestamps = JSON.parse(readFileSync(bootFailuresPath(), "utf8"));
-    } catch {
-        return [];
-    }
-    if (!Array.isArray(timestamps)) return [];
-    return timestamps.filter((value): value is number =>
-        typeof value === "number" && nowMs - value <= BOOT_FAILURE_WINDOW_MS
-    );
-}
-
-function recordBootFailure(nowMs: number): void {
-    try {
-        const path = bootFailuresPath();
-        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-        const temporary = `${path}.${process.pid}.tmp`;
-        writeFileSync(
-            temporary,
-            `${JSON.stringify([...recentBootFailures(nowMs), nowMs])}\n`,
-            { encoding: "utf8", mode: 0o600 },
-        );
-        renameSync(temporary, path);
-    } catch {
-        // Failure accounting must not become a new way for launch to fail.
-    }
-}
-
-export function clearBootFailures(): void {
-    try {
-        unlinkSync(bootFailuresPath());
-    } catch {
     }
 }
 

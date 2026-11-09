@@ -2,13 +2,16 @@
 
 import { fileURLToPath } from "node:url";
 
-import { renderCliFailure } from "../cli/main.ts";
+import { renderCliFailure } from "../cli/failure.ts";
 import { loadOrCreateVeraConfig, VeraConfigError } from "../../src/config.ts";
 import {
     processIsDevelopmentInstance,
     registerDevInstance,
 } from "../../src/dev-instances.ts";
-import { HostLockUnreadableError } from "../../src/host/lockfile.ts";
+import {
+    HostLockUnreadableError,
+    HOST_STARTUP_RACE_EXIT_CODE,
+} from "../../src/host/lockfile.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { waitForCheckoutRemoval } from "./checkout-watch.ts";
@@ -16,7 +19,7 @@ import { installHostCrashGuard } from "./crash-guard.ts";
 import { waitForSocketLoss } from "./socket-watch.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { runPendingHandoff } from "../../src/release/handoff.ts";
-import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
+import { clearBootFailures } from "./boot-failures.ts";
 import {
     anotherHostIsServing,
     isSupervisedHost,
