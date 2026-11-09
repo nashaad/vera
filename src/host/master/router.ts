@@ -91,6 +91,7 @@ export interface RouterWorker {
     readonly socket: string;
     readonly generation: () => number;
     readonly ready: () => boolean;
+    readonly pid?: () => number | undefined;
 }
 
 export class HostRouter implements ExtensionSessionServices, PeerSessionServices, SubagentSessionServices, SubagentAdmission {

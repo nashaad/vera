@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../../src/process-group.ts";
 import { processTool } from "../../src/tools/process.ts";
 import { ManagedProcessRegistry } from "../../src/tools/process-runtime.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
@@ -37,6 +38,7 @@ test("kill reports an unconfirmed termination as an error", async () => {
         undefined,
         scope,
     );
+    const startedAt = new Date().toISOString();
     let pid: number | undefined;
     try {
         const started = await scope.run({
@@ -64,11 +66,8 @@ test("kill reports an unconfirmed termination as an error", async () => {
         expect(result.output).toContain("simulated signal failure");
     } finally {
         if (pid !== undefined) {
-            try {
-                process.kill(-pid, "SIGKILL");
-            } catch {
-                // It may already be gone.
-            }
+            const record = { pid, started_at: startedAt };
+            if (signalVerifiedProcessGroup(record, "SIGKILL") !== "sent") signalVerifiedProcess(record, "SIGKILL");
         }
         await runtime.close();
         await registry.close();

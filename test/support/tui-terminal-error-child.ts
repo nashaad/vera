@@ -1,3 +1,6 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import {
     startTui,
     type TuiAgentClient,
@@ -13,6 +16,26 @@ import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiTerminalErrorDependencies(): TuiDependencies {
+    const home = process.env.VERA_HOME;
+    if (home !== undefined && home.length > 0) {
+        try {
+            writeFileSync(join(home, "config.json"), JSON.stringify({
+                schema_version: 1,
+                provider: "faux",
+                model: "test",
+                approval_mode: "auto",
+                providers: {
+                    faux: {
+                        protocol: "openai-chat",
+                        base_url: "http://127.0.0.1:1/v1",
+                        credential: "none",
+                    },
+                },
+            }), { flag: "wx" });
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
+    }
     const source = {
         provider: "faux",
         api: "scripted",

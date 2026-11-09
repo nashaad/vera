@@ -35,6 +35,8 @@ export interface HostLockRecord {
     readonly socket_path: string;
     readonly build_id?: string;
     readonly project_root?: string;
+    readonly role?: "host";
+    readonly worker_count?: number;
 }
 
 export interface HostLockfile {
@@ -96,6 +98,8 @@ export interface HostLockfileOptions {
     readonly startedAt?: string;
     readonly buildId?: string;
     readonly projectRoot?: string;
+    readonly role?: "host";
+    readonly workerCount?: number;
     readonly inspectSocket?: (
         socketPath: string,
     ) => Promise<HostIdentity | undefined>;
@@ -189,6 +193,10 @@ export function createHostLockfile(
                 throw new Error("Host start time must be a timestamp");
             }
             const buildId = options.buildId ?? thisProcessBuildId();
+            if (options.workerCount !== undefined
+                && (!Number.isSafeInteger(options.workerCount) || options.workerCount < 1)) {
+                throw new Error("Host session process count must be a positive integer");
+            }
             const record: HostLockRecord = {
                 schema_version: HOST_LOCK_SCHEMA_VERSION,
                 pid,
@@ -198,6 +206,8 @@ export function createHostLockfile(
                 ...(options.projectRoot === undefined
                     ? {}
                     : { project_root: nonEmpty(options.projectRoot, "host project root") }),
+                ...(options.role === undefined ? {} : { role: options.role }),
+                ...(options.workerCount === undefined ? {} : { worker_count: options.workerCount }),
             };
             const serialized = `${JSON.stringify(record, null, 2)}\n`;
 
@@ -455,6 +465,9 @@ function parseHostLock(source: string): HostLockRecord | undefined {
         || (record.project_root !== undefined
             && (typeof record.project_root !== "string"
                 || record.project_root.length === 0))
+        || (record.role !== undefined && record.role !== "host")
+        || (record.worker_count !== undefined
+            && (!Number.isSafeInteger(record.worker_count) || (record.worker_count as number) < 1))
     ) {
         return undefined;
     }
@@ -474,6 +487,8 @@ function parseHostLock(source: string): HostLockRecord | undefined {
             && record.project_root.length > 0
             ? { project_root: record.project_root }
             : {}),
+        ...(record.role === "host" ? { role: "host" as const } : {}),
+        ...(typeof record.worker_count === "number" ? { worker_count: record.worker_count } : {}),
     };
 }
 

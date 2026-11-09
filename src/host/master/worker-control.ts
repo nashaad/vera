@@ -25,6 +25,8 @@ import { prepareWorkerExit } from "./worker-exit.ts";
 import { removeOwnWorkerRecord } from "./worker-record.ts";
 import { indexStoredSession, withSessionReservation } from "../session-host/storage.ts";
 import { SessionStore } from "../../store/session-store.ts";
+import type { StopWaitEvent } from "../stop-when-idle.ts";
+import { StopWaitRelay } from "./stop-wait-relay.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -40,6 +42,7 @@ export interface WorkerBootstrap {
     readonly capabilities: readonly string[];
     readonly extensionCatalog: ExtensionCatalog;
     readonly heartbeatIntervalMs?: number;
+    readonly turnsHeld?: boolean;
     readonly masterGraceMs?: number;
     readonly adopt?: true;
 }
@@ -79,6 +82,8 @@ export async function startControlledWorker(
         bootstrap.options.configPath ?? defaultVeraConfigPath(home),
         bootstrap.options.permissionPreferencesPath ?? defaultPermissionPreferencesPath(home));
     const pendingChanges: GlobalChange[] = [];
+    const stopWait = new StopWaitRelay();
+    let turnsHeld = bootstrap.turnsHeld === true;
     peer.setEventHandler((event, value) => {
         if (event === "shutdown") onShutdown();
         else if (event === "config_changed" && isGlobalChange(value)) pendingChanges.push(value);
@@ -87,7 +92,7 @@ export async function startControlledWorker(
     const reservations = remoteReservations(peer);
     const runtime = await startSessionWorkerRuntime(bootstrap.options, reservations, {
         index: hello.index, count: hello.count,
-    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog));
+    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog), () => turnsHeld);
     const host = runtime.sessionHost;
     const currentConfig = createLiveVeraConfigReader(bootstrap.options.config, {
         path: bootstrap.options.configPath ?? defaultVeraConfigPath(home),
@@ -147,6 +152,14 @@ export async function startControlledWorker(
         }
         if (method === "worker.canShutdown") return host.handlers.canShutdown();
         if (method === "worker.canReplace") return host.handlers.canReplace();
+        if (method === "worker.setTurnsHeld" && typeof args[0] === "boolean") {
+            turnsHeld = args[0];
+            return;
+        }
+        if (method === "worker.stopWaitEvent") {
+            await stopWait.publish(args[0] as StopWaitEvent);
+            return;
+        }
         if (method === "worker.recoverUnowned") {
             const [residents, index, count] = args;
             if (!Array.isArray(residents) || !residents.every((entry) => typeof entry === "object" && entry !== null
@@ -251,7 +264,16 @@ export async function startControlledWorker(
         const delay = interval ?? 1_000;
         if (!Number.isFinite(delay) || delay <= 0) throw new Error("Invalid session process heartbeat interval");
         if (heartbeat !== undefined) clearInterval(heartbeat);
-        heartbeat = setInterval(() => { void peer.event("heartbeat").catch(() => {}); }, delay);
+        let previousHeartbeat = performance.now();
+        heartbeat = setInterval(() => {
+            const now = performance.now();
+            const eventLoopLagMs = Math.max(0, now - previousHeartbeat - delay);
+            previousHeartbeat = now;
+            void peer.event("heartbeat", {
+                rss_bytes: process.memoryUsage().rss,
+                event_loop_lag_ms: eventLoopLagMs,
+            }).catch(() => {});
+        }, delay);
         heartbeat.unref();
     };
     setHeartbeat(bootstrap.heartbeatIntervalMs);
@@ -286,6 +308,7 @@ export async function startControlledWorker(
             startedAt: hello.started_at,
             attachmentCoordinator: attachments,
             forwardMasterRequest: publicForwarder.forward,
+            stopWaitObserver: stopWait,
             onRosterChanged: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
             listBackgroundAgents: () => summaries,
             readWorkIndex: () => workIndex,
@@ -329,6 +352,8 @@ export async function startControlledWorker(
                 await Bun.sleep(10);
             }
             signal.throwIfAborted();
+            turnsHeld = false;
+            void stopWait.abandon().catch(() => {});
             await peer.request("ready", [await endpoint.snapshot()], signal);
             applyChange("config");
             applyChange("auth");

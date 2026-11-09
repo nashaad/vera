@@ -6,6 +6,7 @@ import type { SessionSnapshot } from "./session-endpoint.ts";
 import type { WorkerBootstrap } from "./worker-control.ts";
 import { sessionWorkerSpawnSpec } from "./worker-launch.ts";
 import { adoptWorkerRecord, publishWorkerRecord, type RecoverableWorker, type WorkerRecordHandle } from "./worker-record.ts";
+import { killWorkerProcess, stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
 import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
 import { requestHostIdentity } from "../protocol.ts";
 import { verifiedWorkerHello } from "./worker-sockets.ts";
@@ -44,7 +45,8 @@ export interface SessionWorkerSupervisorOptions {
     readonly handler: ControlHandler;
     readonly onEvent: ControlEventHandler;
     readonly onConnected: (peer: ControlPeer) => void;
-    readonly onSpawn?: (pid: number) => void;
+    readonly onReady?: () => void;
+    readonly onSpawn?: (pid: number, startedAt?: string) => void;
     readonly spawnSpec?: WorkerSpawnSpec;
     readonly startupTimeoutMs?: number;
     readonly adopt?: RecoverableWorker;
@@ -75,6 +77,7 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     let peer: ControlPeer | undefined;
     let stderr = "";
     let record: Promise<WorkerRecordHandle> | undefined;
+    let childIdentity: WorkerStopIdentity | undefined;
     let adoptedReady = false;
     let startedAt: string | undefined;
     const ready = Promise.withResolvers<SessionSnapshot>();
@@ -102,6 +105,7 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
                     throw new Error("Invalid session worker ready message");
                 }
                 adoptedReady = true;
+                options.onReady?.();
                 ready.resolve(snapshot);
                 return;
             }
@@ -119,17 +123,23 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     if (options.adopt === undefined) {
         const spec = options.spawnSpec ?? sessionWorkerSpawnSpec();
         const args = [...spec.args, "--worker-index", String(index), "--worker-count", String(count), "--worker-generation", String(options.generation), "--control", control.path, "--socket", options.socket];
+        const spawnedAt = new Date().toISOString();
         child = spawn(spec.command, args, {
             cwd: process.cwd(), env: { ...process.env, VERA_HOME: options.home }, stdio: ["ignore", "ignore", "pipe"],
         });
-        if (child.pid !== undefined) options.onSpawn?.(child.pid);
+        if (child.pid !== undefined) {
+            childIdentity = { pid: child.pid, started_at: spawnedAt };
+            options.onSpawn?.(child.pid, spawnedAt);
+        }
         child.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16_384); });
     }
     const pid = options.adopt?.record.pid ?? child?.pid;
+    const identity = options.adopt?.record ?? childIdentity;
     const monitor = new AbortController();
+    const recorded = options.adopt === undefined ? undefined : monitorRecordedProcess(options.adopt.record, monitor.signal);
     const ended = options.adopt === undefined
         ? new Promise<number | null>((resolve) => child!.once("close", (code) => resolve(code)))
-        : waitForRecordedProcess(options.adopt.record, monitor.signal);
+        : recorded!.exited;
     const exited = ended.then(async (code) => {
         const published = await record?.catch(() => undefined);
         await published?.remove();
@@ -154,12 +164,13 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
                 peer.close();
                 await peer.closed;
             }
-            if (pid !== undefined && !await finishesWithin(exited, 1_500)) {
-                signalWorker("SIGTERM");
-                if (!await finishesWithin(exited, 1_500)) signalWorker("SIGKILL");
+            try {
+                if (identity !== undefined) await stopWorkerProcess(identity);
+                recorded?.check();
+                await exited;
+            } finally {
+                await ownedControl?.close();
             }
-            await exited;
-            await ownedControl?.close();
         })();
         return closed;
     };
@@ -173,7 +184,9 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
             }),
         ]);
         if (peer === undefined || pid === undefined || startedAt === undefined) throw new Error("Session worker did not connect");
-        return { pid, startedAt, peer, snapshot, exited, kill: () => signalWorker("SIGKILL"), close };
+        return { pid, startedAt, peer, snapshot, exited, kill: () => {
+            if (identity !== undefined) killWorkerProcess(identity);
+        }, close };
     } catch (error) {
         await close();
         if (stderr.split(/\r?\n/).some((line) => line.trim() === "worker_socket_busy")) throw new Error("worker_socket_busy");
@@ -181,39 +194,24 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
     } finally {
         if (timer !== undefined) clearTimeout(timer);
     }
-
-    function signalWorker(signal: NodeJS.Signals): void {
-        if (child !== undefined) { child.kill(signal); return; }
-        const identity = options.adopt?.record;
-        if (identity === undefined || !processIsAlive(identity.pid)) return;
-        if (checkRecordIdentity(identity) !== "match") throw new Error(`Could not verify session process PID ${identity.pid}`);
-        try { process.kill(identity.pid, signal); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
-    }
 }
 
-function waitForRecordedProcess(record: { readonly pid: number; readonly started_at: string }, signal: AbortSignal): Promise<number | null> {
-    return new Promise((resolve) => {
-        const timer = setInterval(() => {
+function monitorRecordedProcess(
+    record: { readonly pid: number; readonly started_at: string },
+    signal: AbortSignal,
+): { readonly exited: Promise<number | null>; check(): void } {
+    let check = (): void => {};
+    const exited = new Promise<number | null>((resolve) => {
+        check = () => {
             if (processIsAlive(record.pid) && checkRecordIdentity(record) !== "mismatch") return;
             clearInterval(timer);
             signal.removeEventListener("abort", stop);
             resolve(null);
-        }, 1_000);
+        };
+        const timer = setInterval(check, 1_000);
         const stop = (): void => { clearInterval(timer); };
         signal.addEventListener("abort", stop, { once: true });
         timer.unref();
     });
-}
-
-async function finishesWithin(exited: Promise<number | null>, timeoutMs: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            exited.then(() => true),
-            new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
-        ]);
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
+    return { exited, check: () => check() };
 }

@@ -8,6 +8,7 @@ import {
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 
+import { signalVerifiedProcessGroup } from "../process-group.ts";
 import type { OwnedSidecarContribution } from "../extensions/contribution-set.ts";
 
 export const SIDECAR_BASE_BACKOFF_MS = 1_000;
@@ -352,6 +353,7 @@ interface SpawnChildOptions {
 
 function spawnChild(options: SpawnChildOptions): RunningChild {
     const [executable, ...args] = options.command;
+    const startedAt = new Date().toISOString();
     const child = spawn(executable as string, args, {
         cwd: options.cwd,
         env: options.env,
@@ -385,9 +387,8 @@ function spawnChild(options: SpawnChildOptions): RunningChild {
             if (pid === undefined || done) {
                 return;
             }
-            try {
-                process.kill(-pid, name);
-            } catch {
+            const outcome = signalVerifiedProcessGroup({ pid, started_at: startedAt }, name);
+            if (outcome !== "sent") {
                 try {
                     child.kill(name);
                 } catch {

@@ -57,6 +57,7 @@ import {
 } from "./capabilities.ts";
 import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { removeStoppedPoolLock } from "./master/worker-records.ts";
 import { acquireHostStartupClaim, type HostStartupClaim } from "./startup-claim.ts";
 import { HostSocketHeldError } from "./server.ts";
 import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./master/worker-record.ts";
@@ -240,6 +241,7 @@ export interface ResidentHost {
     readonly health: HostHealth;
     readonly annexPid?: number;
     readonly buildId: string;
+    readonly workerStopPids?: () => readonly number[];
     close(): Promise<void>;
 }
 
@@ -297,7 +299,7 @@ export async function startResidentHost(
             recovery = { ...recovery, unrecorded: sockets.filter((socket) => !recorded.has(socket.path)) };
             resolved = { ...options, inProcessWorker: false, processWorker: true, processWorkerCount: count };
         }
-        const host = await startHostRuntime(resolved, undefined, undefined, undefined, undefined, {
+        const host = await startHostRuntime(resolved, undefined, undefined, undefined, undefined, undefined, {
             claim, recovery,
             settleRecovery: () => settleWorkerRecords(recovery, buildId, heartbeatDeadline,
                 (pid) => startupLog({ type: "session_process_unresponsive", message: `Session process PID ${pid} is not answering.` })),
@@ -321,14 +323,16 @@ export async function startSessionWorkerRuntime(
     options: StartResidentHostOptions, restoringSessions: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
+    externalTurnsHeld?: () => boolean,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions, externalTurnsHeld) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
     options: StartResidentHostOptions, workerReservations?: RestoringSessions, shard?: SessionShard,
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
+    externalTurnsHeld?: () => boolean,
     startup?: ResidentHostStartup,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
@@ -551,14 +555,21 @@ async function startHostRuntime(
         await inboxDelivery.drainRemote();
         inbox.close();
     };
+    let stopWaitNotifications = Promise.resolve();
     const hostStarted = Promise.withResolvers<boolean>();
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
         waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
+        ...(options.processWorker === true ? {
+            setTurnsHeld: (held: boolean) => inProcessWorker?.setTurnsHeld?.(held) ?? Promise.resolve(),
+            replyBeforeWorkerCheck: true,
+        } : {}),
         ...(workerSocket === undefined ? {} : {
             waitingOnAsync: () => inProcessWorker?.waitingOn() ?? Promise.resolve(registry.stopWaitTargets()),
         }),
         onStopped: async () => {
-            if (await hostStarted.promise) await closeHost();
+            if (!await hostStarted.promise) return;
+            if (options.processWorker === true) await stopWaitNotifications;
+            await closeHost();
         },
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
@@ -567,6 +578,14 @@ async function startHostRuntime(
             : inProcessWorker.cutSession(sessionId, reason),
         recordCut: recordStopCut,
     });
+    if (options.processWorker === true) {
+        stopWhenIdle.observe((event) => {
+            stopWaitNotifications = stopWaitNotifications.then(async () => {
+                await inProcessWorker?.publishStopWait?.(event);
+            });
+            void stopWaitNotifications.catch(() => {});
+        });
+    }
     const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
         try {
             return scheduleStore.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS);
@@ -597,7 +616,7 @@ async function startHostRuntime(
         createAdapter: options.createAdapter,
         onExtensionFailure: options.onExtensionFailure,
         trashSessionArtifacts: options.trashSessionArtifacts,
-        turnsHeld: () => stopWhenIdle.holdsTurns,
+        turnsHeld: () => stopWhenIdle.holdsTurns || externalTurnsHeld?.() === true,
         inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
         annexUrl: () => annexUrl,
         forgetRestartRecords,
@@ -1049,6 +1068,9 @@ async function startHostRuntime(
                             await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
                         }
                     }
+                    if (options.processWorker === true) {
+                        await removeStoppedPoolLock(home, lockPath, server.identity);
+                    }
                 } finally {
                     startup?.onClosed();
                 }
@@ -1118,6 +1140,7 @@ async function startHostRuntime(
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
+                ...(options.processWorker === true ? { poolWorkerCount: workerCount } : {}),
                 ...(startup === undefined ? {} : { startupClaim: startup.claim }),
                 ...(startup === undefined || !hasWorkerRecovery(startup.recovery) ? {} : { publishBeforeWorkers: true }),
                 ...(options.pid === undefined ? {} : { pid: options.pid }),
@@ -1372,6 +1395,9 @@ async function startHostRuntime(
             get workers() { return inProcessWorker?.workerHealth?.(); },
         } : annexHealth,
         ...(annex === undefined ? {} : { annexPid: annex.pid }),
+        ...(options.processWorker === true
+            ? { workerStopPids: () => inProcessWorker?.stopPids?.() ?? [] }
+            : {}),
         buildId,
         close: closeHost,
     };

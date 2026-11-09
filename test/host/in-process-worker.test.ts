@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { loadVeraConfig } from "../../src/config.ts";
@@ -55,7 +56,7 @@ async function sessionModelSettings(client: AttachedAgentClient, requestId: stri
 }
 
 socketTest("a master catalog refresh reaches an existing worker session", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const server = Bun.serve({
         port: 0,
         fetch(request) {
@@ -128,7 +129,7 @@ socketTest("a master catalog refresh reaches an existing worker session", async 
 }, 20_000);
 
 socketTest("create routes to the worker, two clients attach, and the master merges both rosters", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const host = await startResidentHost({
         home, config, inProcessWorker: true,
         createAdapter: () => new FauxAdapter([textResponse("A pirate crow found the map.")]),
@@ -205,7 +206,7 @@ socketTest("create routes to the worker, two clients attach, and the master merg
 }, 20_000);
 
 socketTest("resume releases the master before the worker opens a session", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const host = await startResidentHost({
         home, config, inProcessWorker: true,
         createAdapter: () => new FauxAdapter([]),
@@ -279,7 +280,7 @@ socketTest("resume releases the master before the worker opens a session", async
 }, 20_000);
 
 socketTest("an ownership transfer does not fire lifecycle hooks or add context", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const { config: hookedConfig, log, updates } = await installTransferHooks(home);
     const requests: ModelRequest[] = [];
     const host = await startResidentHost({
@@ -342,7 +343,7 @@ socketTest("an ownership transfer does not fire lifecycle hooks or add context",
 }, 20_000);
 
 socketTest("an ownership transfer moves a resident session tree without a crash cut", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const parentPath = join(home, "parent.jsonl");
     const childPath = join(home, "child.jsonl");
     const host = await startResidentHost({
@@ -386,7 +387,7 @@ socketTest("an ownership transfer moves a resident session tree without a crash 
 }, 20_000);
 
 socketTest("a worker repairs an interrupted session when it opens without a crash scan", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const path = join(home, "crow.jsonl");
     const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });
     await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
@@ -420,7 +421,7 @@ socketTest("a worker repairs an interrupted session when it opens without a cras
 }, 20_000);
 
 socketTest("stored parent completions are serialized before recovery starts a delivery turn", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const path = join(home, "runtime", "sessions", "parent.jsonl");
     const store = await SessionStore.create(path, { sessionId: "parent", cwd: home });
     await store.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect the map" }] }, { turnStart: true });
@@ -479,7 +480,7 @@ socketTest("stored parent completions are serialized before recovery starts a de
 }, 20_000);
 
 socketTest("session mutations follow the worker and remove stale roster entries", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const path = join(home, "runtime", "sessions", "saved.jsonl");
     await SessionStore.create(path, { sessionId: "saved", cwd: home });
     const host = await startResidentHost({
@@ -505,7 +506,7 @@ socketTest("session mutations follow the worker and remove stale roster entries"
 }, 20_000);
 
 socketTest("a missing worker socket returns an unavailable attachment", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const host = await startResidentHost({
         home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]),
     });
@@ -531,7 +532,7 @@ test("worker socket paths enforce the macOS byte limit", () => {
 });
 
 socketTest("a 103-byte worker socket path listens successfully", async () => {
-    const root = await mkdtemp("/private/tmp/vhs-");
+    const root = await mkdtemp(join(tmpdir(), "vhs-"));
     const prefix = `${root}/`;
     const home = prefix + "x".repeat(103 - Buffer.byteLength(`${prefix}/runtime/w0.sock`));
     const workerSocket = inProcessWorkerSocket(home);
@@ -550,7 +551,7 @@ socketTest("a 103-byte worker socket path listens successfully", async () => {
 }, 20_000);
 
 test("an overlong worker socket path fails before listening", async () => {
-    const root = await mkdtemp("/private/tmp/vhs-");
+    const root = await mkdtemp(join(tmpdir(), "vhs-"));
     const home = join(root, "x".repeat(90));
     try {
         await expect(startResidentHost({
@@ -563,7 +564,7 @@ test("an overlong worker socket path fails before listening", async () => {
 });
 
 socketTest("the default host does not start a worker socket", async () => {
-    const home = await mkdtemp("/private/tmp/vhs-");
+    const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const host = await startResidentHost({ home, config, createAdapter: () => new FauxAdapter([]) });
     try {
         expect(existsSync(inProcessWorkerSocket(home))).toBe(false);

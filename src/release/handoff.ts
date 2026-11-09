@@ -107,7 +107,10 @@ export async function runPendingHandoff(
     if (handoff === undefined) return;
     pendingHandoff = undefined;
     await removeOwnLock();
-    const options: EnsureHostOptions = { publishTimeoutMs: HANDOFF_PUBLISH_TIMEOUT_MS };
+    const options: EnsureHostOptions = {
+        publishTimeoutMs: HANDOFF_PUBLISH_TIMEOUT_MS,
+        ...(process.argv.includes("--pool") ? { pool: true } : {}),
+    };
     try {
         await ensureHost(releaseDirectory(handoff.buildId, handoff.prefix), options);
         return;

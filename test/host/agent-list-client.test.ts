@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { listAgentPageThroughHost, listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
@@ -57,6 +57,22 @@ import { startHostServer } from "../../src/host/server.ts";
         }
     },
 );
+
+test("agent listing carries unavailable session process ids", async () => {
+    const root = await mkdtemp("/private/tmp/vera-dev/hs9-list-");
+    const host = await startHostServer({
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        listAgents: () => [],
+        readUnavailableWorkers: () => ["w1"],
+    });
+    try {
+        expect(await listAgentPageThroughHost(host.socketPath)).toMatchObject({ agents: [], unavailableWorkers: ["w1"] });
+    } finally {
+        await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "agent list client rejects an unusable parent id",

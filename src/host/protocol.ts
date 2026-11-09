@@ -650,6 +650,7 @@ export interface AgentListResponse {
     readonly next_cursor?: string;
     /** Rows in the whole listing, not in this page. */
     readonly total?: number;
+    readonly unavailable_workers?: readonly string[];
 }
 
 export interface AgentReadyResponse {

@@ -6,24 +6,51 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import { listAgentPageThroughHost } from "../../src/host/agent-list-client.ts";
+import { forceStopHostProcess } from "../../src/host/force-stop.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
 import { MasterInboxBridge } from "../../src/host/master/inbox.ts";
 import * as supervisor from "../../src/host/master/supervisor.ts";
-import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost, type StartResidentHostOptions } from "../../src/host/runtime.ts";
+import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
 import { defaultInboxPath, Inbox } from "../../src/store/inbox.ts";
 import { readSessionTurnState, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 import type { WatchRuntimeContext } from "../../src/watch/source.ts";
 import { startScheduleWakeProvider } from "../support/schedule-wake-provider.ts";
 
 interface FixtureOptions {
+    readonly workerCount?: number;
     readonly heartbeatMs?: number;
     readonly beforeStart?: (options: supervisor.SessionWorkerSupervisorOptions) => Promise<void>;
     readonly spawnSpec?: (options: supervisor.SessionWorkerSupervisorOptions) => supervisor.WorkerSpawnSpec | undefined;
     readonly provider?: { readonly port: number; readonly requests: number; close(): void };
     readonly prepare?: (home: string) => Promise<{ readonly extension?: string; readonly watch?: StartResidentHostOptions["watchConnectors"] }>;
+}
+
+function slowStopProvider() {
+    const release = Promise.withResolvers<void>();
+    let requests = 0;
+    const server = Bun.serve({
+        hostname: "127.0.0.1", port: 0,
+        async fetch(request) {
+            if (!new URL(request.url).pathname.endsWith("/chat/completions")) {
+                return new Response("not found", { status: 404 });
+            }
+            requests += 1;
+            await release.promise;
+            return new Response('data: {"id":"stub","object":"chat.completion.chunk","model":"stub-model","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', {
+                headers: { "content-type": "text/event-stream" },
+            });
+        },
+    });
+    return {
+        port: server.port!, get requests() { return requests; },
+        release: () => release.resolve(), close: () => server.stop(true),
+    };
 }
 
 async function fixture(options: FixtureOptions = {}) {
@@ -47,7 +74,7 @@ async function fixture(options: FixtureOptions = {}) {
     let host: ResidentHost;
     try {
         host = await startResidentHost({
-            home, webRoot, processWorker: true, processWorkerCount: 2, skipStartupDiscovery: true,
+            home, webRoot, processWorker: true, processWorkerCount: options.workerCount ?? 2, skipStartupDiscovery: true,
             ...(options.heartbeatMs === undefined ? {} : { processWorkerHeartbeatDeadlineMs: options.heartbeatMs }),
             ...(prepared?.watch === undefined ? {} : { watchConnectors: prepared.watch }),
             config: {
@@ -80,6 +107,118 @@ async function fixture(options: FixtureOptions = {}) {
     };
 }
 
+test("vera ls keeps the last summaries while a session process is unavailable", async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const harness = await fixture({
+        workerCount: 3,
+        beforeStart: async (options) => {
+            if (options.generation === 2) { entered.resolve(); await release.promise; }
+        },
+    });
+    try {
+        const socket = harness.host.server.socketPath;
+        const sessions = [];
+        for (let index = 0; index < 3; index += 1) sessions.push(await createAgentThroughHost(socket, harness.home));
+        await waitFor(async () => (await listAgentPageThroughHost(socket)).agents.length >= 3, "cached roster");
+        const lost = sessions[0]!;
+        const identity = await requestHostIdentity(lost.location!.socket_path);
+        if (identity === undefined) throw new Error("Session process identity is unavailable");
+        await forceStopHostProcess(identity, { firstSignal: "SIGKILL", sigkillGraceMs: 1_000 });
+        await entered.promise;
+        const page = await listAgentPageThroughHost(socket);
+        const summary = page.agents.find((agent) => agent.id === lost.id);
+        expect(summary).toBeDefined();
+        expect(page.unavailableWorkers).toContain(lost.location!.worker_id);
+        const command = Bun.spawn([
+            "/usr/bin/env", `VERA_HOME=${harness.home}`, process.execPath, "clients/cli/main.ts", "ls", "--all",
+        ], { cwd: process.cwd(), env: process.env, stdout: "pipe", stderr: "pipe" });
+        const [output, errors, code] = await Promise.all([
+            new Response(command.stdout).text(), new Response(command.stderr).text(), command.exited,
+        ]);
+        expect(code, errors).toBe(0);
+        expect(output).toContain(summary!.name ?? summary!.id);
+        expect(output).toContain(`Unavailable session processes: ${lost.location!.worker_id}.`);
+    } finally {
+        release.resolve();
+        await harness.close();
+    }
+}, 30_000);
+
+test("a pending pool stop holds new turns on every session process", async () => {
+    const waiting = Promise.withResolvers<void>();
+    const stub = slowStopProvider();
+    const harness = await fixture({ workerCount: 3, provider: stub });
+    const clients: AttachedAgentClient[] = [];
+    let stop: ReturnType<typeof requestHostStop> | undefined;
+    try {
+        const socket = harness.host.server.socketPath;
+        const first = await createAgentThroughHost(socket, harness.home);
+        const second = await createAgentThroughHost(socket, harness.home);
+        expect(first.location!.worker_id).not.toBe(second.location!.worker_id);
+        for (const session of [first, second]) {
+            const client = await attachAgent({ socketPath: socket, agentId: session.id,
+                requestedCapabilities: [HOST_CAPABILITY_STOP_WAIT] });
+            clients.push(client);
+            await client.receive(AbortSignal.timeout(10_000));
+        }
+        await clients[0]!.send({ type: "prompt", content: "Keep working." });
+        await waitFor(() => stub.requests === 1, "first turn");
+        stop = requestHostStop(socket, harness.host.server.identity, () => waiting.resolve());
+        await Promise.race([waiting.promise, Bun.sleep(10_000).then(() => { throw new Error("No stop wait"); })]);
+        await waitFor(() => clients.every((client) => client.stopWait?.kind === "stop"), "stop notification on each session process");
+        const result = await clients[1]!.send({ type: "prompt", content: "Start another turn." })
+            .then(() => "accepted", (error: Error) => error.message);
+        if (result === "accepted") await waitFor(() => stub.requests === 2, "second turn");
+        expect({ result, requests: stub.requests }).toEqual({ result: TURNS_HELD_REFUSAL, requests: 1 });
+    } finally {
+        stub.release();
+        for (const client of clients) client.close();
+        await stop?.catch(() => {});
+        await harness.close();
+    }
+}, 30_000);
+
+test("a replacement session process holds turns during a pending stop", async () => {
+    const waiting = Promise.withResolvers<void>();
+    const stub = slowStopProvider();
+    const harness = await fixture({ workerCount: 3, provider: stub });
+    const clients: AttachedAgentClient[] = [];
+    let stop: ReturnType<typeof requestHostStop> | undefined;
+    try {
+        const socket = harness.host.server.socketPath;
+        const first = await createAgentThroughHost(socket, harness.home);
+        const replaced = await createAgentThroughHost(socket, harness.home);
+        const running = await attachAgent({ socketPath: socket, agentId: first.id });
+        clients.push(running);
+        await running.receive(AbortSignal.timeout(10_000));
+        await running.send({ type: "prompt", content: "Keep working." });
+        await waitFor(() => stub.requests === 1, "first turn");
+        stop = requestHostStop(socket, harness.host.server.identity, () => waiting.resolve());
+        await Promise.race([waiting.promise, Bun.sleep(10_000).then(() => { throw new Error("No stop wait"); })]);
+        const old = await requestHostIdentity(replaced.location!.socket_path);
+        if (old === undefined) throw new Error("Session process identity is unavailable");
+        await forceStopHostProcess(old, { firstSignal: "SIGKILL", sigkillGraceMs: 1_000 });
+        const index = Number(replaced.location!.worker_id.slice(1));
+        await waitFor(() => harness.host.health.workers?.[index]?.state === "replaced", "replacement");
+        expect((await requestHostIdentity(replaced.location!.socket_path))?.pid).not.toBe(old.pid);
+        await waitFor(async () => (await locate(socket, replaced.id)).type === "agent_location", "session location");
+        const client = await attachAgent({ socketPath: replaced.location!.socket_path, agentId: replaced.id,
+            requestedCapabilities: [HOST_CAPABILITY_STOP_WAIT] });
+        clients.push(client);
+        await client.receive(AbortSignal.timeout(10_000));
+        await waitFor(() => client.stopWait?.kind === "stop", "replacement stop notification");
+        const result = await client.send({ type: "prompt", content: "Start another turn." })
+            .then(() => "accepted", (error: Error) => error.message);
+        expect({ result, requests: stub.requests }).toEqual({ result: TURNS_HELD_REFUSAL, requests: 1 });
+    } finally {
+        stub.release();
+        for (const client of clients) client.close();
+        await stop?.catch(() => {});
+        await harness.close();
+    }
+}, 30_000);
+
 test("a hard-looping worker misses its heartbeat while identity and locate remain responsive", async () => {
     let marker = "";
     const harness = await fixture({
@@ -100,6 +239,9 @@ export function activate(vera) { vera.requests.handle("block", () => { writeFile
     let request: Promise<unknown> | undefined;
     try {
         const socket = harness.host.server.socketPath;
+        await waitFor(() => harness.host.health.workers?.every((worker) =>
+            typeof worker.rss_bytes === "number" && typeof worker.event_loop_lag_ms === "number") === true,
+        "session process diagnostics");
         const first = await createAgentThroughHost(socket, harness.home);
         const second = await createAgentThroughHost(socket, harness.home);
         const oldPid = (await requestHostIdentity(first.location!.socket_path))!.pid;

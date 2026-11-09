@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
@@ -56,7 +57,7 @@ async function receiveUntil(
     "CLI models refresh updates a running host catalog without restart",
     async () => {
         const root = await realpath(
-            await mkdtemp("/tmp/vcr-"),
+            await mkdtemp(join(tmpdir(), "vcr-")),
         );
         const previousHome = process.env.VERA_HOME;
         process.env.VERA_HOME = root;

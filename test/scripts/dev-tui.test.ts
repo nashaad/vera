@@ -228,7 +228,7 @@ test("a reused clone drops a lifted daily host lock", async () => {
 });
 
 test("reusing a development home preserves its running host and socket", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-reuse-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-reuse-"));
     const worktree = linkedWorktree("reuse-host");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -277,7 +277,7 @@ test("reusing a development home preserves its running host and socket", async (
 });
 
 test("a development host from another build is stopped before launch; one from this build is kept", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-stale-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-stale-"));
     const worktree = linkedWorktree("stale-host");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -348,7 +348,7 @@ function runDevTuiWithoutPs(
 }
 
 test("a development host whose start time cannot be read is left running and the launch stops", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-unverified-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-unverified-"));
     const worktree = linkedWorktree("unverified-host");
     const temporaryRoot = join(root, "instances");
     const binDirectory = join(root, "bin");
@@ -401,7 +401,7 @@ async function expectUnverifiedHostSurvives(
     name: string,
     args: readonly string[],
 ): Promise<void> {
-    const root = mkdtempSync("/tmp/vera-dev-unverified-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-unverified-"));
     const worktree = linkedWorktree(name);
     const temporaryRoot = join(root, "instances");
     const binDirectory = join(root, "bin");
@@ -456,7 +456,7 @@ async function expectInvalidStartTimeSurvives(
     args: readonly string[],
     buildId: (worktree: string) => string,
 ): Promise<void> {
-    const root = mkdtempSync("/tmp/vera-dev-badtime-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-badtime-"));
     const worktree = linkedWorktree(name);
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -535,7 +535,7 @@ async function expectDamagedLockSurvives(
     lock: (home: string, hostPid: number) => string,
     expectedError: (hostPid: number, lockPath: string) => string,
 ): Promise<void> {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree(name);
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -627,7 +627,7 @@ test("a launch refuses a cut-off lockfile whose PID is a Vera-looking process", 
 });
 
 test("a launch clears a damaged lockfile whose PID has exited and starts the client", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree("damaged-dead-launch");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -661,7 +661,7 @@ async function statusAfterWritingLock(
     name: string,
     lock: (home: string) => string,
 ): Promise<{ report: string; lockPath: string }> {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree(name);
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -727,7 +727,7 @@ test("--status reports a valid lockfile whose PID has exited as not running", as
 });
 
 test("the first launch refuses to clone a daily home whose host lockfile is damaged", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree("clone-damaged");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -759,7 +759,7 @@ test("the first launch refuses to clone a daily home whose host lockfile is dama
 });
 
 test("the first launch clones a daily home whose damaged lockfile names an exited PID", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree("clone-damaged-dead");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -788,7 +788,7 @@ test("the first launch clones a daily home whose damaged lockfile names an exite
 });
 
 test("the first launch clones a daily home whose damaged lockfile names a program that is not Vera", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-damaged-"));
     const worktree = linkedWorktree("clone-damaged-other");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -824,7 +824,7 @@ test("the first launch clones a daily home whose damaged lockfile names a progra
 });
 
 test("--discard deletes the home when the host lockfile has no valid start time and its PID is not Vera", async () => {
-    const root = mkdtempSync("/tmp/vera-dev-stale-");
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-dev-stale-"));
     const worktree = linkedWorktree("stale-discard");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
@@ -1284,7 +1284,9 @@ function machine(pids: readonly number[], politely: boolean) {
     return {
         alive,
         signalled,
-        processesUsingHome: () => [...alive],
+        processesUsingHome: () => [...alive].map((pid) => ({ pid, startedAt: `start-${pid}` })),
+        processStartTime: (pid: number) => alive.has(pid) ? `start-${pid}` : undefined,
+        isProcessAlive: (pid: number) => alive.has(pid),
         signalProcess: (pid: number, signal: NodeJS.Signals) => {
             signalled.push(`${signal} ${pid}`);
             if (signal === "SIGKILL" || politely) alive.delete(pid);
@@ -1353,7 +1355,9 @@ test("a survivor stops the fresh start rather than having its home deleted under
             sourceHome,
             temporaryRoot: join(root, "instances"),
             stderr: { write: (text) => stderr.push(String(text)) },
-            processesUsingHome: () => [909],
+            processesUsingHome: () => [{ pid: 909, startedAt: "start-909" }],
+            processStartTime: () => "start-909",
+            isProcessAlive: () => true,
             signalProcess: () => {},
             sigtermGraceMs: 50,
             sigkillGraceMs: 50,
@@ -1366,6 +1370,42 @@ test("a survivor stops the fresh start rather than having its home deleted under
         const dest = candidateHomePath(worktree, join(root, "instances"));
         expect(readFileSync(join(dest, "keep-me"), "utf8")).toBe("yes\n");
     } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("an unverified process keeps the development home on a fresh start", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-unverified-process");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const child = Bun.spawn(["/bin/sleep", "60"], { env: {}, stdout: "ignore", stderr: "ignore" });
+    const stderr: string[] = [];
+    try {
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            spawnTui: async (_args, env) => {
+                writeFileSync(join(env.VERA_HOME!, "keep-me"), "yes\n");
+                return 0;
+            },
+        });
+        const code = await runDevTui(["--fresh", "--yes"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: (text) => stderr.push(String(text)) },
+            processesUsingHome: () => [{ pid: child.pid, startedAt: "previous process" }],
+            spawnTui: async () => { throw new Error("must not launch"); },
+        });
+        expect(code).toBe(1);
+        expect(stderr.join("")).toContain(`Could not verify PID ${child.pid}`);
+        expect(readFileSync(join(candidateHomePath(worktree, temporaryRoot), "keep-me"), "utf8")).toBe("yes\n");
+        expect(child.exitCode).toBeNull();
+        process.kill(child.pid, 0);
+    } finally {
+        child.kill("SIGTERM");
+        await child.exited;
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });
     }

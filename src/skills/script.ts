@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import { signalVerifiedProcessGroup } from "../process-group.ts";
 import {
     BASH_CAPTURE_LIMIT_BYTES,
     captureBounded,
@@ -111,6 +112,7 @@ export async function runSkillScript(
     options: RunSkillScriptOptions,
 ): Promise<ToolOutput> {
     options.signal.throwIfAborted();
+    const startedAt = new Date().toISOString();
     const subprocess = Bun.spawn([options.scriptPath, ...options.args], {
         cwd: options.workspace,
         stdout: "pipe",
@@ -119,7 +121,16 @@ export async function runSkillScript(
         env: skillEnvironment(options.workspace, options.skillDirectory),
     });
     let timedOut = false;
-    const stop = (): void => killProcessTree(subprocess.pid);
+    let terminationNote: string | undefined;
+    let stopping = false;
+    const captureAbort = new AbortController();
+    const stop = (): void => {
+        if (stopping) return;
+        stopping = true;
+        terminationNote = killProcessTree(subprocess.pid, startedAt, () => subprocess.kill("SIGKILL"));
+        captureAbort.abort();
+        if (terminationNote !== undefined) process.stderr.write(`${terminationNote}\n`);
+    };
     options.signal.addEventListener("abort", stop, { once: true });
     if (options.signal.aborted) {
         stop();
@@ -135,18 +146,20 @@ export async function runSkillScript(
                 subprocess.stdout,
                 BASH_CAPTURE_LIMIT_BYTES / 2,
                 "stdout",
+                captureAbort.signal,
             ),
             captureBounded(
                 subprocess.stderr,
                 BASH_CAPTURE_LIMIT_BYTES / 2,
                 "stderr",
+                captureAbort.signal,
             ),
             subprocess.exited,
         ]);
         if (timedOut) {
             return {
                 kind: "output",
-                output: `Skill script timed out after ${options.timeoutMs} ms`,
+                output: `Skill script timed out after ${options.timeoutMs} ms${terminationNote === undefined ? "" : `. ${terminationNote}`}`,
                 isError: true,
             };
         }
@@ -241,7 +254,7 @@ function skillEnvironment(
     return env;
 }
 
-function killProcessTree(pid: number): void {
+function killProcessTree(pid: number, startedAt: string, killChild: () => void): string | undefined {
     try {
         if (process.platform === "win32") {
             Bun.spawnSync(["taskkill", "/pid", String(pid), "/t", "/f"], {
@@ -249,10 +262,14 @@ function killProcessTree(pid: number): void {
                 stderr: "ignore",
             });
         } else {
-            process.kill(-pid, "SIGKILL");
+            const result = signalVerifiedProcessGroup({ pid, started_at: startedAt }, "SIGKILL");
+            if (result !== "sent") killChild();
+            if (result === "gone") return `PID ${pid} had already exited.`;
+            if (result === "replaced") return `PID ${pid} is no longer the process that was listed; left it alone.`;
         }
     } catch {
     }
+    return undefined;
 }
 
 function isWithin(directory: string, candidate: string): boolean {

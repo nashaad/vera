@@ -12,6 +12,7 @@ export async function captureBounded(
     stream: ReadableStream<Uint8Array>,
     limitBytes: number,
     label: string,
+    signal?: AbortSignal,
 ): Promise<BoundedCapture> {
     const half = Math.max(1, Math.floor(limitBytes / 2));
     const head: Uint8Array[] = [];
@@ -21,6 +22,9 @@ export async function captureBounded(
     let totalBytes = 0;
 
     const reader = stream.getReader();
+    const cancel = (): void => { void reader.cancel().catch(() => {}); };
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -49,6 +53,7 @@ export async function captureBounded(
             }
         }
     } finally {
+        signal?.removeEventListener("abort", cancel);
         reader.releaseLock();
     }
 

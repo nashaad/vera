@@ -31,7 +31,7 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=18]
+## Start, development, and upgrades [lines=20]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
 Run `bun run dev:tui --pool` to attach conversations to a separate session process and resolve reconnections through the development host.
@@ -41,6 +41,8 @@ An interrupted inbox, schedule, or watch wake stays unread and appears when you 
 A later entry can wake the conversation normally.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
 `vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
+In pool mode, stop waits for turns across the session processes, force-stop stops the master and its session processes, and `vera ls` names unavailable session processes after their last known summaries.
+If a host is starting before its lock is published, stop reports that startup is in progress. In pool mode, ordinary stop also reports startup while the host adopts session processes.
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing. A development instance's host runs that checkout's code, never the installed release; run `bun run pack:web` in the checkout so its annex can serve the web page.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.

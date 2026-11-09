@@ -137,6 +137,23 @@ test("a process past the cutoff is stopped and its record cleared", async () => 
     expect(listLiveProcessesIn(instance.veraHome)).toEqual([]);
 });
 
+test("the sweep stops a recorded session process with its host", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWithOneProcess(root);
+    const workerPid = longRunningProcess();
+    const directory = join(instance.veraHome, "runtime", "workers");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "w0.json"), JSON.stringify({
+        id: "w0", pid: workerPid, started_at: new Date().toISOString(), master_pid: instance.pid,
+    }));
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root });
+
+    expect(written).toContain(`worker      pid ${workerPid}`);
+    expect(processIsAlive(instance.pid)).toBe(false);
+    expect(processIsAlive(workerPid)).toBe(false);
+});
+
 test("the sweep reaches every registered home, not just the first", async () => {
     const root = tempDir("vera-sweep-root-");
     const first = instanceWithOneProcess(root);
@@ -192,14 +209,14 @@ const sameStart = (): number => Date.now() - 1_000;
 const reusedStart = (): number => Date.now() - 3_600_000;
 
 /** Ignores SIGTERM, so a sweep has to follow up with SIGKILL. Resolves once the handler is installed. */
-async function stubbornProcess(): Promise<number> {
+async function stubbornProcess(detached = false): Promise<number> {
     const child = Bun.spawn(
         [
             process.execPath,
             "-e",
             'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);',
         ],
-        { stdout: "pipe", stderr: "ignore" },
+        { stdout: "pipe", stderr: "ignore", detached },
     );
     child.unref();
     spawned.push(child);
@@ -228,6 +245,68 @@ function instanceWith(
         root,
     });
     return { veraHome, pid };
+}
+
+test("a sweep checks the real process group of a detached host", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const instance = instanceWith(root, await stubbornProcess(true));
+    const group = Bun.spawnSync(["ps", "-p", String(instance.pid), "-o", "pgid="], { stdout: "pipe" });
+    expect(Number(group.stdout.toString().trim())).toBe(instance.pid);
+    const signals: string[] = [];
+    await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+        graceMs: 0,
+        reads: {
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                if (pid > 0) process.kill(pid, signal);
+            },
+        },
+    });
+    expect(signals).toContain(`SIGKILL:${-instance.pid}`);
+    expect(signals).toContain(`SIGKILL:${instance.pid}`);
+});
+
+for (const pooled of [false, true]) {
+    for (const scenario of ["leader", "nonleader", "unreadable", "replaced"] as const) {
+        test(`a sweep checks ${scenario} before a group signal for a ${pooled ? "pooled" : "plain"} host`, async () => {
+            const root = tempDir("vera-sweep-root-");
+            const instance = instanceWith(root, await stubbornProcess());
+            if (pooled) {
+                const workerPid = longRunningProcess();
+                const directory = join(instance.veraHome, "runtime", "workers");
+                mkdirSync(directory, { recursive: true });
+                writeFileSync(join(directory, "w0.json"), JSON.stringify({
+                    id: "w0", pid: workerPid, started_at: new Date().toISOString(), master_pid: instance.pid,
+                }));
+            }
+            let replaced = false;
+            const signals: string[] = [];
+            const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
+                graceMs: 0,
+                readProcessGroupSnapshot: (pid) => {
+                    if (scenario === "replaced") replaced = true;
+                    if (scenario === "unreadable") return undefined;
+                    return [{ pid, group: scenario === "nonleader" ? pid + 1 : pid, state: "S",
+                        startedAt: scenario === "replaced" ? reusedStart() : sameStart() }];
+                },
+                reads: {
+                    readStartedAt: (pid) => replaced && pid === instance.pid ? reusedStart() : sameStart(),
+                    kill: (pid, signal) => {
+                        signals.push(`${signal}:${pid}`);
+                        if (pid > 0) process.kill(pid, signal);
+                    },
+                },
+            });
+            if (scenario === "leader") expect(signals).toContain(`SIGKILL:${-instance.pid}`);
+            else expect(signals).not.toContain(`SIGKILL:${-instance.pid}`);
+            if (scenario === "replaced") {
+                expect(signals).not.toContain(`SIGKILL:${instance.pid}`);
+                expect(written).toContain(`signalled; the PID no longer belongs to the listed process`);
+            } else {
+                expect(signals).toContain(`SIGKILL:${instance.pid}`);
+            }
+        });
+    }
 }
 
 test("a PID reused after the listing is not signalled, and the sweep says so", async () => {
@@ -392,6 +471,7 @@ test("a process that cannot be confirmed gone after SIGKILL is not counted as st
 
     const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
         graceMs: 100,
+        readProcessGroupSnapshot: (pid) => [{ pid, group: pid, state: "S", startedAt: sameStart() }],
         reads: {
             // The last read, after both SIGKILLs, comes back empty.
             readStartedAt: () => killed ? undefined : sameStart(),
@@ -445,6 +525,7 @@ test("a PID that stops matching after the group SIGKILL is not described as reus
 
     const written = await sweep({ maxAgeMs: 0, dryRun: false, root }, {
         graceMs: 100,
+        readProcessGroupSnapshot: (pid) => [{ pid, group: pid, state: "S", startedAt: sameStart() }],
         reads: {
             readStartedAt: () => groupKilled ? reusedStart() : sameStart(),
             kill: recordedSignals(signals, (pid, signal) => {

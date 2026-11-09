@@ -21,6 +21,7 @@ export interface RoutedHostOptions {
     readonly workerGeneration: () => number;
     readonly reservations: RestoringSessions;
     readonly workerReady: () => boolean;
+    readonly workerPid?: () => number | undefined;
     readonly workerStarting: () => boolean;
     readonly recoveryPending?: () => boolean;
     readonly reportsPending?: () => boolean;
@@ -42,6 +43,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     const workers: readonly RouterWorker[] = [{
         id: "w0", endpoint: workerEndpoint, socket: options.workerSocket,
         generation: options.workerGeneration, ready: options.workerReady,
+        ...(options.workerPid === undefined ? {} : { pid: options.workerPid }),
     }, ...options.extraWorkers ?? []];
     const readyWorkers = (): readonly RouterWorker[] => workers.filter((worker) => worker.ready());
     const router = new HostRouter({
@@ -184,7 +186,9 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             return await router.create(request);
         },
         resumeAgent: resumeSession,
-        listAgents: () => router.list(),
+        listAgents: () => options.keepResidentOwner === true
+            ? Promise.resolve(snapshots.list())
+            : router.list(),
         onRosterChanged: (listener: () => void) => snapshots.onChanged(listener),
         listBackgroundAgents: () => snapshots.list(),
         readWorkIndex: () => snapshots.workIndex(),
@@ -222,6 +226,9 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     const masterHandlers: Partial<StartHostServerOptions> = {
         ...common,
         readWorkersReady: () => readyWorkers().length,
+        ...(options.keepResidentOwner === true ? {
+            readUnavailableWorkers: () => workers.filter((worker) => !worker.ready()).map((worker) => worker.id),
+        } : {}),
         readyLocation: async (id) => {
             const location = await common.locateAgent(id);
             if (location.type === "agent_location_failed") throw new Error(location.message);

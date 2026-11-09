@@ -206,6 +206,35 @@ test("stopListedLiveProcess kills a real child and drops its row", async () => {
     }
 });
 
+test("stopListedLiveProcess does not signal a nonleader's process group", async () => {
+    const child = Bun.spawn([process.execPath, "-e", "console.log('ready'); await Bun.sleep(300000)"], {
+        stdin: "ignore", stdout: "pipe", stderr: "ignore",
+    });
+    try {
+        await child.stdout.getReader().read();
+        const group = Bun.spawnSync(["ps", "-p", String(child.pid), "-o", "pgid="], { stdout: "pipe" });
+        expect(Number(group.stdout.toString().trim())).not.toBe(child.pid);
+        const listed = claimListedProcess({
+            schema_version: 1,
+            pid: child.pid,
+            kind: "worker",
+            started_at: new Date().toISOString(),
+            runtime_dir: process.env.VERA_HOME!,
+        });
+        const signals: string[] = [];
+        stopListedLiveProcess(listed, {
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                if (pid > 0) process.kill(pid, signal);
+            },
+        });
+        expect(signals).not.toContain(`SIGKILL:-${child.pid}`);
+    } finally {
+        child.kill("SIGKILL");
+        await child.exited;
+    }
+});
+
 async function waitForKind(
     home: string,
     kind: "worker" | "supervisor",
@@ -292,6 +321,7 @@ function reads(overrides: LiveProcessReads = {}): LiveProcessReads {
         isAlive: () => true,
         readStartedAt: () => recordedAt,
         readCommand: () => hostCommand,
+        readProcessGroupSnapshot: (pid) => [{ pid, group: pid, state: "S", startedAt: recordedAt }],
         ...overrides,
     };
 }

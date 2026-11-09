@@ -27,6 +27,8 @@ export interface TestTempRoot {
  * a host socket under the 104-byte limit, so roots go under `/tmp` when present.
  */
 export function testTempBase(): string {
+    const configured = process.env.VERA_TEST_TEMP_BASE;
+    if (configured !== undefined && configured.length > 0) return configured;
     return existsSync("/tmp") ? "/tmp" : tmpdir();
 }
 

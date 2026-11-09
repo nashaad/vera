@@ -104,8 +104,8 @@ export function createRemoteHostBoundary(
         ? remoteHooks(pipe)
         : new ToolHooks();
     const processRegistry = new ManagedProcessRegistry({
-        onProcessStarted: (pid) =>
-            pipe.notify({ method: "process.started", pid }),
+        onProcessStarted: (pid, startedAt) =>
+            pipe.notify({ method: "process.started", pid, started_at: startedAt }),
         onProcessSettled: (pid) =>
             pipe.notify({ method: "process.settled", pid }),
     });

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { processStartedAt } from "./process-identity.ts";
 import {
     childReleaseRoot,
     RELEASE_SUPERVISOR_NAME,
@@ -10,6 +11,7 @@ import {
 
 export interface SupervisorHandleOptions {
     readonly pid: number;
+    readonly startedAt?: string;
     readonly deadlineMs: number;
     readonly processGroup?: boolean;
     readonly command?: readonly string[];
@@ -19,7 +21,7 @@ export interface SupervisorHandleOptions {
 export interface SupervisorHandle {
     readonly pid: number | null;
     extendDeadline(deadlineMs: number): void;
-    watchProcessGroup(pid: number): void;
+    watchProcessGroup(pid: number, startedAt: string): void;
     forgetProcessGroup(pid: number): void;
     killNow(): void;
     detach(): void;
@@ -57,13 +59,17 @@ export function superviseWorker(
         child.stdin.write(`${JSON.stringify({ v: 1, ...message })}\n`);
     };
 
-    if (options.onEvent !== undefined) {
-        readEvents(child.stdout, options.onEvent);
-    }
+    readEvents(child.stdout, options.onEvent ?? ((event) => {
+        if (event.type === "error" && typeof event.message === "string") {
+            process.stderr.write(`${event.message}\n`);
+        }
+    }));
 
+    const observedStart = options.startedAt === undefined ? processStartedAt(options.pid) : undefined;
     write({
         type: "watch",
         pid: options.pid,
+        started_at: options.startedAt ?? (observedStart === undefined ? "" : new Date(observedStart).toISOString()),
         deadline_ms: options.deadlineMs,
         process_group: options.processGroup === true,
     });
@@ -78,8 +84,8 @@ export function superviseWorker(
         extendDeadline(deadlineMs: number): void {
             write({ type: "deadline", deadline_ms: deadlineMs });
         },
-        watchProcessGroup(pid: number): void {
-            write({ type: "process_group", action: "watch", pid });
+        watchProcessGroup(pid: number, startedAt: string): void {
+            write({ type: "process_group", action: "watch", pid, started_at: startedAt });
         },
         forgetProcessGroup(pid: number): void {
             write({ type: "process_group", action: "forget", pid });

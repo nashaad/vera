@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 
+import { signalVerifiedProcessGroup } from "../process-group.ts";
 import type {
     PostToolUseHook,
     PostToolUseHookPayload,
@@ -275,6 +276,7 @@ async function runCommand(
     const { argv, timeoutMs } = command;
     const { maxOutputBytes, waitForExit } = limits;
     return await new Promise<CommandOutput>((resolve, reject) => {
+        const startedAt = new Date().toISOString();
         const child = spawn(argv[0]!, argv.slice(1), {
             shell: false,
             detached: waitForExit && process.platform !== "win32",
@@ -290,12 +292,21 @@ async function runCommand(
             if (waitForExit) {
                 terminationError ??= error;
                 if (process.platform !== "win32" && child.pid !== undefined) {
-                    try {
-                        process.kill(-child.pid, "SIGKILL");
-                    } catch (error) {
-                        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-                            child.kill("SIGKILL");
+                    const outcome = signalVerifiedProcessGroup({ pid: child.pid, started_at: startedAt }, "SIGKILL");
+                    if (outcome !== "sent") {
+                        if (outcome === "gone") {
+                            terminationError = new Error(`${error.message} PID ${child.pid} had already exited.`);
+                        } else if (outcome === "replaced") {
+                            terminationError = new Error(`${error.message} PID ${child.pid} is no longer the process that was listed; left it alone.`);
                         }
+                        const finishAfterExit = (): void => {
+                            child.stdout.destroy();
+                            child.stderr.destroy();
+                            finish(terminationError);
+                        };
+                        child.once("exit", finishAfterExit);
+                        child.kill("SIGKILL");
+                        if (child.exitCode !== null || child.signalCode !== null) finishAfterExit();
                     }
                 } else {
                     child.kill("SIGKILL");

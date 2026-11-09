@@ -19,6 +19,9 @@ import type { createCredentialBroker } from "./credentials.ts";
 import { createMasterGlobals, type GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
 import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
+import { stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
+import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
+import type { StopWaitEvent } from "../stop-when-idle.ts";
 import type { PendingWorkerRecord, RecoverableWorker, WorkerRecord, WorkerRecordScan } from "./worker-record.ts";
 import { occupiedWorkerSockets, socketOccupied, verifiedWorkerHello, type WorkerSocket } from "./worker-sockets.ts";
 import { requestHostIdentity } from "../protocol.ts";
@@ -40,6 +43,8 @@ interface WorkerSlot {
     readonly index: number;
     readonly socket: string;
     connected: PromiseWithResolvers<ControlPeer>;
+    controlReady: PromiseWithResolvers<void>;
+    controlReadyReceived: boolean;
     started: PromiseWithResolvers<void>;
     exited: PromiseWithResolvers<void>;
     readonly endpoint: SessionEndpoint;
@@ -52,10 +57,14 @@ interface WorkerSlot {
     starting: boolean;
     closed: boolean;
     lastHeartbeat: number;
+    rssBytes?: number;
+    eventLoopLagMs?: number;
     failures: number[];
     recoverySessions: readonly WorkerRecoverySession[];
     reason?: string;
     spawnPid?: number;
+    spawnIdentity?: WorkerStopIdentity;
+    spawnStop?: Promise<void>;
     stopping?: Promise<void>;
     restarting?: Promise<void>;
 }
@@ -69,6 +78,9 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let control: WorkerControlServer | undefined;
     let closing = false;
     let initializing = true;
+    let turnsHeld = false;
+    let stopWaitVersion = 0;
+    let stopWaitState: Extract<StopWaitEvent, { type: "wait" | "wait_cleared" }> | undefined;
     const adopting = new Map(options.recoverableWorkers.map((worker) => [worker.record.index, worker]));
     const adoptedIndices = new Set(adopting.keys());
     const stoppedIndices = new Set(options.stoppedWorkers.map((worker) => worker.index));
@@ -101,7 +113,8 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         let slot!: WorkerSlot;
         slot = {
             id: `w${index}`, index, socket: inProcessWorkerSocket(options.sessionOptions.home, index),
-            connected, started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(() => slot.connected.promise),
+            connected, controlReady: Promise.withResolvers<void>(), controlReadyReceived: false,
+            started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(() => slot.connected.promise),
             broker: new ControlReservations(reservations),
             inbox: makeInbox(index, () => slot.connected.promise),
             generation: 0, ready: false, starting: true, closed: false, lastHeartbeat: performance.now(), failures: [], recoverySessions: [],
@@ -126,6 +139,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const workerOptions = (slot: WorkerSlot) => ({
         id: slot.id, endpoint: slot.endpoint, socket: slot.socket,
         generation: () => slot.generation, ready: () => slot.ready,
+        pid: () => slot.supervisor?.pid ?? slot.spawnPid,
         canShutdown: async () => slot.ready && await requestWorker<boolean>(slot, "worker.canShutdown"),
         canReplace: async () => slot.ready && await requestWorker<boolean>(slot, "worker.canReplace"),
     });
@@ -135,6 +149,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         workerSocket: first.socket, buildId: options.buildId, reservations,
         workerGeneration: () => first.generation,
         workerReady: () => first.ready,
+        workerPid: () => first.supervisor?.pid ?? first.spawnPid,
         workerStarting: () => slots.some((slot) => slot.starting),
         recoveryPending,
         reportsPending,
@@ -174,6 +189,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         buildId: options.buildId, capabilities: options.capabilities,
         extensionCatalog: buildExtensionCatalog(options.master.extensions),
         heartbeatIntervalMs: Math.max(1, Math.min(1_000, Math.floor(deadline / 3))),
+        get turnsHeld() { return turnsHeld; },
         masterGraceMs,
     };
     const startSlot = async (slot: WorkerSlot): Promise<void> => {
@@ -191,11 +207,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 ...(adopted === undefined ? {} : { adopt: adopted }),
                 ...(adopted?.unrecorded === true ? { startupTimeoutMs: 2_000 } : {}),
                 index: slot.index, count: slots.length, generation: slot.generation,
-                onSpawn(pid) {
+                onSpawn(pid, startedAt) {
                     slot.spawnPid = pid;
+                    slot.spawnIdentity = { pid, started_at: startedAt ?? new Date().toISOString() };
                     if (closing) {
-                        try { process.kill(pid, "SIGKILL"); }
-                        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                        slot.spawnStop = stopWorkerProcess(slot.spawnIdentity);
+                        void slot.spawnStop.catch(() => {});
                     }
                 },
                 onConnected(peer) {
@@ -203,9 +220,23 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     slot.connected.resolve(peer);
                     void peer.closed.then(() => slotLost(slot, generation, "control_closed"));
                 },
-                onEvent(event) {
+                onReady() {
+                    slot.controlReadyReceived = true;
+                    slot.controlReady.resolve();
+                },
+                onEvent(event, value) {
                     if (slot.generation !== generation) return;
-                    if (event === "heartbeat") slot.lastHeartbeat = performance.now();
+                    if (event === "heartbeat") {
+                        slot.lastHeartbeat = performance.now();
+                        if (typeof value === "object" && value !== null) {
+                            const metrics = value as Record<string, unknown>;
+                            if (typeof metrics.rss_bytes === "number" && Number.isFinite(metrics.rss_bytes) && metrics.rss_bytes >= 0) {
+                                slot.rssBytes = metrics.rss_bytes;
+                            }
+                            if (typeof metrics.event_loop_lag_ms === "number" && Number.isFinite(metrics.event_loop_lag_ms)
+                                && metrics.event_loop_lag_ms >= 0) slot.eventLoopLagMs = metrics.event_loop_lag_ms;
+                        }
+                    }
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
@@ -263,6 +294,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     throw new Error("Unknown master control request");
                 },
             });
+            slot.spawnIdentity ??= { pid: slot.supervisor.pid, started_at: slot.supervisor.startedAt };
             void slot.supervisor.exited.then(() => slotLost(slot, generation, "process_exited"));
             if (closing || slot.closed) throw new Error("Session worker closed before ready");
             if (generation > 1 && adopted === undefined) {
@@ -290,6 +322,14 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 if (slot.closed) throw new Error("Session worker closed during recovery");
             }
             slot.recoverySessions = [];
+            await slot.supervisor.peer.request("worker.setTurnsHeld", [turnsHeld], AbortSignal.timeout(5_000));
+            if (slot.closed) throw new Error("Session process closed during recovery");
+            while (true) {
+                const version = stopWaitVersion;
+                const state = stopWaitState;
+                if (state !== undefined) await requestWorker(slot, "worker.stopWaitEvent", [state]);
+                if (version === stopWaitVersion) break;
+            }
             routed.router.observe(slot.id, slot.supervisor.snapshot.residents);
             routed.router.observeStored(slot.id, slot.supervisor.snapshot.summaries);
             for (const summary of slot.supervisor.snapshot.summaries) knownSessions.add(summary.id);
@@ -311,11 +351,14 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             throw error;
         } finally {
             slot.starting = false;
+            slot.controlReady.resolve();
             slot.started.resolve();
         }
     };
     const resetSlot = (slot: WorkerSlot): void => {
         slot.connected = Promise.withResolvers<ControlPeer>();
+        slot.controlReady = Promise.withResolvers<void>();
+        slot.controlReadyReceived = false;
         slot.started = Promise.withResolvers<void>();
         slot.exited = Promise.withResolvers<void>();
         void slot.connected.promise.catch(() => {});
@@ -325,6 +368,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         slot.peer = undefined;
         slot.supervisor = undefined;
         slot.spawnPid = undefined;
+        slot.spawnIdentity = undefined;
+        slot.spawnStop = undefined;
+        slot.rssBytes = undefined;
+        slot.eventLoopLagMs = undefined;
         slot.ready = false;
         slot.starting = true;
         slot.closed = false;
@@ -545,7 +592,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (!slot.ready || now - slot.lastHeartbeat < deadline) continue;
                     const supervisor = slot.supervisor;
                     slotLost(slot, slot.generation, "heartbeat_timeout");
-                    supervisor?.kill();
+                    try { supervisor?.kill(); } catch {}
                 }
             }, Math.max(1, Math.min(250, Math.floor(deadline / 4))));
             heartbeatTimer.unref();
@@ -572,11 +619,73 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             state: slot.ready ? slot.reason === undefined ? "ready" as const : "replaced" as const
                 : slot.starting ? "starting" as const : "unavailable" as const,
             ...(slot.reason === undefined ? {} : { reason: slot.reason }),
+            ...(slot.rssBytes === undefined ? {} : { rss_bytes: slot.rssBytes }),
+            ...(slot.eventLoopLagMs === undefined ? {} : { event_loop_lag_ms: slot.eventLoopLagMs }),
         })),
+        stopPids: () => slots.flatMap((slot) => {
+            const identity = slot.spawnIdentity;
+            if (identity === undefined || !processIsAlive(identity.pid)) return [];
+            return checkRecordIdentity(identity) === "mismatch" ? [] : [identity.pid];
+        }),
         stopMaintenance() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.stopMaintenance").catch(() => {});
         },
-        waitingOn: () => routed.router.stopWaitTargets(),
+        async setTurnsHeld(held) {
+            turnsHeld = held;
+            await Promise.all(slots.map(async (slot) => {
+                if (slot.closed && slot.restarting !== undefined) await slot.restarting;
+                if (slot.starting && !slot.closed) await slot.controlReady.promise;
+                if (slot.controlReadyReceived && !slot.closed) await requestWorker(slot, "worker.setTurnsHeld", [held]);
+            }));
+        },
+        async publishStopWait(event) {
+            if (event.type === "wait" || event.type === "wait_cleared") {
+                stopWaitState = event;
+                stopWaitVersion += 1;
+            }
+            await Promise.all(slots.map(async (slot) => {
+                if (!slot.controlReadyReceived || slot.closed) return;
+                const peer = slot.peer;
+                try {
+                    await requestWorker(slot, "worker.stopWaitEvent", [event]);
+                } catch (error) {
+                    if (!slot.closed && slot.peer === peer) throw error;
+                }
+            }));
+        },
+        async waitingOn() {
+            const workers = await Promise.all(slots.map(async (slot) => {
+                while (true) {
+                    if (slot.restarting !== undefined) {
+                        await slot.restarting;
+                        continue;
+                    }
+                    const generation = slot.generation;
+                    const exited = slot.exited.promise;
+                    if (!slot.controlReadyReceived || slot.closed) {
+                        if (slot.starting && !slot.closed) {
+                            await slot.controlReady.promise;
+                            continue;
+                        }
+                        if (slot.closed) await exited;
+                        if (slot.restarting !== undefined || slot.generation !== generation) continue;
+                        return [];
+                    }
+                    try {
+                        const targets = await slot.endpoint.stopWaitTargets();
+                        if (slot.generation !== generation || slot.closed || slot.restarting !== undefined) continue;
+                        return targets;
+                    } catch (error) {
+                        if (slot.generation !== generation) continue;
+                        if (!slot.closed) throw error;
+                        await exited;
+                        if (slot.restarting !== undefined || slot.generation !== generation) continue;
+                        return [];
+                    }
+                }
+            }));
+            return [...options.master.registry.stopWaitTargets(), ...workers.flat()];
+        },
         async hasSession(id) {
             return (await Promise.all(slots.map(async (slot) => {
                 if (slot.ready) {
@@ -627,9 +736,9 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
             for (const slot of slots) {
                 slot.ready = false;
-                if (slot.starting && slot.supervisor === undefined && slot.spawnPid !== undefined) {
-                    try { process.kill(slot.spawnPid, "SIGKILL"); }
-                    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+                if (slot.starting && slot.supervisor === undefined && slot.spawnIdentity !== undefined) {
+                    slot.spawnStop ??= stopWorkerProcess(slot.spawnIdentity);
+                    void slot.spawnStop.catch(() => {});
                 }
             }
             stopSnapshots();
@@ -637,6 +746,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             await Promise.allSettled([...unknownTasks.values()]);
             await recoveryWork;
             const results = await Promise.allSettled(slots.map(async (slot) => {
+                await slot.spawnStop;
                 if (slot.supervisor === undefined && slot.starting) await slot.started.promise;
                 if (slot.supervisor !== undefined) await slot.supervisor.close();
                 else slot.connected.reject(new Error("Session worker was not started"));

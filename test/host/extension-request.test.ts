@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHostServer } from "../../src/host/server.ts";
 import { parseHostRequest } from "../../src/host/protocol.ts";
@@ -14,7 +15,7 @@ test("extension requests need an extension, a name, and a payload", () => {
 });
 
 test("extension requests return the answer, the refusal, or cancel", async () => {
-    const root = await mkdtemp("/tmp/vera-ext-req-");
+    const root = await mkdtemp(join(tmpdir(), "vera-ext-req-"));
     const socketPath = join(root, "host.sock");
     let aborted!: () => void;
     const abortedPromise = new Promise<void>((resolve) => { aborted = resolve; });

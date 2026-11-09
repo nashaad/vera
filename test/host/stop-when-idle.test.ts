@@ -42,6 +42,61 @@ test("a stop holds turns while it checks remote owners", async () => {
     expect(stopped).toBe(1);
 });
 
+test("a stop confirms remote holds before checking and clears them when abandoned", async () => {
+    const holdReady = Promise.withResolvers<void>();
+    const clearReady = Promise.withResolvers<void>();
+    const changes: boolean[] = [];
+    const events: StopWhenIdleEvent[] = [];
+    let checks = 0;
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [],
+        waitingOnAsync: async () => { checks += 1; return []; },
+        setTurnsHeld: async (held) => {
+            changes.push(held);
+            await (held ? holdReady.promise : clearReady.promise);
+        },
+        prepare: () => "not available",
+        onStopped: () => { throw new Error("Unexpected stop"); },
+    });
+    coordinator.request((event) => { events.push(event); });
+    await settle();
+    expect(changes).toEqual([true]);
+    expect(checks).toBe(0);
+    holdReady.resolve();
+    await settle();
+    expect(changes).toEqual([true, false]);
+    expect(coordinator.holdsTurns).toBe(true);
+    expect(events).toEqual([]);
+    clearReady.resolve();
+    await settle();
+    expect(coordinator.holdsTurns).toBe(false);
+    expect(events).toEqual([{ type: "abandoned", message: "not available" }]);
+});
+
+test("a pooled stop replies before remote holds and checks idle only after them", async () => {
+    const held = Promise.withResolvers<void>();
+    const events: StopWhenIdleEvent[] = [];
+    let checks = 0;
+    let stopped = false;
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [],
+        waitingOnAsync: async () => { checks += 1; return []; },
+        setTurnsHeld: async () => { await held.promise; },
+        replyBeforeWorkerCheck: true,
+        onStopped: () => { stopped = true; },
+    });
+    coordinator.request((event) => { events.push(event); });
+    await settle();
+    expect(events).toEqual([{ type: "waiting", waiting_on: [] }]);
+    expect(checks).toBe(0);
+    expect(stopped).toBe(false);
+    held.resolve();
+    await settle();
+    expect(checks).toBe(1);
+    expect(events.at(-1)).toEqual({ type: "stopped" });
+    expect(stopped).toBe(true);
+});
+
 test("stop-when-idle reports waiting targets, reprints only on change, then stops", async () => {
     let waiting: StopWaitTarget[] = [working];
     let stopped = 0;

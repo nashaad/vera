@@ -1,5 +1,11 @@
 
-import { installLiveProcess } from "../live-process.ts";
+import { installLiveProcess, skippedProcessLine } from "../live-process.ts";
+import {
+    signalVerifiedProcess,
+    signalVerifiedProcessGroup,
+    type ProcessGroupIdentity,
+    type ProcessSignalResult,
+} from "../process-group.ts";
 
 const PROTOCOL_VERSION = 1;
 
@@ -16,8 +22,9 @@ export interface SupervisorOptions {
 
 interface Watched {
     readonly pid: number;
+    readonly started_at: string;
     readonly processGroup: boolean;
-    readonly childProcessGroups: Set<number>;
+    readonly childProcessGroups: Map<number, ProcessGroupIdentity>;
     deadlineMs: number;
 }
 
@@ -45,21 +52,29 @@ export async function runSupervisor(
         }
     };
 
-    const killWorker = (target: Watched, reason: KillReason): void => {
-        if (target.processGroup) {
-            try {
-                process.kill(-target.pid, "SIGKILL");
-            } catch {
-                sendSignal(target.pid);
-            }
+    const stop = (record: ProcessGroupIdentity, group: boolean): boolean => {
+        let result: ProcessSignalResult;
+        if (group) {
+            const groupResult = signalVerifiedProcessGroup(record, "SIGKILL");
+            if (groupResult === "sent") return true;
+            result = groupResult === "not_group_leader" || groupResult === "group_unverified" || groupResult === "not_delivered"
+                ? signalVerifiedProcess(record, "SIGKILL") : groupResult;
         } else {
-            sendSignal(target.pid);
+            result = signalVerifiedProcess(record, "SIGKILL");
         }
-        for (const pid of target.childProcessGroups) {
-            sendSignal(-pid);
+        if (result === "sent") return true;
+        if (result === "gone") return false;
+        send({ type: "error", message: skippedProcessLine(record.pid, result).trimEnd() });
+        return false;
+    };
+
+    const killWorker = (target: Watched, reason: KillReason): void => {
+        const killed = stop(target, target.processGroup);
+        for (const record of target.childProcessGroups.values()) {
+            stop(record, true);
         }
         target.childProcessGroups.clear();
-        send({ type: "killed", pid: target.pid, reason });
+        if (killed) send({ type: "killed", pid: target.pid, reason });
     };
 
     const handle = (message: Record<string, unknown>): void => {
@@ -77,9 +92,10 @@ export async function runSupervisor(
             }
             watched = {
                 pid,
+                started_at: typeof message.started_at === "string" ? message.started_at : "",
                 deadlineMs,
                 processGroup: message.process_group === true,
-                childProcessGroups: new Set(),
+                childProcessGroups: new Map(),
             };
             send({ type: "watching", pid, deadline_ms: deadlineMs });
             return;
@@ -108,7 +124,9 @@ export async function runSupervisor(
                 return;
             }
             if (message.action === "watch") {
-                watched.childProcessGroups.add(pid);
+                watched.childProcessGroups.set(pid, {
+                    pid, started_at: typeof message.started_at === "string" ? message.started_at : "",
+                });
             } else {
                 watched.childProcessGroups.delete(pid);
             }
@@ -155,11 +173,8 @@ export async function runSupervisor(
                 break;
             }
             if (!alive(current.pid)) {
-                if (current.processGroup) {
-                    sendSignal(-current.pid);
-                }
-                for (const pid of current.childProcessGroups) {
-                    sendSignal(-pid);
+                for (const record of current.childProcessGroups.values()) {
+                    stop(record, true);
                 }
                 current.childProcessGroups.clear();
                 send({ type: "worker_exited", pid: current.pid });
@@ -172,13 +187,6 @@ export async function runSupervisor(
 
     send({ type: "exit", reason: finished });
     return finished;
-}
-
-function sendSignal(pid: number): void {
-    try {
-        process.kill(pid, "SIGKILL");
-    } catch {
-    }
 }
 
 function asPid(value: unknown): number | null {

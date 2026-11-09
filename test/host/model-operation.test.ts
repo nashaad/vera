@@ -1,6 +1,7 @@
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHostServer } from "../../src/host/server.ts";
 import { parseHostRequest } from "../../src/host/protocol.ts";
@@ -17,7 +18,7 @@ test("model operations reject malformed requests", () => {
 });
 
 test("unattached model operations stream results before completion", async () => {
-    const root = await mkdtemp("/tmp/vera-model-rpc-");
+    const root = await mkdtemp(join(tmpdir(), "vera-model-rpc-"));
     const socketPath = join(root, "host.sock");
     const server = await startHostServer({ socketPath, lockPath: join(root, "host.json"),
         operateModels: async (request, onResult) => {
@@ -35,7 +36,7 @@ test("unattached model operations stream results before completion", async () =>
 });
 
 test("verification steps reach the client before the result", async () => {
-    const root = await mkdtemp("/tmp/vera-model-steps-");
+    const root = await mkdtemp(join(tmpdir(), "vera-model-steps-"));
     const socketPath = join(root, "host.sock");
     const server = await startHostServer({ socketPath, lockPath: join(root, "host.json"),
         operateModels: async (request, onResult, onStep) => {
@@ -54,7 +55,7 @@ test("verification steps reach the client before the result", async () => {
 });
 
 test("closing the client does not cancel a verification operation", async () => {
-    const root = await mkdtemp("/tmp/vera-model-detach-");
+    const root = await mkdtemp(join(tmpdir(), "vera-model-detach-"));
     const socketPath = join(root, "host.sock");
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -77,7 +78,7 @@ test("closing the client does not cancel a verification operation", async () => 
 });
 
 test("provider removal has a host outcome and propagates a refusal", async () => {
-    const root = await mkdtemp("/tmp/vera-forget-rpc-");
+    const root = await mkdtemp(join(tmpdir(), "vera-forget-rpc-"));
     const socketPath = join(root, "host.sock");
     const server = await startHostServer({ socketPath, lockPath: join(root, "host.json"),
         forgetProvider: async (provider) => {

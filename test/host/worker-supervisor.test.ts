@@ -221,4 +221,53 @@ describe("worker supervisor", () => {
         expect((await exit).signal).toBe("SIGKILL");
         await handle.exited;
     }, 20_000);
+
+    test("does not signal a worker whose recorded start time changed", async () => {
+        const worker = await startWedgedWorker();
+        const exit = exitOf(worker.child);
+        const events: Record<string, unknown>[] = [];
+        try {
+            const handle = superviseWorker({
+                pid: worker.pid,
+                startedAt: "2000-01-01T00:00:00.000Z",
+                deadlineMs: NO_DEADLINE,
+                processGroup: true,
+                onEvent: (event) => events.push(event),
+            });
+            handle.killNow();
+            await handle.exited;
+            expect(isAlive(worker.pid)).toBe(true);
+            expect(events.some((event) => event.type === "error"
+                && String(event.message).includes(`PID ${worker.pid}`))).toBe(true);
+        } finally {
+            worker.child.kill("SIGKILL");
+            await exit;
+        }
+    }, 20_000);
+
+    test("does not signal a watched child group whose start time changed", async () => {
+        const worker = await startWedgedWorker();
+        const other = await startWedgedWorker();
+        const workerExit = exitOf(worker.child);
+        const otherExit = exitOf(other.child);
+        const events: Record<string, unknown>[] = [];
+        try {
+            const handle = superviseWorker({
+                pid: worker.pid,
+                deadlineMs: NO_DEADLINE,
+                onEvent: (event) => events.push(event),
+            });
+            handle.watchProcessGroup(other.pid, "2000-01-01T00:00:00.000Z");
+            handle.killNow();
+            await handle.exited;
+            await workerExit;
+            expect(isAlive(other.pid)).toBe(true);
+            expect(events.some((event) => event.type === "error"
+                && String(event.message).includes(`PID ${other.pid}`))).toBe(true);
+        } finally {
+            worker.child.kill("SIGKILL");
+            other.child.kill("SIGKILL");
+            await Promise.all([workerExit, otherExit]);
+        }
+    }, 20_000);
 });

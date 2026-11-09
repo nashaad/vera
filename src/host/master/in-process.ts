@@ -6,7 +6,7 @@ import type { HostIdentity } from "../protocol.ts";
 import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "../session-host.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
-import type { StopWaitTarget } from "../stop-when-idle.ts";
+import type { StopWaitEvent, StopWaitTarget } from "../stop-when-idle.ts";
 import { prepareRoutedHost } from "./routing.ts";
 import { ForwardedShutdowns, forwardLocalRequest } from "./public-forward.ts";
 import { MasterInboxBridge, WorkerInboxBridge } from "./inbox.ts";
@@ -33,8 +33,11 @@ export interface InProcessWorkerOptions {
 export interface InProcessWorker {
     readonly masterHandlers: Partial<StartHostServerOptions>;
     workerHealth?(): readonly WorkerHealth[];
+    stopPids?(): readonly number[];
     start(identity: Pick<HostIdentity, "pid" | "started_at">): Promise<void>;
     stopMaintenance(): void;
+    setTurnsHeld?(held: boolean): Promise<void>;
+    publishStopWait?(event: StopWaitEvent): Promise<void>;
     waitingOn(): Promise<readonly StopWaitTarget[]>;
     hasSession(id: string): boolean | Promise<boolean>;
     cutSession(id: string, reason: string): Promise<boolean>;
@@ -54,6 +57,8 @@ export interface WorkerHealth {
     readonly pid?: number;
     readonly state: "starting" | "ready" | "replaced" | "unavailable";
     readonly reason?: string;
+    readonly rss_bytes?: number;
+    readonly event_loop_lag_ms?: number;
 }
 
 export async function prepareInProcessWorker(options: InProcessWorkerOptions): Promise<InProcessWorker> {

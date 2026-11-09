@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { processStartedAt } from "../../src/host/process-identity.ts";
+import { signalVerifiedProcess, signalVerifiedProcessGroup, type ProcessGroupIdentity } from "../../src/process-group.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import { defaultSchedulePath, ScheduleStore } from "../../src/scheduler/store.ts";
 import { defaultInboxPath, Inbox } from "../../src/store/inbox.ts";
@@ -30,6 +32,8 @@ test("a schedule due at startup wakes its worker once", async () => {
     let client: AttachedAgentClient | undefined;
     let info: PoolHostInfo | undefined;
     let stderr: Promise<string> | undefined;
+    let hostStartedAt = "";
+    const children: ProcessGroupIdentity[] = [];
     try {
         await SessionStore.create(sessionPath, { sessionId: id, cwd: home });
         const inbox = Inbox.open(defaultInboxPath(home));
@@ -50,6 +54,7 @@ test("a schedule due at startup wakes its worker once", async () => {
                 stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" },
             },
         }));
+        hostStartedAt = new Date().toISOString();
         const spawned = Bun.spawn([process.execPath, "test/host/fixtures/pool-crash-host.ts"], {
             cwd: process.cwd(), env: { ...process.env, VERA_HOME: home }, detached: true,
             stdout: "ignore", stderr: "pipe",
@@ -60,6 +65,11 @@ test("a schedule due at startup wakes its worker once", async () => {
         await waitFor(() => existsSync(readyPath) || child!.exitCode !== null, "pool startup");
         if (!existsSync(readyPath)) throw new Error(`Pool host exited: ${await stderr}`);
         info = JSON.parse(await readFile(readyPath, "utf8")) as PoolHostInfo;
+        for (const pid of [info.workerPid, info.annexPid]) {
+            if (pid === undefined) continue;
+            const startedAt = processStartedAt(pid);
+            children.push({ pid, started_at: startedAt === undefined ? "" : new Date(startedAt).toISOString() });
+        }
         expect(info.pid).toBe(child.pid);
         expect(info.workerPid).not.toBe(info.pid);
         expect((await listAgentsThroughHost(info.socket)).find((agent) => agent.id === id))
@@ -100,9 +110,12 @@ test("a schedule due at startup wakes its worker once", async () => {
         if (child !== undefined) {
             if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
             const exited = await Promise.race([child.exited.then(() => true), Bun.sleep(3_000).then(() => false)]);
-            if (!exited && groupAlive(child.pid)) process.kill(-child.pid, "SIGKILL");
+            if (!exited) {
+                const host = { pid: child.pid, started_at: hostStartedAt };
+                if (signalVerifiedProcessGroup(host, "SIGKILL") !== "sent") child.kill("SIGKILL");
+            }
             await child.exited;
-            if (groupAlive(child.pid)) process.kill(-child.pid, "SIGKILL");
+            for (const record of children) signalVerifiedProcess(record, "SIGKILL");
             await waitFor(() => !groupAlive(child!.pid), "pool process group exit");
             await stderr;
         }
@@ -119,8 +132,9 @@ test("a schedule due at startup wakes its worker once", async () => {
 }, 30_000);
 
 function groupAlive(pid: number): boolean {
-    try { process.kill(-pid, 0); return true; }
-    catch { return false; }
+    const result = Bun.spawnSync(["ps", "-axo", "pgid="], { stdout: "pipe", stderr: "ignore" });
+    if (result.exitCode !== 0) throw new Error("Could not list process groups");
+    return result.stdout.toString().split("\n").some((line) => Number(line.trim()) === pid);
 }
 
 async function waitFor(predicate: () => boolean, label: string): Promise<void> {

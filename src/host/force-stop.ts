@@ -1,4 +1,9 @@
 import { unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { selectedVeraHome } from "../profile-paths.ts";
+import { assertRecordedWorkersStopped, readRecordedWorkers, removeStoppedPoolLock } from "./master/worker-records.ts";
+import type { HostStartupClaim } from "./startup-claim.ts";
+import { acquireStopStartupClaim } from "./stop-claim.ts";
 
 import {
     checkRecordIdentity,
@@ -16,6 +21,7 @@ import {
     defaultHostLockPath,
     HostLockUnreadableError,
     inspectHostLockFile,
+    type HostLockInspection,
     type HostLockRecord,
 } from "./lockfile.ts";
 
@@ -113,6 +119,8 @@ export class HostKillNotPermittedError extends Error {
 
 export interface ForceStopOptions {
     readonly lockPath?: string;
+    readonly home?: string;
+    readonly startupClaim?: HostStartupClaim;
     readonly sigtermGraceMs?: number;
     readonly sigkillGraceMs?: number;
     readonly pollIntervalMs?: number;
@@ -125,6 +133,7 @@ export interface ForceStopOptions {
     readonly readStartedAt?: (pid: number) => number | undefined;
     readonly readCommand?: (pid: number) => string | undefined;
     readonly escalateToKill?: boolean;
+    readonly firstSignal?: "SIGTERM" | "SIGKILL";
 }
 
 export const DEFAULT_SIGTERM_GRACE_MS = 3_000;
@@ -141,8 +150,9 @@ interface StopTarget {
 // Throws HostLockUnreadableError when no PID can be read from it.
 async function readStopTarget(
     lockPath: string,
+    options: ForceStopOptions,
 ): Promise<StopTarget | undefined> {
-    const inspection = await inspectHostLockFile(lockPath);
+    const inspection = await inspectHostForStop(lockPath, stopHome(options, lockPath), options.startupClaim);
     if (inspection.state === "absent") return undefined;
     if (inspection.state === "valid") {
         return { record: inspection.record, damaged: false };
@@ -151,6 +161,35 @@ async function readStopTarget(
         throw new HostLockUnreadableError(lockPath);
     }
     return { record: { pid: inspection.pid, started_at: "" }, damaged: true };
+}
+
+function stopHome(options: ForceStopOptions, lockPath: string): string {
+    if (options.home !== undefined) return options.home;
+    if (options.lockPath !== undefined && basename(dirname(lockPath)) === "runtime") return dirname(dirname(lockPath));
+    return selectedVeraHome();
+}
+
+async function withStopClaim<T>(
+    lockPath: string, run: (claim: HostStartupClaim) => Promise<T>, socketPath?: string,
+): Promise<T> {
+    const path = socketPath === undefined ? join(dirname(lockPath), "host.sock.starting") : `${socketPath}.starting`;
+    const claim = await acquireStopStartupClaim(path);
+    try { return await run(claim); }
+    finally { await claim.release(); }
+}
+
+async function inspectHostForStop(
+    lockPath: string, home: string, ownedClaim?: HostStartupClaim,
+): Promise<HostLockInspection> {
+    const initial = await inspectHostLockFile(lockPath);
+    if (initial.state !== "absent") return initial;
+    const inspect = async (): Promise<HostLockInspection> => {
+        const inspection = await inspectHostLockFile(lockPath);
+        await readRecordedWorkers(home);
+        if (inspection.state === "absent") await assertRecordedWorkersStopped(home);
+        return inspection;
+    };
+    return ownedClaim === undefined ? await withStopClaim(lockPath, inspect) : await inspect();
 }
 
 function markDamaged(
@@ -166,17 +205,21 @@ export async function forceStopResidentHost(
     options: ForceStopOptions = {},
 ): Promise<ForceStopOutcome | undefined> {
     const lockPath = options.lockPath ?? defaultHostLockPath();
-    const target = await readStopTarget(lockPath);
+    const target = await readStopTarget(lockPath, options);
     if (target === undefined) return undefined;
     const { record } = target;
     const outcome = markDamaged(
         await forceStopHostProcess(record, options),
         target.damaged,
     );
+    if (options.startupClaim === undefined && (outcome.endedBy === "already_dead" || outcome.endedBy === "not_ours")) {
+        return await withStopClaim(lockPath, (startupClaim) => forceStopResidentHost({ ...options, lockPath, startupClaim }));
+    }
     const clearable = outcome.endedBy !== "unverified"
         && (outcome.endedBy === "not_ours"
             || !(options.isProcessAlive ?? processIsAlive)(record.pid));
     if (clearable) {
+        await assertRecordedWorkersStopped(stopHome(options, lockPath));
         await removeFile(lockPath);
     }
     return outcome;
@@ -186,7 +229,7 @@ export async function gracefulStopResidentHost(
     options: ForceStopOptions = {},
 ): Promise<ForceStopOutcome | undefined> {
     const lockPath = options.lockPath ?? defaultHostLockPath();
-    const target = await readStopTarget(lockPath);
+    const target = await readStopTarget(lockPath, options);
     if (target === undefined) return undefined;
     const { record } = target;
     const outcome = markDamaged(
@@ -196,10 +239,14 @@ export async function gracefulStopResidentHost(
         }),
         target.damaged,
     );
+    if (options.startupClaim === undefined && (outcome.endedBy === "already_dead" || outcome.endedBy === "not_ours")) {
+        return await withStopClaim(lockPath, (startupClaim) => gracefulStopResidentHost({ ...options, lockPath, startupClaim }));
+    }
     const stillOurs = outcome.endedBy === "unverified"
         || (outcome.endedBy !== "not_ours"
             && (options.isProcessAlive ?? processIsAlive)(record.pid));
     if (!stillOurs) {
+        await assertRecordedWorkersStopped(stopHome(options, lockPath));
         await removeFile(lockPath);
     }
     return outcome;
@@ -213,14 +260,19 @@ export async function stopResidentHostWhenIdle(
     options: StopWhenIdleOptions = {},
 ): Promise<StopWhenIdleOutcome | undefined> {
     const lockPath = options.lockPath ?? defaultHostLockPath();
+    const home = stopHome(options, lockPath);
+    const inspection = await inspectHostForStop(lockPath, home, options.startupClaim);
     if (options.force === true && options.targetBuildId === undefined) {
-        return cutResidentHostForStop({ ...options, lockPath });
+        return cutResidentHostForStop({ ...options, lockPath }, inspection);
     }
-    const inspection = await inspectHostLockFile(lockPath);
     const isAlive = options.isProcessAlive ?? processIsAlive;
     const isUpdate = options.targetBuildId !== undefined;
     if (inspection.state !== "valid") {
-        if (!isUpdate) return gracefulStopResidentHost({ ...options, lockPath });
+        if (!isUpdate) {
+            if (inspection.state === "absent") return undefined;
+            await assertRecordedWorkersStopped(home);
+            return gracefulStopResidentHost({ ...options, lockPath });
+        }
         if (inspection.state === "absent") return undefined;
         return {
             pid: inspection.pid,
@@ -230,10 +282,18 @@ export async function stopResidentHostWhenIdle(
         };
     }
     const record = inspection.record;
+    const pool = record.role === "host" && record.worker_count !== undefined;
+    if (pool && !isUpdate && options.startupClaim === undefined) {
+        return await withStopClaim(lockPath, (startupClaim) => stopResidentHostWhenIdle({ ...options, lockPath, startupClaim }), record.socket_path);
+    }
     const identity = options.matchesRecord === undefined
         ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
         : options.matchesRecord(record) ? "match" : "mismatch";
     if (identity !== "match" || !isAlive(record.pid)) {
+        if (options.startupClaim === undefined) {
+            return await withStopClaim(lockPath, (startupClaim) => stopResidentHostWhenIdle({ ...options, lockPath, startupClaim }));
+        }
+        await assertRecordedWorkersStopped(home);
         if (!isUpdate) return gracefulStopResidentHost({ ...options, lockPath });
         if (identity === "match") return undefined;
         return {
@@ -247,7 +307,9 @@ export async function stopResidentHostWhenIdle(
     const result = await requestStop(
         record.socket_path,
         record,
-        options.onWaiting ?? (() => undefined),
+        (waiting) => {
+            if (!pool || waiting.length > 0) options.onWaiting?.(waiting);
+        },
         { targetBuildId: options.targetBuildId, detach: options.detach === true },
     );
     if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
@@ -267,6 +329,14 @@ export async function stopResidentHostWhenIdle(
         if (Date.now() >= deadline) return { pid: record.pid, endedBy: "still_running" };
         await wait(pollIntervalMs);
     }
+    await assertRecordedWorkersStopped(home);
+    if (pool) {
+        await removeStoppedPoolLock(home, lockPath, record);
+        const remaining = await inspectHostLockFile(lockPath);
+        if (remaining.state !== "absent") {
+            throw new HostLockUnreadableError(lockPath, remaining.state === "valid" ? remaining.record.pid : remaining.pid);
+        }
+    }
     return { pid: record.pid, endedBy: "stopped" };
 }
 
@@ -274,10 +344,17 @@ export async function stopResidentHostWhenIdle(
 // path does its own identity checks.
 async function cutResidentHostForStop(
     options: StopWhenIdleOptions & { readonly lockPath: string },
+    inspection: HostLockInspection,
 ): Promise<StopWhenIdleOutcome | undefined> {
-    const inspection = await inspectHostLockFile(options.lockPath);
     if (inspection.state === "absent") return undefined;
     if (inspection.state !== "valid") {
+        if (options.startupClaim === undefined) {
+            return await withStopClaim(options.lockPath, async (startupClaim) => cutResidentHostForStop(
+                { ...options, startupClaim },
+                await inspectHostForStop(options.lockPath, stopHome(options, options.lockPath), startupClaim),
+            ));
+        }
+        await readRecordedWorkers(stopHome(options, options.lockPath));
         return inspection.pid === undefined
             ? { endedBy: "no_answer" }
             : { pid: inspection.pid, endedBy: "no_answer" };
@@ -288,6 +365,13 @@ async function cutResidentHostForStop(
         ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
         : options.matchesRecord(record) ? "match" : "mismatch";
     if (identity !== "match" || !isAlive(record.pid)) {
+        if (options.startupClaim === undefined) {
+            return await withStopClaim(options.lockPath, async (startupClaim) => cutResidentHostForStop(
+                { ...options, startupClaim },
+                await inspectHostForStop(options.lockPath, stopHome(options, options.lockPath), startupClaim),
+            ));
+        }
+        await readRecordedWorkers(stopHome(options, options.lockPath));
         return { pid: record.pid, endedBy: "no_answer" };
     }
     const requestStop = options.requestStop ?? requestHostStop;
@@ -319,6 +403,7 @@ async function cutResidentHostForStop(
         if (Date.now() >= deadline) return { pid: record.pid, endedBy: "still_running" };
         await wait(pollIntervalMs);
     }
+    await assertRecordedWorkersStopped(stopHome(options, options.lockPath));
     return { pid: record.pid, endedBy: "stopped" };
 }
 
@@ -359,7 +444,12 @@ export async function forceStopHostProcess(
             ? { pid: record.pid, endedBy: "unverified", lockStartTimeInvalid: true }
             : { pid: record.pid, endedBy: "unverified" };
     }
-    kill(record.pid, "SIGTERM");
+    const firstSignal = options.firstSignal ?? "SIGTERM";
+    kill(record.pid, firstSignal);
+    if (firstSignal === "SIGKILL") {
+        const dead = await waitUntilDead(options.sigkillGraceMs ?? DEFAULT_SIGKILL_GRACE_MS);
+        return { pid: record.pid, endedBy: dead ? "sigkill" : "survived" };
+    }
     if (await waitUntilDead(options.sigtermGraceMs ?? DEFAULT_SIGTERM_GRACE_MS)) {
         return { pid: record.pid, endedBy: "sigterm" };
     }

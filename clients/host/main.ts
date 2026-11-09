@@ -80,6 +80,7 @@ await runResidentHostProcess(host, {
         : () => waitForCheckoutRemoval(developmentSource),
     waitForSocketLoss: () => waitForSocketLoss(host.server.socketPath),
     afterClose: runPendingHandoff,
+    ...(pool ? { poolWorkerPids: () => host.workerStopPids?.() ?? [] } : {}),
 });
 
 /**
