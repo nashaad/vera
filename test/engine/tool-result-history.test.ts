@@ -12,7 +12,9 @@ import {
     TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES,
     TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES,
     toolResultTotalBudgetBytes,
+    type ToolResultAgingPolicy,
 } from "../../src/engine/tool-result-history.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
 import { toolResultCeilingBytes } from "../../src/tools/tool-result-limit.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
@@ -45,8 +47,7 @@ test("cached assembly matches fresh assembly as spills and history change", asyn
         const cache = new ToolResultDigestCache();
         const lookup = spyOn(cache, "get");
         const policy = { capacity: 1, ageAfterTurns: 2, budgetBytes: 128_000 };
-        const compare = (budgetBytes = policy.budgetBytes) => {
-            const settings = { ...policy, budgetBytes };
+        const compare = (settings: ToolResultAgingPolicy = policy) => {
             const uncached = JSON.stringify(assembleAgedToolResults(entries, settings, null));
             const cached = JSON.stringify(assembleAgedToolResults(entries, settings, cache));
             expect(cached).toBe(uncached);
@@ -60,6 +61,33 @@ test("cached assembly matches fresh assembly as spills and history change", asyn
         expect(results[3]).toBe(output);
         expect(lookup.mock.results.some((result) => result.value !== undefined)).toBe(true);
 
+        const gatePolicy = {
+            ...policy,
+            level: "normal" as const,
+            capacity: 100_000,
+            budgetBytes: 1,
+            overheadTokens: 60_000 - measureMessages(entries.map((entry) => entry.message)),
+        };
+        const originalTexts = sources.map((source) => source[2]);
+        expect(gatePolicy.overheadTokens).toBeGreaterThan(0);
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens - 1 }))
+            .toEqual(originalTexts);
+
+        const atGate = compare(gatePolicy);
+        expect(atGate[0]).toContain("Digest of older grep");
+        expect(atGate[1]).toContain("Stub for older extension_dump");
+        expect(atGate[2]).toContain("Digest of older read");
+        expect(atGate[3]).toBe(output);
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens + 1 }))
+            .toEqual(atGate);
+        expect(compare({ ...gatePolicy, ageAfterTurns: 3 })).toEqual(originalTexts);
+        expect(compare({ ...gatePolicy, pendingUserTurns: 2 })[3])
+            .toContain("Digest of older bash");
+        expect(compare({ ...gatePolicy, ageAfterTurns: 0 })[3])
+            .toContain("Digest of older bash");
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens - 1 }))
+            .toEqual(originalTexts);
+
         const grepPath = join(directory, "grep.txt");
         const before = await stat(grepPath);
         await writeFile(grepPath, sources[0][2].replaceAll("chest", "coast"));
@@ -71,7 +99,8 @@ test("cached assembly matches fresh assembly as spills and history change", asyn
         await rm(grepPath);
         await rm(join(directory, "extension.txt"));
         expect(compare()[0]).toBe(sources[0][2]);
-        expect(compare(1)[1]).toContain("no re-readable spill is available");
+        expect(compare({ ...policy, budgetBytes: 1 })[1])
+            .toContain("no re-readable spill is available");
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -293,7 +322,7 @@ test("results younger than the age line remain verbatim", async () => {
         .toBe(original.padEnd(3_000, "\n"));
 });
 
-test("several legal results in one turn are bounded together", async () => {
+test("several legal results in one turn are bounded once the turn has ended", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-"));
     try {
         const entries: { readonly message: ModelMessage }[] = [user("find it")];
@@ -323,7 +352,10 @@ test("several legal results in one turn are bounded together", async () => {
             });
         }
 
-        const projected = assembleAgedToolResults(entries);
+        const projected = assembleAgedToolResults(
+            [...entries, assistant("done"), user("next")],
+            { ageAfterTurns: 1 },
+        );
         const results = projected.filter((message) =>
             message.role === "tool_result"
         );
@@ -368,7 +400,10 @@ test("source-less results cannot fail open past the cumulative budget", () => {
         });
     }
 
-    const projected = assembleAgedToolResults(entries);
+    const projected = assembleAgedToolResults(
+        [...entries, assistant("done"), user("next")],
+        PRESSURED,
+    );
     const carriedBytes = projected.reduce((total, message) =>
         total + (message.role === "tool_result"
             ? Buffer.byteLength(message.content[0]?.text ?? "", "utf8")
@@ -400,7 +435,10 @@ test("an expired spill never becomes a false recovery pointer", () => {
         });
     }
 
-    const text = assembleAgedToolResults(entries)
+    const text = assembleAgedToolResults(
+        [...entries, assistant("done"), user("next")],
+        PRESSURED,
+    )
         .filter((message) => message.role === "tool_result")
         .map((message) => message.content[0]?.text ?? "")
         .join("\n");
@@ -447,6 +485,92 @@ test("over the gate, bash ages before read, and only until the context fits", as
         expect(texts[0]).toBe("1\tline\n".repeat(400));
         expect(texts[1]).toContain("Digest of older bash");
         expect(texts[2]).toBe("output\n".repeat(400));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a long turn of reads keeps current-turn results verbatim", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-live-read-"));
+    try {
+        const entries = await pair(directory, [
+            ["call-old", "grep", "src/a.ts:1:needle\n".repeat(3_000)],
+        ]);
+        for (let index = 0; index < 4; index += 1) {
+            const id = `call-read-${index}`;
+            const output = "1\tline\n".repeat(10_000);
+            const spillPath = join(directory, `${id}.txt`);
+            await writeFile(spillPath, output, "utf8");
+            entries.push(
+                call(id, "read"),
+                spilled(id, "read", output, spillPath),
+            );
+        }
+        const texts = resultTexts(
+            assembleAgedToolResults(entries, PRESSURED),
+        );
+
+        expect(texts[0]).toContain("Digest of older grep");
+        for (let index = 1; index < texts.length; index += 1) {
+            expect(texts[index]).toBe("1\tline\n".repeat(10_000));
+        }
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("under the gate, the budget leaves an over-budget request alone", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-gate-"));
+    try {
+        const entries = await pair(directory, [
+            ["call-1", "bash", "output\n".repeat(20_000)],
+            ["call-2", "bash", "output\n".repeat(20_000)],
+        ]);
+        const texts = resultTexts(assembleAgedToolResults(entries, {
+            ageAfterTurns: 1,
+            capacity: 1_000_000,
+        }));
+
+        expect(texts[0]).toBe("output\n".repeat(20_000));
+        expect(texts[1]).toBe("output\n".repeat(20_000));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("the budget stubs the oldest result before touching a fresh read", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-age-"));
+    try {
+        const entries: { readonly message: ModelMessage }[] = [user("first")];
+        for (let index = 0; index < 3; index += 1) {
+            const id = `call-small-${index}`;
+            entries.push(call(id, "bash"), {
+                message: {
+                    role: "tool_result",
+                    toolCallId: id,
+                    toolName: "bash",
+                    content: [{ type: "text", text: "x".repeat(1_024) }],
+                    isError: false,
+                },
+            });
+        }
+        entries.push(assistant("done"), user("second"));
+        const read = "1\tline\n".repeat(720);
+        const spillPath = join(directory, "read.txt");
+        await writeFile(spillPath, read, "utf8");
+        entries.push(
+            call("call-read", "read"),
+            spilled("call-read", "read", read, spillPath),
+        );
+        const texts = resultTexts(assembleAgedToolResults(entries, {
+            ...PRESSURED,
+            budgetBytes: 7_600,
+        }));
+
+        expect(texts[0]).toContain("Stub for older bash");
+        expect(texts[1]).toBe("x".repeat(1_024));
+        expect(texts[2]).toBe("x".repeat(1_024));
+        expect(texts.at(-1)).toBe(read);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

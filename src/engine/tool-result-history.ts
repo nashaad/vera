@@ -192,6 +192,7 @@ export function assembleAgedToolResults(
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
     let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
+    const pressureTokens = tokens;
 
     const candidates: number[] = [];
     const readCandidates: number[] = [];
@@ -240,6 +241,7 @@ export function assembleAgedToolResults(
         calls,
         budgetBytes,
         provenanceText,
+        { turn, turnsAt, ageAfterTurns, pressureTokens, gateTokens },
         cache,
     ));
 }
@@ -260,65 +262,53 @@ function readsSpill(
     return false;
 }
 
+interface ToolResultBudgetCut {
+    readonly turn: number;
+    readonly turnsAt: ReadonlyMap<number, number>;
+    readonly ageAfterTurns: number;
+    readonly pressureTokens: number;
+    readonly gateTokens: number;
+}
+
 function applyToolResultBudget(
     projected: readonly ModelMessage[],
     calls: ReadonlyMap<string, ToolCallContent>,
     budgetBytes: number,
     provenanceText: (index: number) => string,
+    cut: ToolResultBudgetCut,
     cache: ToolResultDigestCache | null,
 ): readonly ModelMessage[] {
     const messages = [...projected];
     let carriedBytes = totalToolResultBytes(messages);
     if (carriedBytes <= budgetBytes) return messages;
+    if (cut.pressureTokens < cut.gateTokens) return messages;
 
-    const eligible: number[] = [];
-    const digestible: number[] = [];
     for (let index = 0; index < messages.length; index += 1) {
+        if (carriedBytes <= budgetBytes) break;
         const message = messages[index];
-        if (
-            message?.role === "tool_result"
-        ) {
-            eligible.push(index);
-            if (
-                message.toolResultSource?.spillPath !== undefined
-                && message.toolResultSource.originalBytes
-                    > TOOL_RESULT_VERBATIM_FLOOR_BYTES
-            ) {
-                digestible.push(index);
-            }
+        if (message?.role !== "tool_result") continue;
+        if (cut.turn - (cut.turnsAt.get(index) ?? -1) < cut.ageAfterTurns) {
+            continue;
         }
-    }
-
-    for (const index of digestible) {
-        if (carriedBytes <= budgetBytes) break;
-        const message = messages[index];
-        if (message?.role !== "tool_result") continue;
-        const source = readSpill(message.toolResultSource?.spillPath);
-        if (source === undefined) continue;
+        const digestible = message.toolResultSource?.spillPath !== undefined
+            && message.toolResultSource.originalBytes
+                > TOOL_RESULT_VERBATIM_FLOOR_BYTES;
+        const source = digestible
+            ? readSpill(message.toolResultSource?.spillPath)
+            : undefined;
         carriedBytes = replaceWhenSmaller(
             messages,
             index,
             message,
-            agedToolResult(
-                message,
-                calls.get(message.toolCallId),
-                provenanceText(index),
-                source,
-                cache,
-            ),
-            carriedBytes,
-        );
-    }
-
-    for (const index of eligible) {
-        if (carriedBytes <= budgetBytes) break;
-        const message = messages[index];
-        if (message?.role !== "tool_result") continue;
-        carriedBytes = replaceWhenSmaller(
-            messages,
-            index,
-            message,
-            stubbedToolResult(message),
+            source === undefined
+                ? stubbedToolResult(message)
+                : agedToolResult(
+                    message,
+                    calls.get(message.toolCallId),
+                    provenanceText(index),
+                    source,
+                    cache,
+                ),
             carriedBytes,
         );
     }

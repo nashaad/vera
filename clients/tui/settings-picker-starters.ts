@@ -730,7 +730,7 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         label: "Tool result budget",
         means: "the most every carried result may add up to",
         detail:
-            "The most every carried tool result may add up to. Past it, the oldest results are replaced by stubs to make room.",
+            "The most every carried tool result may add up to. Past it, while the context is near its limit, the oldest eligible results are trimmed to make room.",
         format: bytes,
         options: [
             OFF,
@@ -745,7 +745,7 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         label: "Stub after turns",
         means: "turns a result stays whole before it may be stubbed",
         detail:
-            "How many turns a tool result stays whole before it may become a stub. It follows the aging level unless you set it yourself.",
+            "How many turns a tool result stays whole before it may be trimmed. Results inside that window are never cut. It follows the aging level unless you set it yourself.",
         format: plain,
         options: [
             OFF,

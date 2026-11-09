@@ -295,7 +295,7 @@ test("aged tool results below the trigger do not trigger compaction from their d
 
     expect(measureMessages(store.unprojectedModelContext()))
         .toBeGreaterThan(40_000 * 0.82);
-    expect(measureMessages(store.modelContext()))
+    expect(measureMessages(store.modelContext({ capacity: 40_000 })))
         .toBeLessThan(40_000 * 0.82);
 
     const events = new EngineEventBus();

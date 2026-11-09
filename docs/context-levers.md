@@ -19,9 +19,12 @@ context. The context has a fixed size, so a long session fills it. Once it is
 full, the next model call does not fit.
 
 Vera makes room in two ways. Once the context passes a threshold (60% on a
-typical model window), big tool results from a few turns back are trimmed to a
-short note that says where the full output is saved. If the context still
-passes 82%, older messages become one summary in one go. Your last two
+typical model window), tool results from a few turns back are trimmed: a large
+one to a short note that says where the full output is saved, a small one to a
+stub that names it. Results inside the age window stay word for word, so a
+recent file read stays unchanged during that window. When the combined tool
+results still pass the tool result budget, the oldest go first. If the context
+still passes 82%, older messages become one summary in one go. Your last two
 messages stay as they were. When the current turn alone is too big to keep,
 its work is summarized too, but your latest message stays word for word next
 to the summary. Images in it are not kept.
