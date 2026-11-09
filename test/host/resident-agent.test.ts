@@ -12,6 +12,98 @@ import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import type { HistoryUpdate } from "../../src/engine/protocol.ts";
 
+test("a slow attachment skips superseded histories and keeps other updates", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach();
+    try {
+        agent.engine.send({ type: "status", state: "working", seq: 1 });
+        agent.engine.send({ type: "history", entries: [{ kind: "reasoning", text: "old" }], seq: 1 });
+        agent.engine.send({ type: "assistant_delta", text: "live", seq: 2 });
+        agent.engine.send({ type: "tool_started", tool: "read", args: {}, seq: 3 });
+        agent.engine.send({ type: "tool_finished", tool: "read", output: "done", seq: 4 });
+        agent.engine.send({ type: "ui_request", requestId: "q", request: { type: "user_question", question: "Continue?", choices: [] }, seq: 5 });
+        agent.engine.send({ type: "ui_request_closed", requestId: "q", seq: 6 });
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 6 });
+        agent.engine.send({ type: "turn_finished", seq: 7 });
+        expect(await client.receive()).toEqual({ type: "history", entries: [], seq: 0 });
+        expect(await client.receive()).toEqual({ type: "status", state: "working", seq: 1 });
+        expect(await client.receive()).toEqual({ type: "assistant_delta", text: "live", seq: 2 });
+        expect(await client.receive()).toEqual({ type: "tool_started", tool: "read", args: {}, seq: 3 });
+        expect(await client.receive()).toEqual({ type: "tool_finished", tool: "read", output: "done", seq: 4 });
+        expect(await client.receive()).toMatchObject({ type: "ui_request", requestId: "q", seq: 5 });
+        expect(await client.receive()).toEqual({ type: "ui_request_closed", requestId: "q", seq: 6 });
+        expect(await client.receive()).toEqual({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 6 });
+        expect(await client.receive()).toMatchObject({ type: "turn_finished", seq: 7 });
+    } finally {
+        client.detach();
+        agent.close();
+    }
+});
+
+test("a pending history can be cleared before serialization but recovered prompts cannot", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach();
+    try {
+        expect((await client.receivePending()).take()).toMatchObject({ type: "history", seq: 0 });
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "old" }], seq: 0 });
+        const pending = await client.receivePending();
+        agent.engine.send({ type: "history", entries: [], unsentPrompts: [{ content: "recover" }], seq: 0 });
+        expect(pending.take()).toBeUndefined();
+        const recovered = await client.receivePending();
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 0 });
+        expect(recovered.take()).toMatchObject({ unsentPrompts: [{ content: "recover" }] });
+        expect((await client.receivePending()).take()).toMatchObject({ entries: [{ text: "new" }] });
+    } finally {
+        client.detach();
+        agent.close();
+    }
+});
+
+test("a slow attachment keeps its initial status before newer histories", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    const client = agent.attach();
+    try {
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "old" }], seq: 1 });
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 1 });
+        expect(await client.receive()).toMatchObject({ type: "history", status: "working", seq: 0 });
+        expect(await client.receive()).toMatchObject({ type: "status", state: "working", seq: 1 });
+        expect(await client.receive()).toMatchObject({ type: "history", entries: [{ text: "new" }], seq: 1 });
+    } finally {
+        client.detach();
+        agent.close();
+    }
+});
+
+test("paging attachments receive every history", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach(undefined, { paging: true });
+    try {
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "old" }], seq: 0 });
+        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 0 });
+        expect(await client.receive()).toMatchObject({ entries: [] });
+        expect(await client.receive()).toMatchObject({ entries: [{ text: "old" }] });
+        expect(await client.receive()).toMatchObject({ entries: [{ text: "new" }] });
+    } finally {
+        client.detach();
+        agent.close();
+    }
+});
+
+test("the history checkpoint isolates mutable fields", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const entry = { kind: "tool_result" as const, tool: "read", output: "large output", isError: false };
+    agent.engine.send({ type: "history", entries: [entry], seq: 0 });
+    entry.output = "changed";
+    const client = agent.attach();
+    try {
+        expect(await client.receive()).toMatchObject({ entries: [{ output: "large output" }] });
+    } finally {
+        client.detach();
+        agent.close();
+    }
+});
+
 test("an out-of-band admission question preserves idle resident state", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const events = new EngineEventBus();

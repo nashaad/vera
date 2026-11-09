@@ -30,6 +30,9 @@ read earlier text, the row containing that text stays at the top. Returning to
 the original width restores the original row until you scroll or the transcript
 changes. At the bottom, the transcript continues to follow new text.
 
+If a client falls behind, Vera can skip an intermediate transcript refresh and
+show the newer history. Recovered unsent prompts remain available.
+
 ## Stop, park, or exit
 
 | Action | Result |

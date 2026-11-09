@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import {
     mkdtempSync,
     rmSync,
@@ -6,7 +6,7 @@ import {
     unlinkSync,
     writeFileSync,
 } from "node:fs";
-import { createConnection, createServer } from "node:net";
+import { createConnection, createServer, Socket } from "node:net";
 import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
@@ -31,6 +31,84 @@ import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle
 import { UserFacingError } from "../../src/user-facing-error.ts";
 
 const temporaryDirectories: string[] = [];
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a history waiting behind a socket write is skipped when superseded",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        const listeners = new Set<() => void>();
+        let agents = [summary({ id: "main", kind: "interactive", status: "idle" })];
+        const blocked = Promise.withResolvers<Socket>();
+        const captured = Promise.withResolvers<void>();
+        let armCapture = false;
+        const originalAttach = agent.attach.bind(agent);
+        agent.attach = (...args) => {
+            const attachment = originalAttach(...args);
+            const receivePending = attachment.receivePending;
+            return {
+                ...attachment,
+                receivePending: async (signal) => {
+                    const pending = await receivePending(signal);
+                    if (armCapture && pending.type === "history") captured.resolve();
+                    return pending;
+                },
+            };
+        };
+        const originalWrite = Socket.prototype.write;
+        let blockedSocket: Socket | undefined;
+        const writeSpy = spyOn(Socket.prototype, "write").mockImplementation(function (this: Socket, ...args) {
+            const result = Reflect.apply(originalWrite, this, args) as boolean;
+            const chunk = args[0];
+            if (blockedSocket === undefined && typeof chunk === "string"
+                && chunk.includes('"type":"background_agents"')) {
+                blockedSocket = this;
+                blocked.resolve(this);
+                return false;
+            }
+            return result;
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            readExtensionState: () => ({ "test.extension": { value: 1 } }),
+            listAgents: () => agents,
+            onRosterChanged: (listener) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            expect(await connection.receive()).toMatchObject({ type: "attached" });
+            expect(await connection.receive()).toMatchObject({
+                type: "history", extensionState: { "test.extension": { value: 1 } },
+            });
+            armCapture = true;
+            agents = [agents[0]!, summary({ id: "child", parent_id: "main", status: "working" })];
+            for (const listener of listeners) listener();
+            const socket = await blocked.promise;
+            agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "old" }], seq: 0 });
+            await captured.promise;
+            agent.engine.send({ type: "status", state: "working", seq: 1 });
+            agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 1 });
+            socket.emit("drain");
+            expect(await connection.receive()).toMatchObject({ type: "background_agents" });
+            expect(await connection.receive()).toMatchObject({ type: "status", state: "working", seq: 1 });
+            expect(await connection.receive()).toMatchObject({ type: "history", entries: [{ text: "new" }], seq: 1 });
+        } finally {
+            blockedSocket?.emit("drain");
+            writeSpy.mockRestore();
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+    10_000,
+);
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
