@@ -29,10 +29,20 @@ export interface HostConnection {
     send(value: unknown): Promise<void>;
     receive(): Promise<unknown>;
     receiveWithin(silenceMs: number, deadlineMessage: string): Promise<unknown>;
+    setFrameObserver(observer: (() => void) | undefined): void;
     closedReason(): Promise<Error>;
     expectPeerClose(): void;
     close(): void;
     readonly closed: boolean;
+}
+
+const controlFrameSenders = new WeakMap<HostConnection, (frame: Buffer) => Promise<void>>();
+
+export function sendEncodedControlFrame(connection: HostConnection, frame: Buffer): Promise<void> {
+    const send = controlFrameSenders.get(connection);
+    return send === undefined
+        ? Promise.reject(new Error("host connection cannot send an encoded control frame"))
+        : send(frame);
 }
 
 export function connectHost(
@@ -105,6 +115,7 @@ function createConnection_(
     let closed = false;
     let remoteEnded = false;
     let peerCloseExpected = false;
+    let frameObserver: (() => void) | undefined;
     let failure: Error | undefined;
     const pendingValues: unknown[] = [];
     const pendingReceivers: Array<{
@@ -197,6 +208,7 @@ function createConnection_(
                 fail(new Error("host connection received malformed JSON"));
                 return;
             }
+            try { frameObserver?.(); } catch {}
             deliver(value);
         }
     }
@@ -245,7 +257,7 @@ function createConnection_(
         fail(new HostConnectionClosedError(false));
     });
 
-    return {
+    const connection: HostConnection = {
         send(value: unknown): Promise<void> {
             if (closed) {
                 return Promise.reject(
@@ -263,19 +275,11 @@ function createConnection_(
                     new Error("host connection cannot send this value"),
                 );
             }
-            const encodedBytes = Buffer.byteLength(encoded);
-            if (encodedBytes > maxLineBytes) {
-                return Promise.reject(new Error(
-                    `host connection line exceeds maximum size`
-                        + ` (${encodedBytes} bytes, limit ${maxLineBytes})`,
-                ));
-            }
-            const pending = sendTail.then(() => writeLine(encoded));
-            sendTail = pending.catch(() => undefined);
-            return pending;
+            return enqueue(encoded, Buffer.byteLength(encoded));
         },
         receive,
         receiveWithin,
+        setFrameObserver(observer): void { frameObserver = observer; },
         closedReason(): Promise<Error> {
             return closedReason;
         },
@@ -289,6 +293,23 @@ function createConnection_(
             return closed;
         },
     };
+    controlFrameSenders.set(connection, (frame) => enqueue(frame, frame.byteLength - 1));
+    return connection;
+
+    function enqueue(encoded: string | Buffer, encodedBytes: number): Promise<void> {
+        if (closed) {
+            return Promise.reject(failure ?? new Error("host connection is closed"));
+        }
+        if (encodedBytes > maxLineBytes) {
+            return Promise.reject(new Error(
+                `host connection line exceeds maximum size`
+                    + ` (${encodedBytes} bytes, limit ${maxLineBytes})`,
+            ));
+        }
+        const pending = sendTail.then(() => writeLine(encoded));
+        sendTail = pending.catch(() => undefined);
+        return pending;
+    }
 
     function receive(): Promise<unknown> {
         if (remoteEnded) {
@@ -364,7 +385,7 @@ function createConnection_(
         });
     }
 
-    function writeLine(encoded: string): Promise<void> {
+    function writeLine(encoded: string | Buffer): Promise<void> {
         if (closed) {
             return Promise.reject(
                 failure ?? new Error("host connection is closed"),
@@ -400,7 +421,7 @@ function createConnection_(
                 cleanup();
                 resolve();
             };
-            const flushed = socket.write(`${encoded}\n`, (error) => {
+            const flushed = socket.write(typeof encoded === "string" ? `${encoded}\n` : encoded, (error) => {
                 if (error) {
                     rejectSend(error);
                     return;

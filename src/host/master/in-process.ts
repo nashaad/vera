@@ -40,6 +40,7 @@ export interface InProcessWorker {
     publishStopWait?(event: StopWaitEvent): Promise<void>;
     waitingOn(): Promise<readonly StopWaitTarget[]>;
     hasSession(id: string): boolean | Promise<boolean>;
+    recoverCrashedTurns?(options: PoolCrashScanOptions): Promise<PoolCrashScanResult>;
     cutSession(id: string, reason: string): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
@@ -48,6 +49,17 @@ export interface InProcessWorker {
     knowsSession(id: string): Promise<boolean>;
     waitForForwardedShutdowns(): Promise<void>;
     close(): Promise<void>;
+}
+
+export interface PoolCrashScanOptions {
+    readonly lockPath: string;
+    readonly sessionDirectory: string;
+    readonly recordPath: string;
+}
+
+export interface PoolCrashScanResult {
+    readonly recorded: readonly string[];
+    readonly failures: readonly string[];
 }
 
 export interface WorkerHealth {

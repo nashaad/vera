@@ -138,8 +138,8 @@ export type ExtensionRequestHandler = (
 ) => Promise<JsonValue>;
 
 export interface RestartRecordsPort {
-    list(): readonly RestartRecordWire[];
-    dismiss(sessionId: string): number;
+    list(): readonly RestartRecordWire[] | Promise<readonly RestartRecordWire[]>;
+    dismiss(sessionId: string): number | Promise<number>;
 }
 
 type ForwardableHostRequest = Extract<HostRequest, { readonly type: "attach" | "branch_agent" }>;
@@ -1333,6 +1333,7 @@ function receiveConnection(
         }
         if ((request?.type === "attach" || request?.type === "branch_agent")
             && routeRequest !== undefined && !isShutdownFenced()) {
+            clearDeadline();
             let destination: string | undefined;
             try {
                 destination = await routeRequest(request);
@@ -1350,7 +1351,6 @@ function receiveConnection(
                 return;
             }
             if (destination !== undefined) {
-                clearDeadline();
                 if (request.type === "attach" && identity.role === "worker"
                     && request.requested_capabilities?.includes(HOST_CAPABILITY_SESSION_ROUTING)) {
                     finished = true;
@@ -1491,10 +1491,13 @@ function receiveConnection(
         if (request?.type === "restart_records") {
             clearDeadline();
             finished = true;
-            void send({
-                type: "restart_records_list",
-                records: restartRecords.list(),
-            }).then(() => socket.end(), () => socket.destroy());
+            const records = restartRecords.list();
+            if (records instanceof Promise) {
+                void records.then((value) => send({ type: "restart_records_list", records: value }))
+                    .then(() => socket.end(), () => socket.destroy());
+            } else {
+                void send({ type: "restart_records_list", records }).then(() => socket.end(), () => socket.destroy());
+            }
             return;
         }
         if (request?.type === "restart_record_dismiss") {

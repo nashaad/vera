@@ -13,6 +13,8 @@ import { verifiedWorkerHello } from "./worker-sockets.ts";
 
 export { controlSocketPath } from "./control-server.ts";
 
+export const SESSION_WORKER_STARTUP_TIMEOUT_MS = 10_000;
+
 export interface WorkerSpawnSpec {
     readonly command: string;
     readonly args: readonly string[];
@@ -58,6 +60,7 @@ export interface SessionWorkerSupervisor {
     readonly peer: ControlPeer;
     readonly snapshot: SessionSnapshot;
     readonly exited: Promise<number | null>;
+    exitDetails(): { readonly code: number | null; readonly signal: NodeJS.Signals | null; readonly stderr: string | null };
     kill(): void;
     close(): Promise<void>;
 }
@@ -180,11 +183,15 @@ export async function startSessionWorkerSupervisor(options: SessionWorkerSupervi
             exited.then((code): never => { throw new Error(`Session worker exited before ready (${code}): ${stderr.trim()}`); }),
             spawnError,
             new Promise<never>((_resolve, reject) => {
-                timer = setTimeout(() => reject(new Error("Session worker startup timed out")), options.startupTimeoutMs ?? 10_000);
+                timer = setTimeout(() => reject(new Error("Session worker startup timed out")), options.startupTimeoutMs ?? SESSION_WORKER_STARTUP_TIMEOUT_MS);
             }),
         ]);
         if (peer === undefined || pid === undefined || startedAt === undefined) throw new Error("Session worker did not connect");
-        return { pid, startedAt, peer, snapshot, exited, kill: () => {
+        return { pid, startedAt, peer, snapshot, exited, exitDetails: () => ({
+            code: child?.exitCode ?? null,
+            signal: child?.signalCode ?? null,
+            stderr: child === undefined ? null : stderr,
+        }), kill: () => {
             if (identity !== undefined) killWorkerProcess(identity);
         }, close };
     } catch (error) {

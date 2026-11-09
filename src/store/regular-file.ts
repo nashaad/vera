@@ -5,6 +5,7 @@ import {
     openSync,
     readSync,
 } from "node:fs";
+import { open } from "node:fs/promises";
 
 const READ_CHUNK_BYTES = 64 * 1_024;
 export const DEFAULT_REGULAR_FILE_LIMIT_BYTES = 64 * 1_024 * 1_024;
@@ -52,5 +53,33 @@ export function readRegularFileTextSync(
         return Buffer.concat(chunks, total).toString("utf8");
     } finally {
         closeSync(descriptor);
+    }
+}
+
+export async function readRegularFileText(
+    path: string,
+    maxBytes = DEFAULT_REGULAR_FILE_LIMIT_BYTES,
+): Promise<string> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+        throw new Error("Regular file read limit must be a positive integer");
+    }
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+        const info = await file.stat();
+        if (!info.isFile()) throw new Error(`Not a regular file: ${path}`);
+        if (info.size > maxBytes) throw new Error(`File exceeds ${maxBytes} bytes: ${path}`);
+        const chunks: Buffer[] = [];
+        let total = 0;
+        while (true) {
+            const chunk = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, maxBytes + 1 - total));
+            const { bytesRead } = await file.read(chunk, 0, chunk.length, null);
+            if (bytesRead === 0) break;
+            total += bytesRead;
+            if (total > maxBytes) throw new Error(`File exceeds ${maxBytes} bytes: ${path}`);
+            chunks.push(chunk.subarray(0, bytesRead));
+        }
+        return Buffer.concat(chunks, total).toString("utf8");
+    } finally {
+        await file.close();
     }
 }

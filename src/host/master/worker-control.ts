@@ -21,6 +21,7 @@ import { applyConfigDefaults } from "./config-defaults.ts";
 import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
 import { WorkerInboxBridge } from "./inbox.ts";
 import { recoverUnownedSessions } from "./recovery-scan.ts";
+import { discoverCrashSession, recoverCrashSession, type CrashSessionPath } from "./worker-crash-scan.ts";
 import { prepareWorkerExit } from "./worker-exit.ts";
 import { removeOwnWorkerRecord } from "./worker-record.ts";
 import { indexStoredSession, withSessionReservation } from "../session-host/storage.ts";
@@ -159,6 +160,31 @@ export async function startControlledWorker(
         if (method === "worker.stopWaitEvent") {
             await stopWait.publish(args[0] as StopWaitEvent);
             return;
+        }
+        if (method === "worker.discoverCrashSessions") {
+            const paths = args[0];
+            if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) {
+                throw new Error("Invalid crash session paths");
+            }
+            const sessions: CrashSessionPath[] = [];
+            for (const path of paths) {
+                signal.throwIfAborted();
+                const session = await discoverCrashSession(path);
+                if (session !== undefined) sessions.push(session);
+            }
+            return sessions;
+        }
+        if (method === "worker.recoverCrashSession") {
+            const session = args[0] as CrashSessionPath | undefined;
+            if (typeof session !== "object" || session === null || typeof session.path !== "string"
+                || typeof session.id !== "string" || session.id.length === 0) {
+                throw new Error("Invalid crash session");
+            }
+            return await recoverCrashSession({
+                session, registry: host.registry, reservations, signal,
+                owns: (id) => peer.request<boolean>("recovery.owns", [id], signal),
+                record: (id) => peer.request<void>("recovery.recordCrash", [id], signal),
+            });
         }
         if (method === "worker.recoverUnowned") {
             const [residents, index, count] = args;

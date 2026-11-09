@@ -13,6 +13,7 @@ import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
 import { MasterInboxBridge } from "../../src/host/master/inbox.ts";
+import type { ControlPeer } from "../../src/host/master/control.ts";
 import * as supervisor from "../../src/host/master/supervisor.ts";
 import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost, type StartResidentHostOptions } from "../../src/host/runtime.ts";
@@ -26,6 +27,7 @@ interface FixtureOptions {
     readonly workerCount?: number;
     readonly heartbeatMs?: number;
     readonly beforeStart?: (options: supervisor.SessionWorkerSupervisorOptions) => Promise<void>;
+    readonly onConnected?: (peer: ControlPeer, options: supervisor.SessionWorkerSupervisorOptions) => void;
     readonly spawnSpec?: (options: supervisor.SessionWorkerSupervisorOptions) => supervisor.WorkerSpawnSpec | undefined;
     readonly provider?: { readonly port: number; readonly requests: number; close(): void };
     readonly prepare?: (home: string) => Promise<{ readonly extension?: string; readonly watch?: StartResidentHostOptions["watchConnectors"] }>;
@@ -69,6 +71,10 @@ async function fixture(options: FixtureOptions = {}) {
             ...workerOptions,
             ...(spawnSpec === undefined ? {} : { spawnSpec }),
             onSpawn(pid) { pids.add(pid); workerOptions.onSpawn?.(pid); },
+            onConnected(peer) {
+                workerOptions.onConnected(peer);
+                options.onConnected?.(peer, workerOptions);
+            },
         });
     });
     let host: ResidentHost;
@@ -106,6 +112,50 @@ async function fixture(options: FixtureOptions = {}) {
         },
     };
 }
+
+test("session process losses and replacements are recorded in the host log", async () => {
+    const harness = await fixture({
+        async prepare(home) {
+            await writeFile(join(home, "stderr-marker.ts"), 'console.error("x".repeat(17_000) + "worker stderr tail");\n');
+            return {};
+        },
+        spawnSpec: (options) => ({
+            command: process.execPath,
+            args: ["--preload", join(options.home, "stderr-marker.ts"), join(process.cwd(), "clients/host/session-worker.ts")],
+        }),
+    });
+    try {
+        const socket = harness.host.server.socketPath;
+        const lost = await createAgentThroughHost(socket, harness.home);
+        const other = await createAgentThroughHost(socket, harness.home);
+        expect(lost.location!.worker_id).not.toBe(other.location!.worker_id);
+        const identity = await requestHostIdentity(lost.location!.socket_path);
+        if (identity === undefined) throw new Error("Session process identity is unavailable");
+        process.kill(identity.pid, "SIGKILL");
+        const logPath = join(harness.home, "runtime", "logs", "host.jsonl");
+        const events = async (): Promise<Array<Record<string, unknown>>> => {
+            const text = await readFile(logPath, "utf8");
+            return text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+        };
+        await waitFor(async () => (await events()).some((event) => event.type === "session_process_replaced"), "replacement log");
+        const rows = await events();
+        const losses = rows.filter((event) => event.type === "session_process_lost");
+        expect(losses).toHaveLength(1);
+        expect(losses[0]).toMatchObject({
+            slot: lost.location!.worker_id, generation: 1, pid: identity.pid,
+            exit_code: null, signal: "SIGKILL", sessions: [lost.id],
+        });
+        expect(["process_exited", "control_closed"]).toContain(losses[0]!.reason as string);
+        expect(typeof losses[0]!.stderr_tail).toBe("string");
+        expect((losses[0]!.stderr_tail as string).length).toBeLessThanOrEqual(16_384);
+        expect(losses[0]!.stderr_tail).toEndWith("worker stderr tail\n");
+        expect(rows.filter((event) => event.type === "session_process_replaced")).toEqual([
+            expect.objectContaining({ slot: lost.location!.worker_id, generation: 2 }),
+        ]);
+        const replacement = rows.find((event) => event.type === "session_process_replaced");
+        expect(replacement!.pid).not.toBe(identity.pid);
+    } finally { await harness.close(); }
+}, 30_000);
 
 test("vera ls keeps the last summaries while a session process is unavailable", async () => {
     const entered = Promise.withResolvers<void>();
@@ -215,6 +265,76 @@ test("a replacement session process holds turns during a pending stop", async ()
         stub.release();
         for (const client of clients) client.close();
         await stop?.catch(() => {});
+        await harness.close();
+    }
+}, 30_000);
+
+for (const kind of ["event", "request", "response"] as const) test(`non-heartbeat ${kind} frames keep a session process alive until it goes silent`, async () => {
+    let peer: ControlPeer | undefined;
+    let activity = "";
+    let stop = "";
+    const harness = await fixture({
+        workerCount: 1,
+        heartbeatMs: 900,
+        onConnected(connected, options) { if (options.generation === 1) peer = connected; },
+        async prepare(home) {
+            activity = join(home, "activity");
+            stop = join(home, "stop-activity");
+            const control = join(process.cwd(), "src/host/master/control.ts");
+            await writeFile(join(home, "delay-heartbeats.ts"), `import { appendFileSync, existsSync } from "node:fs";
+import { ControlPeer } from ${JSON.stringify(control)};
+const original = ControlPeer.prototype.event;
+let started = false;
+ControlPeer.prototype.event = function(event, value) {
+    if (event !== "heartbeat") return original.call(this, event, value);
+    if (!started) {
+        started = true;
+        const current = this;
+        const timer = setInterval(() => {
+            if (existsSync(${JSON.stringify(stop)})) { clearInterval(timer); return; }
+            const sending = ${JSON.stringify(kind)} === "event"
+                ? original.call(current, "test_liveness", { rss_bytes: 1, event_loop_lag_ms: 2 })
+                : ${JSON.stringify(kind)} === "request" ? current.request("recovery.owns", ["crow"]) : undefined;
+            if (sending !== undefined) void sending.then(() => appendFileSync(${JSON.stringify(activity)}, "sent\\n"), () => {});
+        }, 100);
+        timer.unref();
+    }
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => { void original.call(this, event, value).then(resolve, resolve); }, 10_000);
+        timer.unref();
+    });
+};
+`);
+            return {};
+        },
+        spawnSpec: (options) => ({
+            command: process.execPath,
+            args: ["--preload", join(options.home, "delay-heartbeats.ts"), join(process.cwd(), "clients/host/session-worker.ts")],
+        }),
+    });
+    try {
+        const original = harness.host.health.workers?.[0]?.pid;
+        expect(original).toBeDefined();
+        expect(peer).toBeDefined();
+        let replies = 0;
+        const end = Date.now() + 2_500;
+        while (Date.now() < end) {
+            if (kind === "response") {
+                await peer!.request("session.snapshot", [], AbortSignal.timeout(1_000));
+                replies += 1;
+            }
+            await Bun.sleep(100);
+        }
+        if (kind === "response") expect(replies).toBeGreaterThan(5);
+        else expect((await readFile(activity, "utf8")).trim().split("\n").length).toBeGreaterThan(5);
+        expect(harness.host.health.workers?.[0]).toMatchObject({ generation: 1, state: "ready", pid: original });
+        expect(harness.host.health.workers?.[0]?.rss_bytes).toBeUndefined();
+        expect(harness.host.health.workers?.[0]?.event_loop_lag_ms).toBeUndefined();
+        await writeFile(stop, "stop");
+        await waitFor(() => harness.host.health.workers?.[0]?.state === "replaced", "silent worker replacement");
+        expect(harness.host.health.workers?.[0]).toMatchObject({ reason: "heartbeat_timeout" });
+        expect(alive(original!)).toBe(false);
+    } finally {
         await harness.close();
     }
 }, 30_000);

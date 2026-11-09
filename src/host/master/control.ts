@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { ExtensionCommandUnavailableError, InvalidExtensionCommandResultError } from "../../extensions/commands.ts";
 import { ExtensionOperationTimeoutError } from "../../extensions/operation.ts";
-import type { HostConnection } from "../connection.ts";
+import { sendEncodedControlFrame, type HostConnection } from "../connection.ts";
 
 interface ControlArgument {
     readonly value?: unknown;
@@ -46,8 +46,20 @@ export class ControlPeer {
         void this.receive();
     }
 
+    static broadcastEvent(peers: readonly ControlPeer[], event: string, value?: unknown): void {
+        if (peers.length === 0) return;
+        let frame: Buffer;
+        try {
+            frame = Buffer.from(`${JSON.stringify({ type: "event", event, value })}\n`);
+        } catch {
+            return;
+        }
+        for (const peer of peers) void sendEncodedControlFrame(peer.connection, frame).catch(() => {});
+    }
+
     setHandler(handler: ControlHandler): void { this.handler = handler; }
     setEventHandler(handler: ControlEventHandler): void { this.onEvent = handler; }
+    setFrameObserver(observer: (() => void) | undefined): void { this.connection.setFrameObserver(observer); }
     get closed(): Promise<void> { return this.done.promise; }
 
     request<T>(method: string, args: readonly unknown[] = [], signal?: AbortSignal): Promise<T> {

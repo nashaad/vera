@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -179,6 +179,60 @@ test("a new master adopts both workers and a running turn survives its death", a
         }
         if (annexPid !== undefined) await waitFor(() => !alive(annexPid), "replacement annex exit");
         stub.stop(true);
+        await stderr;
+        await rm(home, { recursive: true, force: true });
+    }
+}, 40_000);
+
+test("a lost adopted session process logs unavailable exit details", async () => {
+    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-log-");
+    const webRoot = join(home, "web");
+    await mkdir(webRoot);
+    await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
+    const config = {
+        schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
+        providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:1/v1", credential: "none" } },
+    } as const;
+    await writeFile(join(home, "config.json"), JSON.stringify(config));
+    const child = Bun.spawn([process.execPath, "test/host/fixtures/pool-adoption-host.ts", "1", "15000"], {
+        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home }, stdout: "ignore", stderr: "pipe",
+    });
+    const stderr = new Response(child.stderr).text();
+    const started = new Map<number, StartedProcess>();
+    let info: PoolInfo | undefined;
+    let host: ResidentHost | undefined;
+    try {
+        await waitFor(() => existsSync(join(home, "ready.json")) || child.exitCode !== null, "pool startup");
+        if (!existsSync(join(home, "ready.json"))) throw new Error(`Pool host failed: ${await stderr}`);
+        info = JSON.parse(await readFile(join(home, "ready.json"), "utf8")) as PoolInfo;
+        for (const pid of [...info.workers, ...(info.annexPid === undefined ? [] : [info.annexPid])]) remember(started, pid);
+        const session = await createAgentThroughHost(info.socket, home);
+        child.kill("SIGKILL");
+        await child.exited;
+        expect(alive(info.workers[0]!)).toBe(true);
+        host = await startResidentHost({ home, config, webRoot, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true });
+        expect((await requestHostIdentity(inProcessWorkerSocket(home, 0)))?.pid).toBe(info.workers[0]);
+        signalStarted(started, info.workers[0]!, "SIGKILL");
+        const logPath = join(home, "runtime", "logs", "host.jsonl");
+        const events = (): Array<Record<string, unknown>> => existsSync(logPath)
+            ? readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+        await waitFor(() => events().some((event) => event.type === "session_process_replaced"), "replacement log");
+        const losses = events().filter((event) => event.type === "session_process_lost");
+        expect(losses).toHaveLength(1);
+        expect(losses[0]).toMatchObject({
+            slot: "w0", generation: 1, pid: info.workers[0], exit_code: null, signal: null,
+            stderr_tail: null, sessions: [session.id], resident_sessions: [session.id],
+        });
+    } finally {
+        const annexPid = host?.annexPid;
+        await host?.close();
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await child.exited;
+        for (const pid of [...(info?.workers ?? []), ...(info?.annexPid === undefined ? [] : [info.annexPid])]) {
+            if (alive(pid)) signalStarted(started, pid, "SIGKILL");
+            await waitFor(() => !alive(pid), `process ${pid} exit`);
+        }
+        if (annexPid !== undefined) await waitFor(() => !alive(annexPid), "replacement annex exit");
         await stderr;
         await rm(home, { recursive: true, force: true });
     }

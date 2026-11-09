@@ -109,6 +109,7 @@ test("a failed response send returns an error", async () => {
             throw await closed.promise;
         },
         async receiveWithin() { throw new Error("not used"); },
+        setFrameObserver() {},
         closedReason: () => closed.promise,
         expectPeerClose() {},
         close() { isClosed = true; closed.resolve(new Error("closed")); },

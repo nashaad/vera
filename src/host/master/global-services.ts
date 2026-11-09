@@ -26,12 +26,17 @@ export function createMasterGlobals(options: {
     readonly changed: (kind: GlobalChange) => void;
     readonly config: () => VeraConfig;
     readonly configPath: string;
+    readonly forgetRestartRecords: (id: string) => void | Promise<void>;
 }) {
     const registry = options.master.registry;
     const poolPath = join(options.home, "pool.json");
     return {
         async handle(method: string, args: readonly unknown[]): Promise<unknown> {
             switch (method) {
+                case "globals.forgetRestartRecords":
+                    if (typeof args[0] !== "string") break;
+                    await options.forgetRestartRecords(args[0]);
+                    return;
                 case "globals.credential":
                     if (typeof args[0] !== "string" || (args[1] !== undefined && typeof args[1] !== "string")) break;
                     return await options.lease(args[0], args[1]);

@@ -4,9 +4,9 @@ import { ControlReservations } from "./reservations.ts";
 import { remoteSessionEndpoint } from "./remote-endpoint.ts";
 import { serveRoutedMethod } from "./remote-routing.ts";
 import { prepareRoutedHost } from "./routing.ts";
-import { startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupervisor } from "./supervisor.ts";
+import { SESSION_WORKER_STARTUP_TIMEOUT_MS, startSessionWorkerSupervisor, WorkerGenerations, type SessionWorkerSupervisor } from "./supervisor.ts";
 import { COMMON_METHODS, type WorkerBootstrap, type WorkerStartOptions } from "./worker-control.ts";
-import type { ControlPeer } from "./control.ts";
+import { ControlPeer } from "./control.ts";
 import { MasterInboxBridge } from "./inbox.ts";
 import { ForwardedShutdowns, servePublicRequest } from "./public-forward.ts";
 import type { WorkerOwner } from "./roster.ts";
@@ -25,11 +25,16 @@ import type { StopWaitEvent } from "../stop-when-idle.ts";
 import type { PendingWorkerRecord, RecoverableWorker, WorkerRecord, WorkerRecordScan } from "./worker-record.ts";
 import { occupiedWorkerSockets, socketOccupied, verifiedWorkerHello, type WorkerSocket } from "./worker-sockets.ts";
 import { requestHostIdentity } from "../protocol.ts";
+import { recoverPoolCrashedTurns } from "./crash-scan.ts";
+import type { CrashSessionPath } from "./worker-crash-scan.ts";
+import type { RestartLedger } from "./restart-ledger.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
     readonly workerCount: number;
     readonly credentials: ReturnType<typeof createCredentialBroker>;
+    readonly interruptedScan: boolean;
+    readonly restartLedger: RestartLedger;
     readonly recoverableWorkers: readonly RecoverableWorker[];
     readonly stoppedWorkers: readonly WorkerRecord[];
     readonly pendingWorkers: readonly PendingWorkerRecord[];
@@ -57,6 +62,7 @@ interface WorkerSlot {
     starting: boolean;
     closed: boolean;
     lastHeartbeat: number;
+    lastInbound: number;
     rssBytes?: number;
     eventLoopLagMs?: number;
     failures: number[];
@@ -92,10 +98,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let scanning = false;
     let deferredRecovery = false;
     let recoveryFailed = false;
+    let recordCrash: ((id: string) => Promise<void>) | undefined;
     const recoveryPending = (): boolean => scanning;
     const reportsPending = (): boolean => restoring && unknownSockets.size === 0;
     const ownershipUncertain = (): boolean => restoring || unknownSockets.size > 0 || deferredRecovery || recoveryFailed;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let startupDeadline = 0;
     const deadline = options.hostOptions.processWorkerHeartbeatDeadlineMs ?? 10_000;
     if (!Number.isFinite(deadline) || deadline <= 0) throw new Error("Invalid worker heartbeat deadline");
     const masterGraceMs = options.hostOptions.processWorkerMasterGraceMs ?? 30_000;
@@ -117,7 +125,8 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(() => slot.connected.promise),
             broker: new ControlReservations(reservations),
             inbox: makeInbox(index, () => slot.connected.promise),
-            generation: 0, ready: false, starting: true, closed: false, lastHeartbeat: performance.now(), failures: [], recoverySessions: [],
+            generation: 0, ready: false, starting: true, closed: false,
+            lastHeartbeat: performance.now(), lastInbound: performance.now(), failures: [], recoverySessions: [],
         };
         return slot;
     });
@@ -133,6 +142,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         changed: notifyGlobalChange,
         config: options.sessionOptions.currentConfig,
         configPath: options.hostOptions.inboxUserConfigPath ?? options.sessionOptions.configPath,
+        forgetRestartRecords: options.sessionOptions.forgetRestartRecords,
     });
     const requestWorker = async <T>(slot: WorkerSlot, method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await slot.connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
@@ -165,7 +175,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     const stopSnapshots = routed.snapshots.onChanged(() => {
         const value = { summaries: routed.snapshots.list(), workIndex: routed.snapshots.workIndex() };
         for (const summary of value.summaries) knownSessions.add(summary.id);
-        for (const slot of slots) void slot.peer?.event("snapshot", value).catch(() => {});
+        ControlPeer.broadcastEvent(slots.flatMap((slot) => slot.peer === undefined ? [] : [slot.peer]), "snapshot", value);
     });
     const hostOptions = options.hostOptions;
     const childOptions: WorkerStartOptions = {
@@ -200,12 +210,17 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         if (adopted !== undefined) generations.observe(slot.id, generation);
         slot.generation = generation;
         slot.lastHeartbeat = performance.now();
+        slot.lastInbound = slot.lastHeartbeat;
         try {
+            const startupTimeoutMs = initializing && options.interruptedScan
+                ? Math.max(1, Math.min(adopted?.unrecorded === true ? 2_000 : SESSION_WORKER_STARTUP_TIMEOUT_MS,
+                    startupDeadline - performance.now()))
+                : adopted?.unrecorded === true ? 2_000 : undefined;
             slot.supervisor = await startSessionWorkerSupervisor({
                 home: options.sessionOptions.home, socket: slot.socket, bootstrap,
                 control,
                 ...(adopted === undefined ? {} : { adopt: adopted }),
-                ...(adopted?.unrecorded === true ? { startupTimeoutMs: 2_000 } : {}),
+                ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
                 index: slot.index, count: slots.length, generation: slot.generation,
                 onSpawn(pid, startedAt) {
                     slot.spawnPid = pid;
@@ -216,6 +231,9 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     }
                 },
                 onConnected(peer) {
+                    peer.setFrameObserver(() => {
+                        if (slot.generation === generation && !slot.closed) slot.lastInbound = performance.now();
+                    });
                     slot.peer = peer;
                     slot.connected.resolve(peer);
                     void peer.closed.then(() => slotLost(slot, generation, "control_closed"));
@@ -240,6 +258,16 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
+                    if (method === "recovery.owns" && typeof args[0] === "string") {
+                        return routed.router.inboxOwner(args[0]) === slot.id;
+                    }
+                    if (method === "recovery.recordCrash" && typeof args[0] === "string") {
+                        if (recordCrash === undefined || routed.router.inboxOwner(args[0]) !== slot.id) {
+                            throw new Error("Session crash recovery is unavailable.");
+                        }
+                        await recordCrash(args[0]);
+                        return;
+                    }
                     if (method.startsWith("globals.")) return await globals.handle(method, args);
                     if (method.startsWith("extension.")) {
                         return await serveExtensionRequest(options.master.extensions, method, args, signal);
@@ -340,6 +368,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (closing || slot.closed) throw new Error("Session worker closed during activation");
             slot.ready = true;
             slot.lastHeartbeat = performance.now();
+            slot.lastInbound = slot.lastHeartbeat;
+            if (generation > 1 && adopted === undefined) {
+                options.sessionOptions.hostLog({
+                    type: "session_process_replaced", slot: slot.id, generation, pid: slot.supervisor.pid,
+                });
+            }
         } catch (error) {
             if (slot.supervisor !== undefined) await slot.supervisor.close();
             slot.closed = true;
@@ -403,6 +437,13 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     };
     const slotLost = (slot: WorkerSlot, generation: number, reason: string): void => {
         if (closing || slot.generation !== generation || slot.closed) return;
+        const wasReady = slot.ready;
+        const supervisor = slot.supervisor;
+        const observed = supervisor?.exitDetails();
+        const aliveAtLoss = supervisor === undefined ? null : processIsAlive(supervisor.pid);
+        const heartbeatAgeMs = performance.now() - slot.lastHeartbeat;
+        const eventLoopLagMs = slot.eventLoopLagMs ?? null;
+        const sessionIds = [...knownSessions].filter((id) => routed.router.inboxOwner(id) === slot.id);
         slot.closed = true;
         slot.ready = false;
         slot.reason = reason;
@@ -412,7 +453,23 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         if (slot.starting) return;
         slot.stopping = (async () => {
             await slot.started.promise;
-            await slot.supervisor?.close();
+            try {
+                await supervisor?.close();
+            } finally {
+                if (wasReady) {
+                    const details = supervisor?.exitDetails();
+                    const sessions = [...new Set([...sessionIds, ...slot.recoverySessions.map((session) => session.id)])].sort();
+                    options.sessionOptions.hostLog({
+                        type: "session_process_lost", slot: slot.id, generation,
+                        pid: supervisor?.pid ?? slot.spawnPid ?? null, reason,
+                        exit_code: details?.code ?? null, signal: details?.signal ?? null,
+                        exit_code_at_loss: observed?.code ?? null, signal_at_loss: observed?.signal ?? null,
+                        alive_at_loss: aliveAtLoss, heartbeat_age_ms: heartbeatAgeMs, event_loop_lag_ms: eventLoopLagMs,
+                        stderr_tail: details?.stderr ?? null, sessions,
+                        resident_sessions: slot.recoverySessions.map((session) => session.id).sort(),
+                    });
+                }
+            }
             slot.inbox.close();
             slot.broker.close();
             routed.router.workerExited(slot.id);
@@ -521,6 +578,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             && socket.identity.worker_index === slot.index && socket.identity.build_id === options.buildId;
     };
     let recoveryWork: Promise<void> | undefined;
+    let interruptedRecoveryPending = false;
     const finishRecovery = async (): Promise<void> => {
         while (!closing) {
             const sockets = await occupiedWorkerSockets(options.sessionOptions.home, slots.length);
@@ -548,9 +606,53 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             }
         }
     };
+    const recoveryFailure = (error: unknown): void => {
+        recoveryFailed = true;
+        options.hostOptions.startupLog?.({
+            type: "session_process_recovery_failed",
+            message: error instanceof Error ? error.message : String(error),
+        });
+    };
+    const deferRecovery = (): void => {
+        deferredRecovery = true;
+        recoveryWork = finishRecovery().then(() => { deferredRecovery = false; }, recoveryFailure);
+    };
     return {
         masterHandlers: routed.masterHandlers,
+        async recoverCrashedTurns(scanOptions) {
+            try {
+                return await recoverPoolCrashedTurns({
+                    ...scanOptions,
+                    workers: slots.map((slot) => ({
+                        id: slot.id,
+                        ready: () => slot.ready && slot.peer !== undefined,
+                        discover: (paths, signal) => slot.peer!.request<readonly CrashSessionPath[]>(
+                            "worker.discoverCrashSessions", [paths], signal,
+                        ),
+                        recover: (session, signal) => slot.peer!.request<"done" | "changed">(
+                            "worker.recoverCrashSession", [session], signal,
+                        ),
+                    })),
+                    owner: (id) => routed.router.inboxOwner(id),
+                    ledger: options.restartLedger,
+                    setRecorder: (record) => {
+                        if (record !== undefined && recordCrash !== undefined) throw new Error("Crash recovery is already running.");
+                        recordCrash = record;
+                    },
+                    timeoutMs: Math.max(1, startupDeadline - performance.now()),
+                });
+            } finally {
+                if (interruptedRecoveryPending) {
+                    interruptedRecoveryPending = false;
+                    if (slots.every((slot) => slot.ready)) {
+                        if (unknownSockets.size > 0) deferRecovery();
+                        else await finishRecovery().catch(recoveryFailure);
+                    }
+                }
+            }
+        },
         async start() {
+            startupDeadline = performance.now() + SESSION_WORKER_STARTUP_TIMEOUT_MS;
             control = await startWorkerControlServer(options.sessionOptions.home);
             const recovering = restoring;
             const settled = options.pendingWorkers.length === 0 ? Promise.resolve() : (async () => {
@@ -572,7 +674,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 await startSlot(slot);
             }));
             await settled;
-            if (recovering) {
+            if (recovering && !options.interruptedScan) {
                 for (const [index, result] of results.entries()) {
                     if ((adoptedIndices.has(index) || stoppedIndices.has(index)) && result.status === "rejected") throw result.reason;
                 }
@@ -589,23 +691,19 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             heartbeatTimer = setInterval(() => {
                 const now = performance.now();
                 for (const slot of slots) {
-                    if (!slot.ready || now - slot.lastHeartbeat < deadline) continue;
+                    if (!slot.ready || now - slot.lastInbound < deadline) continue;
                     const supervisor = slot.supervisor;
                     slotLost(slot, slot.generation, "heartbeat_timeout");
                     try { supervisor?.kill(); } catch {}
                 }
             }, Math.max(1, Math.min(250, Math.floor(deadline / 4))));
             heartbeatTimer.unref();
-            if (recovering && unknownSockets.size > 0) {
-                deferredRecovery = true;
+            if (recovering && options.interruptedScan) {
+                interruptedRecoveryPending = true;
                 restoring = false;
-                recoveryWork = finishRecovery().then(() => { deferredRecovery = false; }, (error: unknown) => {
-                    recoveryFailed = true;
-                    options.hostOptions.startupLog?.({
-                        type: "session_process_recovery_failed",
-                        message: error instanceof Error ? error.message : String(error),
-                    });
-                });
+            } else if (recovering && unknownSockets.size > 0) {
+                restoring = false;
+                deferRecovery();
             } else if (recovering) {
                 await finishRecovery();
                 restoring = false;

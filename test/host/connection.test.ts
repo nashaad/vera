@@ -74,6 +74,44 @@ skipIfNoNetwork(
 );
 
 skipIfNoNetwork(
+    "observes each complete decoded frame before queued values are received",
+    async () => {
+        const accepted = Promise.withResolvers<Socket>();
+        await withServer(
+            (socket) => accepted.resolve(socket),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                const socket = await accepted.promise;
+                const three = Promise.withResolvers<void>();
+                const four = Promise.withResolvers<void>();
+                let observed = 0;
+                connection.setFrameObserver(() => {
+                    observed += 1;
+                    if (observed === 3) three.resolve();
+                    if (observed === 4) four.resolve();
+                });
+                try {
+                    socket.write('{"type":"event"}\n{"type":"request"}\n{"type":"response"}\n');
+                    await Promise.race([three.promise, Bun.sleep(2_000).then(() => { throw new Error("Frames not observed"); })]);
+                    expect(observed).toBe(3);
+                    socket.write('{"type":"event"');
+                    await Bun.sleep(30);
+                    expect(observed).toBe(3);
+                    socket.write('}\n');
+                    await Promise.race([four.promise, Bun.sleep(2_000).then(() => { throw new Error("Final frame not observed"); })]);
+                    expect(observed).toBe(4);
+                    socket.write('not json\n');
+                    expect((await connection.closedReason()).message).toContain("malformed JSON");
+                    expect(observed).toBe(4);
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
     "propagates malformed JSON lines to pending receivers",
     async () => {
         await withServer(

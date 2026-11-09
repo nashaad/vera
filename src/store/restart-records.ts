@@ -9,13 +9,14 @@ import {
     renameSync,
     writeFileSync,
 } from "node:fs";
+import { chmod, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
     selectedVeraHome,
     veraRuntimeDirectoryIn,
 } from "../profile-paths.ts";
-import { readRegularFileTextSync } from "./regular-file.ts";
+import { readRegularFileText, readRegularFileTextSync } from "./regular-file.ts";
 
 export const RESTART_RECORD_FORMAT_VERSION = 1;
 
@@ -87,6 +88,35 @@ export function clearRestartRecordsForSession(
     return removed;
 }
 
+export async function appendRestartRecordAsync(record: RestartRecord, path: string): Promise<void> {
+    const directory = dirname(path);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    const file = await open(path, "a", 0o600);
+    try {
+        await file.writeFile(`${JSON.stringify({ format_version: RESTART_RECORD_FORMAT_VERSION, ...record })}\n`, "utf8");
+        await file.sync();
+    } finally {
+        await file.close();
+    }
+    const entries = await readEntriesAsync(path);
+    if (entries.length > MAX_RESTART_RECORDS) {
+        await rewriteAsync(path, entries.slice(entries.length - MAX_RESTART_RECORDS).map((entry) => entry.raw));
+    }
+}
+
+export async function listRestartRecordsAsync(path: string): Promise<readonly RestartRecord[]> {
+    return (await readEntriesAsync(path)).flatMap((entry) => entry.kind === "record" ? [entry.record] : []);
+}
+
+export async function clearRestartRecordsForSessionAsync(sessionId: string, path: string): Promise<number> {
+    const entries = await readEntriesAsync(path);
+    const kept = entries.filter((entry) => entry.kind !== "record" || entry.record.session_id !== sessionId);
+    const removed = entries.length - kept.length;
+    if (removed > 0) await rewriteAsync(path, kept.map((entry) => entry.raw));
+    return removed;
+}
+
 type LedgerEntry =
     | { readonly kind: "record"; readonly raw: string; readonly record: RestartRecord }
     | { readonly kind: "newer" | "malformed"; readonly raw: string };
@@ -113,6 +143,24 @@ function rewrite(path: string, lines: readonly string[]): void {
     renameSync(temporaryPath, path);
 }
 
+async function rewriteAsync(path: string, lines: readonly string[]): Promise<void> {
+    const temporaryPath = join(dirname(path), `.restarts.${randomUUID()}.tmp`);
+    const serialized = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+    try {
+        const file = await open(temporaryPath, "wx", 0o600);
+        try {
+            await file.writeFile(serialized, "utf8");
+            await file.sync();
+        } finally {
+            await file.close();
+        }
+        await rename(temporaryPath, path);
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => {});
+        throw error;
+    }
+}
+
 function readEntries(path: string): LedgerEntry[] {
     if (!existsSync(path)) return [];
     let source: string;
@@ -125,6 +173,16 @@ function readEntries(path: string): LedgerEntry[] {
         .split("\n")
         .filter((line) => line.trim().length > 0)
         .map(parseEntry);
+}
+
+async function readEntriesAsync(path: string): Promise<LedgerEntry[]> {
+    let source: string;
+    try {
+        source = await readRegularFileText(path);
+    } catch {
+        return [];
+    }
+    return source.split("\n").filter((line) => line.trim().length > 0).map(parseEntry);
 }
 
 function parseEntry(raw: string): LedgerEntry {

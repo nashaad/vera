@@ -6,6 +6,7 @@ import {
     mkdirSync,
     openSync,
 } from "node:fs";
+import { chmod, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -47,6 +48,26 @@ export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
                 })}\n`,
                 { encoding: "utf8", mode: 0o600 },
             );
+        } catch {
+        }
+    };
+}
+
+export function createAsyncHostLogger(options: HostLoggerOptions = {}): (entry: HostLogEntry) => Promise<void> {
+    const path = options.path ?? defaultHostLogPath();
+    const now = options.now ?? (() => new Date());
+    return async (entry) => {
+        try {
+            const directory = dirname(path);
+            await mkdir(directory, { recursive: true, mode: 0o700 });
+            await chmod(directory, 0o700);
+            const file = await open(path, "a", 0o600);
+            try {
+                await file.chmod(0o600);
+                await file.writeFile(`${JSON.stringify({ timestamp: now().toISOString(), level: "debug", ...entry })}\n`, "utf8");
+            } finally {
+                await file.close();
+            }
         } catch {
         }
     };

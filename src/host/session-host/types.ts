@@ -84,7 +84,7 @@ export interface StartSessionHostOptions {
     readonly turnsHeld: () => boolean;
     readonly inboxActorForSession: () => string | null;
     readonly annexUrl: () => string | undefined;
-    readonly forgetRestartRecords: (sessionId: string) => void;
+    readonly forgetRestartRecords: (sessionId: string) => void | Promise<void>;
     readonly recentScheduleRuns: () => readonly EmittedScheduleRun[];
     readonly onWorkChanged: (listener: () => void) => () => void;
 }
