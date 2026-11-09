@@ -181,6 +181,12 @@ export async function searchSessionFile(
     let title: string | undefined;
     let name: string | null | undefined;
     const hits: SessionSearchHit[] = [];
+    const filterToken = /^[\x20-\x7e]+$/.test(needle)
+        ? needle.split(" ").reduce(
+            (longest, token) => token.length > longest.length ? token : longest,
+            "",
+        ).toLowerCase()
+        : "";
 
     const stream = Bun.file(path).stream();
     const decoder = new TextDecoder("utf-8");
@@ -188,6 +194,8 @@ export async function searchSessionFile(
 
     const consume = (line: string): void => {
         if (line.length === 0 || line.length > MAX_LINE_BYTES) return;
+        if (title !== undefined && filterToken.length > 0
+            && canSkipSearchLine(line, filterToken)) return;
         let record: Record<string, unknown>;
         try {
             record = JSON.parse(line) as Record<string, unknown>;
@@ -255,6 +263,16 @@ export async function searchSessionFile(
             : {}),
         hits,
     };
+}
+
+function canSkipSearchLine(line: string, token: string): boolean {
+    // Escapes, non-ASCII text and session metadata require the decoded record.
+    // A null message must retain its normal error path.
+    if (line[0] !== "{" || line.at(-1) !== "}" || line.includes("\\")
+        || !/^[\x20-\x7e]+$/.test(line)
+        || line.includes('"session"') || line.includes('"session_name"')
+        || /"message" *: *null/.test(line)) return false;
+    return !line.toLowerCase().includes(token);
 }
 
 function blockHit(
