@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { foldUsageSessionDetail } from "../../src/annex/usage-report.ts";
 import type { VeraConfig } from "../../src/config.ts";
 import { modelRequestSnapshotPath } from "../../src/engine/events.ts";
+import { ModelAssignmentUnavailableError } from "../../src/extensions/host-services.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { removeSessionBlock, writeSessionBlock } from "../../src/host/session-block.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
@@ -138,11 +139,13 @@ test("a oneshot refuses an empty slot instead of using a session model", async (
         },
     });
 
-    await expect(services.oneshot({
+    const refusal = services.oneshot({
         assignment: "extra",
         systemPrompt: "",
         messages: [{ role: "user", text: "caw" }],
-    }, new AbortController().signal)).rejects.toThrow(
+    }, new AbortController().signal);
+    await expect(refusal).rejects.toBeInstanceOf(ModelAssignmentUnavailableError);
+    await expect(refusal).rejects.toThrow(
         "No reachable model is assigned to extra",
     );
     expect(adapters).toBe(0);

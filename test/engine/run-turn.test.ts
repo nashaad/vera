@@ -389,7 +389,9 @@ for (const stop of ["release", "abort"] as const) {
         const channel = createInProcessChannel();
         const events = new EngineEventBus();
         const updates: AgentUpdate[] = [];
+        const logged: EngineEvent[] = [];
         events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+        events.subscribe((event) => logged.push(event));
         const adapter: ModelAdapter = {
             stream(request) {
                 const stopped = new Promise<AssistantMessage>((resolve) => {
@@ -433,7 +435,11 @@ for (const stop of ["release", "abort"] as const) {
         const stored = reopened.messages().at(-1);
         const entry = projectTranscript(reopened.messages())
             .find((candidate) => candidate.kind === "error");
+        const streamErrors = logged.filter((event) => event.type === "model_stream_error");
         if (stop === "release") {
+            expect(streamErrors).toEqual([]);
+            expect(logged.find((event) => event.type === "turn_finished"))
+                .toMatchObject({ message: { steered: true } });
             expect(finished.steered).toBe(true);
             expect(turnFinished).toMatchObject({ steered: true });
             expect(stored).toMatchObject({ role: "assistant", steered: true });
@@ -442,6 +448,7 @@ for (const stop of ["release", "abort"] as const) {
             expect(batch.prompt.content).toBe("what are you doing now");
             state.inbound.finishTurn();
         } else {
+            expect(streamErrors).toHaveLength(1);
             expect(finished.steered).toBeUndefined();
             expect(turnFinished).not.toHaveProperty("steered");
             expect(stored).not.toHaveProperty("steered");
@@ -450,6 +457,63 @@ for (const stop of ["release", "abort"] as const) {
         }
     });
 }
+
+test("a steered turn writes no error-level line to the session event log", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-steer-log-"));
+    temporaryWorkspaces.push(workspace);
+    const logPath = join(workspace, "events.jsonl");
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const logger = createJsonlEventLogger({
+        path: logPath,
+        sessionId: "steer-log",
+        level: "info",
+    });
+    events.subscribe(logger);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            const stopped = new Promise<AssistantMessage>((resolve) => {
+                request.signal?.addEventListener("abort", () => resolve({
+                    ...assistantText(""),
+                    content: [],
+                    stopReason: "aborted",
+                    errorMessage: String(request.signal?.reason),
+                }), { once: true });
+            });
+            return {
+                async *[Symbol.asyncIterator]() {
+                    channel.client.send({ type: "prompt", content: "hold that thought" });
+                    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+                    const message = await stopped;
+                    yield { type: "error", error: new Error(message.errorMessage), message };
+                },
+                result: () => stopped,
+            };
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "chart a course" });
+    const finished = await runTurn(adapter, "test", state);
+    logger.flush();
+
+    expect(finished.steered).toBe(true);
+    const records = readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type: string; level: string });
+    expect(records.filter((record) => record.type === "model_stream_error")).toEqual([]);
+    expect(records.filter((record) => record.level === "error")).toEqual([]);
+    expect(records.some((record) => record.type === "turn_finished")).toBe(true);
+});
 
 test("pre-turn context lands after each prompt and survives a reopen", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-hook-context-"));

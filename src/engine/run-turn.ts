@@ -1503,6 +1503,9 @@ export async function runTurn(
                             sawToolCall = true;
                         }
                         if (event.type === "error") {
+                            if (event.error instanceof TurnSteeredError) {
+                                return;
+                            }
                             lastFailure = event.error instanceof ProviderFailureError
                                 ? sanitizedProviderFailure(event.error.failure)
                                 : undefined;

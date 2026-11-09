@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import type { ExtensionOneshotCall } from "../../src/extensions/host-services.ts";
 import { SHIPPED_EXTENSIONS_DIRECTORY } from "../../src/extensions/included.ts";
-import { notifyTurnFinished } from "../../src/extensions/host-services.ts";
+import {
+    ModelAssignmentUnavailableError,
+    notifyTurnFinished,
+} from "../../src/extensions/host-services.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import type { TurnFinishedHookPayload } from "../../src/sdk/hooks.ts";
 import {
@@ -100,7 +103,7 @@ test("a failed title request is reported, not thrown", async () => {
     try {
         let named = false;
         registry.bindHost({
-            async oneshot() { throw new Error("No reachable model is assigned to snappy"); },
+            async oneshot() { throw new Error("provider overloaded"); },
             async setSessionTitle() { named = true; return "set"; },
             async askSession() { throw new Error("Not used by titles"); },
             async sendToSession() { throw new Error("Not used by titles"); },
@@ -110,7 +113,31 @@ test("a failed title request is reported, not thrown", async () => {
         notifyTurnFinished(registry.turnFinishedHooks(), first, (id, message) => reported.push(`${id}: ${message}`));
         await waitFor(() => reported.length === 1);
         expect(reported[0]).toContain("vera.titles: ");
-        expect(reported[0]).toContain("snappy");
+        expect(reported[0]).toContain("provider overloaded");
+        expect(named).toBe(false);
+    } finally {
+        await registry.close();
+    }
+});
+
+test("a missing snappy assignment titles nothing and reports nothing", async () => {
+    const registry = await startExtensionRegistry({
+        extensions: [{ path: join(SHIPPED_EXTENSIONS_DIRECTORY, "titles"), enabled: true, config: {} }],
+    });
+    try {
+        let calls = 0;
+        let named = false;
+        registry.bindHost({
+            async oneshot() { calls += 1; throw new ModelAssignmentUnavailableError("snappy"); },
+            async setSessionTitle() { named = true; return "set"; },
+            async askSession() { throw new Error("Not used by titles"); },
+            async sendToSession() { throw new Error("Not used by titles"); },
+            async investigate() { throw new Error("Not used by titles"); },
+        });
+        const reported: string[] = [];
+        notifyTurnFinished(registry.turnFinishedHooks(), first, (id, message) => reported.push(`${id}: ${message}`));
+        await waitFor(() => calls === 1);
+        expect(reported).toEqual([]);
         expect(named).toBe(false);
     } finally {
         await registry.close();
