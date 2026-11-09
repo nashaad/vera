@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { HostModelCatalogSettings } from "./model-catalog-settings.ts";
 
 import { AsyncQueue } from "../engine/async-queue.ts";
+import { AttachmentUpdateQueue, type PendingAttachmentUpdate } from "./attachment-update-queue.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -122,6 +123,7 @@ interface QueuedCommand {
 
 export interface AgentAttachment
     extends MessageChannel<ClientCommand, AgentUpdate> {
+    receivePending(signal?: AbortSignal): Promise<PendingAttachmentUpdate>;
     detach(): void;
 }
 
@@ -131,7 +133,7 @@ export class ResidentAgent {
     readonly engine: MessageChannel<AgentUpdate, EngineCommand>;
 
     private readonly inbound = new AsyncQueue<QueuedCommand>();
-    private readonly attachments = new Map<string, AsyncQueue<AgentUpdate>>();
+    private readonly attachments = new Map<string, AttachmentUpdateQueue>();
     private readonly pagingAttachments = new Set<string>();
     private readonly attachmentListeners = new Set<
         (attached: boolean) => void
@@ -224,7 +226,7 @@ export class ResidentAgent {
             throw new Error("Agent replay cursor is unavailable");
         }
 
-        const outgoing = new AsyncQueue<AgentUpdate>();
+        const outgoing = new AttachmentUpdateQueue(options.paging === true);
         const attachmentId = nonEmpty(
             this.createAttachmentId(),
             "attachment ID",
@@ -248,7 +250,7 @@ export class ResidentAgent {
         ) {
             const replayed = paging
                 ? pagedTail(this.checkpoint)
-                : clone(this.checkpoint);
+                : cloneHistory(this.checkpoint);
             outgoing.push(this.currentStatus === "idle"
                 ? replayed
                 : { ...replayed, status: this.currentStatus });
@@ -331,6 +333,10 @@ export class ResidentAgent {
                     return Promise.reject(new AgentDetachedError());
                 }
                 return outgoing.receive(signal);
+            },
+            receivePending: (signal): Promise<PendingAttachmentUpdate> => {
+                if (!attached) return Promise.reject(new AgentDetachedError());
+                return outgoing.receivePending(signal);
             },
             detach: (): void => {
                 if (!attached) {
@@ -568,7 +574,7 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
-        this.checkpoint = clone(history);
+        this.checkpoint = cloneHistory(history);
         this.updatesAfterCheckpoint = [];
         this.lastSequence = history.seq;
         this.fail(failureId, detail);
@@ -638,7 +644,7 @@ export class ResidentAgent {
                 `Invalid resident update sequence: expected ${expectedSequence}, received ${update.seq}`,
             );
         }
-        const snapshot = clone(update);
+        const snapshot = update.type === "history" ? cloneHistory(update) : clone(update);
         this.lastSequence = snapshot.seq;
         if (snapshot.type === "user_prompt"
             || (snapshot.type === "status" && snapshot.state === "working")) {
@@ -871,6 +877,19 @@ export class ResidentAgent {
 
 function clone<T>(value: T): T {
     return structuredClone(value);
+}
+
+function cloneHistory(history: HistoryUpdate): HistoryUpdate {
+    const entries = history.entries.map((entry) => entry.kind === "tool_result"
+        ? { ...entry, output: "" }
+        : entry);
+    const copied = clone({ ...history, entries });
+    return { ...copied, entries: copied.entries.map((entry, index) => {
+        const original = history.entries[index]!;
+        return entry.kind === "tool_result" && original.kind === "tool_result"
+            ? { ...entry, output: original.output }
+            : entry;
+    }) };
 }
 
 function pagedTail(history: HistoryUpdate): HistoryUpdate {

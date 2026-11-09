@@ -871,12 +871,13 @@ function receiveConnection(
     let pendingBranchId: string | undefined;
 
     const send = (
-        message: object,
+        message: object | (() => object | undefined),
         shouldSend: () => boolean = () => true,
     ): Promise<void> => {
         const next = writes.then(() => {
             if (shouldSend()) {
-                return writeSocketMessage(socket, message);
+                const ready = typeof message === "function" ? message() : message;
+                if (ready !== undefined) return writeSocketMessage(socket, ready);
             }
         });
         writes = next.catch(() => undefined);
@@ -2426,18 +2427,25 @@ function receiveConnection(
         let first = true;
         try {
             while (attachment === attached) {
-                const update = await attached.receive();
+                const pending = await attached.receivePending();
                 const initial = first;
                 first = false;
-                await send(update.type === "history" || update.type === "turn_finished"
-                    ? {
-                        ...update,
-                        ...(initial && update.type === "history" && update.status === undefined
-                            && identity.role === "worker" && (identity.worker_generation ?? 1) > 1
-                            ? { status: "idle" as const } : {}),
-                        ...sessionStateFields(agent.id),
-                    }
-                    : update);
+                const stateFields = pending.type === "history" || pending.type === "turn_finished"
+                    ? sessionStateFields(agent.id)
+                    : {};
+                await send(() => {
+                    const update = pending.take();
+                    if (update === undefined) return undefined;
+                    return update.type === "history" || update.type === "turn_finished"
+                        ? {
+                            ...update,
+                            ...(initial && update.type === "history" && update.status === undefined
+                                && identity.role === "worker" && (identity.worker_generation ?? 1) > 1
+                                ? { status: "idle" as const } : {}),
+                            ...stateFields,
+                        }
+                        : update;
+                });
             }
         } catch {
             if (attachment === attached && !agent.failed) {
