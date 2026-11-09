@@ -32,6 +32,7 @@ import {
     isConfigurationRequiredUiRequestUpdate,
     isToolApprovalUiRequestUpdate,
     isUserQuestionUiRequestUpdate,
+    summarizeSessionModelUsage,
     type UiRequestUpdate,
 } from "../engine/protocol.ts";
 import { EngineEventBus, type EngineEvent } from "../engine/events.ts";
@@ -45,6 +46,11 @@ import {
     type FunctionTool,
 } from "./function-tools.ts";
 import type { RegisteredTool } from "../tools/types.ts";
+import {
+    ToolCallRecord,
+    usageSince,
+    type AgentRunToolCall,
+} from "./run-record.ts";
 import {
     ResidentAgent,
     ResidentAgentClosedError,
@@ -130,6 +136,7 @@ export interface VeraAgentOptions {
 }
 
 export type { FunctionTool } from "./function-tools.ts";
+export type { AgentRunToolCall } from "./run-record.ts";
 
 /** Minimal parser contract implemented by schema libraries and plain objects. */
 export interface AgentOutputSchema<Output> {
@@ -177,8 +184,11 @@ export interface AgentRunResult<Output = never> {
     readonly transcript: string;
     readonly output?: Output;
     readonly model: AgentRunModelIdentity;
+    /** This run's model usage, even when a named session continues. */
     readonly usage?: SessionModelUsage;
     readonly substitutions: readonly ModelSubstitution[];
+    /** Tools the agent ran, in the order they started. */
+    readonly tools: readonly AgentRunToolCall[];
     readonly error?: AgentRunError;
 }
 
@@ -466,6 +476,10 @@ async function runResolvedTurn<Output>(
             sessionId: id,
             cwd: resolved.workspace,
         });
+    const usageBefore = summarizeSessionModelUsage(sessionStore.usageMessages());
+    const toolCalls = new ToolCallRecord();
+    const bus = events ?? new EngineEventBus();
+    const stopRecording = bus.subscribe((event) => toolCalls.observe(event));
     const resident = new ResidentAgent(id, resolved.workspace);
     const attachment = resident.attach();
     let transcript = "";
@@ -548,7 +562,7 @@ async function runResolvedTurn<Output>(
                     ? {}
                     : { hooks }),
                 sessionStore,
-                ...(events === undefined ? {} : { eventBus: events }),
+                eventBus: bus,
                 ...(resolved.functions.length === 0
                     ? {}
                     : { extensionTools: resolved.functions }),
@@ -592,7 +606,9 @@ async function runResolvedTurn<Output>(
                 break;
             }
             if (update.type !== "turn_finished") continue;
-            usage = update.usage;
+            usage = update.usage === undefined
+                ? undefined
+                : usageSince(usageBefore, update.usage);
             if (update.outcome === "aborted") {
                 outcome = "aborted";
                 error = {
@@ -610,6 +626,7 @@ async function runResolvedTurn<Output>(
             break;
         }
     } finally {
+        stopRecording();
         options.signal?.removeEventListener("abort", abort);
         attachment.detach();
         resident.close();
@@ -656,6 +673,7 @@ async function runResolvedTurn<Output>(
         },
         ...(usage === undefined ? {} : { usage }),
         substitutions,
+        tools: toolCalls.list(),
         ...(error === undefined ? {} : { error }),
     };
 }

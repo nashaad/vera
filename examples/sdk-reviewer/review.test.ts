@@ -126,6 +126,7 @@ function noFindingsRuntime(events: string[]): ReviewRuntime {
                         output: { findings: [] } as Output,
                         model: { provider: "faux", model: definition.name },
                         substitutions: [],
+                        tools: [],
                     };
                 },
             };
