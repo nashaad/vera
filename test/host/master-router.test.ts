@@ -131,6 +131,106 @@ test("an opening worker session survives an older roster snapshot until a fresh 
     }
 });
 
+test("overlapping roster refreshes share a trailing snapshot without delaying earlier waiters", async () => {
+    const master = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const first = deferred();
+    const second = deferred();
+    let calls = 0;
+    worker.snapshot = async () => {
+        calls += 1;
+        const current = calls;
+        if (current === 1) await first.promise;
+        if (current === 2) await second.promise;
+        return { residents: [{ id: `crow-${current}`, workspace: "/work", sessionPath: `/sessions/${current}.jsonl` }],
+            summaries: [], work: [], unreadSources: [] };
+    };
+    const observed: string[] = [];
+    const snapshots = new RoutedSnapshots(master, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
+    }], () => 0, (owner, snapshot) => {
+        if (owner === "w0") observed.push(...snapshot.residents.map((session) => session.id));
+    });
+    try {
+        snapshots.refresh();
+        const early = snapshots.wait();
+        for (let index = 0; index < 20; index += 1) snapshots.refresh();
+        const trailing = snapshots.wait();
+        expect(calls).toBe(1);
+        first.resolve();
+        await early;
+        expect(calls).toBe(2);
+        let done = false;
+        void trailing.then(() => { done = true; });
+        await Bun.sleep(0);
+        expect(done).toBe(false);
+        second.resolve();
+        await trailing;
+        expect(calls).toBe(2);
+        expect(observed).toEqual(["crow-1", "crow-2"]);
+    } finally {
+        first.resolve();
+        second.resolve();
+        await snapshots.wait();
+    }
+});
+
+test("a roster change during a trailing pass publishes the latest state", async () => {
+    const master = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const first = deferred();
+    const second = deferred();
+    let title = "initial";
+    let calls = 0;
+    worker.snapshot = async () => {
+        calls += 1;
+        const current = calls;
+        const captured = title;
+        if (current === 1) await first.promise;
+        if (current === 2) await second.promise;
+        const summary: RegisteredAgentSummary = {
+            id: "crow", title: captured, live: true, workspace: "/work", session_path: "/sessions/crow.jsonl",
+            kind: "interactive", status: "working",
+        };
+        return {
+            residents: [{ id: "crow", workspace: "/work", sessionPath: "/sessions/crow.jsonl" }],
+            summaries: [summary],
+            work: [{ id: "crow", title: captured, workspace: "/work", session_path: "/sessions/crow.jsonl",
+                kind: "interactive", status: "working", live: true, updated_at: "2026-11-09T00:00:00.000Z" }],
+            unreadSources: [],
+        };
+    };
+    const snapshots = new RoutedSnapshots(master, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
+    }], () => 0, () => {});
+    const delivered: Array<{ roster?: string; work?: string }> = [];
+    snapshots.onChanged(() => delivered.push({ roster: snapshots.list()[0]?.title, work: snapshots.workIndex().rows[0]?.title }));
+    try {
+        snapshots.refresh();
+        const initial = snapshots.wait();
+        for (let index = 0; index < 20; index += 1) {
+            title = `burst-${index}`;
+            snapshots.refresh();
+        }
+        first.resolve();
+        await initial;
+        expect(calls).toBe(2);
+        title = "last";
+        snapshots.refresh();
+        const trailing = snapshots.wait();
+        second.resolve();
+        await trailing;
+        expect(calls).toBe(3);
+        expect(delivered.at(-1)).toEqual({ roster: "last", work: "last" });
+        expect(snapshots.list()[0]?.title).toBe("last");
+        expect(snapshots.workIndex().rows[0]?.title).toBe("last");
+    } finally {
+        first.resolve();
+        second.resolve();
+        await snapshots.wait();
+    }
+});
+
 test("a delayed roster from a lost worker cannot replace its successor's snapshot", async () => {
     const master = endpoint(new Map());
     const worker = endpoint(new Map());
