@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTuiFlightRecorder } from "../../clients/tui/flight-recorder.ts";
@@ -71,3 +71,25 @@ test("heartbeat age rejects malformed timestamps", () => {
     expect(heartbeatAge("bad", 10_000)).toBeUndefined();
     expect(heartbeatAge("1970-01-01T00:00:05.000Z", 10_000)).toBe(5_000);
 });
+
+test("a stopped watchdog removes its own live record", async () => {
+    const home = mkdtempSync("/private/tmp/vera-dev/watchdog-exit-");
+    roots.push(home);
+    const child = Bun.spawn([
+        process.execPath,
+        join(process.cwd(), "clients/tui/flight-watchdog.ts"),
+        String(process.pid), join(home, "heartbeat"), join(home, "client.log"), "trial",
+    ], { env: { ...process.env, VERA_HOME: home }, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const record = join(home, "machine", "live", `${child.pid}.json`);
+    try {
+        const deadline = Date.now() + 5_000;
+        while (!existsSync(record) && Date.now() < deadline) await Bun.sleep(20);
+        expect(existsSync(record)).toBe(true);
+        child.kill("SIGTERM");
+        await child.exited;
+        expect(existsSync(record)).toBe(false);
+    } finally {
+        if (child.exitCode === null) child.kill("SIGKILL");
+        await child.exited;
+    }
+}, 10_000);

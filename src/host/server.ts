@@ -590,7 +590,7 @@ async function startListener(
             resolveHostLimits(options.limits),
         );
     });
-    let workerSocketStat: Stats | undefined;
+    let ownedSocketStat: Stats | undefined;
     try {
         await prepareSocketDirectory(socketPath);
         await listenAfterRemovingStaleSocket(
@@ -598,7 +598,7 @@ async function startListener(
             socketPath,
             options.lockPath ?? defaultHostLockPath(),
         );
-        if (worker !== undefined) workerSocketStat = await lstat(socketPath);
+        ownedSocketStat = await lstat(socketPath);
         await chmod(socketPath, 0o600);
         const publish = () => worker === undefined ? createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
@@ -635,7 +635,7 @@ async function startListener(
                     socket.destroy();
                 }
                 await closeServer(server);
-                await removeOwnedWorkerSocket(socketPath, workerSocketStat);
+                await removeOwnedSocket(socketPath, ownedSocketStat);
             },
         };
     } catch (error) {
@@ -643,7 +643,7 @@ async function startListener(
             socket.destroy();
         }
         await closeServer(server);
-        await removeOwnedWorkerSocket(socketPath, workerSocketStat);
+        await removeOwnedSocket(socketPath, ownedSocketStat);
         try {
             await startupClaim.release();
         } catch {
@@ -652,7 +652,7 @@ async function startListener(
     }
 }
 
-async function removeOwnedWorkerSocket(path: string, owned: Stats | undefined): Promise<void> {
+async function removeOwnedSocket(path: string, owned: Stats | undefined): Promise<void> {
     if (owned === undefined) return;
     try {
         const current = await lstat(path);

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -119,7 +119,7 @@ test("a live pid whose measured start time matches is listed", () => {
     )).toEqual([record]);
 });
 
-test("an unreadable live file is dropped so the rest of the board still lists", () => {
+test("an unreadable live file is retained while the rest of the board lists", () => {
     const home = tempHome();
     const directory = liveProcessDirectory(home);
     postLiveProcess("watchdog", {
@@ -133,7 +133,18 @@ test("an unreadable live file is dropped so the rest of the board still lists", 
     const listed = listLiveProcesses(home);
     expect(listed).toHaveLength(1);
     expect(listed[0]?.kind).toBe("watchdog");
-    expect(readdirSync(directory).sort()).toEqual([`${process.pid}.json`]);
+    expect(readdirSync(directory).sort()).toEqual(["12.json", `${process.pid}.json`].sort());
+});
+
+test("a live file whose name and recorded PID differ is retained and not trusted", () => {
+    const home = tempHome();
+    const directory = liveProcessDirectory(home);
+    postLiveProcess("host", { home, pid: process.pid, runtimeDir: "/tmp/vera-daily" });
+    const record = JSON.parse(readFileSync(join(directory, `${process.pid}.json`), "utf8"));
+    writeFileSync(join(directory, "123.json"), JSON.stringify(record));
+    expect(listLiveProcesses(home)).toHaveLength(1);
+    expect(existsSync(join(directory, "123.json"))).toBe(true);
+    expect(existsSync(join(directory, `${process.pid}.json`))).toBe(true);
 });
 
 test("renderVeraPrune names origin and the current host", () => {

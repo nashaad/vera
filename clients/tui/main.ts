@@ -726,7 +726,7 @@ export async function startConfiguredTui(
     requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
-    installLiveProcess("tui");
+    const removeLiveProcess = installLiveProcess("tui");
     installTerminalRestoreOnExit();
     const launcherKey = launcherKeyFromEnv();
     delete process.env[RELAUNCH_LAUNCHER_ENV];
@@ -930,6 +930,7 @@ export async function startConfiguredTui(
         throw error;
     } finally {
         flightRecorder.close("tui_returned");
+        removeLiveProcess();
     }
 }
 

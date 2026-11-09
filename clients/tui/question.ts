@@ -358,6 +358,7 @@ export function createTuiQuestionView(
             else details.focus();
         },
         update(update): void {
+            const previousQuestion = lastUpdate?.request.question;
             lastUpdate = update;
             box.maxHeight = questionMaxHeight(renderer);
             box.left = questionSideInset(renderer);
@@ -367,6 +368,7 @@ export function createTuiQuestionView(
             panel.paddingBottom = questionBottomPadding(renderer);
             actions.marginTop = questionBottomPadding(renderer);
             applyLayout();
+            if (previousQuestion !== update.request.question) detailsText.content = update.request.question;
             if (currentRequestId === update.requestId) {
                 return;
             }
@@ -381,7 +383,6 @@ export function createTuiQuestionView(
             customEditorBox.flexShrink = namedInput ? 0 : 1;
             enteringNotes = false;
             notesEditor.setText("");
-            detailsText.content = update.request.question;
             choiceAction.content = questionChoiceHint(update.request.allowNotes !== false);
             renderChoices(update);
             details.scrollTo(0);

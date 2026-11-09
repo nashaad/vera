@@ -70,6 +70,7 @@ export interface StartWorkerOptions {
 
 export interface WorkerHandle {
     readonly pid: number;
+    readonly reportedFailure: boolean;
     readonly supervisor?: SupervisorHandle;
     readonly server: WorkerBoundaryServer;
     send(command: EngineCommand): void;
@@ -300,6 +301,7 @@ export async function startWorker(
 
     return {
         pid,
+        get reportedFailure() { return typeof reported === "string"; },
         ...(supervisor === undefined ? {} : { supervisor }),
         server,
         send: (command_: EngineCommand) => server.sendCommand(command_),

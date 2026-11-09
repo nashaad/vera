@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 
@@ -9,7 +9,7 @@ import { runCli } from "../../clients/cli/main.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
-import { forceStopHostProcess, stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
+import { forceStopHostProcess, forceStopResidentHost, stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
 import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
 import { stopWorkerProcess } from "../../src/host/master/stop-worker.ts";
 import { readRecordedWorkers, type RecordedWorker } from "../../src/host/master/worker-records.ts";
@@ -63,7 +63,7 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
         providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
     }));
     const child: ChildProcess = spawn(process.execPath, [join(import.meta.dir, "fixtures", "pool-stop-host.ts")], {
-        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hsplit9 dev", HS9_STOP_MODE: mode,
+        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: mode,
             ...(delayReplacement ? { HS9_DELAY_REPLACEMENT: "1" } : {}) }, stdio: "ignore",
     });
     const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
@@ -84,6 +84,10 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
             get requests() { return requests; },
             release: () => gate.resolve(),
             releaseReplacement: async () => { await writeFile(join(home, "replacement-release"), ""); },
+            async crash() {
+                child.kill("SIGKILL");
+                await exited;
+            },
             async cleanup() {
                 gate.resolve();
                 try {
@@ -104,6 +108,189 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
         await rm(home, { recursive: true, force: true });
         throw error;
     }
+}
+
+for (const mode of ["plain", "pool"] as const) {
+    for (const force of [false, true]) {
+        test(`${mode} fresh host ${force ? "forced" : "ordinary"} stop works without an attached TUI`, async () => {
+            const fixture = await startPool(mode);
+            try {
+                const liveDirectory = join(fixture.home, "machine", "live");
+                await waitFor(() => existsSync(join(liveDirectory, `${fixture.masterPid}.json`)), "host live record");
+                const recordedPids = (await readdir(liveDirectory)).map((name) => Number(name.replace(/\.json$/, "")))
+                    .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+                const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
+                    cwd: process.cwd(),
+                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    stdout: "pipe", stderr: "pipe",
+                });
+                const [exitCode, stdout, stderr] = await Promise.all([
+                    command.exited, new Response(command.stdout).text(), new Response(command.stderr).text(),
+                ]);
+                expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+                expect(stdout).toContain("Stopped resident Vera host");
+                expect(await fixture.exited).toBe(0);
+                expect(existsSync(join(fixture.home, "runtime", "host.json"))).toBe(false);
+                expect(existsSync(fixture.socket)).toBe(false);
+                for (const pid of recordedPids) {
+                    expect(processIsAlive(pid)).toBe(false);
+                    expect(existsSync(join(liveDirectory, `${pid}.json`))).toBe(false);
+                }
+            } finally {
+                await fixture.cleanup();
+            }
+        }, 30_000);
+    }
+
+    for (const force of [false, true]) {
+        test(`${mode} ${force ? "forced" : "ordinary"} stop clears a crashed host socket and live record`, async () => {
+            const fixture = await startPool(mode);
+            try {
+                const livePath = join(fixture.home, "machine", "live", `${fixture.masterPid}.json`);
+                await waitFor(() => existsSync(livePath), "host live record");
+                await fixture.crash();
+                expect(existsSync(fixture.socket)).toBe(true);
+                if (mode === "pool" && !force) {
+                    for (const worker of await readRecordedWorkers(fixture.home)) await stopWorkerProcess(worker);
+                }
+                const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
+                    cwd: process.cwd(),
+                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    stdout: "pipe", stderr: "pipe",
+                });
+                const [exitCode, stdout, stderr] = await Promise.all([
+                    command.exited, new Response(command.stdout).text(), new Response(command.stderr).text(),
+                ]);
+                expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+                expect(stdout.length).toBeGreaterThan(0);
+                expect(existsSync(join(fixture.home, "runtime", "host.json"))).toBe(false);
+                expect(existsSync(fixture.socket)).toBe(false);
+                expect(existsSync(livePath)).toBe(false);
+                expect(fixture.workers.filter(processIsAlive)).toEqual([]);
+            } finally {
+                await fixture.cleanup();
+            }
+        }, 30_000);
+    }
+
+    for (const force of [false, true]) {
+        test(`${mode} ${force ? "forced" : "ordinary"} idle stop removes owned process records and notifies attachments`, async () => {
+            const fixture = await startPool(mode);
+            let client: AttachedAgentClient | undefined;
+            try {
+                const session = await createAgentThroughHost(fixture.socket, fixture.home);
+                client = await attachAgent({
+                    socketPath: fixture.socket,
+                    agentId: session.id,
+                    requestedCapabilities: [HOST_CAPABILITY_STOP_WAIT],
+                });
+                const events: string[] = [];
+                client.onStopWait((event) => events.push(event.type === "host_stop_wait_cleared"
+                    ? `${event.type}:${event.reason}` : event.type));
+                await client.receive(AbortSignal.timeout(10_000));
+                await client.send({ type: "prompt", content: "Chart a short course." });
+                await waitFor(() => fixture.requests === 1, "model request");
+                fixture.release();
+                while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
+                const liveDirectory = join(fixture.home, "machine", "live");
+                await waitFor(() => existsSync(join(liveDirectory, `${fixture.masterPid}.json`)), "host live record");
+                const liveNames = await readdir(liveDirectory);
+                const recordedPids = liveNames.map((name) => Number(name.replace(/\.json$/, "")))
+                    .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+                expect(recordedPids).toContain(fixture.masterPid);
+
+                const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
+                    cwd: process.cwd(),
+                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                const [exitCode, stdout, stderr] = await Promise.all([
+                    command.exited,
+                    new Response(command.stdout).text(),
+                    new Response(command.stderr).text(),
+                ]);
+                expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+                expect(stdout).toContain("Stopped resident Vera host");
+                expect(events).toContain("host_stop_wait_cleared:stopped");
+                expect(await fixture.exited).toBe(0);
+                expect(fixture.workers.filter(processIsAlive)).toEqual([]);
+                expect(existsSync(join(fixture.home, "runtime", "host.json"))).toBe(false);
+                expect(existsSync(fixture.socket)).toBe(false);
+                for (const pid of recordedPids) {
+                    expect(processIsAlive(pid)).toBe(false);
+                    expect(existsSync(join(liveDirectory, `${pid}.json`))).toBe(false);
+                }
+            } finally {
+                client?.close();
+                await fixture.cleanup();
+            }
+        }, 30_000);
+    }
+
+    test(`${mode} forced stop tells an attachment before cutting a running turn`, async () => {
+        const fixture = await startPool(mode);
+        let client: AttachedAgentClient | undefined;
+        try {
+            const session = await createAgentThroughHost(fixture.socket, fixture.home);
+            client = await attachAgent({
+                socketPath: fixture.socket,
+                agentId: session.id,
+                requestedCapabilities: [HOST_CAPABILITY_STOP_WAIT],
+            });
+            const events: string[] = [];
+            client.onStopWait((event) => events.push(event.type === "host_stop_wait_cleared"
+                ? `${event.type}:${event.reason}` : event.type));
+            await client.receive(AbortSignal.timeout(10_000));
+            await client.send({ type: "prompt", content: "Keep sailing." });
+            await waitFor(() => fixture.requests === 1, "running turn");
+            const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", "--force", "--yes"], {
+                cwd: process.cwd(),
+                env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                stdout: "pipe", stderr: "pipe",
+            });
+            const [exitCode, stdout, stderr] = await Promise.all([
+                command.exited, new Response(command.stdout).text(), new Response(command.stderr).text(),
+            ]);
+            expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+            expect(stdout).toContain("Stopped resident Vera host");
+            expect(events).toContain("host_stop_wait_cleared:stopped");
+            expect(await fixture.exited).toBe(0);
+            expect(existsSync(fixture.socket)).toBe(false);
+            expect(existsSync(join(fixture.home, "runtime", "host.json"))).toBe(false);
+            expect(fixture.workers.filter(processIsAlive)).toEqual([]);
+        } finally {
+            fixture.release();
+            client?.close();
+            await fixture.cleanup();
+        }
+    }, 30_000);
+
+    test(`${mode} signal fallback removes the stopped host's socket and live record`, async () => {
+        const fixture = await startPool(mode);
+        try {
+            const livePath = join(fixture.home, "machine", "live", `${fixture.masterPid}.json`);
+            await waitFor(() => existsSync(livePath), "host live record");
+            expect(existsSync(fixture.socket)).toBe(true);
+            if (mode === "pool") {
+                const result = await forceStopPool(fixture.home);
+                expect(result?.masterPid).toBe(fixture.masterPid);
+            } else {
+                const result = await forceStopResidentHost({
+                    home: fixture.home, lockPath: join(fixture.home, "runtime", "host.json"),
+                    firstSignal: "SIGKILL", sigkillGraceMs: 2_000,
+                });
+                expect(result?.endedBy).toBe("sigkill");
+            }
+            await fixture.exited;
+            expect(existsSync(fixture.socket)).toBe(false);
+            expect(existsSync(join(fixture.home, "runtime", "host.json"))).toBe(false);
+            expect(existsSync(livePath)).toBe(false);
+            expect(fixture.workers.filter(processIsAlive)).toEqual([]);
+        } finally {
+            await fixture.cleanup();
+        }
+    }, 30_000);
 }
 
 test("a pool stop waits for a running turn and reaps every process before removing the lock", async () => {

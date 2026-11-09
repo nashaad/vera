@@ -176,9 +176,10 @@ again from `/resume`. Vera then reads the file as it stands, including any
 record the failed save did write.
 
 A save that fails while a turn is running stops the conversation instead. It
-shows "Resident agent stopped unexpectedly" and takes no further messages.
-The failure is recorded in the file, so resuming the conversation starts it in
-the failed state. Everything saved before the failure is kept.
+shows the failure's message and takes no further messages. The host log at
+`runtime/logs/host.jsonl` records the message and stack. The failure is recorded
+in the session file when possible, so resuming starts it in the failed state.
+Everything saved before the failure is kept.
 
 ## Capture a model failure
 

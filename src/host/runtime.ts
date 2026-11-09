@@ -582,8 +582,7 @@ async function startHostRuntime(
         stopWhenIdle.observe((event) => {
             stopWaitNotifications = stopWaitNotifications.then(async () => {
                 await inProcessWorker?.publishStopWait?.(event);
-            });
-            void stopWaitNotifications.catch(() => {});
+            }).catch(() => {});
         });
     }
     const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
@@ -1068,9 +1067,7 @@ async function startHostRuntime(
                             await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
                         }
                     }
-                    if (options.processWorker === true) {
-                        await removeStoppedPoolLock(home, lockPath, server.identity);
-                    }
+                    await removeStoppedPoolLock(home, lockPath, server.identity);
                 } finally {
                     startup?.onClosed();
                 }

@@ -146,6 +146,21 @@ test("stop-when-idle finishes at once when nothing is waiting", async () => {
     expect(stopped).toBe(1);
 });
 
+test("an idle stop tells observers before the host closes", async () => {
+    const seen: string[] = [];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [],
+        onStopped: () => { seen.push("closed"); },
+    });
+    coordinator.observe(async (event) => {
+        await Bun.sleep(10);
+        seen.push(event.type === "wait_cleared" ? `${event.type}:${event.reason}` : event.type);
+    });
+    coordinator.request(() => undefined);
+    await settle();
+    expect(seen).toEqual(["wait_cleared:stopped", "closed"]);
+});
+
 test("stop-when-idle answers a late request with stopped and keeps one stop", async () => {
     let stopped = 0;
     const coordinator = new StopWhenIdle({

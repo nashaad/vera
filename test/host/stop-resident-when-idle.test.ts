@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
@@ -84,6 +84,32 @@ test("stopResidentHostWhenIdle reports a host that does not accept stops, and ne
         await server.close();
     }
 });
+
+for (const force of [false, true]) {
+    test(`a ${force ? "forced" : "plain"} accepted stop cleans files after an abrupt host exit`, async () => {
+        const directory = mkdtempSync(join("/private/tmp", "vera-stop-abrupt-"));
+        directories.push(directory);
+        const socketPath = join(directory, "host.sock");
+        const lockPath = join(directory, "host.json");
+        const server = await startHostServer({ socketPath, lockPath, pid: 105 });
+        let alive = true;
+        try {
+            const outcome = await stopResidentHostWhenIdle({
+                home: directory,
+                lockPath,
+                force,
+                isProcessAlive: () => alive,
+                matchesRecord: () => true,
+                requestStop: async () => { alive = false; return { type: "stopped" }; },
+            });
+            expect(outcome).toEqual({ pid: 105, endedBy: "stopped" });
+            expect(existsSync(lockPath)).toBe(false);
+            expect(existsSync(socketPath)).toBe(false);
+        } finally {
+            await server.close();
+        }
+    });
+}
 
 test("an update never signals a host it cannot confirm, and reports the refusal", async () => {
     const directory = mkdtempSync(join("/private/tmp", "vera-stop-update-"));

@@ -18,6 +18,7 @@ import {
     HostBuildChangedError,
 } from "../../src/host/reconnecting-agent-client.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
+import type { HostStopWaitEvent } from "../../src/host/protocol.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 
 const CROW_BUILD = "vera-crow-1";
@@ -372,6 +373,113 @@ test("clients without resume support reconnect from a fresh checkpoint", async (
     expect(await client.receive()).toMatchObject({ seq: 5 });
     expect(cursors).toEqual([undefined]);
     client.close();
+});
+
+test("repeated attachments that close without an update stop retrying", async () => {
+    const initial = fakeClient([], 4);
+    const abort = new AbortController();
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        if (attempts > 50) abort.abort(new Error("Too many reconnects"));
+        return fakeClient([], 4);
+    }, { deadlineMs: 180, delaysMs: [0, 30, 60] });
+    try {
+        await expect(client.receive(abort.signal)).rejects.toThrow();
+        expect(attempts).toBeLessThan(10);
+    } finally {
+        client.close();
+    }
+});
+
+test("a stopped notice ends an interactive direct attachment without retrying", async () => {
+    let notice: ((event: HostStopWaitEvent) => void) | undefined;
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4), closed: true,
+        onStopWait(listener) { notice = listener; return () => { notice = undefined; }; },
+    };
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        return fakeClient([{ type: "history", entries: [], seq: 0 }]);
+    }, { failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        notice?.({ type: "host_stop_wait_cleared", reason: "stopped" });
+        await expect(client.receive()).rejects.toThrow("host connection closed");
+        expect(attempts).toBe(0);
+    } finally {
+        client.close();
+    }
+});
+
+for (const announceRestart of [false, true]) {
+    test(`an update handoff retries a direct attachment ${announceRestart ? "after" : "before"} its restart notice`, async () => {
+        let notice: ((event: HostStopWaitEvent) => void) | undefined;
+        const initial: AttachedAgentClient = {
+            ...fakeClient([], 4), closed: true,
+            onStopWait(listener) { notice = listener; return () => { notice = undefined; }; },
+        };
+        let attempts = 0;
+        const client = createReconnectingAgentClient(initial, async () => {
+            attempts += 1;
+            return fakeClient([{ type: "history", entries: [], seq: 0 }]);
+        }, { failOnDisconnect: true, retryDirectDisconnect: () => true });
+        try {
+            notice?.({ type: "host_stop_wait", kind: "update", target_build_id: "next-build", waiting_on: [] });
+            notice?.({ type: "host_stop_wait_cleared", reason: "stopped" });
+            if (announceRestart) notice?.({ type: "host_restarting", build_id: "next-build" });
+            expect((await client.receive()).type).toBe("history");
+            expect(attempts).toBe(1);
+        } finally {
+            client.close();
+        }
+    });
+}
+
+test("a non-interactive attachment still retries after a stopped notice", async () => {
+    let notice: ((event: HostStopWaitEvent) => void) | undefined;
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4), closed: true,
+        onStopWait(listener) { notice = listener; return () => { notice = undefined; }; },
+    };
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        return fakeClient([{ type: "history", entries: [], seq: 0 }]);
+    }, { retryDirectDisconnect: () => true });
+    try {
+        notice?.({ type: "host_stop_wait_cleared", reason: "stopped" });
+        expect((await client.receive()).type).toBe("history");
+        expect(attempts).toBe(1);
+    } finally {
+        client.close();
+    }
+});
+
+test("a failed attachment replays its terminal event before reporting disconnection", async () => {
+    let notice: ((event: HostStopWaitEvent) => void) | undefined;
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4), failed: true, closed: true,
+        onStopWait(listener) { notice = listener; return () => { notice = undefined; }; },
+    };
+    const recovered = fakeClient([
+        { type: "history", entries: [], seq: 0 },
+        { type: "agent_failed", failureId: "failure-1", detail: "Worker stopped", seq: 1 },
+    ], undefined);
+    const cursors: Array<number | undefined> = [];
+    const client = createReconnectingAgentClient(initial, async (cursor) => {
+        cursors.push(cursor);
+        return recovered;
+    }, { failOnDisconnect: true });
+    try {
+        notice?.({ type: "host_stop_wait_cleared", reason: "stopped" });
+        await client.send({ type: "get_model_settings", requestId: "pending-settings" });
+        expect((await client.receive()).type).toBe("history");
+        expect(await client.receive()).toMatchObject({ type: "agent_failed", detail: "Worker stopped" });
+        expect(cursors).toEqual([undefined]);
+    } finally {
+        client.close();
+    }
 });
 
 test("a replacement without resume support falls back to a fresh checkpoint", async () => {
