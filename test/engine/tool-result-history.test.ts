@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { expect, spyOn, test } from "bun:test";
+import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     assembleAgedToolResults,
+    ToolResultDigestCache,
     TOOL_RESULT_STUB_AFTER_TURNS,
     toolResultAgingLevel,
     TOOL_RESULT_TOTAL_BUDGET_BYTES,
@@ -14,6 +15,124 @@ import {
 } from "../../src/engine/tool-result-history.ts";
 import { toolResultCeilingBytes } from "../../src/tools/tool-result-limit.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+
+test("cached assembly matches fresh assembly as spills and history change", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-"));
+    try {
+        const sources = [
+            ["grep", "grep", "src/map.ts:12:buried chest\n".repeat(180)],
+            ["extension", "extension_dump", "extension output\n".repeat(200)],
+            ["read", "read", "12\tburied chest\n".repeat(200)],
+            ["recent", "bash", "recent output\n".repeat(250)],
+        ] as const;
+        const entries: { readonly message: ModelMessage }[] = [user("first")];
+        for (const [id, tool, output] of sources.slice(0, 3)) {
+            const path = join(directory, `${id}.txt`);
+            await writeFile(path, output);
+            entries.push(call(id, tool), spilled(id, tool, output, path));
+        }
+        entries.push(
+            assistant("Used src/map.ts:12 and the `buried chest` line."),
+            user("second"),
+            assistant("The chest is on the map."),
+            user("third"),
+        );
+        const [id, tool, output] = sources[3];
+        const recentPath = join(directory, `${id}.txt`);
+        await writeFile(recentPath, output);
+        entries.push(call(id, tool), spilled(id, tool, output, recentPath));
+
+        const cache = new ToolResultDigestCache();
+        const lookup = spyOn(cache, "get");
+        const policy = { capacity: 1, ageAfterTurns: 2, budgetBytes: 128_000 };
+        const compare = (budgetBytes = policy.budgetBytes) => {
+            const settings = { ...policy, budgetBytes };
+            const uncached = JSON.stringify(assembleAgedToolResults(entries, settings, null));
+            const cached = JSON.stringify(assembleAgedToolResults(entries, settings, cache));
+            expect(cached).toBe(uncached);
+            return resultTexts(assembleAgedToolResults(entries, settings, cache));
+        };
+
+        const results = compare();
+        expect(results[0]).toContain("Digest of older grep");
+        expect(results[1]).toContain("Stub for older extension_dump");
+        expect(results[2]).toContain("Digest of older read");
+        expect(results[3]).toBe(output);
+        expect(lookup.mock.results.some((result) => result.value !== undefined)).toBe(true);
+
+        const grepPath = join(directory, "grep.txt");
+        const before = await stat(grepPath);
+        await writeFile(grepPath, sources[0][2].replaceAll("chest", "coast"));
+        await utimes(grepPath, before.atime, before.mtime);
+        expect(compare()[0]).toContain("coast");
+
+        entries.splice(7, 0, assistant("The map says `coast`."));
+        compare();
+        await rm(grepPath);
+        await rm(join(directory, "extension.txt"));
+        expect(compare()[0]).toBe(sources[0][2]);
+        expect(compare(1)[1]).toContain("no re-readable spill is available");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("cached digests follow changes to the call and result metadata", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-input-"));
+    try {
+        const source = "buried chest\n".repeat(400);
+        const path = join(directory, "bash.txt");
+        await writeFile(path, source);
+        const entries = agedEntries("bash", source, path);
+        const cache = new ToolResultDigestCache();
+        const compare = () => {
+            const fresh = assembleAgedToolResults(entries, PRESSURED, null);
+            const cached = assembleAgedToolResults(entries, PRESSURED, cache);
+            expect(JSON.stringify(cached)).toBe(JSON.stringify(fresh));
+            return resultTexts(cached)[0]!;
+        };
+        expect(compare()).toContain("Command: echo hi");
+        expect(compare()).toContain("Command: echo hi");
+        entries[1] = callWithInput("call-1", "bash", { command: "echo ahoy" });
+        expect(compare()).toContain("Command: echo ahoy");
+        const message = entries[2]!.message;
+        if (message.role !== "tool_result") throw new Error("Expected tool result");
+        entries[2] = { message: { ...message, isError: true } };
+        expect(compare()).toContain("Exit: non-zero");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("the digest cache skips oversized entries and evicts least recently used entries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-limit-"));
+    try {
+        const source = "src/map.ts:12:buried chest\n".repeat(180);
+        const path = join(directory, "grep.txt");
+        await writeFile(path, source);
+        const entries = agedEntries("grep", source, path);
+        const cache = new ToolResultDigestCache(1);
+        const lookup = spyOn(cache, "get");
+        assembleAgedToolResults(entries, PRESSURED, cache);
+        assembleAgedToolResults(entries, PRESSURED, cache);
+        expect(lookup.mock.calls.length).toBeGreaterThan(1);
+        expect(lookup.mock.results.every((result) => result.value === undefined)).toBe(true);
+
+        const otherPath = join(directory, "other.txt");
+        await writeFile(otherPath, source);
+        const other = agedEntries("grep", source, otherPath);
+        const bounded = new ToolResultDigestCache(16_000);
+        const boundedLookup = spyOn(bounded, "get");
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        assembleAgedToolResults(other, PRESSURED, bounded);
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        expect(boundedLookup.mock.results.map((result) => result.value !== undefined))
+            .toEqual([false, true, false, false]);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
 
 test("old built-in results get mechanical digests at assembly time", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-history-"));

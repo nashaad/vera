@@ -124,6 +124,43 @@ export function contextMeasurementDelta(
     };
 }
 
+export function replaceContextMeasurementDelta(
+    previousRecipe: ContextMeasurementRecipe,
+    previous: readonly ContextProjectionComponent[],
+    next: readonly ContextProjectionComponent[],
+): ContextMeasurementRecipe | undefined {
+    if (previousRecipe.keyframe) return contextMeasurementKeyframe(next);
+    if (previousRecipe.truncate !== undefined
+        && next.length > previousRecipe.truncate) return undefined;
+    for (const [index] of previousRecipe.update) {
+        if (index < next.length
+            && !sameProjectionComponent(previous[index]!, next[index]!)) {
+            return undefined;
+        }
+    }
+    const baseLength = previousRecipe.truncate
+        ?? previous.length - previousRecipe.append.length;
+    const retainedLength = Math.min(baseLength, next.length);
+    const priorUpdates = new Set(previousRecipe.update.map(([index]) => index));
+    const update: [number, ContextProjectionComponent][] = [];
+    for (let index = 0; index < retainedLength; index += 1) {
+        if (priorUpdates.has(index)
+            || !sameProjectionComponent(previous[index]!, next[index]!)) {
+            update.push([index, next[index]!]);
+        }
+    }
+    const truncate = previousRecipe.truncate !== undefined || next.length < baseLength
+        ? retainedLength
+        : undefined;
+    return {
+        version: CONTEXT_MEASUREMENT_RECIPE_VERSION,
+        keyframe: false,
+        append: next.slice(retainedLength),
+        update,
+        ...(truncate === undefined ? {} : { truncate }),
+    };
+}
+
 /**
  * Returns undefined when the recipe does not fit the base. A keyframe is the
  * only recipe allowed to start without a base.

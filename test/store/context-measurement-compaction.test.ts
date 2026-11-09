@@ -18,7 +18,11 @@ import { buildContextReport } from "../../src/core-extensions/context/context-re
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import {
+    applyContextMeasurementRecipe,
     compactContextMeasurement,
+    contextMeasurementDelta,
+    contextMeasurementKeyframe,
+    replaceContextMeasurementDelta,
 } from "../../src/store/context-measurement-record.ts";
 import { SessionReplica } from "../../src/store/session-replica.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -35,6 +39,124 @@ interface Captured {
     readonly afterMessageId: string | null;
     readonly measurement: ContextMeasurement;
 }
+
+test("replacing retained deltas preserves updates, truncations, and appends", () => {
+    const component = (position: number, tokens: number): ContextProjectionComponent => ({
+        kind: "message",
+        id: `message:${position}`,
+        owner: "session",
+        source: "user",
+        displayName: "message",
+        count: 1,
+        estimatedTokens: tokens,
+    });
+    let fallbacks = 0;
+    let replacements = 0;
+    for (let baseLength = 0; baseLength <= 6; baseLength += 1) {
+        const base = Array.from({ length: baseLength }, (_, i) => component(i, i));
+        for (let previousLength = 0; previousLength <= 6; previousLength += 1) {
+            const previous = Array.from({ length: previousLength }, (_, i) =>
+                component(i, i % 2 === 0 ? i + 10 : i));
+            for (let nextLength = 0; nextLength <= 6; nextLength += 1) {
+                const next = Array.from({ length: nextLength }, (_, i) =>
+                    component(i, i % 3 === 0 ? i + 20 : i));
+                const prior = contextMeasurementDelta(base, previous);
+                const replaced = replaceContextMeasurementDelta(prior, previous, next);
+                if (replaced === undefined) {
+                    fallbacks += 1;
+                } else {
+                    replacements += 1;
+                    expect(replaced).toEqual(contextMeasurementDelta(base, next));
+                    expect(applyContextMeasurementRecipe(base, replaced)).toEqual(next);
+                }
+                const keyframe = replaceContextMeasurementDelta(
+                    contextMeasurementKeyframe(previous), previous, next,
+                );
+                expect(keyframe).toBeDefined();
+                if (keyframe === undefined) throw new Error("Expected keyframe");
+                expect(applyContextMeasurementRecipe(undefined, keyframe)).toEqual(next);
+            }
+        }
+    }
+    expect(fallbacks).toBeGreaterThan(0);
+    expect(replacements).toBeGreaterThan(0);
+});
+
+test("repeated measurements keep live rewinds and on-disk recipes unchanged", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "retained-replacement",
+        cwd: directory,
+        createId: counter(),
+    });
+    await store.appendMessage(user("first"));
+    await store.appendMessage(assistant("first answer"));
+    const before = growingMeasurement(12);
+    await store.appendContextMeasurement(before);
+    const second = await store.appendMessage(user("second"));
+    const measurements: ContextMeasurement[] = [before];
+    for (let index = 0; index < 30; index += 1) {
+        const next = growingMeasurement((index * 11) % 40);
+        await store.appendContextMeasurement(next);
+        measurements.push(next);
+        expect(store.latestContextMeasurement()).toEqual(next);
+    }
+    const lines = readFileSync(path, "utf8").trimEnd().split("\n");
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.type === "context_measurement");
+    for (let index = 0; index < measurements.length; index += 1) {
+        const expected = compactContextMeasurement(
+            measurements[index]!,
+            measurements[index - 1]?.projection?.components,
+            index === 0,
+        );
+        expect(records[index]?.measurement).toEqual(expected.measurement);
+        expect(records[index]?.contextRecipe).toEqual(expected.recipe);
+    }
+    expect((await SessionStore.open(path)).latestContextMeasurement())
+        .toEqual(measurements.at(-1));
+    await store.rewindBefore(second.id);
+    expect(store.latestContextMeasurement()).toEqual(before);
+    expect((await SessionStore.open(path)).latestContextMeasurement()).toEqual(before);
+});
+
+test("a reverted component keeps the prior retained value", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "retained-reversion",
+        cwd: directory,
+        createId: counter(),
+    });
+    const measurement = (tokens: number, tag: string): ContextMeasurement => ({
+        tokens,
+        estimated: true,
+        projection: {
+            estimatedTokens: tokens,
+            components: [{
+                kind: "message",
+                id: "message:1",
+                owner: "session",
+                source: "user",
+                displayName: "message",
+                count: 1,
+                estimatedTokens: tokens,
+                tag,
+            } as ContextProjectionComponent],
+        },
+    });
+    const before = measurement(10, "before");
+    await store.appendMessage(user("first"));
+    await store.appendContextMeasurement(before);
+    await store.appendMessage(user("second"));
+    await store.appendContextMeasurement(measurement(11, "intermediate"));
+    await store.appendContextMeasurement(measurement(10, "after"));
+    expect(store.latestContextMeasurement()?.projection?.components)
+        .toEqual(before.projection?.components);
+    expect((await SessionStore.open(path)).latestContextMeasurement())
+        .toEqual(store.latestContextMeasurement());
+});
 
 test("compact records give the same measurement and /context at every rewind point", async () => {
     const directory = temporaryDirectory();

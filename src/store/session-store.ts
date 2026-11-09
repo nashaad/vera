@@ -60,6 +60,7 @@ import {
     contextMeasurementDelta,
     contextMeasurementKeyframe,
     isContextMeasurementRecipe,
+    replaceContextMeasurementDelta,
     type ContextMeasurementRecipe,
 } from "./context-measurement-record.ts";
 import {
@@ -2762,6 +2763,36 @@ function retainContextMeasurements(state: SessionProjectionState): void {
         return;
     }
     const indexes = [...kept].sort((left, right) => left - right);
+    if (
+        indexes.length === entries.length - 1
+        && indexes.at(-1) === entries.length - 1
+        && indexes.slice(0, -1).every((index, position) => index === position)
+    ) {
+        const previous = entries.at(-2);
+        const latest = entries.at(-1);
+        const components = latest?.measurement.projection?.components;
+        if (previous?.retainedRecipe !== undefined
+            && (!previous.retainedRecipe.keyframe || entries.length === 2)
+            && latest !== undefined
+            && latest.retainedRecipe === undefined
+            && components !== undefined
+            && state.contextMeasurementLastComponents !== undefined) {
+            const retainedRecipe = replaceContextMeasurementDelta(
+                previous.retainedRecipe,
+                state.contextMeasurementLastComponents,
+                components,
+            );
+            if (retainedRecipe !== undefined) {
+                entries.splice(entries.length - 2, 2, {
+                    ...latest,
+                    measurement: aggregateContextMeasurement(latest.measurement),
+                    retainedRecipe,
+                });
+                state.contextMeasurementLastComponents = components;
+                return;
+            }
+        }
+    }
     let prefix = true;
     for (let position = 0; position < indexes.length; position += 1) {
         if (indexes[position] !== position) {
