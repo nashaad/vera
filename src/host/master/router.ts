@@ -80,6 +80,7 @@ export interface HostRouterOptions {
     readonly workerReady?: () => boolean;
     readonly extraWorkers?: readonly RouterWorker[];
     readonly keepResidentOwner?: boolean;
+    readonly ownershipUncertain?: () => boolean;
     readonly sessionPathForId?: (id: string) => string | undefined;
     readonly reserveDelivery?: (id: string, run: () => Promise<ParentDeliveryOutcome>) => Promise<ParentDeliveryOutcome>;
 }
@@ -133,12 +134,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             if (current === owner && !present.has(id)) this.residents.delete(id);
         }
         for (const session of sessions) {
-            const current = this.owners.get(session.id);
-            if (current === undefined || current === owner) {
-                this.owners.set(session.id, owner);
-                this.paths.set(session.id, session.sessionPath);
-                this.residents.set(session.id, owner);
-            }
+            const current = this.residents.get(session.id);
+            if (current !== undefined && current !== owner) throw new Error("Session is resident on multiple hosts");
+            this.owners.set(session.id, owner);
+            this.paths.set(session.id, session.sessionPath);
+            this.residents.set(session.id, owner);
         }
         for (const [id, opening] of this.recoveryOpens) {
             if (opening.owner === owner && !opening.opening && opening.revision <= revision) this.recoveryOpens.delete(id);
@@ -155,6 +155,21 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     knownPath(id: string): string | undefined { return this.paths.get(id); }
+
+    isResident(id: string): boolean {
+        const owner = this.residents.get(id);
+        return owner === "host" || (owner !== undefined && this.worker(owner).ready());
+    }
+
+    async waitForOpenings(): Promise<void> {
+        while (true) {
+            await this.pending;
+            const openings = [...this.masterOpening].map((id) => this.operationCompletions.get(id)?.promise)
+                .filter((promise): promise is Promise<void> => promise !== undefined);
+            if (openings.length === 0) return;
+            await Promise.all(openings);
+        }
+    }
 
     workerSessions(owner: WorkerOwner, held: readonly string[] = []): readonly WorkerRecoverySession[] {
         const sessions = new Map<string, WorkerRecoverySession>();
@@ -198,7 +213,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             file = await recoveryFileStamp(path);
             if (!sameRecoveryFile(before, file)) confirmed = true;
         }
-        if (!this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        if (!this.worker(owner).ready()) throw new UserFacingError("The session process is unavailable.");
         const opening: PendingRecoveryOpen = { owner, path, baseline, file, confirmed, revision: ++this.recoveryRevision, opening: true };
         this.recoveryOpens.set(id, opening);
         return opening;
@@ -216,7 +231,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         if (owner === undefined || owner === "host") return undefined;
         const worker = this.worker(owner);
         if (!worker.ready()) {
-            return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." };
+            return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session process is unavailable." };
         }
         if (this.residents.get(id) !== owner || this.masterOpening.has(id)
             || this.trashing.has(id) || this.closing.has(id)) return undefined;
@@ -233,7 +248,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             while (this.masterOpening.has(id) || this.owners.has(id)
                 || (await this.allResidents()).some((entry) => entry.session.id === id)) id = randomUUID();
             const available = this.workers.filter((worker) => worker.ready());
-            if (available.length === 0) throw new UserFacingError("The session worker is unavailable.");
+            if (available.length === 0) throw new UserFacingError("The session process is unavailable.");
             const loads = await Promise.all(available.map(async (worker) => (await worker.endpoint.residents()).length));
             const chosen = available[loads.indexOf(Math.min(...loads))]!;
             this.owners.set(id, chosen.id);
@@ -276,6 +291,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (opening !== undefined) this.waitForOpen(opening);
                 const name = basename(canonical);
                 const pathId = name.endsWith(".jsonl") ? name.slice(0, -6) : undefined;
+                if (this.options.ownershipUncertain?.() === true && (pathId === undefined || !this.isResident(pathId))) {
+                    throw new UserFacingError("The session process is unavailable.");
+                }
                 const pathOwner = pathId === undefined ? undefined : this.owners.get(pathId);
                 if (pathId !== undefined && this.masterOpening.has(pathId)) this.waitForOpen(pathId);
                 const inspected = await this.options.master.inspect(canonical);
@@ -288,7 +306,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (this.options.keepResidentOwner === true) {
                     const selected = prior !== undefined && prior !== "host" ? prior : prior === "host" ? undefined : this.hashOwner(inspected.id);
                     if (selected !== undefined && !this.worker(selected).ready()) {
-                        throw new UserFacingError("The session worker is unavailable.");
+                        throw new UserFacingError("The session process is unavailable.");
                     }
                 }
                 const residents = (await this.allResidents()).filter((entry) => entry.session.id === inspected.id);
@@ -314,7 +332,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 let transferred: readonly RoutedSession[] = [];
                 const owner = prior !== undefined && prior !== "host" ? prior : this.hashOwner(inspected.id);
                 const worker = this.worker(owner);
-                if (!worker.ready()) throw new UserFacingError("The session worker is unavailable.");
+                if (!worker.ready()) throw new UserFacingError("The session process is unavailable.");
                 if (master !== undefined) {
                     const tree = await this.options.master.tree(inspected.id);
                     if ((await this.options.master.inspect(master.sessionPath)).sessionPath !== inspected.sessionPath) {
@@ -378,7 +396,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             try {
                 const owner = await this.resolvedOwner(id) ?? this.hashOwner(id);
                 if (owner !== "host" && !this.worker(owner).ready()) {
-                    return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." };
+                    return { type: "agent_location_failed", reason: "worker_unavailable", message: "The session process is unavailable." };
                 }
                 if (!this.owners.has(id)) this.owners.set(id, owner);
                 const opening = await this.beginRecoveryOpen(owner, id, path ?? this.paths.get(id));
@@ -413,7 +431,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             const assigned = await this.resolvedOwner(id);
             if (assigned !== undefined && assigned !== owner) return false;
             if (assigned === undefined && (owner === "host" || owner !== this.hashOwner(id))) return false;
-            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session process is unavailable.");
             if (assigned === undefined) this.owners.set(id, owner);
             const opening = await this.beginRecoveryOpen(owner, id, path ?? this.paths.get(id));
             let session: RoutedSession | undefined;
@@ -430,7 +448,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     socketFor(from: SessionOwner, id: string): Promise<string | undefined> {
         return this.serial(async () => {
             const owner = await this.resolvedOwner(id) ?? this.hashOwner(id);
-            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+            if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session process is unavailable.");
             if (owner === from) return undefined;
             return owner === "host" ? this.options.masterSocket : this.worker(owner).socket;
         });
@@ -467,6 +485,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async peerRoster(callerId: string, workspace: string, details: boolean): Promise<readonly PeerRosterEntry[]> {
+        this.requireAllWorkers();
         const rosters = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.peerRoster(callerId, workspace, details)));
         return rosters.flat().sort((left, right) => left.participant_id.localeCompare(right.participant_id));
     }
@@ -547,6 +566,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     reserveSubagentStart(parentId: string, limit: number): Promise<boolean> {
         return this.serial(async () => {
+            this.requireAllWorkers();
             const counts = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.runningSubagents(parentId)));
             const starting = this.subagentStarts.get(parentId) ?? 0;
             if (counts.reduce((sum, count) => sum + count, starting) >= limit) return false;
@@ -585,14 +605,14 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 if (existing !== undefined) {
                     const recorded = this.owners.get(pathOwner ?? id);
                     if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
-                        throw new UserFacingError("The session worker is unavailable.");
+                        throw new UserFacingError("The session process is unavailable.");
                     }
                     return { wait: existing.promise };
                 }
                 const recorded = this.owners.get(id);
                 if (this.options.keepResidentOwner === true && recorded !== undefined && recorded !== owner) {
                     if (recorded !== "host" && !this.worker(recorded).ready()) {
-                        throw new UserFacingError("The session worker is unavailable.");
+                        throw new UserFacingError("The session process is unavailable.");
                     }
                     throw new Error(`Resident agent ${id} already exists`);
                 }
@@ -603,12 +623,12 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 const current = this.owners.get(id);
                 if (this.options.keepResidentOwner === true && current !== undefined && current !== owner) {
                     if (current !== "host" && !this.worker(current).ready()) {
-                        throw new UserFacingError("The session worker is unavailable.");
+                        throw new UserFacingError("The session process is unavailable.");
                     }
                     throw new Error(`Resident agent ${id} already exists`);
                 }
                 if (owner !== "host" && !this.worker(owner).ready()) {
-                    throw new UserFacingError("The session worker is unavailable.");
+                    throw new UserFacingError("The session process is unavailable.");
                 }
                 const opening = owner === "host" ? undefined : await this.beginRecoveryOpen(owner, id, canonical);
                 if (signal?.aborted) {
@@ -634,6 +654,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async beginMasterResume(path: string): Promise<string> {
+        this.requireAllWorkers();
         const residents = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.residentAt(path)));
         const resident = residents.find((entry) => entry !== undefined);
         if (resident !== undefined) throw new Error(`Resident agent ${resident.id} already exists`);
@@ -683,7 +704,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             if (this.trashing.has(id)) return "busy";
             const recorded = this.owners.get(id);
             if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
-                throw new UserFacingError("The session worker is unavailable.");
+                throw new UserFacingError("The session process is unavailable.");
             }
             const residents = await this.allResidents();
             const root = residents.find((entry) => entry.session.id === id);
@@ -783,7 +804,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             if (this.trashing.has(id)) return { busy: true as const };
             const recorded = this.owners.get(id);
             if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
-                throw new UserFacingError("The session worker is unavailable.");
+                throw new UserFacingError("The session process is unavailable.");
             }
             const sessions = await this.allResidents();
             const root = sessions.find((entry) => entry.session.id === id);
@@ -912,7 +933,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async search(query: SessionSearchQuery): Promise<SessionSearchResults> {
-        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session process is unavailable.");
         const scan = await this.serial(async () => {
             const owners = [...this.endpoints.entries()];
             const [rosters, residents] = await Promise.all([
@@ -940,6 +961,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async flush(): Promise<void> {
+        this.requireAllWorkers();
         await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.flush()));
     }
 
@@ -952,6 +974,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     async parkIdle(now = Date.now()): Promise<void> {
+        if (this.workers.some((worker) => !worker.ready())) return;
         const facts = (await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.parkFacts()))).flat();
         const byId = new Map(facts.map((entry) => [entry.id, entry]));
         const expired: string[] = [];
@@ -980,7 +1003,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     importSession(path: string): Promise<SessionImportOutcome> {
         const run = this.imports.then(async () => {
-            if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+            if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session process is unavailable.");
             await this.shareImportIndex();
             let id = randomUUID();
             while (this.owners.has(id) || this.masterOpening.has(id)) id = randomUUID();
@@ -999,7 +1022,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     async listImportableSessions(workspace: string | undefined): Promise<ImportableSessionListing> {
         await this.waitForImports();
-        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session worker is unavailable.");
+        if (this.workers.some((worker) => !worker.ready())) throw new UserFacingError("The session process is unavailable.");
         await this.shareImportIndex();
         return await this.options.worker.listImportableSessions(workspace);
     }
@@ -1037,7 +1060,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     private endpoint(owner: SessionOwner): SessionEndpoint {
-        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session process is unavailable.");
         const endpoint = this.endpoints.get(owner);
         if (endpoint === undefined) throw new Error("Unknown session owner");
         return endpoint;
@@ -1047,6 +1070,12 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         const worker = this.workers.find((candidate) => candidate.id === owner);
         if (worker === undefined) throw new Error("Unknown session worker");
         return worker;
+    }
+
+    private requireAllWorkers(): void {
+        if (this.workers.some((worker) => !worker.ready())) {
+            throw new UserFacingError("The session process is unavailable.");
+        }
     }
 
     private hashOwner(id: string): WorkerOwner {
@@ -1133,6 +1162,9 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     private async owner(id: string, waitForStore: boolean): Promise<SessionOwner | undefined> {
+        if (this.options.ownershipUncertain?.() === true && !this.isResident(id)) {
+            throw new UserFacingError("The session process is unavailable.");
+        }
         if (waitForStore && this.trashing.has(id)) throw new UserFacingError("This conversation is being moved to the trash.");
         if (waitForStore && this.masterOpening.has(id)) this.waitForOpen(id);
         const recorded = this.owners.get(id);
@@ -1161,7 +1193,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     private async claimOwner(id: string, waitForStore = true): Promise<SessionOwner> {
         const owner = await this.resolvedOwner(id, waitForStore) ?? this.hashOwner(id);
-        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session worker is unavailable.");
+        if (owner !== "host" && !this.worker(owner).ready()) throw new UserFacingError("The session process is unavailable.");
         if (!this.owners.has(id)) this.owners.set(id, owner);
         return owner;
     }
@@ -1169,7 +1201,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private waitForOpen(id: string): never {
         const owner = this.owners.get(id);
         if (owner !== undefined && owner !== "host" && !this.worker(owner).ready()) {
-            throw new UserFacingError("The session worker is unavailable.");
+            throw new UserFacingError("The session process is unavailable.");
         }
         throw new OwnershipPending(this.operationCompletions.get(id)!.promise);
     }

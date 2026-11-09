@@ -190,7 +190,7 @@ test("a generation mismatch is resolved again before attaching", async () => {
     let locations = 0;
     const master = await masterServer(masterPath, () => {
         locations += 1;
-        return locations < 3 ? undefined : workerLocation(workerPath, "w0", 2);
+        return locations < 2 ? undefined : workerLocation(workerPath, "w0", 2);
     }, requests);
     let worker: WorkerProcess | undefined;
     let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
@@ -201,8 +201,33 @@ test("a generation mismatch is resolved again before attaching", async () => {
             initialLocation: workerLocation(workerPath, "w0", 1),
         });
         expect((await client.receive()).type).toBe("history");
-        expect(requests.filter((request) => request === "locate_agent")).toHaveLength(3);
+        expect(requests.filter((request) => request === "locate_agent")).toHaveLength(2);
         expect(readRequests(log).map((request) => request.type)).toEqual(["host_identity", "host_identity", "attach"]);
+    } finally {
+        client?.close();
+        if (worker !== undefined) await stopWorker(worker);
+        await closeServer(master);
+        await rm(root, { recursive: true, force: true });
+    }
+}, 20_000);
+
+test("a starting location gets one retry after the worker has time to report", async () => {
+    const root = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
+    const masterPath = join(root, "host.sock");
+    const workerPath = join(root, "worker.sock");
+    const requests: string[] = [];
+    let firstLocate = 0;
+    const master = await masterServer(masterPath, () => {
+        if (firstLocate === 0) firstLocate = Date.now();
+        return Date.now() - firstLocate >= 300 ? workerLocation(workerPath, "w0", 1) : undefined;
+    }, requests);
+    let worker: WorkerProcess | undefined;
+    let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
+    try {
+        worker = await startWorker(workerPath, "w0", 1, join(root, "worker.log"));
+        client = await attachReconnectingAgent({ socketPath: () => masterPath, agentId: "crow", buildId: BUILD });
+        expect((await client.receive()).type).toBe("history");
+        expect(requests.filter((request) => request === "locate_agent")).toHaveLength(2);
     } finally {
         client?.close();
         if (worker !== undefined) await stopWorker(worker);

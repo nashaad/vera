@@ -1,6 +1,6 @@
 import type { AttachmentCoordinator } from "../attachment-coordinator.ts";
 import type { HostRouter } from "./router.ts";
-import type { ControlPeer } from "./control.ts";
+import type { ControlChannel } from "./control.ts";
 
 type WorkerRouter = Pick<HostRouter,
     "setSessionTitle" | "sendToSession" | "askSession" | "investigate"
@@ -24,15 +24,15 @@ const ATTACHMENT_METHODS = {
     open: true, detach: true, abandon: true, ready: true, release: true, closeIfReady: true,
 } satisfies Record<keyof AttachmentCoordinator, true>;
 
-export function remoteRouter(peer: ControlPeer): WorkerRouter {
+export function remoteRouter(peer: ControlChannel): WorkerRouter {
     return remoteMethods(peer, "router", ROUTER_METHODS) as unknown as WorkerRouter;
 }
 
-export function remoteAttachments(peer: ControlPeer): AttachmentCoordinator {
+export function remoteAttachments(peer: ControlChannel): AttachmentCoordinator {
     return remoteMethods(peer, "attachment", ATTACHMENT_METHODS) as unknown as AttachmentCoordinator;
 }
 
-function remoteMethods(peer: ControlPeer, prefix: string, names: Record<string, true>) {
+function remoteMethods(peer: ControlChannel, prefix: string, names: Record<string, true>) {
     const result: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
     for (const method of Object.keys(names)) {
         result[method] = (...args) => {

@@ -19,4 +19,8 @@ export class StopWaitRelay {
             try { await observer(event); } catch {}
         }));
     }
+
+    async abandon(): Promise<void> {
+        if (this.current !== undefined) await this.publish({ type: "wait_cleared", reason: "abandoned" });
+    }
 }

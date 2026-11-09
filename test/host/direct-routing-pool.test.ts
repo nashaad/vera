@@ -58,7 +58,7 @@ test("locate and create wait while resume refuses a starting worker", async () =
         expect(createFinished).toBe(false);
         expect(resumeFinished).toBe(true);
         const unavailable = await resuming.then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         release.resolve();
         host = await starting;
         resuming = resumeAgentThroughHost(masterPath, sessionPath);
@@ -281,7 +281,7 @@ test("a reconnecting client reaches a replacement worker without restarting the 
             .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable" });
         expect(await request(masterPath, {
             type: "resume_agent", session_path: join(home, "runtime", "sessions", `${ready.id}.jsonl`),
-        })).toMatchObject({ type: "agent_start_failed", reason: "The session worker is unavailable." });
+        })).toMatchObject({ type: "agent_start_failed", reason: "The session process is unavailable." });
         release.resolve();
         let second = await requestHostIdentity(ready.location!.socket_path);
         while (second === undefined || second.pid === first!.pid) {

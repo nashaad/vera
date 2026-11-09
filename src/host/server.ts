@@ -70,7 +70,7 @@ import type {
     SessionSearchQuery,
     SessionSearchResults,
 } from "../store/session-search.ts";
-import { acquireHostStartupClaim } from "./startup-claim.ts";
+import { acquireHostStartupClaim, type HostStartupClaim } from "./startup-claim.ts";
 import {
     ExtensionCommandUnavailableError,
     InvalidExtensionCommandResultError,
@@ -190,6 +190,8 @@ export interface StartHostServerOptions {
     readonly poolWorkerCount?: number;
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
+    readonly startupClaim?: HostStartupClaim;
+    readonly publishBeforeWorkers?: boolean;
     readonly onListening?: (identity: HostIdentity) => Promise<void>;
     // Runs after the startup claim, before this host publishes its lock.
     readonly recoverPrevious?: () => Promise<void>;
@@ -385,7 +387,7 @@ async function startListener(
             worker_count: worker.count,
         }),
     };
-    const startupClaim = await acquireHostStartupClaim({
+    const startupClaim = options.startupClaim ?? await acquireHostStartupClaim({
         path: options.startupClaimPath ?? `${socketPath}.starting`,
         pid: identity.pid,
     });
@@ -598,9 +600,7 @@ async function startListener(
         );
         if (worker !== undefined) workerSocketStat = await lstat(socketPath);
         await chmod(socketPath, 0o600);
-        if (options.onListening !== undefined) await options.onListening(identity);
-        await options.recoverPrevious?.();
-        const lock = worker === undefined ? await createHostLockfile({
+        const publish = () => worker === undefined ? createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
             socketPath,
             pid: identity.pid,
@@ -613,7 +613,17 @@ async function startListener(
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
-        }).publish() : undefined;
+        }).publish() : Promise.resolve(undefined);
+        let lock;
+        if (worker === undefined && options.publishBeforeWorkers === true) {
+            await options.recoverPrevious?.();
+            lock = await publish();
+            if (options.onListening !== undefined) await options.onListening(identity);
+        } else {
+            if (options.onListening !== undefined) await options.onListening(identity);
+            await options.recoverPrevious?.();
+            lock = await publish();
+        }
         await startupClaim.release();
 
         return {

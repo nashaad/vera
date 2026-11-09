@@ -144,7 +144,7 @@ test("three workers scan thirty sessions, own each once, and search fails closed
         const missingOwnerPath = join(directory, `${missingOwnerId}.jsonl`);
         await SessionStore.create(missingOwnerPath, { sessionId: missingOwnerId, cwd: home });
         const unavailable = await resumeAgentThroughHost(socket, missingOwnerPath).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         for (const index of [0, 2]) {
             expect(await probe.peers.get(index)!.request("session.resident", [missingOwnerId])).toBeUndefined();
         }
@@ -256,13 +256,13 @@ test("control loss stops the child before its replacement reclaims sessions", as
         await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 2);
         expect(() => process.kill(pausedPid!, 0)).not.toThrow();
         expect(await request(socket, { type: "locate_agent", agent_id: session.id }))
-            .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable", message: "The session worker is unavailable." });
+            .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable", message: "The session process is unavailable." });
         expect(await request(join(home, "runtime", `w${hashIndex}.sock`), {
             type: "attach", agent_id: session.id, requested_capabilities: [HOST_CAPABILITY_SESSION_ROUTING],
         })).toMatchObject({ type: "attach_failed", reason: "unavailable" });
         const path = join(home, "runtime", "sessions", `${session.id}.jsonl`);
         const unavailable = await resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         expect(await probe.peers.get(hashIndex)!.request("session.resident", [session.id])).toBeUndefined();
         await waitForExit(pausedPid);
         exited = true;
@@ -319,7 +319,7 @@ test("a resume fails while its unindexed hash owner is still starting", async ()
         const socket = join(home, "runtime", "host.sock");
         await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 2);
         const unavailable = await within(resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error));
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         for (const index of [0, 2]) expect(await probe.peers.get(index)!.request("session.resident", [id])).toBeUndefined();
         release.resolve();
         host = await starting;
@@ -379,7 +379,7 @@ test("a lost create reply must not leave one session open on two workers", async
         const hashIndex = sessionShardIndex(lost.id, 3);
         expect(hashIndex).not.toBe(lost.index);
         const unavailable = await resumeAgentThroughHost(socket, lost.path).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         const second = await probe.peers.get(hashIndex)!.request("session.resident", [lost.id]);
         expect([true, second !== undefined].filter(Boolean)).toHaveLength(1);
         await waitForExit(lost.pid);

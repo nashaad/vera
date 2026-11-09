@@ -74,6 +74,7 @@ export interface StopWhenIdleOptions {
     readonly waitingOn: () => readonly StopWaitTarget[];
     readonly waitingOnAsync?: () => Promise<readonly StopWaitTarget[]>;
     readonly setTurnsHeld?: (held: boolean) => Promise<void>;
+    readonly replyBeforeWorkerCheck?: boolean;
     readonly onStopped: () => void | Promise<void>;
     readonly pollIntervalMs?: number;
     // Checked when a request names a build. A message refuses the request.
@@ -145,6 +146,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
         }
         this.listeners.add(listener);
         if (this.options.waitingOnAsync !== undefined) {
+            if (this.options.replyBeforeWorkerCheck === true) {
+                void deliver(listener, { type: "waiting", waiting_on: [] });
+            }
             this.ensureTimer();
             this.enqueueCheck(listener, requestOptions.cutFirst === true);
             return { accepted: true, unsubscribe: () => { this.listeners.delete(listener); } };

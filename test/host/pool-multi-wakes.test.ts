@@ -384,7 +384,7 @@ test("an entry for a stored session stays unread while its hash worker is gone",
         expect(stub.requests).toBe(0);
         for (const index of [0, 1]) expect(await probe.peers.get(index)!.request("session.resident", [id])).toBeUndefined();
         const unavailable = await resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         release.resolve();
         await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 3, "replacement ready");
         const target = await resumeAgentThroughHost(host.server.socketPath, path);
@@ -451,7 +451,7 @@ test("a dropped worker releases its claim after exit and the held entry follows 
         await waitFor(async () => (await requestHostIdentity(socket))?.workers_ready === 2, "worker link loss");
         const path = join(defaultSessionDirectory(home), `${target.id}.jsonl`);
         const unavailable = await resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error);
-        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session worker is unavailable." });
+        expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         expect(inboxState(home, target.id)).toEqual({ offset: 0, unread: 1 });
         expect(closed.has(oldClaim)).toBe(false);
         process.kill(paused, "SIGCONT");

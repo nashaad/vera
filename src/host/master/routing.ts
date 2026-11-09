@@ -1,5 +1,6 @@
 import { UserFacingError } from "../../user-facing-error.ts";
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import type { HostRequest } from "../protocol.ts";
 import type { StartHostServerOptions } from "../server.ts";
 import type { SessionHost } from "../session-host.ts";
@@ -22,6 +23,9 @@ export interface RoutedHostOptions {
     readonly workerReady: () => boolean;
     readonly workerPid?: () => number | undefined;
     readonly workerStarting: () => boolean;
+    readonly recoveryPending?: () => boolean;
+    readonly reportsPending?: () => boolean;
+    readonly ownershipUncertain?: () => boolean;
     readonly waitForWorkerStart: () => Promise<void>;
     readonly workerCanShutdown: () => boolean | Promise<boolean>;
     readonly workerCanReplace: () => boolean | Promise<boolean>;
@@ -49,6 +53,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         workerReady: options.workerReady,
         extraWorkers: options.extraWorkers,
         keepResidentOwner: options.keepResidentOwner,
+        ownershipUncertain: options.ownershipUncertain,
         sessionPathForId: options.master.registry.options.sessionPathForId,
         reserveDelivery: (id, run) => reserveAgent(id, () => run()),
     });
@@ -104,9 +109,15 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     }
     async function requireWorker(waitForStart = true): Promise<void> {
         if (waitForStart && readyWorkers().length === 0 && options.workerStarting()) await options.waitForWorkerStart();
-        if (readyWorkers().length === 0) throw new UserFacingError("The session worker is unavailable.");
+        if (readyWorkers().length === 0) throw new UserFacingError("The session process is unavailable.");
     }
     const resumeSession = async (path: string) => {
+        if (options.recoveryPending?.() === true) throw new UserFacingError("The session processes are starting.");
+        const name = basename(path);
+        const id = name.endsWith(".jsonl") ? name.slice(0, -6) : undefined;
+        if (options.ownershipUncertain?.() === true && (id === undefined || !router.isResident(id))) {
+            throw new UserFacingError("The session process is unavailable.");
+        }
         await requireWorker(false);
         await router.waitForImports();
         while (true) {
@@ -131,6 +142,12 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         locateAgent: async (id: string) => {
             const cached = router.cachedLocation(id);
             if (cached !== undefined) return cached;
+            if (options.recoveryPending?.() === true || options.reportsPending?.() === true) {
+                return { type: "agent_location_failed" as const, reason: "starting" as const, message: "The session processes are starting." };
+            }
+            if (options.ownershipUncertain?.() === true) {
+                return { type: "agent_location_failed" as const, reason: "worker_unavailable" as const, message: "The session process is unavailable." };
+            }
             const locating = (async () => {
                 await router.waitForImports();
                 if (readyWorkers().length === 0) {
@@ -141,8 +158,8 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
                         };
                     }
                     return options.workerStarting()
-                        ? { type: "agent_location_failed" as const, reason: "starting" as const, message: "The session worker is starting." }
-                        : { type: "agent_location_failed" as const, reason: "worker_unavailable" as const, message: "The session worker is unavailable." };
+                        ? { type: "agent_location_failed" as const, reason: "starting" as const, message: "The session processes are starting." }
+                        : { type: "agent_location_failed" as const, reason: "worker_unavailable" as const, message: "The session process is unavailable." };
                 }
                 return await reserveAgent(id, (reserved, path) => router.locate(id, reserved, path));
             })();
@@ -154,7 +171,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
                     new Promise<Awaited<ReturnType<HostRouter["locate"]>>>((resolve) => {
                         timer = setTimeout(() => resolve({
                             type: "agent_location_failed", reason: "worker_unavailable",
-                            message: "The session worker is unavailable.",
+                            message: "The session process is unavailable.",
                         }), 250);
                     }),
                 ]);
@@ -163,6 +180,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             }
         },
         createAgent: async (request: Parameters<HostRouter["create"]>[0]) => {
+            if (options.recoveryPending?.() === true) throw new UserFacingError("The session processes are starting.");
             await requireWorker();
             await router.waitForImports();
             return await router.create(request);
@@ -189,6 +207,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
     };
     const branch = (owner: SessionOwner, host: SessionHost): NonNullable<StartHostServerOptions["branchAgent"]> =>
         async (request) => {
+            if (options.recoveryPending?.() === true) throw new UserFacingError("The session processes are starting.");
             if (!await router.beginBranch(owner, request.sourceId)) return undefined;
             const id = request.id ?? randomUUID();
             let opened = false;

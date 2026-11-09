@@ -408,7 +408,43 @@ export async function stopLeftoverPoolWorkers(home: string): Promise<void> {
         if (live !== undefined) {
             throw new HostStartRefusedError(`Resident Vera host PID ${live.pid} is still running.`);
         }
+        const snapshots = await Promise.all((await readRecordedWorkers(home)).map(async (record) => {
+            const source = await readFile(record.path, "utf8").catch((error: NodeJS.ErrnoException) => {
+                if (error.code === "ENOENT") return undefined;
+                throw error;
+            });
+            if (source === undefined) return undefined;
+            let value: unknown;
+            try {
+                value = JSON.parse(source);
+            } catch {
+                return undefined;
+            }
+            if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+            const current = value as Record<string, unknown>;
+            if (current.id !== record.id || current.pid !== record.pid || current.started_at !== record.started_at) {
+                return undefined;
+            }
+            return { record, source };
+        }));
         await stopRecordedWorkers(home);
+        for (const snapshot of snapshots) {
+            if (snapshot === undefined) continue;
+            const { record, source } = snapshot;
+            if (processIsAlive(record.pid)) {
+                const identity = checkRecordIdentity(record);
+                if (identity === "match") throw new Error(`Session process PID ${record.pid} is still running.`);
+                if (identity === "unknown") throw new Error(`Could not confirm session process PID ${record.pid} stopped.`);
+            }
+            const current = await readFile(record.path, "utf8").catch((error: NodeJS.ErrnoException) => {
+                if (error.code === "ENOENT") return undefined;
+                throw error;
+            });
+            if (current !== source) continue;
+            await unlink(record.path).catch((error: NodeJS.ErrnoException) => {
+                if (error.code !== "ENOENT") throw error;
+            });
+        }
     } finally {
         await claim.release();
     }

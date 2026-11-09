@@ -164,6 +164,36 @@ test("plain host stop refuses while startup holds the claim", async () => {
     }
 }, 30_000);
 
+test("a pooled host with a custom socket refuses while its startup claim is held", async () => {
+    const home = await mkdtemp("/private/tmp/vera-dev/hs9-custom-claim-");
+    const runtime = join(home, "runtime");
+    const socket = join(runtime, "custom.sock");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const claim = await acquireHostStartupClaim({ path: `${socket}.starting` });
+    try {
+        await writeFile(join(runtime, "host.json"), JSON.stringify({
+            schema_version: 3, pid: process.pid, started_at: new Date(Date.now() - process.uptime() * 1_000).toISOString(),
+            socket_path: socket, build_id: "old-build", role: "host", worker_count: 1,
+        }));
+        let output = "";
+        let error = "";
+        const code = await runCli(["host", "stop"], {
+            confirmHostStop: async () => true,
+            stdout: { write: (text) => { output += text; } },
+            stderr: { write: (text) => { error += text; } },
+        });
+        expect({ code, output, error }).toEqual({
+            code: 1, output: "", error: `Resident host startup is already in progress (PID ${process.pid})\n`,
+        });
+    } finally {
+        await claim.release();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        await rm(home, { recursive: true, force: true });
+    }
+});
+
 test("a dangling home alias and its target share the startup claim for both stops", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs9-claim-alias-");
     const previousHome = process.env.VERA_HOME;

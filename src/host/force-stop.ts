@@ -1,7 +1,7 @@
 import { unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { selectedVeraHome } from "../profile-paths.ts";
-import { assertRecordedWorkersStopped, readRecordedWorkers } from "./master/worker-records.ts";
+import { assertRecordedWorkersStopped, readRecordedWorkers, removeStoppedPoolLock } from "./master/worker-records.ts";
 import type { HostStartupClaim } from "./startup-claim.ts";
 import { acquireStopStartupClaim } from "./stop-claim.ts";
 
@@ -169,8 +169,11 @@ function stopHome(options: ForceStopOptions, lockPath: string): string {
     return selectedVeraHome();
 }
 
-async function withStopClaim<T>(lockPath: string, run: (claim: HostStartupClaim) => Promise<T>): Promise<T> {
-    const claim = await acquireStopStartupClaim(join(dirname(lockPath), "host.sock.starting"));
+async function withStopClaim<T>(
+    lockPath: string, run: (claim: HostStartupClaim) => Promise<T>, socketPath?: string,
+): Promise<T> {
+    const path = socketPath === undefined ? join(dirname(lockPath), "host.sock.starting") : `${socketPath}.starting`;
+    const claim = await acquireStopStartupClaim(path);
     try { return await run(claim); }
     finally { await claim.release(); }
 }
@@ -279,6 +282,10 @@ export async function stopResidentHostWhenIdle(
         };
     }
     const record = inspection.record;
+    const pool = record.role === "host" && record.worker_count !== undefined;
+    if (pool && !isUpdate && options.startupClaim === undefined) {
+        return await withStopClaim(lockPath, (startupClaim) => stopResidentHostWhenIdle({ ...options, lockPath, startupClaim }), record.socket_path);
+    }
     const identity = options.matchesRecord === undefined
         ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
         : options.matchesRecord(record) ? "match" : "mismatch";
@@ -300,7 +307,9 @@ export async function stopResidentHostWhenIdle(
     const result = await requestStop(
         record.socket_path,
         record,
-        options.onWaiting ?? (() => undefined),
+        (waiting) => {
+            if (!pool || waiting.length > 0) options.onWaiting?.(waiting);
+        },
         { targetBuildId: options.targetBuildId, detach: options.detach === true },
     );
     if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
@@ -321,6 +330,13 @@ export async function stopResidentHostWhenIdle(
         await wait(pollIntervalMs);
     }
     await assertRecordedWorkersStopped(home);
+    if (pool) {
+        await removeStoppedPoolLock(home, lockPath, record);
+        const remaining = await inspectHostLockFile(lockPath);
+        if (remaining.state !== "absent") {
+            throw new HostLockUnreadableError(lockPath, remaining.state === "valid" ? remaining.record.pid : remaining.pid);
+        }
+    }
     return { pid: record.pid, endedBy: "stopped" };
 }
 

@@ -38,6 +38,13 @@ process unavailable until the development host restarts.
 An interrupted inbox, schedule, or watch wake stays unread and appears when
 you next attach. A later entry can wake the conversation normally.
 
+If the host crashes while a session process is still running, that process keeps
+its client connections for 30 seconds. A running turn can finish during that
+time if it does not need the host. Requests that need the host fail until a new
+host starts. A host of the same build reconnects to the waiting session
+processes and their conversations. If no host starts in time, the session
+process stops its running turns and exits; send an interrupted prompt again.
+
 When a development instance has to start its own host, that host and the
 worker and supervisor processes it starts run this checkout's code: the
 checkout's packed release if it has one, otherwise the source. They never run
@@ -129,6 +136,8 @@ summaries and names the unavailable process after the table. Reconnect host
 and automatic restart keep pool mode when they replace a pooled host.
 If a host is starting before its lock is published, stop reports the startup
 in progress instead of reporting that no host is running.
+An ordinary stop also reports startup in progress while a pooled host adopts
+session processes; retry after startup finishes.
 
 Neither command signals a process whose start time the system cannot report.
 They print that the PID could not be confirmed as the host, keep its lockfile,

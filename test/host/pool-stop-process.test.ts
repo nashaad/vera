@@ -1,18 +1,21 @@
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 
+import { runCli } from "../../clients/cli/main.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
-import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
+import { forceStopHostProcess, stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
 import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
 import { stopWorkerProcess } from "../../src/host/master/stop-worker.ts";
 import { readRecordedWorkers, type RecordedWorker } from "../../src/host/master/worker-records.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
-import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
+import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
 import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 async function waitFor(check: () => boolean | Promise<boolean>, description: string): Promise<void> {
@@ -37,7 +40,7 @@ async function finishPool(child: ChildProcess, exited: Promise<number | null>, h
     expect(records.map((record) => record.pid).filter(processIsAlive)).toEqual([]);
 }
 
-async function startPool(mode: "plain" | "pool" = "pool") {
+async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = false) {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-stop-");
     const web = join(home, "web");
     await mkdir(web);
@@ -60,7 +63,8 @@ async function startPool(mode: "plain" | "pool" = "pool") {
         providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
     }));
     const child: ChildProcess = spawn(process.execPath, [join(import.meta.dir, "fixtures", "pool-stop-host.ts")], {
-        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hsplit9 dev", HS9_STOP_MODE: mode }, stdio: "ignore",
+        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hsplit9 dev", HS9_STOP_MODE: mode,
+            ...(delayReplacement ? { HS9_DELAY_REPLACEMENT: "1" } : {}) }, stdio: "ignore",
     });
     const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
     const socket = join(home, "runtime", "host.sock");
@@ -79,6 +83,7 @@ async function startPool(mode: "plain" | "pool" = "pool") {
             home, socket, masterPid: child.pid, workers, exited,
             get requests() { return requests; },
             release: () => gate.resolve(),
+            releaseReplacement: async () => { await writeFile(join(home, "replacement-release"), ""); },
             async cleanup() {
                 gate.resolve();
                 try {
@@ -129,6 +134,178 @@ test("a pool stop waits for a running turn and reaps every process before removi
     } finally {
         client?.close();
         await pool.cleanup();
+    }
+}, 30_000);
+
+test("a stop replies immediately and waits for a delayed replacement and running turn", async () => {
+    const pool = await startPool("pool", true);
+    let client: AttachedAgentClient | undefined;
+    let stop: Promise<number> | undefined;
+    try {
+        const lost = await createAgentThroughHost(pool.socket, pool.home);
+        const running = await createAgentThroughHost(pool.socket, pool.home);
+        expect(lost.location!.worker_id).not.toBe(running.location!.worker_id);
+        client = await attachAgent({ socketPath: running.location!.socket_path, agentId: running.id });
+        await client.receive(AbortSignal.timeout(10_000));
+        await client.send({ type: "prompt", content: "Keep working." });
+        await waitFor(() => pool.requests === 1, "running turn");
+        const old = await requestHostIdentity(lost.location!.socket_path);
+        if (old === undefined) throw new Error("Session process identity is unavailable");
+        await forceStopHostProcess(old, { firstSignal: "SIGKILL", sigkillGraceMs: 1_000 });
+        await waitFor(() => existsSync(join(pool.home, "replacement-entered")), "replacement startup");
+        const first = Promise.withResolvers<readonly unknown[]>();
+        let output = "";
+        let error = "";
+        let finished = false;
+        stop = runCli(["host", "stop"], {
+            confirmHostStop: async () => true,
+            stopHost: (options) => stopResidentHostWhenIdle({
+                ...options, home: pool.home, lockPath: join(pool.home, "runtime", "host.json"),
+                requestStop: (socket, identity, onWaiting, requestOptions) => requestHostStop(socket, identity, (waiting) => {
+                    first.resolve(waiting);
+                    onWaiting(waiting);
+                }, requestOptions),
+            }),
+            stdout: { write: (text) => { output += text; } },
+            stderr: { write: (text) => { error += text; } },
+        }).finally(() => { finished = true; });
+        expect(await Promise.race([first.promise, Bun.sleep(900).then(() => { throw new Error("No first stop reply"); })])).toEqual([]);
+        await Bun.sleep(1_250);
+        expect(finished).toBe(false);
+        expect(processIsAlive(pool.masterPid)).toBe(true);
+        expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(true);
+        await pool.releaseReplacement();
+        let replacement: RecordedWorker | undefined;
+        await waitFor(async () => {
+            replacement = (await readRecordedWorkers(pool.home)).find((record) => record.id === lost.location!.worker_id && record.pid !== old.pid);
+            return replacement !== undefined;
+        }, "replacement record");
+        await waitFor(() => output.includes("Stopping after running turns end."), "running-turn notice");
+        expect(await client.send({ type: "prompt", content: "Start another turn." }).then(() => "accepted", (reason: Error) => reason.message))
+            .toBe(TURNS_HELD_REFUSAL);
+        expect(finished).toBe(false);
+        pool.release();
+        expect(await stop).toBe(0);
+        expect(error).toBe("");
+        expect(output).toContain(`Stopped resident Vera host PID ${pool.masterPid} after its running turns ended.`);
+        expect(await pool.exited).toBe(0);
+        expect([pool.masterPid, ...pool.workers, replacement!.pid].filter(processIsAlive)).toEqual([]);
+        expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
+    } finally {
+        await pool.releaseReplacement().catch(() => {});
+        pool.release();
+        client?.close();
+        await pool.cleanup();
+        await stop?.catch(() => {});
+    }
+}, 35_000);
+
+test("a stop already waiting does not finish while a replacement is starting", async () => {
+    const pool = await startPool("pool", true);
+    let client: AttachedAgentClient | undefined;
+    let stop: Promise<number> | undefined;
+    try {
+        const lost = await createAgentThroughHost(pool.socket, pool.home);
+        const running = await createAgentThroughHost(pool.socket, pool.home);
+        expect(lost.location!.worker_id).not.toBe(running.location!.worker_id);
+        client = await attachAgent({
+            socketPath: running.location!.socket_path, agentId: running.id,
+            requestedCapabilities: [HOST_CAPABILITY_STOP_WAIT],
+        });
+        const events: string[] = [];
+        client.onStopWait((event) => events.push(event.type));
+        await client.receive(AbortSignal.timeout(10_000));
+        await client.send({ type: "prompt", content: "Keep working." });
+        await waitFor(() => pool.requests === 1, "running turn");
+        let output = "";
+        let finished = false;
+        stop = runCli(["host", "stop"], {
+            confirmHostStop: async () => true,
+            stopHost: (options) => stopResidentHostWhenIdle({
+                ...options, home: pool.home, lockPath: join(pool.home, "runtime", "host.json"),
+            }),
+            stdout: { write: (text) => { output += text; } },
+            stderr: { write: () => {} },
+        }).finally(() => { finished = true; });
+        await waitFor(() => output.includes("Stopping after running turns end."), "running-turn notice");
+        const old = await requestHostIdentity(lost.location!.socket_path);
+        if (old === undefined) throw new Error("Session process identity is unavailable");
+        await forceStopHostProcess(old, { firstSignal: "SIGKILL", sigkillGraceMs: 1_000 });
+        await waitFor(() => existsSync(join(pool.home, "replacement-entered")), "replacement startup");
+        pool.release();
+        while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
+        await Bun.sleep(600);
+        expect(finished).toBe(false);
+        expect(events).not.toContain("host_stop_wait_cleared");
+        expect(processIsAlive(pool.masterPid)).toBe(true);
+        await pool.releaseReplacement();
+        await waitFor(() => existsSync(join(pool.home, "replacement-ready.json")), "replacement readiness");
+        const replacement = JSON.parse(await readFile(join(pool.home, "replacement-ready.json"), "utf8")) as { pid: number };
+        expect(await stop).toBe(0);
+        expect(await pool.exited).toBe(0);
+        expect([pool.masterPid, ...pool.workers, replacement.pid].filter(processIsAlive)).toEqual([]);
+        expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
+    } finally {
+        await pool.releaseReplacement().catch(() => {});
+        pool.release();
+        client?.close();
+        await pool.cleanup();
+        await stop?.catch(() => {});
+    }
+}, 35_000);
+
+test("a lost final stop reply has the same CLI result in plain and pool mode", async () => {
+    for (const mode of ["plain", "pool"] as const) {
+        const pool = await startPool(mode);
+        const proxyPath = join(pool.home, "runtime", "stop-proxy.sock");
+        const proxyLock = join(pool.home, "runtime", "proxy-host.json");
+        const proxy = createServer((client) => {
+            const upstream = createConnection(pool.socket);
+            client.pipe(upstream);
+            let buffered = "";
+            upstream.setEncoding("utf8");
+            upstream.on("data", (chunk: string) => {
+                buffered += chunk;
+                let newline = buffered.indexOf("\n");
+                while (newline !== -1) {
+                    const line = buffered.slice(0, newline);
+                    buffered = buffered.slice(newline + 1);
+                    if (JSON.parse(line).type === "stop_host_stopped") {
+                        client.destroy();
+                        upstream.destroy();
+                        return;
+                    }
+                    client.write(`${line}\n`);
+                    newline = buffered.indexOf("\n");
+                }
+            });
+            upstream.on("error", () => client.destroy());
+            client.on("error", () => upstream.destroy());
+            client.on("close", () => upstream.destroy());
+        });
+        try {
+            await new Promise<void>((resolve, reject) => proxy.listen(proxyPath, () => resolve()).once("error", reject));
+            const record = JSON.parse(await readFile(join(pool.home, "runtime", "host.json"), "utf8")) as Record<string, unknown>;
+            await writeFile(proxyLock, JSON.stringify({ ...record, socket_path: proxyPath }));
+            let output = "";
+            let error = "";
+            const code = await runCli(["host", "stop"], {
+                confirmHostStop: async () => true,
+                stopHost: (options) => stopResidentHostWhenIdle({ ...options, home: pool.home, lockPath: proxyLock }),
+                stdout: { write: (text) => { output += text; } },
+                stderr: { write: (text) => { error += text; } },
+            });
+            expect({ code, output, error }).toEqual({
+                code: 1,
+                output: `Resident Vera host PID ${pool.masterPid} did not answer the stop request, so it was left running. Run 'vera host stop --force' to stop it now and cut its running turns.\n`,
+                error: "",
+            });
+            expect(await pool.exited).toBe(0);
+            expect([pool.masterPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
+        } finally {
+            await new Promise<void>((resolve) => proxy.close(() => resolve()));
+            await pool.cleanup();
+        }
     }
 }, 30_000);
 

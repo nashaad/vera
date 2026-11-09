@@ -21,6 +21,7 @@ interface InboxRegistration {
     readonly projectRoot?: string;
     readonly requestAdmission: boolean;
     readonly initialOffset: number;
+    readonly heldWakes?: readonly number[];
 }
 
 interface MasterSession {
@@ -82,6 +83,11 @@ export class MasterInboxBridge {
             const released = Promise.withResolvers<void>();
             const claim: InboxClaim = { released: released.promise, release: () => released.resolve() };
             const wakes = new Set<number>();
+            if (registration.heldWakes !== undefined && registration.heldWakes.length > 0) {
+                let held = this.heldWakes.get(registration.label);
+                if (held === undefined) { held = new Set(); this.heldWakes.set(registration.label, held); }
+                for (const seq of registration.heldWakes) held.add(seq);
+            }
             this.claims.set(registration.label, claim);
             let entry: MasterSession;
             const callback = (name: string, values: readonly unknown[] = [], callbackSignal?: AbortSignal) => {
@@ -218,6 +224,8 @@ interface WorkerSession {
     readonly session: InboxDeliverySession;
     pending: Promise<void>;
     active: boolean;
+    attached: boolean;
+    readonly wakes: Set<number>;
 }
 
 export class WorkerInboxBridge implements InboxSessionBridge {
@@ -235,7 +243,7 @@ export class WorkerInboxBridge implements InboxSessionBridge {
             requestAdmission: request.requestAdmission !== undefined,
             initialOffset: session.consumer.offset(),
         };
-        const entry: WorkerSession = { request, session, pending: Promise.resolve(), active: true };
+        const entry: WorkerSession = { request, session, pending: Promise.resolve(), active: true, attached: false, wakes: new Set() };
         this.sessions.set(token, entry);
         const attaching = new AbortController();
         const enqueue = (method: string, args: readonly unknown[] = [], signal?: AbortSignal): Promise<void> => {
@@ -251,8 +259,8 @@ export class WorkerInboxBridge implements InboxSessionBridge {
             entry.active ? enqueue(method, args) : Promise.reject(new Error("Inbox session is unavailable"));
         return {
             pump: () => entry.active ? enqueue("pump") : Promise.resolve(),
-            clientAttachmentChanged: (attached) => send("attachment", [attached]),
-            forgetWakes: () => send("forgetWakes"),
+            clientAttachmentChanged: (attached) => { entry.attached = attached; send("attachment", [attached]); },
+            forgetWakes: () => { entry.wakes.clear(); send("forgetWakes"); },
             noteDelivered: (seq) => invoke("noteDelivered", [seq]),
             acknowledgeDelivered: () => invoke("acknowledgeDelivered"),
             acknowledge: (seq) => invoke("acknowledge", [seq]),
@@ -284,10 +292,12 @@ export class WorkerInboxBridge implements InboxSessionBridge {
                 const candidate = value as InboxAdmissionCandidate;
                 if (entry.request.canStartTurn?.() !== true) throw new Error("Inbox session is not attached");
                 entry.session.rememberRemoteWake(candidate);
+                entry.wakes.add(candidate.seq);
                 try {
                     await entry.request.startTurn?.(candidate);
                 } catch (error) {
                     entry.session.forgetRemoteWake(candidate.seq);
+                    entry.wakes.delete(candidate.seq);
                     throw error;
                 }
                 return;
@@ -308,6 +318,31 @@ export class WorkerInboxBridge implements InboxSessionBridge {
     async drain(): Promise<void> {
         await Promise.all([...this.sessions.values()].map((entry) => entry.pending));
     }
+
+    async restore(): Promise<void> {
+        for (const [token, entry] of [...this.sessions]) {
+            await entry.pending;
+            if (!entry.active) continue;
+            const offset = entry.session.consumer.offset();
+            const heldWakes = [...entry.wakes].filter((seq) => seq > offset);
+            const registration: InboxRegistration = {
+                label: entry.request.label, session: entry.request.session,
+                actor: entry.request.actor, projectRoot: entry.request.projectRoot,
+                requestAdmission: entry.request.requestAdmission !== undefined,
+                initialOffset: offset, heldWakes,
+            };
+            await this.master("attach", [token, registration]);
+            if (!entry.active) await this.master("release", [token]);
+        }
+    }
+
+    async activate(): Promise<void> {
+        for (const [token, entry] of [...this.sessions]) {
+            if (!entry.active) continue;
+            await this.master("attachment", [token, entry.attached]);
+            await this.master("pump", [token]);
+        }
+    }
 }
 
 function registrationFrom(value: unknown): InboxRegistration {
@@ -316,6 +351,8 @@ function registrationFrom(value: unknown): InboxRegistration {
     if (typeof data.label !== "string" || data.label.length === 0 || typeof data.session !== "string"
         || typeof data.requestAdmission !== "boolean"
         || !Number.isSafeInteger(data.initialOffset) || (data.initialOffset as number) < 0
+        || (data.heldWakes !== undefined && (!Array.isArray(data.heldWakes)
+            || !data.heldWakes.every((seq) => Number.isSafeInteger(seq) && seq > 0)))
         || !(data.actor === undefined || data.actor === null || typeof data.actor === "string")
         || !(data.projectRoot === undefined || typeof data.projectRoot === "string")) {
         throw new Error("Invalid inbox registration");

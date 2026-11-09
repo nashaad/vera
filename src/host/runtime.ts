@@ -56,8 +56,12 @@ import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
 import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
-import { defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
 import { removeStoppedPoolLock } from "./master/worker-records.ts";
+import { acquireHostStartupClaim, type HostStartupClaim } from "./startup-claim.ts";
+import { HostSocketHeldError } from "./server.ts";
+import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./master/worker-record.ts";
+import { occupiedWorkerSockets, workerCountFromReconnect } from "./master/worker-sockets.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -149,7 +153,7 @@ import { createConsumerRegistry } from "./consumers.ts";
 import { InboxAdmissionPolicy } from "./inbox-admission.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
-import type { CatalogRefreshOutcome } from "./protocol.ts";
+import { requestHostIdentity, type CatalogRefreshOutcome } from "./protocol.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 import type { SessionArtifacts } from "./session-trash.ts";
 import {
@@ -180,6 +184,7 @@ export interface StartResidentHostOptions {
     readonly processWorker?: boolean;
     readonly processWorkerCount?: number;
     readonly processWorkerHeartbeatDeadlineMs?: number;
+    readonly processWorkerMasterGraceMs?: number;
     readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
@@ -240,10 +245,72 @@ export interface ResidentHost {
     close(): Promise<void>;
 }
 
+const activeResidentHostSockets = new Set<string>();
+
+interface ResidentHostStartup {
+    readonly claim: HostStartupClaim;
+    readonly recovery: WorkerRecordScan;
+    readonly settleRecovery: () => Promise<WorkerRecordScan>;
+    readonly onClosed: () => void;
+}
+
+function hasWorkerRecovery(scan: WorkerRecordScan): boolean {
+    return scan.recoverable.length > 0 || scan.stopped.length > 0 || scan.pending.length > 0 || scan.unrecorded.length > 0;
+}
+
 export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
-    return await startHostRuntime(options) as ResidentHost;
+    requireHomeForOverrides(options);
+    const home = selectedVeraHome(options.home);
+    const socketPath = options.socketPath ?? defaultHostSocketPath(home);
+    const lockPath = options.lockPath ?? defaultHostLockPath(home);
+    const activeSocket = resolve(socketPath);
+    if (activeResidentHostSockets.has(activeSocket)) throw new HostSocketHeldError(process.pid, socketPath, true);
+    activeResidentHostSockets.add(activeSocket);
+    let claim: HostStartupClaim | undefined;
+    let started = false;
+    try {
+        claim = await acquireHostStartupClaim({ path: `${socketPath}.starting`, pid: options.pid });
+        const diagnosis = await createHostLockfile({ path: lockPath, socketPath }).diagnose!();
+        if (diagnosis.record !== undefined && !(diagnosis.wedged === true && diagnosis.record.pid === process.pid)) {
+            throw new HostSocketHeldError(diagnosis.record.pid, socketPath, diagnosis.wedged !== true);
+        }
+        const answering = await requestHostIdentity(socketPath);
+        if (answering !== undefined) throw new HostSocketHeldError(answering.pid, socketPath, true);
+        const heartbeatDeadline = options.processWorkerHeartbeatDeadlineMs ?? 10_000;
+        if (!Number.isFinite(heartbeatDeadline) || heartbeatDeadline <= 0) throw new Error("Invalid worker heartbeat deadline");
+        const startupLog = options.startupLog ?? createHostLogger({ path: defaultHostLogPath(home) });
+        const buildId = options.buildId ?? thisProcessBuildId();
+        const workers = await inspectWorkerRecords(home, buildId);
+        const configuredCount = options.processWorkerCount ?? Math.max(1, availableParallelism() - 1);
+        if (!Number.isSafeInteger(configuredCount) || configuredCount < 1) throw new Error("Invalid session worker count");
+        let sockets = await occupiedWorkerSockets(home, configuredCount);
+        const recorded = new Set([...workers.recoverable.map((worker) => worker.record.socket_path),
+            ...workers.pending.map((worker) => worker.record.socket_path)]);
+        let recovery: WorkerRecordScan = { ...workers, unrecorded: sockets.filter((socket) => !recorded.has(socket.path)) };
+        if (recovery.unrecorded.length > 0 && recovery.stopped.length === 0) {
+            recovery = { ...recovery, stopped: recovery.stale };
+        }
+        let resolved = options;
+        if (hasWorkerRecovery(recovery)) {
+            const count = workers.count ?? await workerCountFromReconnect(home, sockets, buildId) ?? configuredCount;
+            sockets = await occupiedWorkerSockets(home, count);
+            recovery = { ...recovery, unrecorded: sockets.filter((socket) => !recorded.has(socket.path)) };
+            resolved = { ...options, inProcessWorker: false, processWorker: true, processWorkerCount: count };
+        }
+        const host = await startHostRuntime(resolved, undefined, undefined, undefined, undefined, undefined, {
+            claim, recovery,
+            settleRecovery: () => settleWorkerRecords(recovery, buildId, heartbeatDeadline,
+                (pid) => startupLog({ type: "session_process_unresponsive", message: `Session process PID ${pid} is not answering.` })),
+            onClosed: () => { activeResidentHostSockets.delete(activeSocket); },
+        }) as ResidentHost;
+        started = true;
+        return host;
+    } finally {
+        try { await claim?.release(); }
+        finally { if (!started) activeResidentHostSockets.delete(activeSocket); }
+    }
 }
 
 export interface SessionWorkerRuntime {
@@ -266,18 +333,10 @@ async function startHostRuntime(
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
     externalTurnsHeld?: () => boolean,
+    startup?: ResidentHostStartup,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
-    const selectedHome = options.home
-        ?? process.env[VERA_HOME_ENV]?.trim();
-    if (
-        (selectedHome === undefined || selectedHome.length === 0)
-        && overridesHomeState(options)
-    ) {
-        throw new Error(
-            "startResidentHost was given explicit paths but no home. Pass `home` or set VERA_HOME so every path comes from one home.",
-        );
-    }
+    requireHomeForOverrides(options);
     const home = selectedVeraHome(options.home);
     const logDirectory = eventLogRoot(home);
     const hostLog = createHostLogger({ path: defaultHostLogPath(home) });
@@ -497,17 +556,21 @@ async function startHostRuntime(
         inbox.close();
     };
     let stopWaitNotifications = Promise.resolve();
+    const hostStarted = Promise.withResolvers<boolean>();
     const stopWhenIdle: StopWhenIdle = new StopWhenIdle({
         waitingOn: (): readonly StopWaitTarget[] => registry.stopWaitTargets(),
         ...(options.processWorker === true ? {
             setTurnsHeld: (held: boolean) => inProcessWorker?.setTurnsHeld?.(held) ?? Promise.resolve(),
+            replyBeforeWorkerCheck: true,
         } : {}),
         ...(workerSocket === undefined ? {} : {
             waitingOnAsync: () => inProcessWorker?.waitingOn() ?? Promise.resolve(registry.stopWaitTargets()),
         }),
-        onStopped: options.processWorker === true
-            ? async () => { await stopWaitNotifications; await closeHost(); }
-            : () => closeHost(),
+        onStopped: async () => {
+            if (!await hostStarted.promise) return;
+            if (options.processWorker === true) await stopWaitNotifications;
+            await closeHost();
+        },
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
         cutSession: (sessionId, reason) => inProcessWorker === undefined
@@ -990,22 +1053,26 @@ async function startHostRuntime(
             announceShutdown();
             closing = (async () => {
                 try {
-                    await annex?.close();
-                } finally {
                     try {
-                        if (inProcessWorker !== undefined) {
-                            try {
-                                await server.close();
-                            } finally {
-                                await inProcessWorker.close();
-                            }
-                        }
+                        await annex?.close();
                     } finally {
-                        await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
+                        try {
+                            if (inProcessWorker !== undefined) {
+                                try {
+                                    await server.close();
+                                } finally {
+                                    await inProcessWorker.close();
+                                }
+                            }
+                        } finally {
+                            await closeResidentHost(server, sessionHost, closeInbox, closeSidecars);
+                        }
                     }
-                }
-                if (options.processWorker === true) {
-                    await removeStoppedPoolLock(home, lockPath, server.identity);
+                    if (options.processWorker === true) {
+                        await removeStoppedPoolLock(home, lockPath, server.identity);
+                    }
+                } finally {
+                    startup?.onClosed();
                 }
             })();
         }
@@ -1021,6 +1088,11 @@ async function startHostRuntime(
             };
             inProcessWorker = options.processWorker === true
                 ? prepareProcessWorker({ ...workerOptions, hostOptions: options, workerCount, credentials: credentials!,
+                    recoverableWorkers: startup?.recovery.recoverable ?? [],
+                    stoppedWorkers: startup?.recovery.stopped ?? [],
+                    pendingWorkers: startup?.recovery.pending ?? [],
+                    unrecordedWorkers: startup?.recovery.unrecorded ?? [],
+                    ...(startup === undefined ? {} : { settleRecovery: startup.settleRecovery }),
                     onGlobalChangeReady: (notify) => { announceGlobalChange = notify; } })
                 : await prepareInProcessWorker(workerOptions);
         }
@@ -1069,6 +1141,8 @@ async function startHostRuntime(
                 socketPath,
                 lockPath,
                 ...(options.processWorker === true ? { poolWorkerCount: workerCount } : {}),
+                ...(startup === undefined ? {} : { startupClaim: startup.claim }),
+                ...(startup === undefined || !hasWorkerRecovery(startup.recovery) ? {} : { publishBeforeWorkers: true }),
                 ...(options.pid === undefined ? {} : { pid: options.pid }),
                 ...(options.startedAt === undefined
                     ? {}
@@ -1083,6 +1157,7 @@ async function startHostRuntime(
                     onListening: (identity) => inProcessWorker!.start(identity),
                 }),
                 recoverPrevious: async () => {
+                    if (startup !== undefined && hasWorkerRecovery(startup.recovery)) return;
                     try {
                         const scan = await recoverCrashedTurns({
                             lockPath,
@@ -1197,6 +1272,7 @@ async function startHostRuntime(
                 },
 
                 onShutdownAccepted: async () => {
+                    if (!await hostStarted.promise) return;
                     await inProcessWorker?.waitForForwardedShutdowns();
                     await closeHost();
                 },
@@ -1265,6 +1341,7 @@ async function startHostRuntime(
             }),
         });
     } catch (error) {
+        hostStarted.resolve(false);
         try {
             await closeSidecars();
         } catch {
@@ -1306,6 +1383,7 @@ async function startHostRuntime(
         duration_ms: performance.now() - startupStarted,
         build_id: buildId,
     });
+    hostStarted.resolve(true);
     return {
         registry,
         extensions,
@@ -1354,6 +1432,15 @@ function refusedPoolWrite(
         }
         log({ type: "pool_write_refused", message: error.message });
         return { verdict: "pool_write_refused", reason: error.message };
+    }
+}
+
+function requireHomeForOverrides(options: StartResidentHostOptions): void {
+    const selectedHome = options.home ?? process.env[VERA_HOME_ENV]?.trim();
+    if ((selectedHome === undefined || selectedHome.length === 0) && overridesHomeState(options)) {
+        throw new Error(
+            "startResidentHost was given explicit paths but no home. Pass `home` or set VERA_HOME so every path comes from one home.",
+        );
     }
 }
 

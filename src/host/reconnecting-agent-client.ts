@@ -18,6 +18,7 @@ import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
 const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
+const STARTING_RETRY_DELAY_MS = 1_000;
 const BUILD_CHECK_DELAYS_MS = [0, 50, 100, 200];
 
 export interface ReconnectingAgentOptions {
@@ -475,8 +476,10 @@ interface RoutingLocation extends ReadyAgentLocation {
 
 async function locateAgent(socketPath: string, agentId: string, signal: AbortSignal): Promise<RoutingLocation> {
     const deadline = AbortSignal.any([signal, AbortSignal.timeout(RECONNECT_DEADLINE_MS)]);
+    let startingReplies = 0;
     for (let attempt = 0; ; attempt += 1) {
         deadline.throwIfAborted();
+        let retryStarting = false;
         const connection = await connectHost({ socketPath, signal: deadline });
         const abort = (): void => connection.close();
         deadline.addEventListener("abort", abort, { once: true });
@@ -486,11 +489,16 @@ async function locateAgent(socketPath: string, agentId: string, signal: AbortSig
             if (response === undefined) throw new Error("Host returned an invalid session location");
             if (response.type === "agent_location") return response;
             if (response.reason === "not_found") throw new Error(response.message);
+            if (response.reason === "starting") {
+                if (++startingReplies >= 2) throw new Error(response.message);
+                retryStarting = true;
+            }
         } finally {
             deadline.removeEventListener("abort", abort);
             connection.close();
         }
-        const delayMs = RECONNECT_DELAYS_MS[Math.min(attempt + 1, RECONNECT_DELAYS_MS.length - 1)] ?? 0;
+        const delayMs = retryStarting ? STARTING_RETRY_DELAY_MS
+            : RECONNECT_DELAYS_MS[Math.min(attempt + 1, RECONNECT_DELAYS_MS.length - 1)] ?? 0;
         if (delayMs > 0) await delay(delayMs, deadline);
     }
 }
