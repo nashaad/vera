@@ -1572,10 +1572,10 @@ test("an extension reads thread entries and reveals one", async () => {
                 name: "trail",
                 description: "follow the crow",
                 usage: "/trail",
-                run() {
+                async run() {
                     const entries = vera.thread.entries();
-                    const landed = vera.ui.reveal({ entryId: entries[0].id });
-                    const end = vera.ui.reveal({ end: true });
+                    const landed = await vera.ui.reveal({ entryId: entries[0].id });
+                    const end = await vera.ui.reveal({ end: true });
                     return { kind: "text", text: JSON.stringify({ entries, landed, end }) };
                 },
             });
@@ -1588,11 +1588,13 @@ test("an extension reads thread entries and reveals one", async () => {
         thread: {
             read: () => [],
             entries: () => [{ kind: "user", text: "bury the gold", id: "m1#0", at: 1_000 }],
+            hasEarlier: () => false,
+            loadEarlier: async () => {},
         },
         reveal: {
-            reveal(extensionId, target) {
+            async reveal(extensionId, target) {
                 reveals.push({ extensionId, target });
-                return "entryId" in target;
+                return true;
             },
         },
     });
@@ -1603,13 +1605,56 @@ test("an extension reads thread entries and reveals one", async () => {
         text: JSON.stringify({
             entries: [{ kind: "user", text: "bury the gold", id: "m1#0", at: 1_000 }],
             landed: true,
-            end: false,
+            end: true,
         }),
     });
     expect(reveals).toEqual([
         { extensionId: "client.trail", target: { entryId: "m1#0" } },
         { extensionId: "client.trail", target: { end: true } },
     ]);
+    await registry.close();
+});
+
+test("thread.hasEarlier and thread.loadEarlier reach the client's thread adapter", async () => {
+    const extension = createExtension("client.pager", [
+        "client.commands.register",
+        "client.thread.read",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "pager",
+                description: "page the thread",
+                usage: "/pager",
+                async run() {
+                    const before = vera.thread.hasEarlier;
+                    await vera.thread.loadEarlier();
+                    return { kind: "text", text: JSON.stringify({ before, after: vera.thread.hasEarlier }) };
+                },
+            });
+        }
+    `);
+    const loads: string[] = [];
+    let earlier = true;
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        thread: {
+            read: () => [],
+            entries: () => [],
+            hasEarlier: () => earlier,
+            loadEarlier: async (extensionId) => {
+                loads.push(extensionId);
+                earlier = false;
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("pager", "", "/tmp/workspace");
+    expect(result?.body).toEqual({
+        kind: "text",
+        text: JSON.stringify({ before: true, after: false }),
+    });
+    expect(loads).toEqual(["client.pager"]);
     await registry.close();
 });
 
@@ -1623,8 +1668,8 @@ test("ui.reveal needs its own capability and a real target", async () => {
                 name: "look",
                 description: "look",
                 usage: "/look",
-                run(request) {
-                    vera.ui.reveal(request.argumentsText === "bad" ? { entryId: "" } : { end: true });
+                async run(request) {
+                    await vera.ui.reveal(request.argumentsText === "bad" ? { entryId: "" } : { end: true });
                 },
             });
         }
@@ -1647,8 +1692,8 @@ test("ui.reveal needs its own capability and a real target", async () => {
                 name: "look",
                 description: "look",
                 usage: "/look",
-                run() {
-                    vera.ui.reveal({ entryId: "" });
+                async run() {
+                    await vera.ui.reveal({ entryId: "" });
                 },
             });
         }

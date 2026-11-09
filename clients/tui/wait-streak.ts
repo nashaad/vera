@@ -2,6 +2,7 @@ import type {
     TuiTextTranscriptEntry,
     TuiTranscriptEntry,
 } from "./state.ts";
+import { withTranscriptEntryAlias } from "./transcript-entry-id.ts";
 
 // Folds consecutive `process` reads of one background process into a single
 // Waiting/Waited row group.
@@ -87,7 +88,12 @@ export function withWaitPoll(
         && previous.kind === "tool"
         && previous.waitProcessId === processId
     ) {
-        if (!live || previous.result !== true) return [...entries];
+        if (!live || previous.result !== true) {
+            const callIndex = waitCallIndex(entries, processId);
+            return entries.map((entry, index) => index === callIndex && entry.kind === "tool"
+                ? withTranscriptEntryAlias(entry, entryId)
+                : entry);
+        }
         const callIndex = waitCallIndex(entries, processId);
         const headerIndex = callIndex === -1
             ? -1
@@ -189,11 +195,11 @@ export function withWaitResult(
             };
         }
         if (index === resultIndex && entry.kind === "tool") {
-            return {
+            return withTranscriptEntryAlias({
                 ...entry,
                 header: WAIT_SETTLED_HEADER,
                 text: resultText ?? entry.text,
-            };
+            }, entryId);
         }
         return entry;
     });

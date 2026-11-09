@@ -51,6 +51,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
+import { withTranscriptEntryAlias } from "./transcript-entry-id.ts";
 import { renderTuiChecklist, tuiChecklistText } from "./checklist.ts";
 import { tuiShimmerChunks } from "./activity-pulse.ts";
 import {
@@ -124,6 +125,7 @@ export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
     readonly entryId?: string;
+    readonly entryAliases?: readonly string[];
     // The earlier-history rows are TUI notices, not session entries.
     readonly historyStatus?: EarlierHistoryStatus;
     // Rows derived from a session's import facts; rebuilt, never stored.
@@ -174,6 +176,7 @@ export interface TuiAutoApproval {
 
 export interface TuiDiffTranscriptEntry {
     readonly kind: "diff";
+    readonly entryId?: string;
     readonly text: string;
     readonly path: string;
     readonly patch: string;
@@ -2304,11 +2307,10 @@ function withToolEntry(
         && previous.header === header
         && previous.text === row;
     if (!active && repeated) {
-        const counted: TuiTranscriptEntry = {
+        const counted: TuiTranscriptEntry = withTranscriptEntryAlias({
             ...previous,
-            ...(previous.entryId === undefined && entryId !== undefined ? { entryId } : {}),
             repeat: (previous.repeat ?? 1) + 1,
-        };
+        }, entryId);
         return entries.map((entry, index) =>
             index === previousIndex ? counted : entry
         );
@@ -2813,7 +2815,7 @@ function withStoreEntryId(
     entry: TranscriptEntry,
 ): TuiTranscriptEntry {
     const id = "id" in entry ? entry.id : undefined;
-    return id === undefined || converted.kind === "diff"
+    return id === undefined
         ? converted
         : { ...converted, entryId: id };
 }
@@ -2942,7 +2944,7 @@ function withHistoricalToolResult(
     if (classifierOutcome !== undefined) {
         const marked = entries.map((entry, index) =>
             index === callIndex && entry.kind === "tool"
-                ? { ...entry, hasResult: true }
+                ? withTranscriptEntryAlias({ ...entry, hasResult: true }, entryId)
                 : entry
         );
         marked.splice(callIndex + 1, 0, ...outcomeRows);

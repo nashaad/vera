@@ -258,10 +258,12 @@ export interface ClientExtensionAddressingAdapter {
 export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
     entries(extensionId: string): readonly VeraClientThreadEntry[];
+    hasEarlier(extensionId: string): boolean;
+    loadEarlier(extensionId: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface ClientExtensionRevealAdapter {
-    reveal(extensionId: string, target: VeraClientRevealTarget): boolean;
+    reveal(extensionId: string, target: VeraClientRevealTarget): Promise<boolean>;
 }
 
 export interface ClientExtensionSessionsAdapter {
@@ -1229,7 +1231,7 @@ async function activateClientExtension(
                 }
                 options.transcript.append(options.id, validated);
             },
-            reveal(target: VeraClientRevealTarget): boolean {
+            async reveal(target: VeraClientRevealTarget): Promise<boolean> {
                 requireAvailable();
                 requireCapability(CLIENT_REVEAL_CAPABILITY);
                 const validated = validateRevealTarget(target);
@@ -1706,6 +1708,12 @@ async function activateClientExtension(
             },
             entries(): readonly VeraClientThreadEntry[] {
                 return structuredClone(requireThread().entries(options.id));
+            },
+            get hasEarlier(): boolean {
+                return requireThread().hasEarlier(options.id);
+            },
+            async loadEarlier(signal?: AbortSignal): Promise<void> {
+                await requireThread().loadEarlier(options.id, signal);
             },
         }),
         sessions: Object.freeze({

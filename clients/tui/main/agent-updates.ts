@@ -22,6 +22,7 @@ import { settleQueueRecall } from "./queue-recall.ts";
 import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import { historyUserPrompts, historyWindowFirstUserText } from "../../shared/history-window.ts";
+import { cancelExtensionReveal, failExtensionReveal } from "./extension-reveal.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -695,6 +696,16 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
         }
     } catch (error) {
         if (generation === rt.clientGeneration) {
+            const pending = rt.pendingExtensionReveal;
+            if (pending !== undefined) {
+                if (rt.sessionSwitchPending || (error instanceof Error
+                    && (error.message === "Agent attachment is detached"
+                        || error.message === "Agent attachment is released"))) {
+                    cancelExtensionReveal(rt);
+                } else {
+                    failExtensionReveal(rt, pending, error);
+                }
+            }
             failPendingSkillInvocations(rt);
             rejectPendingExtensionSettingsFor(rt, rt.client, error);
             reportConnectionError(

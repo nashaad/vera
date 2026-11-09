@@ -9,9 +9,23 @@ import type { HistoryPageResponse } from "../../../src/host/protocol.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
 import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import {
+    conversation,
+    moveToTailAfterSwitch,
+    PAGING,
+    scrollToRequest,
+    scrollUntilPaneShows,
+    settleFor,
+    settleUntil,
+    switchToNextConversation,
+    TAIL_LENGTH,
+} from "../../support/paged-conversation.ts";
 
-const PAGING = "agent.history-paging.v1";
-const TAIL_LENGTH = 60;
+function devHome(prefix: string): string {
+    const devRoot = join(tmpdir(), "vera-dev");
+    mkdirSync(devRoot, { recursive: true });
+    return mkdtempSync(join(devRoot, prefix));
+}
 
 interface PagedSession {
     readonly session: Awaited<ReturnType<typeof startTuiTestSession>>;
@@ -20,9 +34,7 @@ interface PagedSession {
 }
 
 async function startPagedSession(olderCount: number): Promise<PagedSession> {
-    const devRoot = join(tmpdir(), "vera-dev");
-    mkdirSync(devRoot, { recursive: true });
-    const home = mkdtempSync(join(devRoot, "tui-paging-"));
+    const home = devHome("tui-paging-");
     const tail = Array.from({ length: TAIL_LENGTH }, (_, index) => ({
         kind: "user" as const,
         text: `TAIL${index}`,
@@ -107,24 +119,6 @@ function entryRow(pane: string, tail: number): number | undefined {
         new RegExp(`TAIL${tail}(?!\\d)`).test(line)
     );
     return index === -1 ? undefined : index;
-}
-
-async function scrollUntilLoadingRowShows(session: Awaited<ReturnType<typeof startTuiTestSession>>): Promise<void> {
-    for (let step = 0; step < 30; step += 1) {
-        session.sendKey("C-u");
-        await session.settle(0);
-        if (session.captureVisiblePane().includes("Loading earlier history")) return;
-    }
-    throw new Error("the loading row never came on screen");
-}
-
-async function scrollToRequest(
-    session: Awaited<ReturnType<typeof startTuiTestSession>>,
-    marker = "TAIL59",
-): Promise<void> {
-    await session.waitForVisiblePane(marker);
-    await session.settle(60);
-    await scrollUntilLoadingRowShows(session);
 }
 
 test("Ctrl+D keeps its movement when a page arrives", async () => {
@@ -221,148 +215,10 @@ for (const olderCount of [1, 60]) {
     }, 30_000);
 }
 
-type TestSession = Awaited<ReturnType<typeof startTuiTestSession>>;
-
 const TOO_LARGE_TEXT = "Earlier history is too large to show.";
 
-interface Conversation {
-    readonly client: TuiAgentClient;
-    readonly requested: string[];
-    readonly release: () => void;
-}
-
-interface ConversationOptions {
-    readonly agentId: string;
-    /** Prefixes the loaded tail, so two conversations never share a row. */
-    readonly tail: string;
-    readonly older: string;
-    /** "older" answers with rows from before the tail, "empty" with a page that adds nothing, and an Error rejects. */
-    readonly reply: "older" | "empty" | Error;
-    /** Holds each answer until release(). */
-    readonly hold?: boolean;
-    /** Requests past this many never settle, so a retry loop stops and the count assertion reports it. */
-    readonly settleLimit?: number;
-}
-
-function conversation(options: ConversationOptions): Conversation {
-    const idPrefix = options.tail.toLowerCase();
-    const olderPrefix = options.older.toLowerCase();
-    const requested: string[] = [];
-    const held: Array<() => void> = [];
-    const tail = Array.from({ length: TAIL_LENGTH }, (_, index) => ({
-        kind: "user" as const,
-        text: `${options.tail}${index}`,
-        id: `${idPrefix}-${index}`,
-    }));
-    const headId = `${idPrefix}-${TAIL_LENGTH - 1}`;
-    const base = createSettingsAnsweringClient({
-        agentId: options.agentId,
-        workspace: "/work/vera",
-        model: "paging-model",
-        mode: "review",
-        initialUpdates: [{
-            type: "history",
-            entries: tail,
-            seq: 0,
-            page: {
-                pageVersion: 1,
-                hasMore: true,
-                olderBefore: `${idPrefix}-0`,
-                headId,
-                tailId: headId,
-            },
-        }],
-    });
-    const answer = (before: string): HistoryPageResponse => {
-        if (options.reply === "empty") {
-            return {
-                type: "history_page",
-                request_id: `${idPrefix}-page`,
-                before,
-                entries: [],
-                page: { pageVersion: 1, hasMore: true, olderBefore: before, headId, tailId: headId },
-            };
-        }
-        return {
-            type: "history_page",
-            request_id: `${idPrefix}-page`,
-            before,
-            entries: Array.from({ length: 3 }, (_, index) => ({
-                kind: "user" as const,
-                text: `${options.older}${index}`,
-                id: `${olderPrefix}-${index}`,
-            })),
-            page: { pageVersion: 1, hasMore: false, headId, tailId: `${olderPrefix}-2` },
-        };
-    };
-    return {
-        client: {
-            ...base,
-            supportsHostCapability: (capability) => capability === PAGING,
-            requestHistoryPage: (before) => {
-                requested.push(before);
-                if (options.settleLimit !== undefined && requested.length > options.settleLimit) {
-                    return new Promise<HistoryPageResponse>(() => {});
-                }
-                if (options.reply instanceof Error) return Promise.reject(options.reply);
-                return new Promise<HistoryPageResponse>((resolve) => {
-                    const send = (): void => resolve(answer(before));
-                    if (options.hold === true) held.push(send);
-                    else send();
-                });
-            },
-        },
-        requested,
-        release: () => {
-            for (const send of held.splice(0)) send();
-        },
-    };
-}
-
-async function switchToNextConversation(session: TestSession): Promise<void> {
-    session.sendText("/resume");
-    session.sendKey("Enter");
-    await session.waitForVisiblePane("Continue the theme picker");
-    session.sendKey("Down");
-    session.sendKey("Enter");
-    // Enter confirms SESSION_LEAVE_OPTIONS[0], Stop & switch.
-    await session.waitForVisiblePane("Stop & switch");
-    session.sendKey("Enter");
-}
-
-async function moveToTailAfterSwitch(session: TestSession): Promise<void> {
-    await session.waitForVisiblePane("BTAIL59");
-    session.sendKeyWithModifiers("end", { ctrl: true });
-}
-
-async function scrollUntilPaneShows(session: TestSession, text: string): Promise<void> {
-    for (let step = 0; step < 60; step += 1) {
-        if (session.captureVisiblePane().includes(text)) return;
-        session.sendKey("C-u");
-        await session.settle(30);
-    }
-    throw new Error(`${text} never came on screen`);
-}
-
-async function settleFor(session: TestSession, ms: number): Promise<void> {
-    const until = Date.now() + ms;
-    while (Date.now() < until) await session.settle(50);
-}
-
-async function settleUntil(
-    session: TestSession,
-    done: () => boolean,
-    what: string,
-): Promise<void> {
-    for (let step = 0; step < 100; step += 1) {
-        if (done()) return;
-        await session.settle(50);
-    }
-    throw new Error(`timed out waiting for ${what}`);
-}
-
 async function countSearchRequests(reply: "empty" | Error): Promise<number> {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-paging-search-"));
+    const home = devHome("tui-paging-search-");
     const paged = conversation({
         agentId: "paging-test",
         tail: "TAIL",
@@ -413,7 +269,7 @@ async function countSearchRequests(reply: "empty" | Error): Promise<number> {
 }
 
 test("a page still out when the conversation changes does not hold paging in the next one", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-paging-switch-"));
+    const home = devHome("tui-paging-switch-");
     const scenario = createTuiResumeScenario({ home });
     const first = conversation({
         agentId: "current-session-id",
@@ -459,7 +315,7 @@ test("a page still out when the conversation changes does not hold paging in the
 }, 30_000);
 
 test("a too-large page does not turn paging off in the next conversation", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-paging-blocked-"));
+    const home = devHome("tui-paging-blocked-");
     const scenario = createTuiResumeScenario({ home });
     const first = conversation({
         agentId: "current-session-id",

@@ -2,6 +2,7 @@ import { loadStandingNudges, type StandingNudge } from "../../../src/standing-nu
 import type { TuiCommandAction, TuiCommandCatalogEntry, TuiPaletteEntry } from "../commands.ts";
 import { TUI_COMPOSER_MAX_TEXT_ROWS, TUI_COMPOSER_MIN_TEXT_ROWS, tuiComposerPanelRows } from "../composer.ts";
 import { markTuiGutterEntry, unmarkTuiGutterEntry } from "../gutter.ts";
+import { transcriptEntryHasId } from "../transcript-entry-id.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { resolveTuiKeymap } from "../keybindings.ts";
@@ -102,8 +103,9 @@ export function adoptStandingNudgesState(rt: TuiRuntime,
 export function isSearchLanding(rt: TuiRuntime, entry: TuiTranscriptEntry): boolean {
     return rt.searchLanding !== undefined
         && rt.client.agentId === rt.searchLanding.sessionId
-        && entry.kind !== "diff"
-        && transcriptMessageId(entry.entryId) === rt.searchLanding.entryId;
+        && (rt.searchLanding.exactEntryId === undefined
+            ? transcriptMessageId(entry.entryId) === rt.searchLanding.entryId
+            : transcriptEntryHasId(entry, rt.searchLanding.exactEntryId));
 }
 
 export function markSearchLanding(rt: TuiRuntime, 

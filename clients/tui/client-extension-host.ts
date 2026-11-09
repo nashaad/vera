@@ -66,6 +66,8 @@ export interface StartTuiClientExtensionHostOptions {
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: ClientExtensionThreadAdapter["read"];
     readonly readThreadEntries: ClientExtensionThreadAdapter["entries"];
+    readonly readThreadHasEarlier: ClientExtensionThreadAdapter["hasEarlier"];
+    readonly loadThreadEarlier: ClientExtensionThreadAdapter["loadEarlier"];
     readonly reveal: ClientExtensionRevealAdapter["reveal"];
     readonly listSessions?: ClientExtensionSessionsAdapter["list"];
     readonly appendTranscript: (
@@ -110,7 +112,9 @@ export interface TuiClientExtensionHostBindings {
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: () => readonly VeraClientThreadTurn[];
     readonly readThreadEntries: () => readonly VeraClientThreadEntry[];
-    readonly reveal: (target: VeraClientRevealTarget) => boolean;
+    readonly readThreadHasEarlier: () => boolean;
+    readonly loadThreadEarlier: (signal?: AbortSignal) => Promise<void>;
+    readonly reveal: (target: VeraClientRevealTarget) => Promise<boolean>;
     readonly listSessions?: (
         request: VeraClientSessionListRequest,
     ) => Promise<VeraClientSessionPage>;
@@ -167,6 +171,8 @@ export function createTuiClientExtensionHostStarter(
             experimentalTui: options.experimentalTui,
             readThread: (_extensionId) => options.readThread(),
             readThreadEntries: (_extensionId) => options.readThreadEntries(),
+            readThreadHasEarlier: (_extensionId) => options.readThreadHasEarlier(),
+            loadThreadEarlier: (_extensionId, signal) => options.loadThreadEarlier(signal),
             reveal: (_extensionId, target) => options.reveal(target),
             ...(options.listSessions === undefined ? {} : {
                 listSessions: (
@@ -291,7 +297,12 @@ export async function startTuiClientExtensionHost(
         addressing: { set: options.setAddressing },
         agents: options.agents,
         experimentalTui: options.experimentalTui,
-        thread: { read: options.readThread, entries: options.readThreadEntries },
+        thread: {
+            read: options.readThread,
+            entries: options.readThreadEntries,
+            hasEarlier: options.readThreadHasEarlier,
+            loadEarlier: options.loadThreadEarlier,
+        },
         reveal: { reveal: options.reveal },
         ...(options.listSessions === undefined
             ? {}

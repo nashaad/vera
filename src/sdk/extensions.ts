@@ -760,12 +760,13 @@ export interface VeraClientExtensionUi {
      */
     transcript(block: VeraClientTranscriptBlock): void;
     /**
-     * Scroll the transcript to an entry from `thread.entries()`, or to its end.
-     * Returns false when this conversation has no such entry.
+     * Scroll to an entry from `thread.entries()`, loading earlier pages as
+     * needed, or to the end. Resolves false if the entry is absent, the view
+     * changes, or a newer reveal takes over. Rejects if a page request fails.
      *
      * Capability: `client.ui.reveal`.
      */
-    reveal(target: VeraClientRevealTarget): boolean;
+    reveal(target: VeraClientRevealTarget): Promise<boolean>;
     /**
      * A region beside the transcript that this extension owns while it is
      * open. One extension holds it at a time; opening it while another has it
@@ -873,8 +874,8 @@ export type VeraClientComposeFocusResult =
  * A compose-time offer to select an agent this extension ships.
  *
  * Core never guesses intent from what you are typing. A suggester does, and it
- * exists only inside an extension you installed — installing it is the
- * consent. Accepting goes through the ordinary, loud select path.
+ * exists only inside an extension you installed (installing it is the
+ * consent). Accepting goes through the ordinary, loud select path.
  */
 export interface VeraClientExtensionComposeSuggesterSpec {
     /**
@@ -1038,6 +1039,23 @@ export interface VeraClientExtensionThread {
      * extension output are not in it.
      */
     entries(): readonly VeraClientThreadEntry[];
+    /**
+     * True while older entries exist that `entries()` does not include yet.
+     * Stays false on a client that cannot page history. Inside a command or
+     * keybinding, throws an AbortError once the user has left the conversation
+     * it started in.
+     */
+    readonly hasEarlier: boolean;
+    /**
+     * Loads the next older page into `entries()`. Resolves once that page is
+     * in, or at once when nothing is left or the client cannot page. Calls made
+     * while a page is out share it. Rejects when the page fails or adds nothing,
+     * and the entries stay as they were. Aborting the signal rejects this call
+     * only; a page already requested keeps loading. Inside a command or
+     * keybinding, rejects with an AbortError once the user has left the
+     * conversation it started in.
+     */
+    loadEarlier(signal?: AbortSignal): Promise<void>;
 }
 
 export interface VeraClientThreadTurn {

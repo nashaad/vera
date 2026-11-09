@@ -19,6 +19,7 @@ import { appendTuiError, appendTuiNotice } from "../state.ts";
 import { startWorkTab, type WorkTabState } from "../work-tab.ts";
 import { applyWorkspaceWorkIndex, clampWorkspaceRailColumns, openWorkspaceSelection, refreshWorkspaceSidebarSessions, startWorkspaceSidebar, workspaceCycleTarget, workspaceRailColumns, workspaceSidebarSessions, type WorkspaceSidebarAction, type WorkspaceSidebarState } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
+import { cancelExtensionReveal } from "./extension-reveal.ts";
 
 export function openJumpMenuOverlay(rt: TuiRuntime): void {
     if (rt.jumpMenu !== undefined || anyOverlayOpen(rt)) return;
@@ -413,6 +414,7 @@ export function runSearchOverlayAction(rt: TuiRuntime,
     }
     if (action.kind === "open") {
         closeWorkSurfaces(rt);
+        cancelExtensionReveal(rt);
         rt.pendingSearchTarget = action.entry_id === null
             ? undefined
             : { sessionId: action.session_id, entryId: action.entry_id };

@@ -17,6 +17,7 @@ import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type
 import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptReusablePrefix, tuiTranscriptReusableTail } from "../transcript-window.ts";
+import { transcriptEntryHasId } from "../transcript-entry-id.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
 import { subagentTitle } from "../subagent-title.ts";
@@ -545,11 +546,30 @@ export function showSearchTarget(rt: TuiRuntime): void {
     if (target === undefined || rt.client.agentId !== target.sessionId) {
         return;
     }
-    const index = rt.state.entries.findIndex((entry) =>
-        entry.kind !== "diff"
-        && transcriptMessageId(entry.entryId) === target.entryId
+    let index = target.exactEntryId === undefined ? -1 : rt.state.entries.findIndex((entry) =>
+        transcriptEntryHasId(entry, target.exactEntryId!)
     );
+    if (index === -1 && target.exactEntryId !== undefined
+        && rt.state.historyWindow?.entries.some((entry) => entry.id === target.exactEntryId) !== true) {
+        rt.pendingSearchTarget = undefined;
+        target.onRevealed?.(false);
+        return;
+    }
     if (index === -1) {
+        index = rt.state.entries.findIndex((entry) => transcriptMessageId(entry.entryId) === target.entryId);
+    }
+    const selected = rt.state.entries[index];
+    let hiddenTool = false;
+    if (target.onRevealed !== undefined && selected?.kind === "tool" && selected.hidden === true) {
+        hiddenTool = true;
+        index = rt.state.entries.findLastIndex((entry, candidate) => candidate < index && entry.kind === "tool_header");
+    }
+    if (index === -1) {
+        if (target.onRevealed !== undefined) {
+            rt.pendingSearchTarget = undefined;
+            target.onRevealed(false);
+            return;
+        }
         if (rt.state.earlierHistory === "too_large") {
             rt.pendingSearchTarget = undefined;
             return;
@@ -568,16 +588,18 @@ export function showSearchTarget(rt: TuiRuntime): void {
     }
     if (rt.measuredEntryRows[index] === undefined) return;
     rt.pendingSearchTarget = undefined;
-    rt.searchLanding = {
+    rt.searchLanding = hiddenTool ? undefined : {
         sessionId: target.sessionId,
         entryId: target.entryId,
+        ...(target.exactEntryId === undefined ? {} : { exactEntryId: target.exactEntryId }),
     };
     const landed = rt.state.entries[index];
-    if (landed !== undefined) markSearchLanding(rt, landed, node);
+    if (landed !== undefined && !hiddenTool) markSearchLanding(rt, landed, node);
     rt.transcriptResizeAnchor = undefined;
     rt.transcript.scrollTo(
         rt.transcript.scrollTop + node.screenY - rt.transcript.viewport.screenY,
     );
+    target.onRevealed?.(true);
 }
 
 export function drawWorkspaceSidebar(rt: TuiRuntime): void {

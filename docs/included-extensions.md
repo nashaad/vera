@@ -65,6 +65,11 @@ interruptions sit under the phase they happened in, each with its own time.
 The right pane shows the selected row's details, including the files it
 edited.
 
+Before it lists phases, `/recap` loads every older part of the conversation, so
+the list covers all of it. A long conversation takes a moment to open. If an
+older part cannot load, `/recap` shows `History page request failed: <reason>`
+in place of the list.
+
 Phases are built from the conversation itself. Their titles come from the
 snappy model (see [Assign defaults](models.md#assign-defaults)): when you open
 `/recap`, Vera sends each finished phase that has no title yet (your

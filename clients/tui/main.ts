@@ -110,6 +110,7 @@ import type { ImportableSessionListing } from "../../src/host/session-import-ser
 import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
+import { HistoryPageRequestError } from "../../src/host/attached-client.ts";
 import {
     findOrStartResidentHost,
     worktreeRuntimeNotice,
@@ -305,6 +306,7 @@ export type {
 import { createTuiTimelinePickerView } from "./timeline-picker.ts";
 import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, transcriptMessageId, type TuiState, type TuiTranscriptEntry } from "./state.ts";
 import { EMPTY_THREAD_FACTS, threadFactEntries } from "../shared/thread-facts.ts";
+import { transcriptEntryHasId } from "./transcript-entry-id.ts";
 import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
@@ -315,7 +317,7 @@ import { createTuiKeysCardView } from "./keys-card.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
-import { type PoolChangeUndo, type TuiAgentCatalog, type TuiRuntime } from "./main/runtime.ts";
+import { type ExtensionInvocation, type PoolChangeUndo, type TuiAgentCatalog, type TuiRuntime } from "./main/runtime.ts";
 import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer } from "./main/chrome.ts";
 import { recallNewestQueuedPrompt } from "./main/queue-recall.ts";
 import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
@@ -326,7 +328,9 @@ import { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, 
 import { submitPrompt } from "./main/submit-prompt.ts";
 import { leaveJsonlCommandMode, refuseJsonlCommand, availableCommandSuggestions, availableCommandCompletion, routeVisibleAgentPrompt, attachImagesToSidebar, offerMessageToExtensions, attachPastedImage, attachPastedImages, releaseDroppedImage } from "./main/prompt-routing.ts";
 import { receiveAgentUpdates } from "./main/agent-updates.ts";
-import { applyPendingHistoryScroll, maybeRequestEarlierHistory } from "./main/history-paging.ts";
+import { applyPendingHistoryScroll, hasEarlierHistory, loadEarlierHistory, maybeRequestEarlierHistory } from "./main/history-paging.ts";
+import { invocationIsStale, threadHasEarlierForInvocation, threadLoadEarlierForInvocation } from "./main/extension-invocation.ts";
+import { beginExtensionReveal, cancelExtensionReveal, failExtensionReveal, finishExtensionReveal } from "./main/extension-reveal.ts";
 import { sendCommand, requestExtensionModelSettingsUpdate, settleExtensionModelSettings, rejectPendingExtensionSettingsFor, notifyExtensionSettings, requireSidebarOwner, resolvePooledModel, requestExtensionOneshot, requestExtensionPicker, loadExtensionCommands, supportsSkillCommands, requestSkillCommands, receiveSkillCatalog, receiveSkillInvocation, failPendingSkillInvocations } from "./main/extension-bridge.ts";
 import { activeOverlayFocus, focusActiveSurface, activeFlightSurface, applyTimelineTransition, withSessionSwitchDeadline, recordSessionSwitchOutcome, discardSwitchTarget, leaveSwitchSource, stopClientForShutdown, discardCreatedSwitchTarget, beginFork, beginHostReconnect, settleLostHost, reportConnectionError } from "./main/focus-switch.ts";
 import { tipContext, tipPool, takeTip, transcriptEntryText, transcriptEstimatedRows, invalidateMeasuredEntryRows, measureTranscriptEntryNode, measureMaterializedTranscriptEntries, transcriptEntryRows, estimateTranscriptEntryRows, estimatedTranscriptRows, updateTranscriptEntryNode, createTranscriptEntryNode, destroyTranscriptEntryNode, transcriptWindowChildIndex, addTranscriptEntryNode, updateTranscriptSpacers, topmostVisibleTranscriptEntry, applyTranscriptScrollAnchor, captureTranscriptScrollAnchor, clearTranscriptAnchorPadding, transcriptFollowsBottom, trimTranscriptWindow, renderTranscriptEntries, materializeEarlierTranscriptEntries, materializeLaterTranscriptEntries, nodeTranscriptRows, evictTranscriptEntries, maybeEvictTranscriptEntries, setTranscriptWindow, snapTranscriptWindowToTail, setTranscriptWindowAround, shiftTranscriptEntrySlots, settleTranscriptScrollState, maybeMaterializeEarlierTranscriptEntries, maybeMaterializeLaterTranscriptEntries, maybeSnapTranscriptWindowToTail } from "./main/transcript-nodes.ts";
@@ -1074,7 +1078,7 @@ export async function startTui(
     rt.extensionSettingsListeners = new Set<
         (settings: NonNullable<typeof rt.state.modelSettings>) => void
     >();
-    rt.extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
+    rt.extensionAgentTarget = new AsyncLocalStorage<ExtensionInvocation>();
     rt.keybindingOverlay = loadTuiKeybindingOverlay();
     rt.announcedKeymapNotices = new Set<string>();
     rt.dismissedComposeSuggesters = new Set<string>();
@@ -1129,6 +1133,8 @@ export async function startTui(
     rt.reasoning = false;
     rt.themeApplicationVersion = 0;
     rt.clientGeneration = 0;
+    rt.conversationGeneration = 0;
+    rt.pendingExtensionReveal = undefined;
     rt.earlierHistoryRequest = undefined;
     rt.earlierHistoryRetryAt = undefined;
     rt.earlierHistoryNeedsScroll = false;
@@ -1225,7 +1231,7 @@ export async function startTui(
             ),
             compose: {
                 capture(): TuiExtensionComposeTarget | undefined {
-                    const target = rt.extensionAgentTarget.getStore();
+                    const target = rt.extensionAgentTarget.getStore()?.target;
                     return target === undefined ? undefined
                         : captureTuiExtensionComposeTarget({
                             client: target,
@@ -1359,22 +1365,78 @@ export async function startTui(
             readThreadEntries() {
                 return threadFactEntries(rt.state.threadFacts ?? EMPTY_THREAD_FACTS);
             },
+            readThreadHasEarlier() {
+                return threadHasEarlierForInvocation(rt);
+            },
+            loadThreadEarlier(signal) {
+                return threadLoadEarlierForInvocation(rt, signal);
+            },
             reveal(target) {
+                if (rt.shuttingDown || invocationIsStale(rt)) return Promise.resolve(false);
+                const pending = beginExtensionReveal(rt);
+                const generation = rt.clientGeneration;
+                rt.pendingSearchTarget = undefined;
                 if ("end" in target) {
-                    clearSearchLanding(rt);
-                    applyTranscriptScroll(rt, "jump_to_bottom");
-                    return true;
+                    try {
+                        clearSearchLanding(rt);
+                        applyTranscriptScroll(rt, "jump_to_bottom");
+                        finishExtensionReveal(rt, pending, true);
+                    } catch (error) {
+                        failExtensionReveal(rt, pending, error);
+                    }
+                    return pending.result.promise;
                 }
-                // Rows are keyed by stored message, so an entry lands on the first row its message drew.
                 const messageId = transcriptMessageId(target.entryId);
-                const shown = rt.state.entries.some((entry) =>
-                    entry.kind !== "diff" && transcriptMessageId(entry.entryId) === messageId);
                 const sessionId = rt.client.agentId;
-                if (messageId === undefined || sessionId === undefined || !shown) return false;
-                clearSearchLanding(rt);
-                rt.pendingSearchTarget = { sessionId, entryId: messageId };
-                showSearchTarget(rt);
-                return true;
+                if (messageId === undefined || sessionId === undefined) {
+                    finishExtensionReveal(rt, pending, false);
+                    return pending.result.promise;
+                }
+                void (async () => {
+                    const loaded = (): boolean =>
+                        rt.state.historyWindow?.entries.some((entry) => entry.id === target.entryId) === true
+                        || rt.state.entries.some((entry) => transcriptEntryHasId(entry, target.entryId));
+                    while (!loaded()) {
+                        if (!hasEarlierHistory(rt)) {
+                            if (rt.state.historyWindow?.hasEarlier === true) {
+                                throw new HistoryPageRequestError("unavailable");
+                            }
+                            finishExtensionReveal(rt, pending, false);
+                            return;
+                        }
+                        await loadEarlierHistory(rt, pending.controller.signal);
+                    }
+                    if (pending.controller.signal.aborted || rt.clientGeneration !== generation) {
+                        finishExtensionReveal(rt, pending, false);
+                        return;
+                    }
+                    const shown = rt.state.entries.some((entry) =>
+                        transcriptEntryHasId(entry, target.entryId) || transcriptMessageId(entry.entryId) === messageId);
+                    if (!shown) {
+                        finishExtensionReveal(rt, pending, false);
+                        return;
+                    }
+                    clearSearchLanding(rt);
+                    const searchTarget = {
+                        sessionId,
+                        entryId: messageId,
+                        exactEntryId: target.entryId,
+                        onRevealed: (revealed: boolean) => finishExtensionReveal(rt, pending, revealed),
+                    };
+                    pending.searchTarget = searchTarget;
+                    rt.pendingSearchTarget = searchTarget;
+                    showSearchTarget(rt);
+                    rt.renderCoalescer.request("extension_reveal");
+                })().catch((error: unknown) => {
+                    if (pending.controller.signal.aborted || rt.shuttingDown
+                        || rt.clientGeneration !== generation
+                        || (error instanceof Error && error.name === "AbortError")) {
+                        finishExtensionReveal(rt, pending, false);
+                    } else {
+                        failExtensionReveal(rt, pending, error);
+                    }
+                });
+                return pending.result.promise;
             },
             appendTranscript(block) {
                 rt.state = appendTuiExtensionBlock(rt.state, block.label, block.text);
@@ -2502,6 +2564,7 @@ export async function startTui(
         rt.stopWatchingTerminal();
         rt.flightRecorder?.record({ type: "renderer_destroyed" });
         rt.shuttingDown = true;
+        cancelExtensionReveal(rt);
         rt.subscriptionLimits.stop();
         stopAutoModeAnimation(rt);
         stopModeToastTimers(rt);
