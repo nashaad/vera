@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as errors from "@openrouter/sdk/models/errors";
 import {
     ConnectionError,
     OpenRouterError,
@@ -37,16 +38,16 @@ describe("OpenRouter failure classification", () => {
 
     for (const item of httpCases) {
         test(`classifies HTTP ${item.statusCode} as ${item.kind}`, () => {
-            expect(classifyOpenRouterError(httpError(item.statusCode))).toMatchObject(item);
+            expect(classifyOpenRouterError(httpError(item.statusCode), errors)).toMatchObject(item);
         });
     }
 
     test("classifies SDK connection and timeout errors as retryable", () => {
-        expect(classifyOpenRouterError(new ConnectionError("disconnected"))).toMatchObject({
+        expect(classifyOpenRouterError(new ConnectionError("disconnected"), errors)).toMatchObject({
             kind: "connection",
             resolution: "retry",
         });
-        expect(classifyOpenRouterError(new RequestTimeoutError("timed out"))).toMatchObject({
+        expect(classifyOpenRouterError(new RequestTimeoutError("timed out"), errors)).toMatchObject({
             kind: "timeout",
             resolution: "retry",
         });
@@ -77,7 +78,7 @@ describe("OpenRouter failure classification", () => {
                 },
             },
         });
-        const failure = classifyOpenRouterError(httpError(400, body));
+        const failure = classifyOpenRouterError(httpError(400, body), errors);
 
         expect(failure).toMatchObject({
             providerName: "Anthropic",
@@ -100,7 +101,7 @@ describe("OpenRouter failure classification", () => {
                 message: "Prompt tokens limit exceeded: 158544 > 91805. To increase, adjust the key's daily limit.",
             },
         });
-        const failure = classifyOpenRouterError(httpError(402, body));
+        const failure = classifyOpenRouterError(httpError(402, body), errors);
 
         expect(failure).toMatchObject({
             kind: "payment_required",
@@ -125,7 +126,7 @@ describe("OpenRouter failure classification", () => {
                 },
             },
         });
-        expect(classifyOpenRouterError(httpError(402, body)).allowance).toEqual({
+        expect(classifyOpenRouterError(httpError(402, body), errors).allowance).toEqual({
             kind: "prompt_tokens",
             requested: 158_544,
             available: 91_805,

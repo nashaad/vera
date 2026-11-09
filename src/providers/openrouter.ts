@@ -1,7 +1,6 @@
-import { HTTPClient, OpenRouter } from "@openrouter/sdk";
 import type { ChatMessages, ChatRequestEffort } from "@openrouter/sdk/models";
-import { SDKValidationError } from "@openrouter/sdk/models/errors";
 
+import { loadOpenRouterSdk, loadedOpenRouterErrors } from "./openrouter-sdk.ts";
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
 import type {
@@ -114,6 +113,7 @@ export class OpenRouterAdapter implements ModelAdapter {
         const rawChunks: unknown[] = [];
         let rawTruncated = false;
         let sentRequest: unknown;
+        let dispatched = false;
         let allowanceRequest: OpenRouterAllowanceRequest | undefined;
         const capture = (
             outcome: FailedRequestOutcome,
@@ -258,6 +258,7 @@ export class OpenRouterAdapter implements ModelAdapter {
                 };
             }
 
+            dispatched = true;
             const chunks = await this.sendChat(providerRequest, request.signal);
             for await (const chunk of chunks) {
                 throwIfAborted(request.signal);
@@ -325,13 +326,17 @@ export class OpenRouterAdapter implements ModelAdapter {
                 stream.push({ type: "done", message });
             }
         } catch (value) {
+            if (dispatched && !request.signal?.aborted && this.profile.classifyError === undefined
+                && loadedOpenRouterErrors() === undefined) {
+                await loadOpenRouterSdk().catch(() => undefined);
+            }
             const error = request.signal?.aborted
                 ? toError(value)
                 : value instanceof ProviderFailureError
                     ? value
                     : new ProviderFailureError(
                         this.profile.classifyError?.(value)
-                            ?? classifyOpenRouterError(value),
+                            ?? classifyOpenRouterError(value, loadedOpenRouterErrors()),
                         value,
                     );
             if (
@@ -369,16 +374,18 @@ export class OpenRouterAdapter implements ModelAdapter {
 export function createOpenRouterAdapter(
     options: OpenRouterAdapterOptions,
 ): OpenRouterAdapter {
-    const client = new OpenRouter({
-        apiKey: options.apiKey,
-        retryConfig: { strategy: "none" },
-        ...(options.baseUrl === undefined ? {} : { serverURL: options.baseUrl }),
-        ...(options.fetch === undefined
-            ? {}
-            : { httpClient: new HTTPClient({ fetcher: options.fetch }) }),
-    });
+    let client: InstanceType<typeof import("@openrouter/sdk").OpenRouter> | undefined;
 
     return new OpenRouterAdapter(async (request, signal) => {
+        const { sdk, errors } = await loadOpenRouterSdk();
+        client ??= new sdk.OpenRouter({
+            apiKey: options.apiKey,
+            retryConfig: { strategy: "none" },
+            ...(options.baseUrl === undefined ? {} : { serverURL: options.baseUrl }),
+            ...(options.fetch === undefined
+                ? {}
+                : { httpClient: new sdk.HTTPClient({ fetcher: options.fetch }) }),
+        });
         try {
             return await client.chat.send(
                 {
@@ -408,7 +415,7 @@ export function createOpenRouterAdapter(
                 { signal },
             );
         } catch (cause) {
-            if (cause instanceof SDKValidationError) throw requestBuildFailure(cause);
+            if (cause instanceof errors.SDKValidationError) throw requestBuildFailure(cause);
             throw cause;
         }
     },

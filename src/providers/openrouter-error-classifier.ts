@@ -1,8 +1,5 @@
-import {
-    ConnectionError,
-    OpenRouterError,
-    RequestTimeoutError,
-} from "@openrouter/sdk/models/errors";
+import type { OpenRouterError } from "@openrouter/sdk/models/errors";
+import type { OpenRouterErrors } from "./openrouter-sdk.ts";
 import type { ChatStreamChunkError } from "@openrouter/sdk/models";
 
 import type { ProviderFailure } from "../model/provider-failure.ts";
@@ -25,16 +22,19 @@ const HTTP_FAILURES: Readonly<Partial<Record<number, HttpFailureMapping>>> = {
     429: { kind: "rate_limit", resolution: "retry" },
 };
 
-export function classifyOpenRouterError(value: unknown): ProviderFailure {
+export function classifyOpenRouterError(
+    value: unknown,
+    errors?: OpenRouterErrors,
+): ProviderFailure {
     const message = value instanceof Error ? value.message : String(value);
 
-    if (value instanceof ConnectionError) {
+    if (errors !== undefined && value instanceof errors.ConnectionError) {
         return { kind: "connection", resolution: "retry", message };
     }
-    if (value instanceof RequestTimeoutError) {
+    if (errors !== undefined && value instanceof errors.RequestTimeoutError) {
         return { kind: "timeout", resolution: "retry", message };
     }
-    if (!(value instanceof OpenRouterError)) {
+    if (errors === undefined || !(value instanceof errors.OpenRouterError)) {
         return { kind: "unknown", resolution: "none", message };
     }
 
