@@ -1,7 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { fileChangePresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import { skillFileRefusal } from "../skills/file-check.ts";
@@ -198,6 +197,7 @@ export const writeTool: RegisteredTool = {
             }
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
+            const { fileChangePresentation } = await import("./diff-presentation.ts");
             return {
                 kind: "output",
                 output: writeResultSummary(

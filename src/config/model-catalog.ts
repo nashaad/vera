@@ -1,5 +1,6 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
-import { isVeraProviderId, type VeraProviderId } from "../config.ts";
+import type { VeraProviderId } from "../config.ts";
+import { isVeraProviderId } from "../providers/builtin-id.ts";
 
 export type CatalogProviderId = VeraProviderId;
 

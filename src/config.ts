@@ -1,3 +1,5 @@
+import { isVeraProviderId } from "./providers/builtin-id.ts";
+export { isVeraProviderId } from "./providers/builtin-id.ts";
 import { fileReadStamp } from "./store/read-cache.ts";
 import { eligibleForDefault } from "./model/model-operations.ts";
 import { loadPoolFile as loadAssignmentPool } from "./model/pool-file-loader.ts";
@@ -15,10 +17,10 @@ import { randomUUID } from "node:crypto";
 import { readRegularFileTextSync } from "./store/regular-file.ts";
 
 import {
-    builtInPermissionMode,
     parseApprovalMode,
     type ApprovalMode,
-} from "./engine/permissions.ts";
+} from "./sdk/permissions.ts";
+import { isBuiltInPermissionMode } from "./sdk/permissions.ts";
 import type { ToolResultLimits } from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { CompactionOverrides } from "./engine/compaction-binding.ts";
@@ -27,7 +29,7 @@ import {
     OVERRIDE_KEYS,
     type ConfiguredOverrides,
     type OverrideKey,
-} from "./engine/override-rows.ts";
+} from "./engine/override-keys.ts";
 import type { OverrideSettingsPatch } from "./engine/model-settings.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
@@ -94,9 +96,6 @@ export type VeraBuiltInProviderId = typeof VERA_PROVIDER_IDS[number];
  */
 export type VeraProviderId = string;
 
-export function isVeraProviderId(value: string): boolean {
-    return shippedProviderIds().includes(value);
-}
 
 export type VeraProviderProtocol = "openai-chat" | "anthropic-messages";
 export type VeraProviderCredential = "api_key" | "none";
@@ -1276,7 +1275,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         : parseApprovalMode(config.approval_mode);
     const hasSelectedMode = approvalMode !== undefined
         && (
-            builtInPermissionMode(approvalMode) !== undefined
+            isBuiltInPermissionMode(approvalMode)
             || permissionModes?.[approvalMode] !== undefined
         );
     if (

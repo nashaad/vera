@@ -1,5 +1,4 @@
 import { resolveReadPath } from "./files.ts";
-import { fileChangePresentation } from "./diff-presentation.ts";
 import type { ToolRuntime } from "./runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "./types.ts";
 
@@ -74,6 +73,7 @@ async function editFileInWorkspace(
 
         await Bun.write(path, editedContent);
         runtime.recordFileSnapshot(path, editedContent);
+        const { fileChangePresentation } = await import("./diff-presentation.ts");
         return {
             kind: "output",
             output: `Applied ${edits.length} edit${edits.length === 1 ? "" : "s"} to ${requestedPath}`,

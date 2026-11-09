@@ -19,7 +19,7 @@ import { veraProfileDirectory } from "../profile-paths.ts";
 import {
     assertSafeExtensionDirectory,
     managedExtensionConfigs,
-} from "./manager.ts";
+} from "./managed-registry.ts";
 
 export function defaultVeraExtensionDirectory(): string {
     return join(veraProfileDirectory(), "extensions");
