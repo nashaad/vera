@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { connectHost } from "../../src/host/connection.ts";
+import { requestHostIdentity } from "../../src/host/protocol.ts";
 
 interface HostLock {
     readonly pid: number;
@@ -40,6 +42,22 @@ function readHostPid(trialHome: string): number | undefined {
 function verifiedHost(pid: number, trialHome: string): boolean {
     const result = spawnSync("ps", ["eww", "-p", String(pid)], { encoding: "utf8" });
     return result.stdout.includes(`VERA_HOME=${trialHome}`) && result.stdout.includes("vera-host");
+}
+
+function verifiedWorker(pid: number, trialHome: string): boolean {
+    const result = spawnSync("ps", ["eww", "-p", String(pid)], { encoding: "utf8" });
+    return result.stdout.includes(`VERA_HOME=${trialHome}`) && result.stdout.includes("session-worker");
+}
+
+function workerPids(trialHome: string): number[] {
+    const directory = join(trialHome, "runtime", "workers");
+    if (!existsSync(directory)) return [];
+    return readdirSync(directory).filter((name) => name.endsWith(".json")).flatMap((name) => {
+        try {
+            const record = JSON.parse(readFileSync(join(directory, name), "utf8")) as { pid?: unknown };
+            return typeof record.pid === "number" ? [record.pid] : [];
+        } catch { return []; }
+    });
 }
 
 async function waitUntil(check: () => boolean, label: string, timeoutMs = 30_000): Promise<void> {
@@ -120,6 +138,7 @@ realProcessTest(
             provider: "stub",
             model: "stub-model",
             approval_mode: "auto",
+            host: { workers: 0 },
             providers: {
                 stub: {
                     protocol: "openai-chat",
@@ -213,4 +232,110 @@ realProcessTest(
         }
     },
     60_000,
+);
+
+realProcessTest(
+    "a surviving session process finishes a turn after the TUI reconnects the master",
+    async () => {
+        const tempBase = join(tmpdir(), "vera-dev");
+        mkdirSync(tempBase, { recursive: true });
+        const root = mkdtempSync(join(tempBase, "hostdrop-pool-"));
+        const trialHome = join(root, "h");
+        const socket = join(root, "tmux.sock");
+        const env = {
+            PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, VERA_HOME: trialHome,
+            VERA_DEV_INSTANCE: `${basename(process.cwd())} dev`, TMPDIR: root, TERM: "xterm-256color",
+        };
+        mkdirSync(trialHome, { recursive: true });
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const stub = Bun.serve({
+            hostname: "127.0.0.1", port: 0,
+            async fetch(request) {
+                if (request.method === "GET") return Response.json({ data: [{ id: "stub-model" }] });
+                entered.resolve();
+                await release.promise;
+                return new Response('data: {"id":"stub","object":"chat.completion.chunk","model":"stub-model","choices":[{"index":0,"delta":{"role":"assistant","content":"The crow completes the voyage."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', {
+                    headers: { "content-type": "text/event-stream" },
+                });
+            },
+        });
+        if (stub.port === undefined || stub.port === 8372) {
+            stub.stop(true);
+            rmSync(root, { recursive: true, force: true });
+            throw new Error("Invalid stub port");
+        }
+        writeFileSync(join(trialHome, "config.json"), JSON.stringify({
+            schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
+            providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
+        }));
+        const tmux = (...args: string[]) => spawnSync("tmux", ["-S", socket, ...args], { cwd: process.cwd(), env, encoding: "utf8" });
+        const pane = (): string => tmux("capture-pane", "-p", "-t", "hostdrop-pool").stdout;
+        let killedHost: number | undefined;
+        let workerPid: number | undefined;
+        const startedWorkers = new Set<number>();
+        try {
+            const started = tmux("-f", "/dev/null", "new-session", "-d", "-s", "hostdrop-pool", "-x", "120", "-y", "40",
+                "-c", process.cwd(), "bun clients/cli/main.ts");
+            if (started.status !== 0) throw new Error(started.stderr);
+            await waitUntil(() => pane().includes("or just start typing"), "home");
+            tmux("send-keys", "-t", "hostdrop-pool", "-l", "A crow begins a voyage");
+            tmux("send-keys", "-t", "hostdrop-pool", "Enter");
+            await Promise.race([entered.promise, Bun.sleep(30_000).then(() => { throw new Error("Provider request did not start"); })]);
+            const directory = join(trialHome, "runtime", "sessions");
+            const names = readdirSync(directory).filter((name) => name.endsWith(".jsonl"));
+            expect(names).toHaveLength(1);
+            const sessionId = names[0]!.slice(0, -".jsonl".length);
+            const hostSocket = join(trialHome, "runtime", "host.sock");
+            const connection = await connectHost({ socketPath: hostSocket });
+            let workerSocket: string;
+            try {
+                await connection.send({ type: "locate_agent", agent_id: sessionId });
+                const response = await connection.receiveWithin(5_000, "Locate timed out") as { type: string; socket_path?: string };
+                expect(response.type).toBe("agent_location");
+                if (response.socket_path === undefined) throw new Error("Session process socket is unavailable");
+                workerSocket = response.socket_path;
+            } finally { connection.close(); }
+            workerPid = (await requestHostIdentity(workerSocket))?.pid;
+            expect(workerPid).toBeDefined();
+            for (const pid of workerPids(trialHome)) startedWorkers.add(pid);
+            killedHost = readHostPid(trialHome);
+            if (killedHost === undefined || !verifiedHost(killedHost, trialHome)) throw new Error("Could not verify the trial host");
+            process.kill(killedHost, "SIGKILL");
+            await waitUntil(() => !isAlive(killedHost!), "master exit");
+            expect(isAlive(workerPid!)).toBe(true);
+            tmux("send-keys", "-t", "hostdrop-pool", "C-p");
+            await waitUntil(() => pane().includes("Commands"), "commands");
+            tmux("send-keys", "-t", "hostdrop-pool", "-l", "reconnect host");
+            await waitUntil(() => pane().includes("Reconnect host"), "reconnect command");
+            tmux("send-keys", "-t", "hostdrop-pool", "Enter");
+            await waitUntil(() => {
+                const pid = readHostPid(trialHome);
+                return pid !== undefined && pid !== killedHost;
+            }, "replacement master");
+            for (const pid of workerPids(trialHome)) startedWorkers.add(pid);
+            expect((await requestHostIdentity(workerSocket))?.pid).toBe(workerPid);
+            release.resolve();
+            await waitUntil(() => pane().includes("The crow completes the voyage."), "completed turn");
+            expect(pane()).toContain("A crow begins a voyage");
+            expect(pane()).not.toContain("Vera crashed before this turn finished.");
+        } finally {
+            release.resolve();
+            tmux("kill-server");
+            const currentHost = readHostPid(trialHome);
+            if (currentHost !== undefined && isAlive(currentHost) && verifiedHost(currentHost, trialHome)) {
+                process.kill(currentHost, "SIGTERM");
+                await waitUntil(() => !isAlive(currentHost), "trial host exit", 10_000);
+            }
+            for (const pid of workerPids(trialHome)) startedWorkers.add(pid);
+            for (const pid of startedWorkers) {
+                if (isAlive(pid) && verifiedWorker(pid, trialHome)) process.kill(pid, "SIGTERM");
+            }
+            if (killedHost !== undefined) await waitUntil(() => !isAlive(killedHost!), "killed host exit", 10_000);
+            for (const pid of startedWorkers) await waitUntil(() => !isAlive(pid), `session process ${pid} exit`, 10_000);
+            stub.stop(true);
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+    90_000,
 );

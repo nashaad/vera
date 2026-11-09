@@ -204,8 +204,13 @@ export interface VeraHookConfig {
     readonly timeout_ms?: number;
 }
 
+export interface VeraHostConfig {
+    readonly workers?: number;
+}
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
+    readonly host?: VeraHostConfig;
     readonly provider: VeraProviderId;
     /** Named instances of standard model-provider wire protocols. */
     readonly providers?: Readonly<Record<string, VeraCustomProviderConfig>>;
@@ -560,6 +565,10 @@ export function loadVeraConfig(
     const migrated = workerConfigReadOnly ? value : migrateShippedProviderDeclarations(path, value);
     checkShippedProviderDeclarations(path, migrated);
     checkDeclaredProviderCaches(path, migrated);
+    if (typeof migrated === "object" && migrated !== null && "host" in migrated
+        && parseHostConfig(migrated.host) === undefined) {
+        throw new VeraConfigError(path, "host must be an object with workers set to a non-negative integer.");
+    }
     const movedReviewerKeys = reviewerRouteKeys(migrated);
     if (movedReviewerKeys.length > 0) {
         throw new VeraConfigError(
@@ -1192,6 +1201,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     }
 
     const config = value as Record<string, unknown>;
+    const host = parseHostConfig(config.host);
     let modelRequestOptions: VeraModelRequestOptions | undefined;
     try {
         modelRequestOptions = config.model_request_options === undefined
@@ -1280,7 +1290,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             || permissionModes?.[approvalMode] !== undefined
         );
     if (
-        (config.reviewer !== undefined && reviewer === undefined)
+        host === undefined
+        || (config.reviewer !== undefined && reviewer === undefined)
         || providers === undefined
         || providerEndpoints === undefined
         || (config.subagent !== undefined && subagent === undefined)
@@ -1334,6 +1345,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
 
     return {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
+        ...(config.host === undefined ? {} : { host }),
         provider: config.provider ?? "openrouter",
         ...(config.providers === undefined ? {} : { providers }),
         ...(config.provider_endpoints === undefined
@@ -1416,6 +1428,16 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { log_max_age_days: logMaxAgeDays }),
     };
+}
+
+function parseHostConfig(value: unknown): VeraHostConfig | undefined {
+    if (value === undefined) return {};
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const workers = (value as Record<string, unknown>).workers;
+    if (workers !== undefined && (typeof workers !== "number" || !Number.isSafeInteger(workers) || workers < 0)) {
+        return undefined;
+    }
+    return workers === undefined ? {} : { workers };
 }
 
 function parseCustomProviders(

@@ -112,9 +112,9 @@ the entries and the rows as one list. Enter opens the session, the same way the
 resume picker does, and removes its entry. Delete removes an entry without
 opening it. Removing an entry clears its records from the host's restart log.
 
-In a development pool, a surviving session process can keep a turn running
+With the default pool, a surviving session process can keep a turn running
 while a new host starts, as described in
-[Development instances](runtime-and-worktrees.md).
+[Recover a host connection](runtime-and-worktrees.md#recover-a-host-connection).
 
 The list is read when Vera starts on the home screen and each time the home
 screen opens. It does not refresh on a timer. Vera does not resend an

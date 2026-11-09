@@ -9,6 +9,11 @@ Start with the error Vera reports. `/diagnostics` inspects the current
 conversation or host, `/doctor` checks the runtime, and `/context` reports
 context usage without sending a model request.
 
+## Use a single-process host
+
+In `/configure`, choose Home config and set `host.workers` to `0`. Save the
+file, then press Ctrl+P and choose Reconnect host to apply the change.
+
 ## The client lost its host
 
 After a dropped connection that was not a planned stop, Vera makes one

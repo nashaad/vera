@@ -29,12 +29,13 @@ The first launch should omit `-c`, since there is no prior conversation to
 continue. Starting a TUI from a checkout without this launcher can attach to
 the daily host instead of testing that checkout's code.
 
-For a development instance with a separate session process, run
-`bun run dev:tui --pool`. Clients attach to the session process and use the
-host to find it again after a disconnect. If the session process exits,
+Each Vera home has one host. By default, that host runs separate session
+processes for conversations. Clients attach to a session process and use the
+host to find it again after a disconnect. To choose a different mode, see
+[Host processes](configuration-files.md#host-processes). If a session process exits,
 the host replaces it and an interrupted prompt turn fails. Send the prompt
 again to retry it. After three process failures in one minute, the host leaves that
-process unavailable until the development host restarts.
+process unavailable until the host restarts.
 An interrupted inbox, schedule, or watch wake stays unread and appears when
 you next attach. A later entry can wake the conversation normally.
 
@@ -134,7 +135,7 @@ forced stop asks the host to cut its turns first. If it cannot answer, the
 command stops the master, then each verified session process.
 If a session process is unavailable, `vera ls` keeps its last known session
 summaries and names the unavailable process after the table. Reconnect host
-and automatic restart keep pool mode when they replace a pooled host.
+and automatic restart use the home configuration when they start a host.
 If a host is starting before its lock is published, stop reports the startup
 in progress instead of reporting that no host is running.
 An ordinary stop also reports startup in progress while a pooled host adopts

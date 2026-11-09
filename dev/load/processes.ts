@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { assertTrialHome, command, log, REPO } from "./common.ts";
+import { readRecordedWorkers } from "../../src/host/master/worker-records.ts";
+import type { ProfileRuntime } from "./profile.ts";
 
 interface OwnedProcess {
     pid: number;
@@ -9,19 +11,30 @@ interface OwnedProcess {
     child?: ReturnType<typeof Bun.spawn>;
 }
 
+export interface StopMeasurement {
+    readonly elapsedMs: number | null;
+    readonly awakeElapsedMs: number | null;
+    readonly commandExit: number | null;
+    readonly pids: readonly number[];
+    readonly remainingPids: readonly number[];
+    readonly remainingRecords: readonly string[];
+}
+
 export class ProcessOwner {
     readonly processes: OwnedProcess[] = [];
     constructor(readonly run: string, readonly home: string) { assertTrialHome(home); }
 
-    start(role: string, script: string, extra: Record<string, string> = {}, preload?: string) {
+    start(role: string, script: string, extra: Record<string, string> = {}, preload?: string, args: readonly string[] = [], runtime?: ProfileRuntime) {
+        const userHome = join(this.run, "user");
+        mkdirSync(userHome, { recursive: true });
         const env: Record<string, string> = {
             PATH: process.env.PATH ?? "/usr/bin:/bin", TMPDIR: process.env.TMPDIR ?? "/tmp",
-            LANG: "en_US.UTF-8", VERA_HOME: this.home,
-            VERA_DEV_INSTANCE: "1", LOAD_RUN: this.run,
+            LANG: "en_US.UTF-8", HOME: userHome, VERA_HOME: this.home,
+            VERA_DEV_INSTANCE: `${basename(REPO)} dev`, LOAD_RUN: this.run,
             ...extra,
         };
-        const child = Bun.spawn([process.execPath, ...(preload ? ["--preload", preload] : []), script], {
-            cwd: this.run, env,
+        const child = Bun.spawn([runtime?.executable ?? process.execPath, ...(runtime?.flags ?? []), ...(preload ? ["--preload", preload] : []), script, ...args], {
+            cwd: REPO, env,
             stdout: Bun.file(join(this.run, `${role}.stdout`)),
             stderr: Bun.file(join(this.run, `${role}.stderr`)),
         });
@@ -60,7 +73,56 @@ export class ProcessOwner {
         } catch { return false; }
     }
 
+    async killWorker(pid: number): Promise<void> {
+        await this.discoverDescendants();
+        if (!this.processes.some((process) => process.pid === pid && process.role === "descendant") || !await this.matches(pid)) {
+            throw new Error(`Session process ${pid} does not belong to this trial`);
+        }
+        const commandLine = await command(["/bin/ps", "-p", String(pid), "-o", "command="]);
+        if (!commandLine.includes("--worker-index")) throw new Error(`Process ${pid} is not a session process`);
+        process.kill(pid, "SIGKILL");
+        log(join(this.run, "pids.ndjson"), { type: "signal", pid, signal: "SIGKILL" });
+    }
+
+    async stopHost(): Promise<StopMeasurement> {
+        await this.discoverDescendants();
+        const host = this.processes.find((process) => process.role === "host");
+        const workers = await readRecordedWorkers(this.home);
+        const pids = [...new Set([...(host === undefined ? [] : [host.pid]), ...workers.map((worker) => worker.pid)])];
+        const started = performance.now();
+        const startedWall = Date.now();
+        const cli = this.start("stop", join(REPO, "clients/cli/main.ts"), {}, undefined, ["host", "stop", "--yes"]);
+        const deadline = started + 180_000;
+        let remaining = pids;
+        while (performance.now() < deadline) {
+            for (const worker of await readRecordedWorkers(this.home)) {
+                if (!pids.includes(worker.pid)) pids.push(worker.pid);
+            }
+            const alive = await Promise.all(pids.map(async (pid) => await this.matches(pid)));
+            remaining = pids.filter((_, index) => alive[index]);
+            if (remaining.length === 0) break;
+            await Bun.sleep(50);
+        }
+        const elapsedMs = remaining.length === 0 ? Date.now() - startedWall : null;
+        const awakeElapsedMs = remaining.length === 0 ? performance.now() - started : null;
+        await Promise.race([cli.exited, Bun.sleep(1_000)]);
+        const records = await readRecordedWorkers(this.home);
+        const result: StopMeasurement = {
+            elapsedMs, awakeElapsedMs, commandExit: cli.exitCode, pids, remainingPids: remaining,
+            remainingRecords: records.map((record) => record.path),
+        };
+        log(join(this.run, "stop.ndjson"), { type: "stop", ...result });
+        return result;
+    }
+
     async stop(): Promise<void> {
+        await this.discoverDescendants();
+        for (const owned of this.processes.filter((process) => process.role === "host")) {
+            if (!await this.matches(owned.pid)) continue;
+            process.kill(owned.pid, "SIGTERM");
+            log(join(this.run, "pids.ndjson"), { type: "signal", pid: owned.pid, signal: "SIGTERM" });
+            if (owned.child !== undefined) await Promise.race([owned.child.exited, Bun.sleep(4_000)]);
+        }
         await this.discoverDescendants();
         for (const owned of [...this.processes].reverse()) {
             if (owned.child?.exitCode !== null && owned.child?.exitCode !== undefined) continue;

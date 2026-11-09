@@ -41,6 +41,7 @@ import { migrateHome } from "../src/home-migration.ts";
 import {
     unrecognisedEntriesIn,
     veraHomeDirectory,
+    veraRuntimeDirectoryIn,
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
 import { releaseBuildId } from "../src/release/build-id.ts";
@@ -383,8 +384,9 @@ export async function runDevTui(
 
 async function startPoolHost(home: string, env: NodeJS.ProcessEnv, cwd: string, noDiscovery: boolean): Promise<void> {
     const entry = fileURLToPath(new URL("../clients/host/main.ts", import.meta.url));
-    mkdirSync(join(home, "runtime"), { recursive: true, mode: 0o700 });
-    const logPath = join(home, "runtime", "pool-start.log");
+    const runtime = veraRuntimeDirectoryIn(home);
+    mkdirSync(runtime, { recursive: true, mode: 0o700 });
+    const logPath = join(runtime, "pool-start.log");
     const log = openSync(logPath, "w", 0o600);
     const child = spawn(process.execPath, [entry, "--pool", ...(noDiscovery ? ["--no-discovery"] : [])], {
         cwd, env, detached: true, stdio: ["ignore", log, log],
@@ -397,12 +399,17 @@ async function startPoolHost(home: string, env: NodeJS.ProcessEnv, cwd: string, 
         while (Date.now() < deadline) {
             if (child.exitCode !== null || child.signalCode !== null) throw new Error("The development host exited during startup.");
             const identity = await Promise.race([
-                requestHostIdentity(inProcessWorkerSocket(home)).catch(() => undefined),
+                requestHostIdentity(join(runtime, "host.sock")).catch(() => undefined),
                 error,
             ]);
-            if (identity?.role === "worker" && readFileSync(logPath, "utf8").includes("Session worker ready\n")) {
-                child.unref();
-                return;
+            const lock = inspectHostLockFileSync(join(runtime, "host.json"));
+            if (identity?.pid === child.pid && lock.state === "valid" && lock.record.pid === child.pid) {
+                const worker = lock.record.worker_count === undefined ? undefined
+                    : await requestHostIdentity(inProcessWorkerSocket(home)).catch(() => undefined);
+                if (lock.record.worker_count === undefined || worker?.role === "worker") {
+                    child.unref();
+                    return;
+                }
             }
             await Bun.sleep(25);
         }

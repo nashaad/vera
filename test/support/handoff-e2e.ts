@@ -29,7 +29,7 @@ export interface StubProvider {
 
 // Each run gets its own prefix and home under the system temp directory. The socket
 // path has to stay under the length limit, so the names are short.
-export async function createFixture(): Promise<HandoffFixture> {
+export async function createFixture(options: { readonly pool?: boolean } = {}): Promise<HandoffFixture> {
     const root = mkdtempSync(join(tmpdir(), "vh-"));
     const prefix = join(root, "p");
     const home = join(root, "h");
@@ -43,6 +43,8 @@ export async function createFixture(): Promise<HandoffFixture> {
         provider: "stub",
         model: "stub-model",
         approval_mode: "auto",
+        curated_models_url: "",
+        ...(options.pool === true ? {} : { host: { workers: 0 } }),
         providers: {
             stub: {
                 protocol: "openai-chat",

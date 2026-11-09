@@ -34,16 +34,17 @@ try {
     throw error;
 }
 
-const pool = process.argv.includes("--pool");
+const pool = config.host?.workers !== 0;
 const skipStartupDiscovery = process.argv.includes("--no-discovery");
-if ((pool || skipStartupDiscovery) && !processIsDevelopmentInstance()) {
-    throw new Error("Session worker flags require a development instance");
+if (skipStartupDiscovery && !processIsDevelopmentInstance()) {
+    throw new Error("--no-discovery requires a development instance");
 }
 
 const start = (): ReturnType<typeof startResidentHost> =>
     startResidentHost({
         config,
-        ...(pool ? { processWorker: true } : {}),
+        processWorker: pool,
+        ...(pool && config.host?.workers !== undefined ? { processWorkerCount: config.host.workers } : {}),
         ...(skipStartupDiscovery ? { skipStartupDiscovery: true } : {}),
     });
 
@@ -69,7 +70,7 @@ try {
 }
 
 clearBootFailures();
-if (pool) process.stdout.write("Session worker ready\n");
+if (pool && process.argv.includes("--pool")) process.stdout.write("Session worker ready\n");
 installLiveProcess("host");
 const developmentSource = noteDevelopmentInstance();
 const removeCrashGuard = installHostCrashGuard();

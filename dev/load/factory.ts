@@ -9,7 +9,7 @@ import { emptyUsage, type AssistantMessage, type ModelTool } from "../../src/mod
 import { includedExtensionIds } from "../../src/extensions/included.ts";
 import { assertTrialHome, command, random } from "./common.ts";
 
-export const FACTORY_VERSION = 3;
+export const FACTORY_VERSION = 4;
 
 const MEASUREMENT_CAPACITY = 400_000;
 const CONTEXT_MESSAGE_LIMIT = 900;
@@ -89,7 +89,7 @@ export async function buildFactory(options: FactoryOptions): Promise<FactoryMani
     await mkdir(join(root, "home", "runtime", "sessions"), { recursive: true });
     await mkdir(join(root, "workspace", "sessions"), { recursive: true });
     const rng = random(seed);
-    const sizes = options.small ? [350_000, 200_000, 30_000] : targetSizes();
+    const sizes = options.small ? [350_000, 200_000, ...Array<number>(6).fill(30_000)] : targetSizes();
     const sessions: FactorySession[] = [];
     const corpus = Array.from({ length: 12000 }, (_, i) => `pirate crow chart ${i}: ${"reef current bearing ".repeat(8)}\n`).join("");
     await Bun.write(join(root, "workspace", "corpus.txt"), corpus);
@@ -163,13 +163,14 @@ export async function cloneFactory(factory: string, run: string): Promise<void> 
     await command(["/bin/cp", "-cR", join(factory, "workspace"), join(run, "workspace")]);
 }
 
-export async function configureHome(home: string, port: number, extensions: "included" | "none"): Promise<void> {
+export async function configureHome(home: string, port: number, extensions: "included" | "none", workers?: number): Promise<void> {
     const models = Array.from({ length: 60 }, (_, i) => ({ name: `faux-model-${i}`, provider: `faux-${Math.floor(i / 20)}`, model: `crow-${i % 20}` }));
     const providers = Object.fromEntries([0, 1, 2].map((i) => [`faux-${i}`, { protocol: "openai-chat", credential: "none", base_url: `http://127.0.0.1:${port}/v1`, max_tokens: 2048 }]));
     const assignment = { models: [models[0]!] };
     await Bun.write(join(home, "config.json"), JSON.stringify({ schema_version: 1, provider: "faux-0", model: "crow-0", approval_mode: "auto", providers,
         models, model_routes: {}, reviewer_profiles: {},
         model_assignments: { snappy: assignment, eco: assignment, extra: assignment, compaction: assignment, reviewer: assignment },
+        ...(workers === undefined ? {} : { host: { workers } }),
         curated_models_url: "", disabled_included_extensions: extensions === "none" ? includedExtensionIds() : [],
     }, null, 2));
     for (let i = 0; i < 3; i++) {

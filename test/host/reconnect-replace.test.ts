@@ -94,6 +94,8 @@ async function startDetachedHost(): Promise<{
         provider: "openrouter",
         model: "faux/test",
         approval_mode: "auto",
+        curated_models_url: "",
+        host: { workers: 0 },
     })}\n`);
     const child = Bun.spawn([
         process.execPath,
