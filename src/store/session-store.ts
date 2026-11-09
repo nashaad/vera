@@ -387,6 +387,7 @@ export interface SessionPageSource {
     readonly deliveredMessages: ReadonlyMap<ModelMessage, SessionDeliveryEntry>;
     readonly harnessMessages: readonly {
         readonly afterMessage: number;
+        readonly id: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[];
@@ -401,6 +402,7 @@ export interface ReadonlySessionSnapshot {
     readonly deliveredMessages: ReadonlyMap<ModelMessage, SessionDeliveryEntry>;
     readonly harnessMessages: readonly {
         readonly afterMessage: number;
+        readonly id: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[];
@@ -1024,6 +1026,7 @@ export class SessionStore {
 
     projectedHarnessMessages(): readonly {
         readonly afterMessage: number;
+        readonly id: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] {
@@ -2083,10 +2086,11 @@ function projectHarnessMessages(
     active: readonly SessionMessageEntry[],
 ): readonly {
     readonly afterMessage: number;
+    readonly id: string;
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
 }[] {
-    return entries.flatMap((entry) => {
+    return entries.flatMap((entry, index) => {
         let afterMessage = entry.afterMessageId === null
             ? 0
             : active.findIndex((message) => message.id === entry.afterMessageId) + 1;
@@ -2107,7 +2111,12 @@ function projectHarnessMessages(
         }
         return afterMessage === 0 && entry.afterMessageId !== null
             ? []
-            : [{ afterMessage, text: entry.text, tone: entry.tone }];
+            : [{
+                afterMessage,
+                id: `harness:${index}`,
+                text: entry.text,
+                tone: entry.tone,
+            }];
     });
 }
 

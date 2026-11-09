@@ -116,7 +116,7 @@ for (const count of [1, 2]) {
             expect(store.messages()).toEqual(beforeMessages);
             const expected = Array.from({ length: count }, (_, index) => ({ content: `check sails ${index}` }));
             const message = count === 1 ? CRASH_QUEUED_PROMPT_MESSAGE : CRASH_QUEUED_PROMPTS_MESSAGE;
-            expect(store.projectedHarnessMessages()).toEqual([{ afterMessage: 4, text: message, tone: "soft" }]);
+            expect(store.projectedHarnessMessages()).toEqual([{ afterMessage: 4, id: "harness:0", text: message, tone: "soft" }]);
             const repaired = await readFile(path, "utf8");
             const record = JSON.parse(repaired.trimEnd().split("\n").at(-1)!);
             expect(record).toMatchObject({

@@ -36,7 +36,7 @@ test("restart scan recovers queued prompts after a completed reply", async () =>
         expect(result.recorded).toEqual(["crow"]);
         const reopened = await SessionStore.open(path);
         expect(reopened.unsentPrompts()).toEqual([{ content: "check the sails" }]);
-        expect(reopened.projectedHarnessMessages()).toEqual([{ afterMessage: 2, text: CRASH_QUEUED_PROMPT_MESSAGE, tone: "soft" }]);
+        expect(reopened.projectedHarnessMessages()).toEqual([{ afterMessage: 2, id: "harness:0", text: CRASH_QUEUED_PROMPT_MESSAGE, tone: "soft" }]);
         expect(listRestartRecords(recordPath)).toMatchObject([{ session_id: "crow", cause: "crash" }]);
         const repaired = await readFile(path, "utf8");
         expect(repaired).not.toContain(CRASH_CUT_MESSAGE);
