@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { abortAgentThroughHost, abortPoolAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "one-shot abort reaches a resident agent and detaches",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-abort-client-"));
@@ -30,7 +31,7 @@ import { startHostServer } from "../../src/host/server.ts";
     },
 );
 
-test("pool abort reports no turn only after the owning process has exited", async () => {
+socketTest("pool abort reports no turn only after the owning process has exited", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs9-abort-");
     let ownerPid = 2_147_483_646;
     const server = await startHostServer({

@@ -8,10 +8,7 @@ import {
     isExpectedHostClose,
     type HostConnection,
 } from "../../src/host/connection.ts";
-
-const skipIfNoNetwork = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
+import { socketTest } from "../support/socket-probe.ts";
 
 async function withServer(
     onSocket: (socket: Socket) => void,
@@ -36,7 +33,7 @@ async function withServer(
     }
 }
 
-skipIfNoNetwork(
+socketTest(
     "sends and receives newline-delimited JSON frames in order",
     async () => {
         await withServer(
@@ -73,7 +70,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "observes each complete decoded frame before queued values are received",
     async () => {
         const accepted = Promise.withResolvers<Socket>();
@@ -111,7 +108,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "propagates malformed JSON lines to pending receivers",
     async () => {
         await withServer(
@@ -127,7 +124,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "propagates oversized lines to pending receivers",
     async () => {
         await withServer(
@@ -150,7 +147,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "keeps the frames after an oversized one readable",
     async () => {
         await withServer(
@@ -175,7 +172,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "discards an oversized frame arriving across several chunks",
     async () => {
         await withServer(
@@ -202,7 +199,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "refuses to send a frame over the limit without closing",
     async () => {
         await withServer(
@@ -225,7 +222,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "checks each frame's own size instead of the whole received chunk",
     async () => {
         await withServer(
@@ -246,7 +243,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "accepts a line whose content is exactly at the byte limit",
     async () => {
         const value = { s: "a".repeat(10) };
@@ -269,7 +266,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "propagates invalid UTF-8 bytes as malformed",
     async () => {
         await withServer(
@@ -285,7 +282,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "pauses and resumes so values queued past the limit are not lost",
     async () => {
         const total = 50;
@@ -315,7 +312,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "stops parsing the current chunk when the pending-value limit is full",
     async () => {
         await withServer(
@@ -338,7 +335,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "serializes concurrent sends in call order",
     async () => {
         const received: number[] = [];
@@ -387,7 +384,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "send rejects a pending write when the connection closes",
     async () => {
         await withServer(
@@ -408,7 +405,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "propagates connection close to pending receivers",
     async () => {
         await withServer(
@@ -426,7 +423,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "an expected peer close after a completed exchange is not a loss",
     async () => {
         await withServer(
@@ -448,7 +445,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "an expected peer destroy after a completed exchange is not a loss",
     async () => {
         await withServer(
@@ -471,7 +468,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "expectPeerClose does not hide a close before the reply arrives",
     async () => {
         await withServer(
@@ -489,7 +486,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "a graceful peer close leaves its final value readable",
     async () => {
         await withServer(
@@ -508,7 +505,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "an established connection outlives its connection deadline",
     async () => {
         await withServer(
@@ -526,7 +523,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork("close is idempotent and rejects late receives", async () => {
+socketTest("close is idempotent and rejects late receives", async () => {
     await withServer(
         () => {},
         async (socketPath) => {
@@ -542,7 +539,7 @@ skipIfNoNetwork("close is idempotent and rejects late receives", async () => {
     );
 });
 
-skipIfNoNetwork(
+socketTest(
     "close rejects a receive() that was already pending",
     async () => {
         await withServer(
@@ -557,7 +554,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "close discards values queued but not yet read",
     async () => {
         await withServer(
@@ -572,7 +569,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "send rejects values that JSON.stringify cannot encode",
     async () => {
         await withServer(
@@ -610,7 +607,7 @@ test("an already-cancelled host connection does not start", () => {
     })).toThrow("cancelled");
 });
 
-skipIfNoNetwork(
+socketTest(
     "queues values received before receive() is called",
     async () => {
         await withServer(
@@ -629,7 +626,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "round-trips a frame the size of a full 1M-token transcript",
     async () => {
         const transcript = "x".repeat(12 * 1_024 * 1_024);
@@ -661,7 +658,7 @@ function blockEventLoop(ms: number): void {
     }
 }
 
-skipIfNoNetwork(
+socketTest(
     "receiveWithin returns a reply that arrived while the client was stalled",
     async () => {
         await withServer(
@@ -684,7 +681,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "receiveWithin keeps waiting while a reply is still streaming in",
     async () => {
         const cargo = "doubloon".repeat(8_192);
@@ -715,7 +712,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork("receiveWithin rejects when the host stays silent", async () => {
+socketTest("receiveWithin rejects when the host stays silent", async () => {
     await withServer(
         () => {},
         async (socketPath) => {
@@ -731,7 +728,7 @@ skipIfNoNetwork("receiveWithin rejects when the host stays silent", async () => 
     );
 });
 
-skipIfNoNetwork("parses several frames arriving in one chunk", async () => {
+socketTest("parses several frames arriving in one chunk", async () => {
     await withServer(
         (socket) => socket.write('{"n":1}\n{"n":2}\n{"n":3}\n'),
         async (socketPath) => {
@@ -747,7 +744,7 @@ skipIfNoNetwork("parses several frames arriving in one chunk", async () => {
     );
 });
 
-skipIfNoNetwork("starts the next frame when a chunk begins with its newline", async () => {
+socketTest("starts the next frame when a chunk begins with its newline", async () => {
     await withServer(
         (socket) => {
             socket.write('{"n":1}');

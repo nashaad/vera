@@ -8,6 +8,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 import { readModelFailures } from "../../src/store/model-failures.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 /**
  * The failure that started this: a model reasons, returns no visible text, and
@@ -15,7 +16,7 @@ import { readModelFailures } from "../../src/store/model-failures.ts";
  * real ledger file rather than a fake, because the ledger only earns its keep
  * if it survives the actual path a turn takes.
  */
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a real host records a reasoning-only turn in the failure ledger",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-failure-ledger-"));

@@ -1,14 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
-
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
+import { socketTest } from "../support/socket-probe.ts";
 
 socketTest(
     "agent close client preserves typed host outcomes",

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,8 +30,6 @@ const config = {
     approval_mode: "auto",
 } as const;
 
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test;
-
 async function locate(socketPath: string, id: string): Promise<unknown> {
     const connection = await connectHost({ socketPath });
     try {
@@ -55,7 +54,7 @@ async function sessionModelSettings(client: AttachedAgentClient, requestId: stri
     }
 }
 
-socketTest("a master catalog refresh reaches an existing worker session", async () => {
+socketAndLoopbackTest("a master catalog refresh reaches an existing worker session", async () => {
     const home = await mkdtemp(join(tmpdir(), "vhs-"));
     const server = Bun.serve({
         port: 0,

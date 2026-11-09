@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,7 @@ import {
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const config = {
     schema_version: 1,
@@ -20,10 +21,6 @@ const config = {
     model: "faux/test",
     approval_mode: "ask",
 } as const;
-
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
 
 for (const scenario of [
     {

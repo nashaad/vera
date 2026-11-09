@@ -26,6 +26,7 @@ import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
 } from "../../src/host/protocol.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
 const startedAt = "2026-07-17T12:00:00.000Z";
@@ -49,7 +50,7 @@ test("host atomically publishes one private lockfile", async () => {
     expect(await lockfile.read()).toEqual(record);
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "reader verifies the exact identity over a real Unix socket",
     async () => {
     const path = temporaryLockPath();
@@ -239,7 +240,7 @@ test("a newer host can advertise compatibility with this client", async () => {
     );
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "reader reuses a compatible identity over a real Unix socket",
     async () => {
         const path = temporaryLockPath();
@@ -275,7 +276,7 @@ test("a newer host can advertise compatibility with this client", async () => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "reader recognizes a legacy identity over a real Unix socket",
     async () => {
         const path = temporaryLockPath();
@@ -420,7 +421,7 @@ test("a schema-3 record without a build id is not accepted", async () => {
         build_id: "",
     })}\n`);
 
-    expect(await createTestLockfile(path).read()).toBeUndefined();
+    expect(await createTestLockfile(path, { isProcessAlive: () => false }).read()).toBeUndefined();
 });
 
 interface TestLockfileOverrides {
@@ -428,6 +429,7 @@ interface TestLockfileOverrides {
     readonly startedAt?: string;
     readonly buildId?: string;
     readonly projectRoot?: string;
+    readonly isProcessAlive?: (pid: number) => boolean;
     readonly inspectSocket?: () => Promise<{
         readonly pid: number;
         readonly started_at: string;
@@ -452,6 +454,9 @@ function createTestLockfile(
         ...(overrides.projectRoot === undefined
             ? {}
             : { projectRoot: overrides.projectRoot }),
+        ...(overrides.isProcessAlive === undefined
+            ? {}
+            : { isProcessAlive: overrides.isProcessAlive }),
         inspectSocket: overrides.inspectSocket ?? (async () => ({
             pid: overrides.pid ?? 101,
             started_at: overrides.startedAt ?? startedAt,

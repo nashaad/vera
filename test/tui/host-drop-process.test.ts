@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,10 +69,9 @@ async function waitUntil(check: () => boolean, label: string, timeoutMs = 30_000
     }
 }
 
-const realProcessTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    || process.platform === "win32"
+const realProcessTest = process.platform === "win32"
     || spawnSync("tmux", ["-V"]).status !== 0
-    ? test.skip : test;
+    ? test.skip : socketAndLoopbackTest;
 
 realProcessTest(
     "a killed host reconnects without rendering an empty conversation",

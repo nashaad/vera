@@ -16,6 +16,7 @@ import {
 import { startHostServer } from "../../src/host/server.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { renderCliFailure } from "../../clients/cli/main.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const startedAt = "2026-08-31T12:00:00.000Z";
 
@@ -106,7 +107,7 @@ test("the same protocol with a different build ID is refused", async () => {
     expect(starts).toBe(0);
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the host identity handshake reports this process's stamped build ID",
     async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-build-id-"));

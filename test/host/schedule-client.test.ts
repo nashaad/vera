@@ -1,12 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "schedule operations cross the resident host protocol",
     async () => {
         const directory = mkdtempSync(join(tmpdir(), "vera-schedule-client-"));
@@ -32,7 +33,7 @@ import { startHostServer } from "../../src/host/server.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "schedule host failures preserve user-facing validation",
     async () => {
         const directory = mkdtempSync(join(tmpdir(), "vera-schedule-client-"));

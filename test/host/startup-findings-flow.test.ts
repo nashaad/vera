@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +7,9 @@ import { loadVeraConfig } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a real host puts what extension startup found in front of the session",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-startup-findings-"));

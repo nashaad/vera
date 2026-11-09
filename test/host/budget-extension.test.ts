@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-c
 import type { AgentUpdate, UserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { emptyUsage, type ModelRequest } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 async function until<T extends AgentUpdate["type"]>(client: AttachedAgentClient, type: T): Promise<Extract<AgentUpdate, { type: T }>> {
     const signal = AbortSignal.timeout(5000);
@@ -16,7 +17,7 @@ async function until<T extends AgentUpdate["type"]>(client: AttachedAgentClient,
     }
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "budget approval survives reconnect, supports typed increases and persistent ignore, and denial stops without spending",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-budget-host-"));

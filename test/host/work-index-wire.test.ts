@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import {
     buildWorkIndex,
     type WorkIndexSnapshot,
 } from "../../src/host/work-index.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -62,11 +63,7 @@ async function firstIndex(client: {
     });
 }
 
-const networked = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
-
-networked("a client that negotiated the capability is sent the index", async () => {
+socketTest("a client that negotiated the capability is sent the index", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");
@@ -95,7 +92,7 @@ networked("a client that negotiated the capability is sent the index", async () 
     }
 });
 
-networked("a client that did not ask for the index is never sent one", async () => {
+socketTest("a client that did not ask for the index is never sent one", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");
@@ -124,7 +121,7 @@ networked("a client that did not ask for the index is never sent one", async () 
     }
 });
 
-networked("a roster change resends the index only when it differs", async () => {
+socketTest("a roster change resends the index only when it differs", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");

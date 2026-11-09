@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const config = {
     schema_version: 1,
@@ -30,15 +31,12 @@ const config = {
     model_assignments: { subagents: { allow_self: true } },
 } as const;
 
-const skipOnSandbox = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1";
-const flowTest = skipOnSandbox ? test.skip : test;
-
 /**
  * The incident this operation exists for: several prompts were buffered behind
  * an active turn, and every ordinary abort promoted the next one into another
  * paid turn. Close must leave the queue unable to produce a model request.
  */
-flowTest(
+socketTest(
     "close discards buffered prompts and stops the loop making model requests",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-queue-"));
@@ -117,7 +115,7 @@ flowTest(
     10_000,
 );
 
-flowTest(
+socketTest(
     "releasing the last viewer stops a turn that is looping on tools",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-release-loop-"));
@@ -173,7 +171,7 @@ flowTest(
     20_000,
 );
 
-flowTest(
+socketTest(
     "close is idempotent, leaves siblings working, and keeps the host running",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-sibling-"));
@@ -217,7 +215,7 @@ flowTest(
     10_000,
 );
 
-flowTest(
+socketTest(
     "a prompt racing the close never becomes a turn",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-race-"));
@@ -275,7 +273,7 @@ flowTest(
     10_000,
 );
 
-flowTest(
+socketTest(
     "closing an idle agent succeeds and an unknown id is rejected",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-idle-"));
@@ -299,7 +297,7 @@ flowTest(
     10_000,
 );
 
-flowTest(
+socketTest(
     "closing an agent closes the live children it spawned",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-tree-"));
@@ -396,7 +394,7 @@ function backgroundToolResponse(id = "background-1"): AssistantMessage {
     };
 }
 
-flowTest(
+socketTest(
     "close ends an agent that is waiting for an approval nobody answers",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-approval-"));
@@ -441,7 +439,7 @@ flowTest(
     10_000,
 );
 
-flowTest(
+socketTest(
     "close ends an agent in the middle of a tool call",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-tool-"));
@@ -605,7 +603,7 @@ function textResponse(text: string): AssistantMessage {
  * the second spawn lands inside the window on any machine. The parent can only
  * reach that request if the walk left it unfenced.
  */
-flowTest(
+socketTest(
     "a subagent spawned while the close walks the tree is closed too",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-spawn-race-"));

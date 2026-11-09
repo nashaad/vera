@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,8 +6,9 @@ import { join } from "node:path";
 
 import { listAgentPageThroughHost, listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent list client validates host summaries",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-list-client-"));
@@ -58,7 +59,7 @@ import { startHostServer } from "../../src/host/server.ts";
     },
 );
 
-test("agent listing carries unavailable session process ids", async () => {
+socketTest("agent listing carries unavailable session process ids", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs9-list-");
     const host = await startHostServer({
         socketPath: join(root, "host.sock"),
@@ -74,7 +75,7 @@ test("agent listing carries unavailable session process ids", async () => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent list client rejects an unusable parent id",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-list-parent-"));
@@ -105,7 +106,7 @@ test("agent listing carries unavailable session process ids", async () => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent listing stops waiting when a host does not answer",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-list-timeout-"));

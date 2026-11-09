@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,8 +8,9 @@ import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ScheduleStore } from "../../src/scheduler/store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the daily host checkpoints sqlite stores through backup, not a main-file copy",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-store-checkpoint-"));
@@ -58,7 +59,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a failed checkpoint refuses rather than leaving a clone database",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-store-checkpoint-fail-"));

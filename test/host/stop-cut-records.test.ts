@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,10 +29,7 @@ const config = {
     approval_mode: "full_access",
 } as const;
 
-const skipOnSandbox = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1";
-const cutRecordTest = skipOnSandbox ? test.skip : test;
-
-cutRecordTest(
+socketTest(
     "a stop wait cut writes a stop record under the home and the next scan does not record the cut turn",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-stop-cut-record-"));

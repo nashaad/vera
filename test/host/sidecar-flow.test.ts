@@ -1,13 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
-
-const canBind = process.env.CODEX_SANDBOX_NETWORK_DISABLED !== "1";
-const hostTest = canBind ? test : test.skip;
+import { socketTest } from "../support/socket-probe.ts";
 
 async function writeSidecarExtension(root: string): Promise<string> {
     const directory = join(root, "extensions", "acme.echo");
@@ -36,7 +34,7 @@ async function writeSidecarExtension(root: string): Promise<string> {
     return directory;
 }
 
-hostTest("a contributed sidecar lives and dies with the resident host", async () => {
+socketTest("a contributed sidecar lives and dies with the resident host", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vera-sidecar-host-")));
     try {
         const extensionDirectory = await writeSidecarExtension(root);

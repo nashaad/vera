@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,8 +16,9 @@ import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session trash client preserves typed host outcomes",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-session-trash-client-"));
@@ -52,7 +53,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host trashes a closed session out of the durable store",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-stored-trash-"));
@@ -104,7 +105,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a resume while a closed session moves to the trash is refused",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-stored-trash-resume-"));
@@ -251,7 +252,7 @@ async function trashParentOfFinishedChild(
     }
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host keeps a finished child listed after its parent is trashed",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-trash-finished-child-"));
@@ -263,7 +264,7 @@ async function trashParentOfFinishedChild(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host lists a finished child by its own session path after its parent is trashed",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-trash-elsewhere-child-"));
@@ -278,7 +279,7 @@ async function trashParentOfFinishedChild(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session trash client normalizes transport failure",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-session-trash-client-"));
@@ -378,7 +379,7 @@ async function withFinishedTree(
     }
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a child that stays closed after a failed trash is listed by its own session path and resumes",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-failed-trash-index-"));
@@ -417,7 +418,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "closing a parent lists its children by their own session paths",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-index-"));
@@ -449,7 +450,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "closing a parent lists a child that registered while the close waited",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-late-index-"));
@@ -496,7 +497,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a close during a trash is refused, and a failed trash leaves the conversations running and listed",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-during-trash-"));
@@ -553,7 +554,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a close during a stored session's trash is refused",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-stored-trash-"));
@@ -605,7 +606,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a child that registers during a trash is listed after it",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-trash-late-index-"));
@@ -682,7 +683,7 @@ async function withFinishedTree(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a child closed by its parent's close_subagent is listed at its own session path",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-close-subagent-index-"));

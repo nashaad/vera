@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,8 +19,9 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
 } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent startup client creates, resumes, forks, and clones",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));
@@ -133,7 +134,7 @@ import { connectHost } from "../../src/host/connection.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an uncommitted optioned branch is discarded on disconnect",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-branch-commit-"));
@@ -179,7 +180,7 @@ import { connectHost } from "../../src/host/connection.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "branch options require host support",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-branch-options-"));
@@ -220,7 +221,7 @@ import { connectHost } from "../../src/host/connection.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "branch initial messages require their own host capability",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-branch-messages-"));
@@ -260,7 +261,7 @@ import { connectHost } from "../../src/host/connection.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent startup client preserves the failed operation",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));
@@ -283,7 +284,7 @@ import { connectHost } from "../../src/host/connection.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the reason reaches the caller as the message it will print",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));

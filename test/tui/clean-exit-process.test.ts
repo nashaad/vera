@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,10 +20,9 @@ async function until(check: () => boolean, label: string, timeoutMs = 15_000): P
     }
 }
 
-const realProcessTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    || process.platform === "win32"
+const realProcessTest = process.platform === "win32"
     || spawnSync("tmux", ["-V"]).status !== 0
-    ? test.skip : test;
+    ? test.skip : socketAndLoopbackTest;
 
 realProcessTest("a TUI that exits after a busy host stop removes its live record", async () => {
     const root = mkdtempSync("/private/tmp/vera-dev/tui-clean-stop-");

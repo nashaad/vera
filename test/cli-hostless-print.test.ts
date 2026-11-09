@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runCli, runHostlessPrint } from "../clients/cli/main.ts";
+import { loopbackTest } from "./support/socket-probe.ts";
 
 const NESTED_ID = "unsloth-local/unsloth/Qwen3.6-35B-A3B-MTP-GGUF";
 const WIRE_MODEL = "unsloth/Qwen3.6-35B-A3B-MTP-GGUF";
@@ -58,7 +59,7 @@ test("hostless --model omitted does not invent a provider binding", async () => 
     expect(errors).toBe("");
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+loopbackTest(
     "hostless --model splits a nested libraryed reference",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-hostless-print-"));

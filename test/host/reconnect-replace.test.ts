@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { findOrStartResidentHost } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import { seedTestRelease } from "../support/seed-test-release.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 interface DetachedHostResult {
     readonly starterPid: number;
@@ -14,7 +15,7 @@ interface DetachedHostResult {
     readonly agentId: string;
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "manual reconnect force-stops a wedged host and keeps the session id",
     async () => {
         const started = await startDetachedHost();
@@ -46,7 +47,7 @@ interface DetachedHostResult {
     20_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "replaceExisting replaces an idle answering host and keeps the session id",
     async () => {
         const started = await startDetachedHost();

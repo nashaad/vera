@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,9 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { emptyUsage, type ModelRequest } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "home command hooks and extension hooks reach the first request after a failure",
     async () => {
         const root = mkdtempSync(join(tmpdir(), "vera-start-runtime-"));

@@ -11,6 +11,7 @@ import {
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import { seedTestRelease } from "../support/seed-test-release.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 interface DetachedHostResult {
     readonly starterPid: number;
@@ -18,7 +19,7 @@ interface DetachedHostResult {
     readonly agentId: string;
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the first client starts a detached host that survives and accepts attach",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-detached-host-"));
@@ -83,7 +84,7 @@ interface DetachedHostResult {
     10_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "ten simultaneous first clients from ten directories share one host",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-ten-host-"));

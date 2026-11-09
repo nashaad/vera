@@ -12,6 +12,7 @@ import { attachAgent } from "../../src/host/attached-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { createWorkerAdapter } from "../../src/host/worker/adapter.ts";
 import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 
 const BOOT = {
     schema_version: 1,
@@ -110,7 +111,7 @@ test("a worker adapter prepares a provider declared after it started", async () 
     await rm(root, { recursive: true, force: true });
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "a live-added custom provider is usable on the same host without a restart",
     async () => {
         const root = await realpath(

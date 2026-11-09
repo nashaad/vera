@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 // This covers background work and host control, not permissions. "auto" would
 // send async_subagent to the review model, which no faux adapter here answers,
@@ -27,7 +28,7 @@ const config = {
     model_assignments: { subagents: { allow_self: true } },
 } as const;
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "background work survives detach and remains controllable through the host",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-background-flow-"));

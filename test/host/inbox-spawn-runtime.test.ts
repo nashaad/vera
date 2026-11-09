@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import {
 } from "../../src/host/inbox-spawn.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { VeraConfig } from "../../src/config.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const BASE_CONFIG: VeraConfig = {
     schema_version: 1,
@@ -84,11 +85,7 @@ function appendEntry(inboxPath: string): void {
     }
 }
 
-const hostTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
-
-hostTest("a fresh install spawns nothing", async () => {
+socketTest("a fresh install spawns nothing", async () => {
     const harness = await bench();
     const host = await harness.start({ confirmed: false });
     try {
@@ -100,7 +97,7 @@ hostTest("a fresh install spawns nothing", async () => {
     }
 });
 
-hostTest("confirmed inbox arrivals cannot cold-spawn a session", async () => {
+socketTest("confirmed inbox arrivals cannot cold-spawn a session", async () => {
     const harness = await bench();
     const host = await harness.start({ confirmed: true });
     try {

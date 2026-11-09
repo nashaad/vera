@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +7,9 @@ import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { Inbox } from "../../src/store/inbox.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a persisted schedule produces ordinary acknowledged inbox entries",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-scheduler-flow-"));

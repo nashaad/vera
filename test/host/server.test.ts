@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import {
     mkdtempSync,
     rmSync,
@@ -29,6 +29,7 @@ import { HOST_CAPABILITIES, HOST_CAPABILITY_STOP_WAIT } from "../../src/host/cap
 import { cutStopWaitThroughHost } from "../../src/host/stop-wait-cut-client.ts";
 import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -38,7 +39,7 @@ afterEach(() => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "shutdown-if-idle is identity-bound, fences work, and refuses busy hosts",
     async () => {
         const directory = temporaryHostDirectory();
@@ -116,7 +117,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "shutdown-if-idle refuses while a client is attached",
     async () => {
         const directory = temporaryHostDirectory();
@@ -159,7 +160,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "replacement evicts attached clients only when resident work is idle",
     async () => {
         const directory = temporaryHostDirectory();
@@ -211,7 +212,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "same-protocol replacement is accepted when resident work is idle",
     async () => {
         const directory = temporaryHostDirectory();
@@ -246,7 +247,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "replacement preserves schedule and extension terminal outcomes",
     async () => {
         const directory = temporaryHostDirectory();
@@ -338,7 +339,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "replacement proceeds after an extension discovery failure is delivered",
     async () => {
         const directory = temporaryHostDirectory();
@@ -383,7 +384,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host listens privately, publishes its identity, and becomes stale on close",
     async () => {
         const directory = temporaryHostDirectory();
@@ -409,7 +410,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host replaces a stale socket left by an unclean exit",
     async () => {
         const directory = temporaryHostDirectory();
@@ -440,7 +441,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host reports an invalid attached command before closing",
     async () => {
         const directory = temporaryHostDirectory();
@@ -469,7 +470,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "two concurrent starters produce one live host",
     async () => {
         const directory = temporaryHostDirectory();
@@ -509,7 +510,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host lists resident agents without attaching",
     async () => {
         const directory = temporaryHostDirectory();
@@ -548,7 +549,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host refreshes every catalog without attaching",
     async () => {
         const directory = temporaryHostDirectory();
@@ -577,7 +578,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host creates and resumes agents through one ready response shape",
     async () => {
         const directory = temporaryHostDirectory();
@@ -638,7 +639,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host reports an agent startup failure without exposing internals",
     async () => {
         const directory = temporaryHostDirectory();
@@ -677,7 +678,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host attaches a socket to one resident agent until detach",
     async () => {
         const directory = temporaryHostDirectory();
@@ -760,7 +761,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host routes extension commands privately without forwarding to the engine",
     async () => {
         const directory = temporaryHostDirectory();
@@ -843,7 +844,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a failed resident keeps its host control channel until detach",
     async () => {
         const directory = temporaryHostDirectory();
@@ -889,7 +890,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host keeps an attachment usable when extension discovery fails",
     async () => {
         const directory = temporaryHostDirectory();
@@ -936,7 +937,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host disconnects a client that floods extension requests",
     async () => {
         const directory = temporaryHostDirectory();
@@ -979,7 +980,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host rejects an unknown agent without affecting known agents",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1021,7 +1022,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host reports a lazy attach load failure as unavailable",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1046,7 +1047,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "socket loss detaches the timeline owner",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1081,7 +1082,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host reports a closed resident agent as unavailable",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1109,7 +1110,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host disconnects a client that fills an agent command queue",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1155,7 +1156,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "closing an old host does not unlink a replacement socket",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1189,7 +1190,7 @@ function temporaryHostDirectory(): string {
     return directory;
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a startup failure written for a user keeps its words",
     async () => {
         // The generic line is right for internal failures and wrong for this
@@ -1226,7 +1227,7 @@ function temporaryHostDirectory(): string {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an interactive attach includes roster changes made while its lease opens",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1295,7 +1296,7 @@ function temporaryHostDirectory(): string {
     10_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the host pushes background work on attach and on every change",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1407,7 +1408,7 @@ function temporaryHostDirectory(): string {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the host stops pushing background work once the client detaches",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1465,7 +1466,7 @@ function summary(
     };
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host refuses an oversized frame and keeps serving the connection",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1495,7 +1496,7 @@ function summary(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host accepts a frame that takes longer than the idle timeout to arrive",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1533,7 +1534,7 @@ function summary(
     },
 );
 
-test(
+socketTest(
     "host reads a request that waited out a stall longer than the idle timeout",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1579,7 +1580,7 @@ test(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host drops a client that dribbles bytes under the idle timeout",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1609,7 +1610,7 @@ test(
     3_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host sends a tail page and serves an older page to a paging client",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1687,7 +1688,7 @@ test(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host keeps the full history and refuses page requests from a legacy client",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1736,7 +1737,7 @@ test(
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "host refuses a third page while two are pending",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1839,7 +1840,7 @@ function transcriptEntries(count: number): readonly {
     }));
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "stop_host streams waiting targets and stops once they end, with identity and availability refusals",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1902,7 +1903,7 @@ function transcriptEntries(count: number): readonly {
 
 type HostConnection = Awaited<ReturnType<typeof connectHost>>;
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached clients that ask for stop-wait get the open wait, its change, and its clearing",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1978,7 +1979,7 @@ type HostConnection = Awaited<ReturnType<typeof connectHost>>;
     },
 );
 
-test(
+socketTest(
     "cut_stop_wait refuses with no wait, and cuts each waited session on request",
     async () => {
         const directory = temporaryHostDirectory();
