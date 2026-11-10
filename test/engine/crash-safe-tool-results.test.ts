@@ -110,7 +110,7 @@ test("a checkpoint during a batch keeps its notice and delays presentations", as
         }
         expect(sawPresentation).toBe(true);
         expect((await SessionStore.open(path)).projectedHarnessMessages()).toEqual([
-            { afterMessage: 2, text: "Crew notice", tone: "soft" },
+            { afterMessage: 2, id: "harness:0", text: "Crew notice", tone: "soft" },
         ]);
     } finally {
         release();

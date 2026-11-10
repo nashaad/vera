@@ -11,6 +11,10 @@ import { recapRows, recapSubtitle } from "./rows.ts";
 const LABEL_REQUEST = "label";
 const LABEL_TIMEOUT_MS = 15_000;
 
+function isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === "AbortError";
+}
+
 export function activate(vera: VeraExtensionApi): void {
     vera.requests.handle(LABEL_REQUEST, async (payload, { signal }) => {
         const request = readLabelRequest(payload);
@@ -61,6 +65,13 @@ export function activateClient(vera: VeraClientExtensionApi): void {
     };
 
     const open: VeraClientExtensionCommandHandler = async ({ signal }) => {
+        // A conversation switch rejects with AbortError, which drops this output silently.
+        try {
+            while (vera.thread.hasEarlier) await vera.thread.loadEarlier(signal);
+        } catch (error) {
+            if (isAbortError(error)) return { kind: "handled" };
+            return { kind: "text", text: error instanceof Error ? error.message : String(error) };
+        }
         const built = buildRecap(vera.thread.entries(), Date.now());
         if (built.length === 0) return { kind: "text", text: "Nothing to recap yet." };
         await label(built, signal);
@@ -87,7 +98,7 @@ export function activateClient(vera: VeraClientExtensionApi): void {
         const row = rows.find((candidate) => candidate.id === result.rowId);
         if (row === undefined) return { kind: "handled" };
         lastJumped = row.id;
-        if (vera.ui.reveal(row.target)) return { kind: "handled" };
+        if (await vera.ui.reveal(row.target)) return { kind: "handled" };
         return { kind: "text", text: "That part of the conversation is not in this transcript anymore." };
     };
 

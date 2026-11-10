@@ -45,8 +45,10 @@ host does while the client is still connected.
 
 | API | Capability | What it does |
 | --- | --- | --- |
-| `vera.thread.entries()` | `client.thread.read` | Returns the conversation as this client shows it, oldest first. |
-| `vera.ui.reveal(target)` | `client.ui.reveal` | Scrolls the transcript to one entry, or to the end. |
+| `vera.thread.entries()` | `client.thread.read` | Returns the loaded part of the conversation as this client shows it, oldest first. See [Load earlier history](#load-earlier-history). |
+| `vera.thread.hasEarlier` | `client.thread.read` | `true` while older entries exist that this client can load. |
+| `vera.thread.loadEarlier(signal?)` | `client.thread.read` | Loads the next older part of the conversation. Resolves at once when none is left. |
+| `vera.ui.reveal(target)` | `client.ui.reveal` | Loads earlier history as needed and scrolls to an entry, or to the end. Resolves to whether it landed. |
 
 ### Read the transcript
 
@@ -63,20 +65,57 @@ this client saw it. The last entry of a finished turn also carries
 A compaction, a rewind, or a reconnect replaces what `entries()` returns, so
 keep IDs only as long as you need them.
 
+### Load earlier history
+
+A long conversation loads in parts. The newest part loads first. Each call to
+`loadEarlier` adds the next older part in front of the entries already loaded,
+so `entries()` grows toward the start of the conversation. The client also loads
+older parts as you scroll toward the top, so `entries()` can change between
+calls.
+
+`hasEarlier` is `true` while older entries exist that this client can load. It
+is `false` once the whole conversation is loaded, and it is always `false` for a
+client that cannot load older parts.
+
+`loadEarlier(signal?)` loads the next older part and resolves when it is in. It
+resolves at once when nothing is left to load, and for a client that cannot load
+older parts. Calls made while a part is loading share that load. Pass an
+`AbortSignal` to stop waiting on the call. A conversation change rejects every
+waiting call with `AbortError`. A reconnect to the same conversation rejects
+them with `History page request failed: unavailable`. Inside a command or
+keybinding, once the user has left the conversation it started in, `hasEarlier`
+throws `AbortError` and `loadEarlier` rejects with it.
+
+When the host returns an error for a part, `loadEarlier` rejects with
+`History page request failed: <reason>`, and the loaded entries stay as they
+were. A part that adds no entries and does not move the cursor also rejects, in
+the same format, so a loop cannot spin. To load everything, loop until
+`hasEarlier` is `false`:
+
+```ts
+while (vera.thread.hasEarlier) {
+    await vera.thread.loadEarlier(signal);
+}
+```
+
 ### Jump to an entry
 
 Pass an entry's `id` to scroll the transcript to the row it drew, or `end` to
 scroll to the bottom:
 
 ```ts
-vera.ui.reveal({ entryId: entry.id });
-vera.ui.reveal({ end: true });
+await vera.ui.reveal({ entryId: entry.id });
+await vera.ui.reveal({ end: true });
 ```
 
-`reveal` returns `false` when the conversation no longer has that entry. Tell
-the user instead of leaving them where they were.
+`reveal` loads earlier parts as needed. It resolves `true` after scrolling, or
+`false` when the entry does not exist, the conversation is left, or its client
+detaches. A failed page request rejects, including one that makes no progress.
+If another reveal starts first, the older call resolves `false` and the newer
+call takes over.
 
-The included `/recap` command is built on these two calls. See
+The included `/recap` command loads every older part with `loadEarlier` before
+it reads `entries()`, and it jumps with `reveal`. See
 [Recap a conversation](included-extensions.md#recap-a-conversation).
 
 ## Host services

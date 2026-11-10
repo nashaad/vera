@@ -1797,6 +1797,7 @@ export function createProtocolEncoder(
     attachmentName?: AttachmentNameLookup,
     harnessMessages: () => readonly {
         readonly afterMessage: number;
+        readonly id?: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] = () => [],
@@ -2698,6 +2699,7 @@ export function projectTranscript(
     messageStamps?: MessageStampLookup,
     harnessMessages: readonly {
         readonly afterMessage: number;
+        readonly id?: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] = [],
@@ -2709,6 +2711,7 @@ export function projectTranscript(
             if (message.afterMessage === afterMessage) {
                 entries.push({
                     kind: "harness",
+                    ...(message.id === undefined ? {} : { id: message.id }),
                     text: message.text,
                     tone: message.tone,
                 });

@@ -15,6 +15,11 @@ import {
     transcriptMessageId,
     toggleTuiToolDetails,
     applyAgentUpdate,
+    applyHistoryPage,
+    EARLIER_HISTORY_FAILED_TEXT,
+    EARLIER_HISTORY_LOADING_TEXT,
+    EARLIER_HISTORY_TOO_LARGE_TEXT,
+    setEarlierHistoryStatus,
     beginNextQueuedTuiTurn,
     beginTuiAdmission,
     dropTuiAdmission,
@@ -39,6 +44,8 @@ import {
     type TuiTextTranscriptEntry,
     type TuiTranscriptEntry,
 } from "../../clients/tui/state.ts";
+import { historyWindowFirstUserText } from "../../clients/shared/history-window.ts";
+import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import { classifierFailureText, modelFailureText } from "../../clients/tui/failure-text.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
@@ -4291,4 +4298,178 @@ test("two reads on different processes in one message each settle their own row"
         "  │ p-2",
         "  └ p-2 still running",
     ]);
+});
+
+function historyRow(
+    id: string,
+    kind: "assistant" | "user" = "assistant",
+    text = `text ${id}`,
+): TranscriptEntry {
+    return kind === "user"
+        ? { kind: "user", id, text }
+        : { kind: "assistant", id, text };
+}
+
+test("a paged attach keeps only the tail page and remembers older history", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [historyRow("m-1"), historyRow("m-2")],
+        page: {
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "m-1",
+            headId: "m-2",
+            tailId: "m-2",
+        },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual(["text m-1", "text m-2"]);
+    expect(state.historyWindow?.hasEarlier).toBe(true);
+    expect(state.historyWindow?.olderBefore).toBe("m-1");
+    expect(historyWindowFirstUserText(state.historyWindow!)).toBeUndefined();
+});
+
+test("an older page prepends without dropping the loaded window", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [historyRow("m-1", "user", "second"), historyRow("m-2")],
+        page: {
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "m-1",
+            headId: "m-2",
+            tailId: "m-2",
+        },
+        seq: 1,
+    });
+    state = applyHistoryPage(state, {
+        before: "m-1",
+        entries: [historyRow("m-0", "user", "first"), historyRow("m-1", "user", "second")],
+        page: {
+            pageVersion: 1,
+            hasMore: false,
+            headId: "m-2",
+            tailId: "m-1",
+        },
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "first",
+        "second",
+        "text m-2",
+    ]);
+    expect(state.historyWindow?.hasEarlier).toBe(false);
+    expect(state.knownUserTexts).toEqual(["first", "second"]);
+    expect(historyWindowFirstUserText(state.historyWindow!)).toBe("first");
+});
+
+test("a stale older page is ignored", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [historyRow("m-1")],
+        page: {
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "m-1",
+            headId: "m-1",
+            tailId: "m-1",
+        },
+        seq: 1,
+    });
+    const next = applyHistoryPage(state, {
+        before: "older",
+        entries: [historyRow("m-0")],
+        page: {
+            pageVersion: 1,
+            hasMore: false,
+            headId: "m-1",
+            tailId: "m-0",
+        },
+    });
+
+    expect(next.historyWindow).toBe(state.historyWindow);
+    expect(next.entries.map(entryLine)).toEqual(["text m-1"]);
+});
+
+test("the earlier-history rows are notices with the settled text", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [historyRow("m-1")],
+        seq: 1,
+    });
+
+    state = setEarlierHistoryStatus(state, "loading");
+    expect(state.entries[0]).toMatchObject({
+        kind: "notice",
+        text: EARLIER_HISTORY_LOADING_TEXT,
+        historyStatus: "loading",
+    });
+    state = setEarlierHistoryStatus(state, "failed");
+    expect(state.entries.filter((entry) =>
+        entry.kind !== "diff" && entry.historyStatus !== undefined
+    )).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({
+        kind: "notice",
+        text: EARLIER_HISTORY_FAILED_TEXT,
+        historyStatus: "failed",
+    });
+    state = setEarlierHistoryStatus(state, "too_large");
+    expect(state.entries[0]).toMatchObject({
+        kind: "notice",
+        text: EARLIER_HISTORY_TOO_LARGE_TEXT,
+        historyStatus: "too_large",
+    });
+});
+
+test("a live row survives an older page load", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [historyRow("m-1")],
+        page: {
+            pageVersion: 1,
+            hasMore: true,
+            olderBefore: "m-1",
+            headId: "m-1",
+            tailId: "m-1",
+        },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "streaming now",
+        seq: 2,
+    });
+    state = applyHistoryPage(state, {
+        before: "m-1",
+        entries: [historyRow("m-0")],
+        page: {
+            pageVersion: 1,
+            hasMore: false,
+            headId: "m-1",
+            tailId: "m-0",
+        },
+    });
+
+    expect(state.entries.map(entryLine)).toContain("text m-1streaming now");
+    expect(state.entries.map(entryLine)).toContain("text m-0");
+});
+
+test("a stored tool row carries its entry id", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{
+            kind: "tool",
+            id: "m-1#0",
+            tool: "bash",
+            args: { command: "ls" },
+        }],
+        seq: 1,
+    });
+    const tool = state.entries.find((entry) =>
+        entry.kind === "tool" && entry.entryId === "m-1#0"
+    );
+
+    expect(tool?.kind).toBe("tool");
+    expect(tool?.kind === "tool" ? tool.entryId : undefined).toBe("m-1#0");
 });

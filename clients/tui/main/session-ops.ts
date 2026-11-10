@@ -26,6 +26,8 @@ import { appendTuiError, appendTuiNotice, applyAgentUpdate, createTuiState, drop
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { requestPermissionsChange } from "./pool-admission.ts";
+import { resetHistoryPaging } from "./history-paging.ts";
+import { cancelExtensionReveal } from "./extension-reveal.ts";
 
 export function switchToClient(rt: TuiRuntime, 
     next: TuiAgentClient,
@@ -34,8 +36,13 @@ export function switchToClient(rt: TuiRuntime,
 ): void {
     recordSessionSwitchOutcome(rt, "completed");
     const previous = rt.client;
+    cancelExtensionReveal(rt);
     if (options.preserveReconnectTranscript !== true) rt.composer.clearRecoveredPrompts();
+    // Same agentId means the same conversation. A client without an id is a new conversation.
+    const sameConversation = previous.agentId !== undefined && previous.agentId === next.agentId;
     rt.clientGeneration += 1;
+    if (!sameConversation) rt.conversationGeneration += 1;
+    resetHistoryPaging(rt, sameConversation);
     rt.agentFailedThisAttachment = false;
     for (const pending of [...rt.pendingOneshots.values()]) {
         pending.reject(new Error("The conversation changed"));

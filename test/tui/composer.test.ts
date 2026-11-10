@@ -534,6 +534,54 @@ test("Up recalls user messages loaded from a resumed session", async () => {
     }
 });
 
+test("older pages join the recall list ahead of the loaded window", async () => {
+    const setup = await createTestRenderer({
+        width: 40,
+        height: 8,
+        kittyKeyboard: true,
+    });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        composer.rememberSubmittedText("most recent message");
+        composer.prependSubmittedTexts([
+            "oldest message",
+            "middle message",
+        ]);
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("most recent message");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("middle message");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("oldest message");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("older prompt recall restores attachments and keeps a recovered draft", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8, kittyKeyboard: true });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const selected: string[][] = [];
+    composer.onHistorySelection = (ids) => { selected.push([...ids]); };
+    setup.renderer.root.add(composer);
+    composer.focus();
+    try {
+        composer.setRecoveredPrompts([{ text: "unsent", attachmentIds: ["draft-image"] }]);
+        composer.loadSubmittedPrompts([{ text: "newer", attachmentIds: ["new-image"] }]);
+        composer.prependSubmittedPrompts([{ text: "older", attachmentIds: ["old-image"] }]);
+        setup.mockInput.pressArrow("up");
+        setup.mockInput.pressArrow("up");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("older");
+        expect(selected).toEqual([["draft-image"], ["new-image"], ["old-image"]]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("an attached image becomes a numbered chip at the cursor", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const composer = createTuiComposer(setup.renderer, () => {});

@@ -526,6 +526,7 @@ function createAttachedClient(
                 return Promise.reject(new Error("Agent attachment is closed"));
             }
             isDetaching = true;
+            failHistoryPage(new DOMException("Agent attachment is released", "AbortError"));
             resumeReading?.();
             resumeReading = undefined;
             releasePromise = connection.send({
@@ -542,6 +543,7 @@ function createAttachedClient(
                 return Promise.reject(new Error("Agent attachment is closed"));
             }
             isDetaching = true;
+            failHistoryPage(new DOMException("Agent attachment is detached", "AbortError"));
             resumeReading?.();
             resumeReading = undefined;
             detachPromise = connection.send({ type: "detach" }).then(
@@ -578,9 +580,6 @@ function createAttachedClient(
                         failExtensionRequests(
                             new Error("Agent attachment is released"),
                         );
-                        failHistoryPage(
-                            new Error("Agent attachment is released"),
-                        );
                         updates.fail(new Error("Agent attachment is released"), {
                             discardBuffered: true,
                         });
@@ -607,9 +606,6 @@ function createAttachedClient(
                     isClosed = true;
                     pendingUpdateCount = 0;
                     failExtensionRequests(
-                        new Error("Agent attachment is detached"),
-                    );
-                    failHistoryPage(
                         new Error("Agent attachment is detached"),
                     );
                     updates.fail(new Error("Agent attachment is detached"), {

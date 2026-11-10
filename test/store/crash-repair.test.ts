@@ -47,7 +47,7 @@ test("crash repair pairs unanswered calls and writes one cut marker", async () =
         ]);
         expect((await readSessionTurnState(path)).turnOpen).toBe(false);
         const snapshot = await readSessionSnapshot(path);
-        expect(snapshot.harnessMessages.at(-1)).toEqual({ afterMessage: 5, text: CRASH_CUT_MESSAGE, tone: "soft" });
+        expect(snapshot.harnessMessages.at(-1)).toEqual({ afterMessage: 5, id: "harness:1", text: CRASH_CUT_MESSAGE, tone: "soft" });
         expect(JSON.stringify(snapshot.messages)).not.toContain(CRASH_CUT_MESSAGE);
         const repaired = await readFile(path, "utf8");
         expect(JSON.parse(repaired.trimEnd().split("\n").at(-1)!)).toMatchObject({
@@ -103,7 +103,7 @@ test("crash repair keeps an already committed result in a half-finished batch", 
         expect((await readSessionTurnState(path)).turnOpen).toBe(false);
         const snapshot = await readSessionSnapshot(path);
         expect(snapshot.messages).toEqual(reopened.messages());
-        expect(snapshot.harnessMessages.at(-1)).toEqual({ afterMessage: 5, text: CRASH_CUT_MESSAGE, tone: "soft" });
+        expect(snapshot.harnessMessages.at(-1)).toEqual({ afterMessage: 5, id: "harness:0", text: CRASH_CUT_MESSAGE, tone: "soft" });
         expect(await (await SessionStore.open(path)).repairCrashedTurn()).toBe(false);
     } finally {
         await rm(root, { recursive: true, force: true });
@@ -149,7 +149,7 @@ test("a notice after a non-tool message keeps the current store position", async
         await store.appendMessage({ role: "user", content: [{ type: "text", text: "Second" }] });
         await store.appendHarnessMessage("Crew notice", "soft", first.id);
         expect(store.projectedHarnessMessages()).toEqual([
-            { afterMessage: 2, text: "Crew notice", tone: "soft" },
+            { afterMessage: 2, id: "harness:0", text: "Crew notice", tone: "soft" },
         ]);
     } finally {
         await rm(root, { recursive: true, force: true });
@@ -198,7 +198,7 @@ test("a cut delivery is visible and is not an unanswered delivery", async () => 
         expect(await store.repairCrashedTurn()).toBe(true);
         expect(store.hasUnansweredDeliveryTurn()).toBe(false);
         expect(store.projectedHarnessMessages()).toEqual([
-            { afterMessage: 1, text: CRASH_CUT_MESSAGE, tone: "soft" },
+            { afterMessage: 1, id: "harness:0", text: CRASH_CUT_MESSAGE, tone: "soft" },
         ]);
         await store.appendMessage({ role: "user", content: [{ type: "text", text: "What next?" }] }, { turnStart: true });
         expect(store.hasUnansweredDeliveryTurn()).toBe(false);

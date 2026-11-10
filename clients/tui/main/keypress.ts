@@ -1,6 +1,7 @@
 import { openInspectEditor } from "./inspect-editor.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
+import { reanchorTranscriptWindowAboveView, settleTranscriptScrollState } from "./transcript-nodes.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
 import { handleTuiModelSwitcherKey } from "../model-switcher.ts";
 import { applyModelSwitcherSelection, openBrowseFromSwitcher, openModelSwitcher, switcherNeedsProviders, toggleModelSwitcherFavorite } from "../main/model-switcher-ops.ts";
@@ -21,6 +22,7 @@ import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDe
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
 import { abortFocusedAgent, answerStopWaitCard, closeDials, commitDials, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { isStopWaitCardUpdate, stopWaitCardUpdate } from "../stop-wait.ts";
+import { captureExtensionInvocation, conversationChanged } from "./extension-invocation.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { handleTuiPermissionsConfirmKey } from "../permissions-confirm.ts";
@@ -65,6 +67,11 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
     if (scrollLines === undefined || scrollLines > 0) {
         clearTranscriptAnchorPadding(rt);
     }
+    if (scrollLines !== undefined && scrollLines < 0) {
+        rt.earlierHistoryNeedsScroll = false;
+    }
+    rt.pendingHistoryAnchor = undefined;
+    settleTranscriptScrollState(rt);
     if (scrollLines === undefined) {
         resumeTuiTranscriptFollow(rt.transcript);
         renderJumpToBottom(rt, false);
@@ -72,6 +79,7 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         const previousTop = rt.transcript.scrollTop;
         rt.transcript.scrollBy(scrollLines);
         updateTranscriptScrollFollow(rt, previousTop, scrollLines < 0 ? "up" : "down");
+        reanchorTranscriptWindowAboveView(rt);
     }
     return true;
 }
@@ -1694,13 +1702,14 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     if (extensionBinding !== undefined) {
         key.preventDefault();
         key.stopPropagation();
-        const target = focusedAgentClient(rt);
-        void rt.extensionAgentTarget.run(target, () =>
+        const invocation = captureExtensionInvocation(rt);
+        void rt.extensionAgentTarget.run(invocation, () =>
             rt.clientExtensionRegistry!.invokeKeybinding(
                 extensionBinding.id,
                 rt.client.workspace ?? process.cwd(),
             )
         ).catch((error) => {
+            if (conversationChanged(rt, invocation)) return;
             rt.state = appendTuiNotice(
                 rt.state,
                 error instanceof Error ? error.message : String(error),

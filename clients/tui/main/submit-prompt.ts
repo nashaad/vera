@@ -17,6 +17,7 @@ import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
+import { captureExtensionInvocation, conversationChanged, dropsLateResult } from "./extension-invocation.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
 import { currentBuildFacts } from "../diagnostics.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
@@ -607,14 +608,14 @@ export function submitPrompt(rt: TuiRuntime,
         rt.extensionCommandActivity = `running /${commandAction.command}`;
         renderStatus(rt);
         const extensionSubmittedImages = [...rt.pendingImages];
-        const extensionTarget = focusedAgentClient(rt);
+        const extensionInvocation = captureExtensionInvocation(rt);
         const invocation = commandAction.origin === "host"
             ? rt.client.runExtensionCommand!(
                 commandAction.command,
                 commandAction.argumentsText,
             )
             : commandAction.origin === "client"
-            ? rt.extensionAgentTarget.run(extensionTarget, () =>
+            ? rt.extensionAgentTarget.run(extensionInvocation, () =>
                 rt.clientExtensionRegistry!.invokeCommand(
                     commandAction.command,
                     commandAction.argumentsText,
@@ -647,7 +648,10 @@ export function submitPrompt(rt: TuiRuntime,
             if (rt.shuttingDown || result === undefined) {
                 return;
             }
-            if (commandAction.origin === "host" && extensionTarget.agentId === rt.client.agentId
+            if (dropsLateResult(rt, extensionInvocation, result.body.kind)) {
+                return;
+            }
+            if (commandAction.origin === "host" && extensionInvocation.target.agentId === rt.client.agentId
                 && "extensionState" in result && result.extensionState !== undefined) {
                 rt.state = { ...rt.state, extensionState: result.extensionState };
             }
@@ -669,7 +673,7 @@ export function submitPrompt(rt: TuiRuntime,
                 );
             }
         }).catch((error) => {
-            if (rt.shuttingDown) {
+            if (rt.shuttingDown || conversationChanged(rt, extensionInvocation)) {
                 return;
             }
             const message = error instanceof Error
