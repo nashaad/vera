@@ -21,11 +21,12 @@ Each GitHub release has one file per platform:
 | Linux x64 (glibc) | `vera-linux-x64.tar.gz` |
 | Linux arm64 (glibc) | `vera-linux-arm64.tar.gz` |
 
-Run the release's `install.sh`. It picks the file for your platform,
-checks its SHA-256 sum, and installs it:
+Run the installer. It finds the newest published release, pre-releases
+included, picks the file for your platform, checks its SHA-256 sum, and
+installs it:
 
 ```sh
-curl -fsSL https://github.com/nashaad/vera/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nashaad/vera/main/scripts/install.sh | sh
 ```
 
 To install a file you already downloaded, pass it to the script:
@@ -34,11 +35,13 @@ To install a file you already downloaded, pass it to the script:
 sh install.sh ~/Downloads/vera-darwin-arm64.tar.gz
 ```
 
-Set `VERA_VERSION` to install a version other than the latest, and
-`VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. The release
-includes its own runtime, so Bun and Node are not needed. Installing the same
-release again leaves it in place, and installing a newer one keeps the previous
-release for [`vera rollback`](installed-command.md).
+Set `VERA_VERSION` to install a version other than the newest, and
+`VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. Without
+`VERA_VERSION`, the installer asks the GitHub API for the newest release; if
+that request fails, set `VERA_VERSION` to install a specific version. The
+release includes its own runtime, so Bun and Node are not needed. Installing
+the same release again leaves it in place, and installing a newer one keeps
+the previous release for [`vera rollback`](installed-command.md).
 
 ## Install from a checkout
 

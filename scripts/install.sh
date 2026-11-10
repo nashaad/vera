@@ -3,7 +3,7 @@
 # points current at it, keeps the previous release as rollback, and writes
 # PREFIX/bin/vera. Same layout as src/release/activate.ts.
 #
-#   curl -fsSL https://github.com/nashaad/vera/releases/latest/download/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/nashaad/vera/main/scripts/install.sh | sh
 #   sh install.sh ./vera-darwin-arm64.tar.gz
 #
 # VERA_VERSION=1.2.3 selects a release; VERA_INSTALL_PREFIX overrides ~/.local.
@@ -57,6 +57,26 @@ download() {
     fi
 }
 
+latest_version() {
+    api=${VERA_RELEASES_API:-https://api.github.com/repos/$repo/releases?per_page=1}
+    download "$api" "$work/release.json" 2>/dev/null ||
+        die "could not resolve the latest release; set VERA_VERSION to install a specific version"
+    tag=$(awk '
+        {
+            if (match($0, /"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+                value = substr($0, RSTART, RLENGTH)
+                sub(/^"tag_name"[[:space:]]*:[[:space:]]*"/, "", value)
+                sub(/"$/, "", value)
+                if (value ~ /^[A-Za-z0-9._+-]+$/) print value
+                exit
+            }
+        }' "$work/release.json")
+    version=${tag#v}
+    [ -n "$version" ] ||
+        die "could not resolve the latest release; set VERA_VERSION to install a specific version"
+    echo "$version"
+}
+
 link_release() {
     temporary="$share/.$1.$$"
     rm -f "$temporary"
@@ -88,11 +108,11 @@ elif [ "$#" -eq 1 ]; then
     fi
 else
     asset=$(platform).tar.gz
-    if [ -n "${VERA_VERSION:-}" ]; then
-        base="https://github.com/$repo/releases/download/v$VERA_VERSION"
-    else
-        base="https://github.com/$repo/releases/latest/download"
+    version=${VERA_VERSION:-}
+    if [ -z "$version" ]; then
+        version=$(latest_version)
     fi
+    base="https://github.com/$repo/releases/download/v$version"
     echo "Downloading $asset"
     tarball="$work/$asset"
     download "$base/$asset" "$tarball" || die "download failed: $base/$asset"
