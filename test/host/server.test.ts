@@ -7,6 +7,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { createConnection, createServer, Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
@@ -1267,7 +1268,7 @@ socketTest(
 );
 
 function temporaryHostDirectory(): string {
-    const directory = mkdtempSync(join("/private/tmp", "vera-host-server-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-host-server-"));
     temporaryDirectories.push(directory);
     return directory;
 }
