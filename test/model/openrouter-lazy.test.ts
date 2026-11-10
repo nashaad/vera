@@ -31,7 +31,7 @@ function runProbe(fail: boolean): { exitCode: number; stdout: string; stderr: st
     return { exitCode: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
 }
 
-test("OpenRouter loads the SDK on the first dispatched request", () => {
+test("@core OpenRouter loads the SDK on the first dispatched request", () => {
     const result = runProbe(false);
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

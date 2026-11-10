@@ -25,7 +25,7 @@ async function staticClosure(entry: string): Promise<Set<string>> {
     return visited;
 }
 
-test("config and idle entries keep deferred implementations out of their static imports", async () => {
+test("@core config and idle entries keep deferred implementations out of their static imports", async () => {
     for (const entry of ["src/config.ts", "clients/host/main.ts", "clients/host/session-worker.ts"]) {
         const closure = await staticClosure(entry);
         expect(closure.has(resolve("src/tools/web-fetch.ts"))).toBe(false);
@@ -39,4 +39,9 @@ test("config and idle entries keep deferred implementations out of their static 
             expect(closure.has(resolve("src/extensions/manager.ts"))).toBe(false);
         }
     }
+});
+
+test("@core session workers do not start the host parking timer", async () => {
+    const source = await Bun.file("src/host/session-host.ts").text();
+    expect(source).toMatch(/if \(options\.sessionWorker !== true\)\s*\{\s*parkIdleTimer = setInterval\(/);
 });

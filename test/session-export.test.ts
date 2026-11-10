@@ -13,7 +13,7 @@ import { projectTranscript } from "../src/engine/protocol.ts";
 import { walkSessionTranscript } from "../src/session-transcript.ts";
 import { emptyUsage, type AssistantMessage } from "../src/model/types.ts";
 
-test("streamed exports match the full projection byte for byte", async () => {
+test("@core streamed exports match the full projection byte for byte", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-export-stream-"));
     const path = join(root, "session.jsonl");
     try {

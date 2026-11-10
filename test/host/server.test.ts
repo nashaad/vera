@@ -1775,7 +1775,7 @@ socketTest(
 );
 
 socketTest(
-    "host refuses an attach that does not request history paging",
+    "@core host refuses an attach that does not request history paging",
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");
@@ -1803,7 +1803,7 @@ socketTest(
 );
 
 socketTest(
-    "host refuses a second page while one is pending",
+    "@core host refuses a second page while one is pending",
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");

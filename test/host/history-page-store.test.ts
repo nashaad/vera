@@ -164,7 +164,7 @@ test("a reopened store pages through a split turn without dropping its prefix", 
     expect(pages.flat().map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
 }, 30_000);
 
-test("indexed pages match the full transcript without reading the whole chain", async () => {
+test("@core indexed pages match the full transcript without reading the whole chain", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "many.jsonl");
     const created = await SessionStore.create(path, { sessionId: "many", cwd: directory });

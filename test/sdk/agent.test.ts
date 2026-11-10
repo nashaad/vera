@@ -941,7 +941,7 @@ test("agent tools resolve relative paths against the workspace", async () => {
     }
 });
 
-test("a run result lists the tools the agent ran", async () => {
+test("@core a run result lists the tools the agent ran", async () => {
     const workspace = temporaryWorkspace("vera-sdk-tool-list-");
     writeFileSync(join(workspace, "map.txt"), "X marks the crow's nest\n");
     const parallelReads: AssistantMessage = {

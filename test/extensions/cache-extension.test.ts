@@ -35,7 +35,7 @@ async function collect(stream: AsyncIterable<ModelStreamEvent>): Promise<ModelSt
 
 const request: ModelRequest = { model: "fixture", messages: [] };
 
-test("middleware passes events through and notifies once after the broken pattern", async () => {
+test("@core middleware passes events through and notifies once after the broken pattern", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cache-extension-"));
     const registry = await startExtensionRegistry({ extensions: [{ path, enabled: true, config: {} }] });
     try {
@@ -96,7 +96,7 @@ test("a warning turned off registers no middleware", async () => {
     }
 });
 
-test("cacheMissText words the notice", () => {
+test("@core cacheMissText words the notice", () => {
     expect(cacheMissText({ key: "cache_miss", facts: {
         calls: 20, reread_tokens: 1_400_000, input_tokens: 4_516_129, provider: "deepseek", model: "deepseek-flash",
     } })).toBe("Prompt cache keeps missing: the last 20 calls to deepseek-flash re-read 1.4m tokens it had already cached (31% of their input).");

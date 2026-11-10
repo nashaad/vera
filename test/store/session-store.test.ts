@@ -3033,7 +3033,7 @@ test("a turn_ending continuation reopens as an internal hook message", async () 
     expect((await SessionStore.open(path)).messages()).toEqual([nudge]);
 });
 
-test("streamed open indexes UTF-8, long lines, rewinds and later appends by byte offset", async () => {
+test("@core streamed open indexes UTF-8, long lines, rewinds and later appends by byte offset", async () => {
     const path = join(temporaryDirectory(), "stream.jsonl");
     const store = await SessionStore.create(path, { sessionId: "stream", cwd: "/work" });
     const headerBytes = readFileSync(path).length;

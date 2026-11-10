@@ -109,7 +109,7 @@ function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : "";
 }
 
-test("concurrent loadEarlier calls share one page request", async () => {
+test("@core concurrent loadEarlier calls share one page request", async () => {
     const requested: string[] = [];
     let answer: (response: HistoryPageResponse) => void = () => undefined;
     const rt = pagingRuntime((before) => {

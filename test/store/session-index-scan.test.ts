@@ -7,7 +7,7 @@ import { SessionFieldScanner } from "../../src/store/session-json-fields.ts";
 import { readIndexedLiveContext, readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 
 for (const [label, ending] of [["CRLF", "\r\n"], ["trailing spaces", "  \t\n"]] as const) {
-    test(`opens and appends session records with ${label}`, async () => {
+    test(`${label === "CRLF" ? "@core " : ""}opens and appends session records with ${label}`, async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-index-whitespace-"));
         const store = await SessionStore.create(join(root, "session.jsonl"), { sessionId: "session", cwd: root });
         const first = await store.appendMessage({ role: "user", content: [{ type: "text", text: "first" }] });
@@ -148,7 +148,7 @@ test("reads harness and delivery records by offset after a rewind", async () => 
     expect(await reopened.readAttachmentName("missing")).toBeUndefined();
 });
 
-test("bounds resident harness history and reads older entries unchanged", async () => {
+test("@core bounds resident harness history and reads older entries unchanged", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-index-harness-tail-"));
     const store = await SessionStore.create(join(root, "session.jsonl"), { sessionId: "session", cwd: root });
     const user = await store.appendMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
@@ -166,6 +166,24 @@ test("bounds resident harness history and reads older entries unchanged", async 
     for await (const entry of reopened.walkHarnessMessages()) read.push(entry);
     expect(read.map((entry) => entry.entry)).toEqual(originals);
     expect(reopened.projectedHarnessMessages()).toEqual([]);
+});
+
+test("@core compaction keeps only live messages resident while older messages remain indexed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-index-live-context-"));
+    const store = await SessionStore.create(join(root, "session.jsonl"), { sessionId: "session", cwd: root });
+    const old = await store.appendMessage({ role: "user", content: [{ type: "text", text: "old" }] });
+    const live = await store.appendMessage({ role: "user", content: [{ type: "text", text: "live" }] });
+    await store.appendCompaction({
+        boundaryMessageId: old.id,
+        firstRetainedMessageId: live.id,
+        projection: [{ role: "user", content: [{ type: "text", text: "summary" }] }],
+        measured: { inputTokens: 1, estimated: true },
+    });
+    for (const current of [store, await SessionStore.open(store.path)]) {
+        expect(current.entries().map((entry) => entry.id)).toEqual([live.id]);
+        expect(current.messages()).toEqual([live.message]);
+        expect(await current.readMessageEntry(old.id)).toEqual(old);
+    }
 });
 
 test("an oversized unanchored notice does not count as retained tail bytes", async () => {

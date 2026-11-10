@@ -3,7 +3,21 @@ import { expect, test } from "bun:test";
 import {
     AttachmentQueueOverflowError,
     AttachmentUpdateQueue,
+    CLIENT_ATTACHMENT_QUEUE_LIMITS,
 } from "../../src/host/attachment-update-queue.ts";
+
+test("@core client queues reject updates above the count and byte limits", async () => {
+    expect(CLIENT_ATTACHMENT_QUEUE_LIMITS).toEqual({ maxBytes: 16 * 1024 * 1024, maxUpdates: 32_768 });
+    const countQueue = new AttachmentUpdateQueue(CLIENT_ATTACHMENT_QUEUE_LIMITS);
+    for (let index = 0; index < 32_769; index += 1) {
+        countQueue.push({ type: "assistant_delta", text: "x", seq: index });
+    }
+    await expect(countQueue.receive()).rejects.toBeInstanceOf(AttachmentQueueOverflowError);
+
+    const byteQueue = new AttachmentUpdateQueue(CLIENT_ATTACHMENT_QUEUE_LIMITS);
+    byteQueue.push({ type: "assistant_delta", text: "x".repeat(16 * 1024 * 1024), seq: 1 });
+    await expect(byteQueue.receive()).rejects.toBeInstanceOf(AttachmentQueueOverflowError);
+});
 
 test("a queue that holds more than its byte limit fails with an overflow error", async () => {
     const queue = new AttachmentUpdateQueue({ maxBytes: 200 });

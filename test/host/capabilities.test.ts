@@ -8,6 +8,12 @@ import {
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "../../src/host/capabilities.ts";
+import { HOST_MIN_COMPATIBLE_PROTOCOL_VERSION, HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+
+test("@core pages-only attach uses protocol 37", () => {
+    expect(HOST_PROTOCOL_VERSION).toBe(37);
+    expect(HOST_MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(37);
+});
 
 test("host capabilities are bounded versioned names", () => {
     expect(parseHostCapabilities([
@@ -29,7 +35,7 @@ test("negotiation preserves request order and returns only shared capabilities",
     )).toEqual(["agent.branch-options.v1"]);
 });
 
-test("every client requests history paging", () => {
+test("@core every client requests history paging", () => {
     expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
     expect(CLIENT_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
     expect(negotiateHostCapabilities(

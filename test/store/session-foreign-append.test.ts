@@ -21,7 +21,7 @@ function answer(text: string): ModelMessage {
         source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "stop" };
 }
 
-test("foreign message appends on an indexed store match a fresh open without rescanning", async () => {
+test("@core foreign message appends on an indexed store match a fresh open without rescanning", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-foreign-append-"));
     directories.push(directory);
     const path = join(directory, "session.jsonl");

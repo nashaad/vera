@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import ts from "typescript";
 
-test("OpenRouter SDK runtime imports are confined to the loader and preferences schema", async () => {
+test("@core OpenRouter SDK runtime imports are confined to the loader and preferences schema", async () => {
     const violations: string[] = [];
     const paths = ["index.ts"];
     for await (const path of new Bun.Glob("{src,clients,extensions}/**/*.{ts,tsx,js,jsx,mts,cts,mjs,cjs}").scan()) {
