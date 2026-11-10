@@ -68,9 +68,9 @@ export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefine
         clearTranscriptAnchorPadding(rt);
     }
     if (scrollLines !== undefined && scrollLines < 0) {
-        rt.earlierHistoryNeedsScroll = false;
+        rt.historyPaging.needsScroll = false;
     }
-    rt.pendingHistoryAnchor = undefined;
+    rt.historyPaging.anchor = undefined;
     settleTranscriptScrollState(rt);
     if (scrollLines === undefined) {
         resumeTuiTranscriptFollow(rt.transcript);

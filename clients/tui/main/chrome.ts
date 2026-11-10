@@ -1,3 +1,4 @@
+import { destroySidebarTranscript } from "./sidebar-transcript.ts";
 import { loadStandingNudges, type StandingNudge } from "../../../src/standing-nudges.ts";
 import type { TuiCommandAction, TuiCommandCatalogEntry, TuiPaletteEntry } from "../commands.ts";
 import { TUI_COMPOSER_MAX_TEXT_ROWS, TUI_COMPOSER_MIN_TEXT_ROWS, tuiComposerPanelRows } from "../composer.ts";
@@ -254,6 +255,7 @@ export function createMarkdownStyle(activeTheme: TuiTheme): SyntaxStyle {
 }
 
 export function clearSidebarEntryNodes(rt: TuiRuntime): void {
+    destroySidebarTranscript(rt);
     while (rt.sidebarEntryNodes.length > 0) {
         rt.sidebarEntryNodes.pop()?.destroyRecursively();
         rt.sidebarEntryNodeKinds.pop();

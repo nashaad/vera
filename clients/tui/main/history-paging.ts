@@ -1,3 +1,4 @@
+import { resetHistoryPagingState, type EarlierHistoryOutcome, type EarlierHistoryRequest, type HistoryAnchor } from "../history-paging-state.ts";
 import { HistoryPageRequestError } from "../../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../../src/host/capabilities.ts";
 import {
@@ -27,21 +28,6 @@ const EARLIER_HISTORY_RETRY_DELAY_MS = 1_000;
 type PageRequester = NonNullable<TuiRuntime["client"]["requestHistoryPage"]>;
 type HistoryPage = Awaited<ReturnType<PageRequester>>;
 
-export interface HistoryAnchor {
-    readonly entryId: string;
-    readonly offset: number;
-}
-
-export type EarlierHistoryOutcome = "loaded" | "superseded";
-
-/** The one page request in flight. Extension callers wait on its outcome. */
-export interface EarlierHistoryRequest {
-    readonly generation: number;
-    readonly before: string;
-    readonly controller: AbortController;
-    readonly deferred: PromiseWithResolvers<EarlierHistoryOutcome>;
-}
-
 interface NextPage {
     readonly requestPage: PageRequester;
     readonly before: string;
@@ -49,16 +35,7 @@ interface NextPage {
 
 /** A reset within one conversation fails the waiting load. A new conversation rejects it with AbortError. */
 export function resetHistoryPaging(rt: TuiRuntime, sameConversation: boolean): void {
-    const request = rt.earlierHistoryRequest;
-    rt.earlierHistoryRequest = undefined;
-    if (request !== undefined) {
-        request.controller.abort();
-        request.deferred.reject(sameConversation ? unavailableError() : abortError());
-    }
-    rt.earlierHistoryRetryAt = undefined;
-    rt.earlierHistoryNeedsScroll = false;
-    rt.earlierHistoryBlocked = false;
-    rt.pendingHistoryAnchor = undefined;
+    resetHistoryPagingState(rt.historyPaging, sameConversation);
 }
 
 /** The rejection a waiter gets when the conversation changes underneath it. */
@@ -116,12 +93,12 @@ export function hasEarlierHistory(rt: TuiRuntime): boolean {
 }
 
 function canRequest(rt: TuiRuntime, force: boolean): boolean {
-    return !rt.earlierHistoryBlocked
-        && (force || !rt.earlierHistoryNeedsScroll)
+    return !rt.historyPaging.blocked
+        && (force || !rt.historyPaging.needsScroll)
         && rt.state.earlierHistory !== "too_large"
-        && rt.earlierHistoryRequest === undefined
-        && (rt.earlierHistoryRetryAt === undefined
-            || Date.now() >= rt.earlierHistoryRetryAt);
+        && rt.historyPaging.request === undefined
+        && (rt.historyPaging.retryAt === undefined
+            || Date.now() >= rt.historyPaging.retryAt);
 }
 
 /** Returns true when a page request was started. */
@@ -150,7 +127,7 @@ export async function loadEarlierHistory(
         if (signal?.aborted) throw signal.reason;
         const next = nextPage(rt);
         if (next === undefined) return;
-        const request = rt.earlierHistoryRequest ?? startEarlierHistoryRequest(rt, next);
+        const request = rt.historyPaging.request ?? startEarlierHistoryRequest(rt, next);
         const outcome = await awaitOutcome(request, signal);
         if (rt.conversationGeneration !== generation) throw abortError();
         if (outcome === "loaded") return;
@@ -184,7 +161,7 @@ function startEarlierHistoryRequest(rt: TuiRuntime, next: NextPage): EarlierHist
     };
     // Auto requests have no waiter, so a failure must not surface as unhandled.
     request.deferred.promise.catch(() => undefined);
-    rt.earlierHistoryRequest = request;
+    rt.historyPaging.request = request;
     const previousEntries = rt.state.entries;
     // This row is inserted now, so its anchor cannot go stale while a page
     // is in flight.
@@ -192,7 +169,7 @@ function startEarlierHistoryRequest(rt: TuiRuntime, next: NextPage): EarlierHist
     rt.state = setEarlierHistoryStatus(rt.state, "loading");
     const loadingDelta = rt.state.entries.length - previousEntries.length;
     if (!shiftTranscriptWindowForPrepend(rt, previousEntries, loadingDelta)) {
-        rt.pendingHistoryAnchor = loadingAnchor;
+        rt.historyPaging.anchor = loadingAnchor;
         rt.pendingTranscriptReseed = true;
     }
     rt.renderCoalescer.request("history_page");
@@ -218,8 +195,8 @@ function receiveEarlierHistoryPage(
         request.deferred.reject(abortError());
         return;
     }
-    if (rt.earlierHistoryRequest === request) rt.earlierHistoryRequest = undefined;
-    rt.earlierHistoryRetryAt = undefined;
+    if (rt.historyPaging.request === request) rt.historyPaging.request = undefined;
+    rt.historyPaging.retryAt = undefined;
     if (rt.state.historyWindow?.olderBefore !== request.before) {
         // A checkpoint moved the cursor while the page was out; drop it and
         // ask from the new cursor.
@@ -229,15 +206,15 @@ function receiveEarlierHistoryPage(
         request.deferred.resolve("superseded");
         return;
     }
-    rt.pendingHistoryAnchor = captureHistoryAnchor(rt);
-    rt.earlierHistoryNeedsScroll = true;
+    rt.historyPaging.anchor = captureHistoryAnchor(rt);
+    rt.historyPaging.needsScroll = true;
     const previousEntries = rt.state.entries;
     const previousWindow = rt.state.historyWindow;
     rt.state = applyHistoryPage(rt.state, response);
     const moved = historyWindowMoved(previousWindow, rt.state.historyWindow);
     if (!moved) {
         // A page that moves nothing must not be asked again on the next frame.
-        rt.earlierHistoryRetryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
+        rt.historyPaging.retryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
     }
     const delta = rt.state.entries.length - previousEntries.length;
     const shifted = shiftTranscriptWindowForPrepend(
@@ -251,13 +228,13 @@ function receiveEarlierHistoryPage(
         rt.pendingTranscriptReseed = true;
     }
     const added = (rt.state.historyWindow?.entries.length ?? 0) - (previousWindow?.entries.length ?? 0);
-    if (added > 0) {
+    if (rt.historyPaging.mainConversation && added > 0) {
         rt.composer.prependSubmittedPrompts(historyUserPrompts(rt.state.historyWindow!.entries.slice(0, added)));
     }
     const firstText = historyWindowFirstUserText(
         rt.state.historyWindow ?? { entries: [], hasEarlier: false },
     );
-    if (firstText !== undefined) {
+    if (rt.historyPaging.mainConversation && firstText !== undefined) {
         adoptFallbackSessionTitle(rt, firstText);
     }
     rt.renderCoalescer.request("history_page");
@@ -277,19 +254,19 @@ function failEarlierHistoryRequest(
         request.deferred.reject(abortError());
         return;
     }
-    if (rt.earlierHistoryRequest === request) rt.earlierHistoryRequest = undefined;
+    if (rt.historyPaging.request === request) rt.historyPaging.request = undefined;
     if (error instanceof HistoryPageRequestError) {
         if (error.reason === "page_too_large") {
-            rt.earlierHistoryBlocked = true;
+            rt.historyPaging.blocked = true;
             rt.state = setEarlierHistoryStatus(rt.state, "too_large");
         } else {
-            rt.earlierHistoryRetryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
+            rt.historyPaging.retryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
             rt.state = setEarlierHistoryStatus(rt.state, "failed");
         }
     } else {
         // The attachment went away (reconnect, detach or release). No row: the
         // next frame retries once a new attachment is ready.
-        rt.earlierHistoryRetryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
+        rt.historyPaging.retryAt = Date.now() + EARLIER_HISTORY_RETRY_DELAY_MS;
         rt.state = setEarlierHistoryStatus(rt.state, undefined);
     }
     rt.pendingTranscriptReseed = true;
@@ -317,13 +294,13 @@ function isAbortError(error: unknown): boolean {
  * scrollbar has the new content size.
  */
 export function applyPendingHistoryScroll(rt: TuiRuntime): void {
-    const anchor = rt.pendingHistoryAnchor;
+    const anchor = rt.historyPaging.anchor;
     if (anchor === undefined || anchor.placed !== true) return;
     const index = rt.state.entries.findIndex((entry) =>
         entry.kind !== "diff" && entry.entryId === anchor.entryId
     );
     if (index === -1) {
-        rt.pendingHistoryAnchor = undefined;
+        rt.historyPaging.anchor = undefined;
         return;
     }
     const target = transcriptEntryOffsetTop(
@@ -344,6 +321,6 @@ export function applyPendingHistoryScroll(rt: TuiRuntime): void {
         Math.abs(rt.transcript.scrollTop - target) <= 1
         || (laidOut && target > max)
     ) {
-        rt.pendingHistoryAnchor = undefined;
+        rt.historyPaging.anchor = undefined;
     }
 }

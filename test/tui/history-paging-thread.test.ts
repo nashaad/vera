@@ -5,6 +5,7 @@ import {
     entryId,
 } from "../../clients/shared/history-window.ts";
 import { EMPTY_THREAD_FACTS, threadFactEntries } from "../../clients/shared/thread-facts.ts";
+import { createHistoryPaging } from "../../clients/tui/history-paging-state.ts";
 import { hasEarlierHistory, loadEarlierHistory } from "../../clients/tui/main/history-paging.ts";
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
 import {
@@ -24,7 +25,7 @@ function nonPagingRuntime(): TuiRuntime {
     return {
         client: {},
         state: { historyWindow: { entries: [], hasEarlier: true, olderBefore: "older-0" } },
-        earlierHistoryRequest: undefined,
+        historyPaging: createHistoryPaging(),
     } as unknown as TuiRuntime;
 }
 
@@ -32,7 +33,7 @@ test("a client that cannot page reports no earlier history and loads nothing", a
     const rt = nonPagingRuntime();
     expect(hasEarlierHistory(rt)).toBe(false);
     await loadEarlierHistory(rt);
-    expect(rt.earlierHistoryRequest).toBeUndefined();
+    expect(rt.historyPaging.request).toBeUndefined();
 });
 
 function answerEntry(id: string): TranscriptEntry {
@@ -88,11 +89,7 @@ function pagingRuntime(requestPage: PageRequest, state: TuiState): TuiRuntime {
         entryNodes: [],
         composer: { prependSubmittedPrompts: () => undefined },
         renderCoalescer: { request: () => undefined },
-        earlierHistoryRequest: undefined,
-        earlierHistoryRetryAt: undefined,
-        earlierHistoryNeedsScroll: false,
-        earlierHistoryBlocked: false,
-        pendingHistoryAnchor: undefined,
+        historyPaging: createHistoryPaging(),
         pendingTranscriptReseed: false,
     } as unknown as TuiRuntime;
 }
@@ -135,7 +132,7 @@ test("a failed page load rejects with the request error and keeps the window", a
     expect(failure).toBeInstanceOf(HistoryPageRequestError);
     expect(messageOf(failure)).toBe("History page request failed: unavailable");
     expect(rt.state.historyWindow).toEqual(state.historyWindow);
-    expect(rt.earlierHistoryRequest).toBeUndefined();
+    expect(rt.historyPaging.request).toBeUndefined();
 });
 
 test("a page rejected with AbortError by a deliberate release rejects the waiting load with AbortError", async () => {
@@ -145,7 +142,7 @@ test("a page rejected with AbortError by a deliberate release rejects the waitin
     );
     const failure = await rejectionOf(loadEarlierHistory(rt));
     expect((failure as Error).name).toBe("AbortError");
-    expect(rt.earlierHistoryRequest).toBeUndefined();
+    expect(rt.historyPaging.request).toBeUndefined();
 });
 
 test("a page that adds nothing and holds its position rejects with the no-progress error", async () => {

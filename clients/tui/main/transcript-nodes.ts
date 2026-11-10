@@ -294,7 +294,7 @@ export function createTranscriptEntryNode(rt: TuiRuntime,
         throw new Error(`Transcript entry ${index} is unavailable`);
     }
     const streaming = tuiTranscriptEntryStreams(entries, index, rt.state.working);
-    const node = createTuiEntryNode(rt, 
+    const node = createTuiEntryNode(rt.transcriptEntryOwner ?? rt,
         `entry-${index}`,
         entry,
         tuiEntryMarginTop(entries, index, rt.entrySpacing),
@@ -586,7 +586,7 @@ export function renderTranscriptEntries(rt: TuiRuntime,
     if (rt.pendingTranscriptReseed) {
         rt.pendingTranscriptReseed = false;
         reseedTranscriptNodes(rt, entries);
-        const anchor = rt.pendingHistoryAnchor;
+        const anchor = rt.historyPaging.anchor;
         if (anchor !== undefined && anchor.placed !== true) {
             const index = entries.findIndex((entry) =>
                 entry.kind !== "diff" && entry.entryId === anchor.entryId

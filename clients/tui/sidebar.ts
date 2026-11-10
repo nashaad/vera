@@ -50,6 +50,7 @@ export interface TuiSidebarBlock {
 
 export interface TuiSidebar {
     readonly body: BoxRenderable;
+    readonly content: ScrollBoxRenderable;
     blocks(): readonly TuiSidebarBlock[];
     headers(): readonly TextRenderable[];
     isOpen(): boolean;
@@ -69,6 +70,7 @@ export interface TuiSidebar {
         readonly speaker?: string;
     }[]): void;
     replaceRendered(blocks: readonly TuiSidebarBlock[]): void;
+    setTranscriptWindow(node: Renderable, blocks: readonly TuiSidebarBlock[]): void;
     clear(): void;
     setTheme(theme: TuiSidebarTheme, syntaxStyle: SyntaxStyle): void;
     refit(): void;
@@ -146,6 +148,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             gap: 0,
         },
     });
+    let selectionBlocks: readonly TuiSidebarBlock[] | undefined;
     let panelDragged = false;
     const sidebarColumn = new BoxRenderable(renderer, {
         id: "sidebar-column",
@@ -348,6 +351,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     }
 
     function removeBlocks(): void {
+        selectionBlocks = undefined;
         for (const child of [...content.getChildren()]) {
             content.remove(child.id);
         }
@@ -358,6 +362,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
 
     return {
         body,
+        content,
         headers: () => [mainHeader, header],
         isFollowing: () =>
             content.scrollTop >= content.scrollHeight - content.viewport.height,
@@ -454,7 +459,16 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             }
             options.onLayoutChanged?.();
         },
+        setTranscriptWindow(node, nextBlocks): void {
+            if (appended.length !== 1 || appended[0]?.node !== node) {
+                removeBlocks();
+                appended.push({ node, speaker: "agent" });
+                content.add(node);
+            }
+            selectionBlocks = nextBlocks;
+        },
         replaceRendered(nextBlocks): void {
+            selectionBlocks = undefined;
             let retained = 0;
             while (
                 retained < appended.length
@@ -476,7 +490,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             blocks = appended.length;
             options.onLayoutChanged?.();
         },
-        blocks: () => appended,
+        blocks: () => selectionBlocks ?? appended,
         clear(): void {
             removeBlocks();
             options.onLayoutChanged?.();

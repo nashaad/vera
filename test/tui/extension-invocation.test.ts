@@ -13,6 +13,7 @@ import {
 } from "../../clients/tui/main/extension-invocation.ts";
 import type { ExtensionInvocation, TuiRuntime } from "../../clients/tui/main/runtime.ts";
 import { createTuiState } from "../../clients/tui/state.ts";
+import { createHistoryPaging } from "../../clients/tui/history-paging-state.ts";
 
 interface Fixture {
     readonly rt: TuiRuntime;
@@ -45,11 +46,7 @@ function fixture(): Fixture {
             ...createTuiState(),
             historyWindow: { entries: [], hasEarlier: true, olderBefore: "older-1" },
         },
-        earlierHistoryRequest: undefined,
-        earlierHistoryRetryAt: undefined,
-        earlierHistoryNeedsScroll: false,
-        earlierHistoryBlocked: false,
-        pendingHistoryAnchor: undefined,
+        historyPaging: createHistoryPaging(),
         pendingTranscriptReseed: false,
     } as unknown as TuiRuntime;
     return {

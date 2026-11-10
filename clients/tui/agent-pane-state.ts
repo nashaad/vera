@@ -8,12 +8,15 @@ import {
     applyAgentUpdate,
     createTuiState,
     dropTuiThinking,
+    setEarlierHistoryStatus,
     type TuiState,
 } from "./state.ts";
+import { createHistoryPaging, resetHistoryPagingState } from "./history-paging-state.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 
 export class TuiAgentPaneState {
     state: TuiState = createTuiState();
+    readonly historyPaging = createHistoryPaging(false);
     pendingUiRequest: UiRequestUpdate | undefined;
     readonly queuedUiRequests: UiRequestUpdate[] = [];
     backgroundAgents: BackgroundAgentsSnapshot | undefined;
@@ -27,6 +30,10 @@ export class TuiAgentPaneState {
     abortRequested = false;
 
     apply(update: AgentUpdate, now: number = Date.now()): void {
+        if (update.type === "history") {
+            resetHistoryPagingState(this.historyPaging, true);
+            this.state = setEarlierHistoryStatus(this.state, undefined);
+        }
         this.observeActivity(update, now);
         this.pendingUiRequest = applyTuiUiRequestUpdate(
             this.pendingUiRequest,

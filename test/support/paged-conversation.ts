@@ -28,6 +28,8 @@ export interface ConversationOptions {
     readonly settleLimit?: number;
     /** Older pages the host holds, nearest the tail first. Defaults to one page that ends the history. */
     readonly pages?: number;
+    /** Rows in the first page. Defaults to TAIL_LENGTH. */
+    readonly tailLength?: number;
 }
 
 export function conversation(options: ConversationOptions): Conversation {
@@ -37,12 +39,13 @@ export function conversation(options: ConversationOptions): Conversation {
     const held: Array<() => void> = [];
     const pageCount = options.pages ?? 1;
     let answered = 0;
-    const tail = Array.from({ length: TAIL_LENGTH }, (_, index) => ({
+    const tailLength = options.tailLength ?? TAIL_LENGTH;
+    const tail = Array.from({ length: tailLength }, (_, index) => ({
         kind: "user" as const,
         text: `${options.tail}${index}`,
         id: `${idPrefix}-${index}`,
     }));
-    const headId = `${idPrefix}-${TAIL_LENGTH - 1}`;
+    const headId = `${idPrefix}-${tailLength - 1}`;
     const base = createSettingsAnsweringClient({
         agentId: options.agentId,
         workspace: "/work/vera",

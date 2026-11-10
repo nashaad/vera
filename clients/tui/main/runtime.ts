@@ -42,7 +42,7 @@ import type { HomeClientOptions } from "../home-client.ts";
 import type { HomeState, TuiHomeView } from "../home-screen.ts";
 import type { TuiOnboardingView } from "../onboarding-screen.ts";
 import type { WizardSession } from "../onboarding-wizard.ts";
-import type { EarlierHistoryRequest } from "./history-paging.ts";
+import type { HistoryPaging } from "../history-paging-state.ts";
 import type { PendingExtensionReveal } from "./extension-reveal.ts";
 import type { RuntimeCommand } from "./outrider-ops.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
@@ -369,15 +369,7 @@ export interface TuiRuntime {
     clientGeneration: number;
     // Bumps only when agentId changes. clientGeneration covers every reattach.
     conversationGeneration: number;
-    earlierHistoryRequest: EarlierHistoryRequest | undefined;
-    earlierHistoryRetryAt: number | undefined;
-    earlierHistoryNeedsScroll: boolean;
-    earlierHistoryBlocked: boolean;
-    pendingHistoryAnchor: {
-        readonly entryId: string;
-        readonly offset: number;
-        placed?: boolean;
-    } | undefined;
+    historyPaging: HistoryPaging;
     composeSurfaceGeneration: number;
     resumeListVersion: number;
     importListVersion: number;
@@ -430,6 +422,7 @@ export interface TuiRuntime {
     directClientExtensions: readonly DirectClientExtension[];
     markdownStyle: SyntaxStyle;
     transcript: ScrollBoxRenderable;
+    transcriptEntryOwner?: TuiRuntime;
     JUMP_TO_BOTTOM_LABEL: string;
     jumpToBottomText: TextRenderable;
     jumpToBottom: BoxRenderable;
