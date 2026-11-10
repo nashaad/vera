@@ -1,11 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { open } from "node:fs/promises";
+
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     SessionStore,
+    openSessionAppendFile,
     type OpenSessionAppendFile,
     type SessionAppendFile,
 } from "../../src/store/session-store.ts";
@@ -48,22 +49,21 @@ function faultyOpener(plan: readonly (Faults | undefined)[]): OpenSessionAppendF
     return async (path) => {
         const faults = plan[call];
         call += 1;
-        const real = await open(path, "a", 0o600);
+        const real = await openSessionAppendFile(path);
         if (faults === undefined) return real;
         let written = false;
         const wrapped: SessionAppendFile = {
             stat: () => real.stat(),
-            writeFile: async (data, encoding) => {
+            append: async (bytes) => {
                 if (faults.foreignTextBeforeFailure !== undefined) {
                     appendFileSync(path, faults.foreignTextBeforeFailure);
                     throw new Error("ENOSPC: no space left on device");
                 }
                 if (faults.partialWriteBytes !== undefined) {
-                    const bytes = Buffer.from(data, encoding);
-                    await real.writeFile(bytes.subarray(0, faults.partialWriteBytes));
+                    await real.append(bytes.subarray(0, faults.partialWriteBytes));
                     throw new Error("ENOSPC: no space left on device");
                 }
-                await real.writeFile(data, encoding);
+                await real.append(bytes);
                 written = true;
             },
             truncate: async (length) => {

@@ -328,13 +328,35 @@ export interface AppendCompactionRequest {
 /** The part of a file handle that appending a record uses. */
 export interface SessionAppendFile {
     stat(): Promise<{ readonly size: number }>;
-    writeFile(data: string, encoding: "utf8"): Promise<void>;
+    /** Writes every byte at the end of the file. */
+    append(bytes: Uint8Array): Promise<void>;
     truncate(length: number): Promise<void>;
     sync(): Promise<void>;
     close(): Promise<void>;
 }
 
 export type OpenSessionAppendFile = (path: string) => Promise<SessionAppendFile>;
+
+// Bun's FileHandle.writeFile preallocates a large payload from offset 0 before an
+// O_APPEND write on Linux, which leaves a zero-filled hole the size of the payload
+// ahead of the record. Plain write calls carry no preallocation.
+export async function openSessionAppendFile(path: string): Promise<SessionAppendFile> {
+    const handle: FileHandle = await open(path, "a", 0o600);
+    return {
+        stat: () => handle.stat(),
+        append: async (bytes) => {
+            let offset = 0;
+            while (offset < bytes.length) {
+                const { bytesWritten } = await handle.write(bytes, offset, bytes.length - offset);
+                if (bytesWritten <= 0) throw new Error(`Session file ${path} accepted no bytes`);
+                offset += bytesWritten;
+            }
+        },
+        truncate: (length) => handle.truncate(length),
+        sync: () => handle.sync(),
+        close: () => handle.close(),
+    };
+}
 
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
@@ -745,8 +767,7 @@ export class SessionStore {
         this.projection = state;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
-        this.openAppendFile = options.openAppendFile
-            ?? ((appendPath) => open(appendPath, "a", 0o600));
+        this.openAppendFile = options.openAppendFile ?? openSessionAppendFile;
         this.lineCount = lineCount;
         this.recordIndex = index ?? new SessionRecordIndex();
         if (index === undefined) {
@@ -2591,15 +2612,16 @@ export class SessionStore {
             throw this.writeFault;
         }
         const line = jsonLine(record);
+        const bytes = Buffer.from(line, "utf8");
         const file = await this.openAppendFile(this.path);
         let lengthBefore = 0;
         try {
             ({ size: lengthBefore } = await file.stat());
             try {
-                await file.writeFile(line, "utf8");
+                await file.append(bytes);
                 await file.sync();
             } catch (error) {
-                const fault = await this.restoreLength(file, lengthBefore, Buffer.byteLength(line));
+                const fault = await this.restoreLength(file, lengthBefore, bytes.length);
                 if (fault === undefined) {
                     throw error;
                 }
@@ -2610,7 +2632,7 @@ export class SessionStore {
             // The line is durable or rolled back by now, so a failed close changes neither.
             await file.close().catch(() => {});
         }
-        this.recordIndex.append(lengthBefore, Buffer.byteLength(line), record as Record<string, unknown>);
+        this.recordIndex.append(lengthBefore, bytes.length, record as Record<string, unknown>);
         this.lineCount += 1;
         return this.lineCount;
     }
