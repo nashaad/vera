@@ -2033,6 +2033,102 @@ test("ui.notice needs its own capability", async () => {
     await registry.close();
 });
 
+test("a notice renderer needs the notice capability and registration time", async () => {
+    const undeclared = createExtension("client.quiet", ["client.preferences"], `
+        export function activateClient(vera) {
+            vera.ui.registerNoticeRenderer(() => "x");
+        }
+    `);
+    const late = createExtension("client.late", [
+        "client.commands.register",
+        "client.ui.notice",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "late",
+                description: "Late",
+                usage: "/late",
+                run() {
+                    vera.ui.registerNoticeRenderer(() => "x");
+                    return { kind: "text", text: "ok" };
+                },
+            });
+        }
+    `);
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(undeclared), configured(late)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(failures[0]?.message).toContain("did not declare client.ui.notice");
+    await expect(registry.invokeCommand("late", "", createDirectory()))
+        .rejects.toThrow("must be registered during activation");
+    await registry.close();
+});
+
+test("a notice renderer routes by source and rejects unusable output", async () => {
+    const renderer = `
+        export function activateClient(vera) {
+            vera.ui.registerNoticeRenderer(({ key, facts }) => {
+                if (facts.mode === "throw") throw new Error("boom");
+                if (facts.mode === "multi") return "one\\ntwo";
+                if (facts.mode === "long") return "x".repeat(241);
+                if (facts.mode === "empty") return "   ";
+                if (facts.mode === "none") return undefined;
+                return key + ":" + facts.calls;
+            });
+        }
+    `;
+    const cache = createExtension("vera.cache", ["client.ui.notice"], renderer);
+    const bare = createExtension("vera.bare", ["client.ui.notice"], `
+        export function activateClient() {}
+    `);
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(cache), configured(bare)],
+        ...harness.adapters,
+    });
+    const notice = (mode: string) => ({
+        key: "cache_miss",
+        facts: { calls: 20, mode },
+    });
+
+    expect(registry.renderNotice("vera.cache", notice("ok"))).toBe("cache_miss:20");
+    expect(registry.renderNotice("vera.unknown", notice("ok"))).toBeUndefined();
+    expect(registry.renderNotice("vera.bare", notice("ok"))).toBeUndefined();
+    expect(registry.renderNotice("vera.cache", notice("throw"))).toBeUndefined();
+    expect(registry.renderNotice("vera.cache", notice("multi"))).toBeUndefined();
+    expect(registry.renderNotice("vera.cache", notice("long"))).toBeUndefined();
+    expect(registry.renderNotice("vera.cache", notice("empty"))).toBeUndefined();
+    expect(registry.renderNotice("vera.cache", notice("none"))).toBeUndefined();
+
+    await registry.close();
+    expect(registry.renderNotice("vera.cache", notice("ok"))).toBeUndefined();
+});
+
+test("a second notice renderer fails the extension", async () => {
+    const extension = createExtension("client.twice", ["client.ui.notice"], `
+        export function activateClient(vera) {
+            vera.ui.registerNoticeRenderer(() => "a");
+            vera.ui.registerNoticeRenderer(() => "b");
+        }
+    `);
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(failures[0]?.message).toContain("more than one notice renderer");
+    expect(registry.renderNotice("client.twice", { key: "k", facts: {} })).toBeUndefined();
+    await registry.close();
+});
+
 test("modelSettings.availability answers runnable, pooled and verified", async () => {
     const workspace = createDirectory();
     const extension = createExtension("client.availability", [

@@ -2,6 +2,7 @@ import { addSessionModelUsage, summarizeSessionModelUsage, type SessionModelUsag
 export { summarizeSessionModelUsage } from "../model/session-usage.ts";
 export type { SessionModelUsage, SessionModelUsageRow } from "../model/session-usage.ts";
 import type { HookContextPhase, TurnTiming } from "../model/types.ts";
+import type { NoticeFacts } from "./notice-facts.ts";
 import type {
     ConfigurationRequiredUiRequest,
     EngineEventSubscriber,
@@ -846,6 +847,9 @@ export interface NoticeUpdate {
     readonly type: "notice";
     readonly key: string;
     readonly count: number;
+    /** Id of the extension that raised it. */
+    readonly source?: string;
+    readonly facts?: NoticeFacts;
     readonly seq: number;
 }
 
@@ -1898,6 +1902,8 @@ export function createProtocolEncoder(
                 key: event.key,
                 count: event.count,
                 ...(event.text === undefined ? {} : { text: event.text }),
+                ...(event.source === undefined ? {} : { source: event.source }),
+                ...(event.facts === undefined ? {} : { facts: event.facts }),
                 seq,
             });
             return;

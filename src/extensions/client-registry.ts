@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import type {
+    VeraClientNotice,
+    VeraClientNoticeRenderer,
     VeraClientSidebarSummaryRenderer,
     VeraClientSidebarSummarySnapshot,
     VeraClientSidebarSummaryRow,
@@ -390,6 +392,7 @@ export interface ClientExtensionRegistry {
     requestPaneClose(extensionId: string): boolean;
     statusLineOwner(): string | undefined;
     renderSidebarSummary(snapshot: VeraClientSidebarSummarySnapshot): readonly VeraClientSidebarSummaryRow[];
+    renderNotice(source: string, notice: VeraClientNotice): string | undefined;
     renderStatusLine(
         snapshot: StatusLineSnapshot,
     ): readonly StatusLineSegment[] | undefined;
@@ -432,6 +435,7 @@ interface ComposeInvocation {
 
 interface LoadedClientExtension {
     readonly sidebarSummaries: readonly VeraClientSidebarSummaryRenderer[];
+    readonly noticeRenderer: VeraClientNoticeRenderer | undefined;
     readonly id: string;
     readonly path: string;
     readonly commands: readonly RegisteredCommand[];
@@ -825,6 +829,20 @@ export async function startClientExtensionRegistry(
                     }
                 }));
         },
+        renderNotice(source: string, notice: VeraClientNotice): string | undefined {
+            if (closing !== undefined) return undefined;
+            const extension = loaded.find((candidate) =>
+                candidate.id === source && !candidate.disposing);
+            if (extension?.noticeRenderer === undefined) return undefined;
+            try {
+                const text: unknown = extension.noticeRenderer(structuredClone(notice));
+                if (typeof text !== "string" || text.trim().length === 0
+                    || text.length > 240 || /[\r\n\x1b]/.test(text)) return undefined;
+                return text;
+            } catch {
+                return undefined;
+            }
+        },
         renderStatusLine(
             snapshot: StatusLineSnapshot,
         ): readonly StatusLineSegment[] | undefined {
@@ -964,6 +982,7 @@ async function activateClientExtension(
     const composeInvocation = new AsyncLocalStorage<ComposeInvocation>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
     const sidebarSummaries: VeraClientSidebarSummaryRenderer[] = [];
+    let noticeRenderer: VeraClientNoticeRenderer | undefined;
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
     let closeRequestHandler: (() => void | Promise<void>) | undefined;
     let hostedAgentAddressing:
@@ -1223,6 +1242,19 @@ async function activateClientExtension(
                     validateNoticeText(text),
                     validateNoticeOptions(noticeOptions),
                 );
+            },
+            registerNoticeRenderer(render: VeraClientNoticeRenderer): void {
+                requireRegistrationPhase(phase, "notice renderer");
+                requireCapability(CLIENT_NOTICE_CAPABILITY);
+                if (typeof render !== "function") {
+                    throw new Error("Notice renderer must be a function");
+                }
+                if (noticeRenderer !== undefined) {
+                    throw new Error(
+                        `Extension ${options.id} registered more than one notice renderer`,
+                    );
+                }
+                noticeRenderer = render;
             },
             transcript(block: VeraClientTranscriptBlock): void {
                 requireAvailable();
@@ -1797,6 +1829,7 @@ async function activateClientExtension(
         composeSuggesters,
         statusLine,
         sidebarSummaries,
+        noticeRenderer,
         messageInterceptor,
         closeRequestHandler,
         hostedAgentAddressing: () => hostedAgentAddressing,

@@ -24,6 +24,7 @@ import type { PermissionInputSpec } from "../tools/types.ts";
 import type { VeraClientExperimentalTui } from "./experimental-tui.ts";
 import type { VeraClientContextSnapshot } from "./context.ts";
 import type { ModelMiddleware } from "./model-middleware.ts";
+import type { NoticeFacts } from "../engine/notice-facts.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
@@ -752,6 +753,13 @@ export interface VeraClientExtensionUi {
         },
     ): void;
     /**
+     * Puts a notice this extension's host half raised with facts into one
+     * line. Called once per notice; return nothing to drop it.
+     *
+     * Capability: `client.ui.notice`.
+     */
+    registerNoticeRenderer(render: VeraClientNoticeRenderer): void;
+    /**
      * Write a labeled block into the transcript, for text long enough that a
      * notice line would not carry it: another model's answer, a summary, a
      * rendered result. Markdown is rendered.
@@ -835,6 +843,15 @@ export interface VeraClientSidebarSummarySnapshot {
     readonly extensionState?: import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly usage?: VeraClientSessionUsage;
 }
+
+export interface VeraClientNotice {
+    readonly key: string;
+    readonly facts: NoticeFacts;
+}
+
+export type VeraClientNoticeRenderer = (
+    notice: VeraClientNotice,
+) => string | undefined;
 
 export type VeraClientSidebarSummaryRenderer = (
     snapshot: VeraClientSidebarSummarySnapshot,

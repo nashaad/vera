@@ -1049,6 +1049,19 @@ test("TUI shows an inbox count without exposing message metadata", () => {
     );
 });
 
+test("TUI drops an extension notice that carries facts, even under a core key", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "inbox",
+        count: 1,
+        source: "vera.cache",
+        facts: { calls: 20 },
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([]);
+});
+
 test("TUI replaces an old inbox count with the current count", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "notice",

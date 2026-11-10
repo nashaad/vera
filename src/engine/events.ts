@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import { workspaceKey } from "../workspace-key.ts";
 import type { ContextMeasurement } from "./context-measurement.ts";
+import type { NoticeFacts } from "./notice-facts.ts";
 import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
     AssistantMessage,
@@ -104,6 +105,9 @@ export interface NoticeEvent {
     readonly type: "notice";
     readonly key: string;
     readonly count: number;
+    /** Id of the extension that raised it. */
+    readonly source?: string;
+    readonly facts?: NoticeFacts;
 }
 
 export interface ToolApprovalUiRequest {

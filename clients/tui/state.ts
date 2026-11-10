@@ -809,6 +809,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             update.sourceKind,
         ));
     }
+    if (update.type === "notice" && update.facts !== undefined) return state;
     if (update.type === "notice" && update.key === "inbox") {
         return appendEntry({
             ...state,

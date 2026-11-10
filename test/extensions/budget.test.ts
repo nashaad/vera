@@ -62,7 +62,7 @@ test("commands and reminders use recorded cost and missing confirmation stops sp
         const command = (args: string) => registry.invokeCommand("budget", args, directory, undefined, id, sessionPath);
         expect((await command("1")).body).toMatchObject({ text: expect.stringContaining("Budget changed to $1.00. Spent: $0.50. Remaining: $0.50.") });
         expect(registry.sessionState(id)).toEqual({ "vera.budget": { dollars: 1 } });
-        const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
+        const wrapped = registry.modelMiddleware()[0]!.apply({ stream(request) {
             received.push(request);
             return new FauxAdapter([assistantText("done")]).stream(request);
         } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn" });
@@ -104,7 +104,7 @@ test("side-question spending counts toward the budget before the next request", 
     try {
         expect((await registry.invokeCommand("budget", ".5", directory, undefined, id, sessionPath)).body)
             .toMatchObject({ text: expect.stringContaining("Spent: $0.75") });
-        const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
+        const wrapped = registry.modelMiddleware()[0]!.apply({ stream(request) {
             received.push(request);
             return new FauxAdapter([assistantText("done")]).stream(request);
         } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn",
@@ -162,7 +162,7 @@ test("approval supports increasing, persistent ignore, reset, and cancellation",
     const received: ModelRequest[] = [];
     try {
         await registry.invokeCommand("budget", "1", directory, undefined, id, sessionPath);
-        const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
+        const wrapped = registry.modelMiddleware()[0]!.apply({ stream(request) {
             received.push(request);
             return new FauxAdapter([assistantText("next")]).stream(request);
         } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn",
