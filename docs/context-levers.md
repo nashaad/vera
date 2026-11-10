@@ -23,7 +23,12 @@ typical model window), tool results from a few turns back are trimmed: a large
 one to a short note that says where the full output is saved, a small one to a
 stub that names it. Results inside the age window stay word for word, so a
 recent file read stays unchanged during that window. When the combined tool
-results still pass the tool result budget, the oldest go first. If the context
+results still pass the tool result budget, the oldest go first. Both trims go in
+whole steps, a tenth of the window for the threshold and a quarter of the budget
+for the budget, and trim again only once the context has grown another step.
+Each trim changes the part of the conversation the provider has cached, so the
+provider re-reads everything after it at the full input price; steps keep that
+to once per step rather than once per model call. If the context
 still passes 82%, older messages become one summary in one go. Your last two
 messages stay as they were. When the current turn alone is too big to keep,
 its work is summarized too, but your latest message stays word for word next

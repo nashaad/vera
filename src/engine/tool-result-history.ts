@@ -52,6 +52,17 @@ export const NORMAL_AGING_MIN_CAPACITY = 128_000;
 
 const UNKNOWN_CAPACITY_TOKENS = 100_000;
 
+// Trimming moves in whole steps so that a small change in context size does
+// not re-age results on every request and break the prompt prefix.
+export const TOKEN_TRIM_STEP_FRACTION = 0.1;
+export const BYTE_TRIM_STEP_FRACTION = 0.25;
+
+// Savings needed to bring `excess` under the limit, rounded up to whole steps.
+function stepRequirement(excess: number, step: number): number {
+    if (excess < 0) return 0;
+    return (Math.floor(excess / step) + 1) * step;
+}
+
 export function toolResultAgingLevel(
     capacity: number | undefined,
 ): ToolResultAgingLevel {
@@ -160,8 +171,8 @@ export function assembleAgedToolResults(
     ];
     const ageAfterTurns = policy.ageAfterTurns ?? level.ageAfterTurns;
     const budgetBytes = policy.budgetBytes ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
-    const gateTokens = (policy.capacity ?? UNKNOWN_CAPACITY_TOKENS)
-        * level.gateFraction;
+    const windowTokens = policy.capacity ?? UNKNOWN_CAPACITY_TOKENS;
+    const gateTokens = windowTokens * level.gateFraction;
 
     const turnsAt = new Map<number, number>();
     const calls = new Map<string, ToolCallContent>();
@@ -191,8 +202,8 @@ export function assembleAgedToolResults(
     );
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
-    let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
-    const pressureTokens = tokens;
+    const pressureTokens = measureMessages(projected)
+        + (policy.overheadTokens ?? 0);
 
     const candidates: number[] = [];
     const readCandidates: number[] = [];
@@ -217,8 +228,13 @@ export function assembleAgedToolResults(
         candidates.push(index);
     }
 
+    const requiredSavings = stepRequirement(
+        pressureTokens - gateTokens,
+        Math.max(1, windowTokens * TOKEN_TRIM_STEP_FRACTION),
+    );
+    let savedTokens = 0;
     for (const index of [...candidates, ...readCandidates]) {
-        if (tokens < gateTokens) break;
+        if (savedTokens >= requiredSavings) break;
         const message = projected[index];
         if (message?.role !== "tool_result") continue;
         const sourceText = readSpill(message.toolResultSource?.spillPath);
@@ -232,7 +248,7 @@ export function assembleAgedToolResults(
         );
         const saved = measureMessages([message]) - measureMessages([aged]);
         if (saved <= 0) continue;
-        tokens -= saved;
+        savedTokens += saved;
         projected[index] = aged;
     }
 
@@ -279,12 +295,17 @@ function applyToolResultBudget(
     cache: ToolResultDigestCache | null,
 ): readonly ModelMessage[] {
     const messages = [...projected];
-    let carriedBytes = totalToolResultBytes(messages);
+    const startBytes = totalToolResultBytes(messages);
+    let carriedBytes = startBytes;
     if (carriedBytes <= budgetBytes) return messages;
     if (cut.pressureTokens < cut.gateTokens) return messages;
 
+    const requiredBytes = stepRequirement(
+        startBytes - budgetBytes,
+        Math.max(1, Math.floor(budgetBytes * BYTE_TRIM_STEP_FRACTION)),
+    );
     for (let index = 0; index < messages.length; index += 1) {
-        if (carriedBytes <= budgetBytes) break;
+        if (startBytes - carriedBytes >= requiredBytes) break;
         const message = messages[index];
         if (message?.role !== "tool_result") continue;
         if (cut.turn - (cut.turnsAt.get(index) ?? -1) < cut.ageAfterTurns) {
