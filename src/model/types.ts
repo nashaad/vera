@@ -400,6 +400,8 @@ export interface ModelRequest {
     readonly tools?: readonly ModelTool[];
     // Stable per conversation; providers that route or cache by key use it so repeat prefixes hit.
     readonly cacheKey?: string;
+    // The same for every request in one turn, and new for the next turn.
+    readonly turnId?: string;
     // Absent means "short". "none" also withholds the key.
     readonly cacheRetention?: import("./prompt-cache.ts").CacheRetention;
     /** Namespaced provider-body fields contributed outside the engine. */

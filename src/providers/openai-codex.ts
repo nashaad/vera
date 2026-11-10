@@ -123,6 +123,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
             const events = await this.sendResponse(
                 providerRequest,
                 request.signal,
+                request.turnId,
             );
             for await (const event of events) {
                 throwIfAborted(request.signal);
@@ -216,11 +217,15 @@ export function createOpenAICodexAdapter(
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...(options.now === undefined ? {} : { now: options.now }),
     };
+    // The backend returns a routing token on a turn's first response and expects
+    // it back on that turn's later requests.
+    const turnStates = new Map<string, string>();
 
     const send = async (
         authorization: OpenAICodexAuthorization,
         request: OpenAICodexRequest,
         signal: AbortSignal | undefined,
+        turnId: string | undefined,
     ): Promise<Response> => {
         const headers: Record<string, string> = {
             Authorization: `Bearer ${authorization.accessToken}`,
@@ -237,6 +242,12 @@ export function createOpenAICodexAdapter(
             headers["session-id"] = request.prompt_cache_key;
             headers["x-client-request-id"] = request.prompt_cache_key;
         }
+        const turnState = turnId === undefined
+            ? undefined
+            : turnStates.get(turnStateKey(turnId, request.model));
+        if (turnState !== undefined) {
+            headers["x-codex-turn-state"] = turnState;
+        }
         return fetchRequest(`${baseUrl}/responses`, {
             method: "POST",
             headers,
@@ -245,10 +256,10 @@ export function createOpenAICodexAdapter(
         });
     };
 
-    return new OpenAICodexAdapter(async (request, signal) => {
+    return new OpenAICodexAdapter(async (request, signal, turnId) => {
         const authorization = await (options.authorization?.resolve()
             ?? resolveOpenAICodexAuthorization(authorizationOptions));
-        let response = await send(authorization, request, signal);
+        let response = await send(authorization, request, signal, turnId);
         if (response.status === 401) {
             // The server drops these tokens well before the expiry they carry,
             // so one 401 buys one refresh and one retry.
@@ -263,7 +274,7 @@ export function createOpenAICodexAdapter(
             } catch {
                 throw new OpenAICodexHttpError(401, rejected);
             }
-            response = await send(refreshed, request, signal);
+            response = await send(refreshed, request, signal, turnId);
         }
         if (!response.ok) {
             throw new OpenAICodexHttpError(
@@ -271,11 +282,35 @@ export function createOpenAICodexAdapter(
                 await response.text(),
             );
         }
+        const turnState = response.headers.get("x-codex-turn-state");
+        if (turnId !== undefined && turnState !== null) {
+            rememberTurnState(turnStates, turnStateKey(turnId, request.model), turnState);
+        }
         if (response.body === null) {
             throw new Error("OpenAI Codex response omitted its event stream");
         }
         return readOpenAICodexEvents(response.body, signal);
     });
+}
+
+const MAX_TURN_STATES = 32;
+
+function turnStateKey(turnId: string, model: string): string {
+    return JSON.stringify([turnId, model]);
+}
+
+// First value wins within a turn, and the oldest turn is evicted past the cap.
+function rememberTurnState(
+    states: Map<string, string>,
+    key: string,
+    token: string,
+): void {
+    if (states.has(key)) return;
+    if (states.size >= MAX_TURN_STATES) {
+        const oldest = states.keys().next().value;
+        if (oldest !== undefined) states.delete(oldest);
+    }
+    states.set(key, token);
 }
 
 class OpenAICodexHttpError extends Error {

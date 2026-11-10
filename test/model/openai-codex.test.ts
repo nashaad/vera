@@ -1478,3 +1478,186 @@ describe("OpenAI Codex in-stream errors", () => {
         expect(observed.filter((event) => event.type === "error")).toHaveLength(1);
     });
 });
+
+const TURN_STATE_HEADER = "x-codex-turn-state";
+
+function completedSse(): string {
+    return 'data: {"type":"response.completed","response":{}}\n\ndata: [DONE]\n\n';
+}
+
+function turnAdapter(fetchImpl: typeof globalThis.fetch) {
+    return createOpenAICodexAdapter({
+        fetch: fetchImpl,
+        authorization: {
+            resolve: async () => ({ accessToken: "access-token" }),
+            refreshRejected: async () => ({ accessToken: "fresh-access-token" }),
+        },
+    });
+}
+
+function recordingFetch(
+    respond: (call: number) => Response,
+): { fetch: typeof globalThis.fetch; sent: Headers[] } {
+    const sent: Headers[] = [];
+    const fetchImpl = (async (_input: string, init: RequestInit) => {
+        const headers = new Headers(init.headers);
+        sent.push(headers);
+        return respond(sent.length);
+    }) as unknown as typeof globalThis.fetch;
+    return { fetch: fetchImpl, sent };
+}
+
+async function sendTurnRequest(
+    adapter: ReturnType<typeof createOpenAICodexAdapter>,
+    turnId?: string,
+): Promise<void> {
+    await adapter.stream({
+        model: "gpt-5.6-sol",
+        messages: [],
+        ...(turnId === undefined ? {} : { turnId }),
+    }).result();
+}
+
+describe("turn routing token", () => {
+    test("@core the first response token is sent on later requests in that turn", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) =>
+            new Response(completedSse(), {
+                status: 200,
+                ...(call === 1
+                    ? { headers: { [TURN_STATE_HEADER]: "token-one" } }
+                    : {}),
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[0]?.get(TURN_STATE_HEADER)).toBeNull();
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBe("token-one");
+    });
+
+    test("a new turn starts without a token", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) =>
+            new Response(completedSse(), {
+                status: 200,
+                headers: { [TURN_STATE_HEADER]: `token-${call}` },
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-2");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBeNull();
+    });
+
+    test("a request without a turn id sends no token and stores none", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch(() =>
+            new Response(completedSse(), {
+                status: 200,
+                headers: { [TURN_STATE_HEADER]: "ignored-token" },
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter);
+        await sendTurnRequest(adapter);
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBeNull();
+        expect(sent[2]?.get(TURN_STATE_HEADER)).toBeNull();
+    });
+
+    test("a non-ok response is not stored", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch(() =>
+            new Response("overloaded", {
+                status: 500,
+                headers: { [TURN_STATE_HEADER]: "rejected-token" },
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBeNull();
+    });
+
+    test("a response without a token does not store one", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) =>
+            new Response(completedSse(), {
+                status: 200,
+                ...(call === 2
+                    ? { headers: { [TURN_STATE_HEADER]: "token-two" } }
+                    : {}),
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBeNull();
+        expect(sent[2]?.get(TURN_STATE_HEADER)).toBe("token-two");
+    });
+
+    test("the first token wins within a turn", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) =>
+            new Response(completedSse(), {
+                status: 200,
+                headers: { [TURN_STATE_HEADER]: `token-${call}` },
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBe("token-1");
+        expect(sent[2]?.get(TURN_STATE_HEADER)).toBe("token-1");
+    });
+
+    test("a 401 retry sends the same token", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) => {
+            if (call === 1) {
+                return new Response(completedSse(), {
+                    status: 200,
+                    headers: { [TURN_STATE_HEADER]: "token-one" },
+                });
+            }
+            if (call === 2) {
+                return new Response("token_expired", { status: 401 });
+            }
+            return new Response(completedSse(), { status: 200 });
+        });
+        const adapter = turnAdapter(fetchImpl);
+
+        await sendTurnRequest(adapter, "turn-1");
+        await sendTurnRequest(adapter, "turn-1");
+
+        expect(sent[1]?.get(TURN_STATE_HEADER)).toBe("token-one");
+        expect(sent[2]?.get(TURN_STATE_HEADER)).toBe("token-one");
+    });
+
+    test("the token map evicts the oldest turn", async () => {
+        const { fetch: fetchImpl, sent } = recordingFetch((call) =>
+            new Response(completedSse(), {
+                status: 200,
+                headers: { [TURN_STATE_HEADER]: `token-${call}` },
+            })
+        );
+        const adapter = turnAdapter(fetchImpl);
+
+        for (let index = 0; index <= 32; index += 1) {
+            await sendTurnRequest(adapter, `turn-${index}`);
+        }
+        await sendTurnRequest(adapter, "turn-0");
+        await sendTurnRequest(adapter, "turn-32");
+
+        expect(sent[33]?.get(TURN_STATE_HEADER)).toBeNull();
+        expect(sent[34]?.get(TURN_STATE_HEADER)).toBe("token-33");
+    });
+});

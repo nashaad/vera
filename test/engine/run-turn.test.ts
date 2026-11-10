@@ -5833,3 +5833,41 @@ test("a denied read outside the workspace is not offered the scratch directory",
     );
     expect(text).not.toContain("/tmp/vera-scratch-note");
 });
+
+test("@core all model requests in one turn share a turnId and the next turn has a new one", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-turn-id-"));
+    temporaryWorkspaces.push(workspace);
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf ahoy" }),
+        assistantText("first turn done"),
+        assistantText("second turn done"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+    };
+    channel.client.send({ type: "prompt", content: "hoist the sails" });
+    await runTurn(adapter, "test", state);
+    channel.client.send({ type: "prompt", content: "drop anchor" });
+    await runTurn(adapter, "test", state);
+
+    expect(requests).toHaveLength(3);
+    expect(requests[0]?.turnId).toBeString();
+    expect(requests[1]?.turnId).toBe(requests[0]?.turnId);
+    expect(requests[2]?.turnId).toBeString();
+    expect(requests[2]?.turnId).not.toBe(requests[0]?.turnId);
+});
