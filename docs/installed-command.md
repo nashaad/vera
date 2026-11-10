@@ -50,18 +50,48 @@ The daily prefix goes with the default home, so an install without `--prefix`
 is refused when `VERA_HOME` selects another home. Unset `VERA_HOME` for a
 daily install.
 
-Run `vera rollback` from a terminal outside Vera. Inside a Vera session, `bun run install:local` returns at once and the update waits for running turns.
-From inside a Vera session, the host it would stop is the session's own host,
-so stopping it would end the session before the switch finished; both
-commands refuse and change nothing.
+Inside a Vera session, `bun run install:local` returns at once and the update
+waits for running turns. Rollback to a release that supports the handoff also
+returns at once from inside a session. For an older release, run `vera rollback`
+from a terminal outside Vera.
+
+## Update from a release
+
+Run `vera update` from an installed Vera to download and install the newest
+GitHub release for your platform. `vera update <version>` installs that
+version instead. `vera update --check` prints the running version and the
+newest release without downloading or installing anything. It exits 0 when
+the running release is equal to or newer than the newest published release,
+10 when a newer release exists, and another nonzero code on an error. An
+update to an older version is refused; use `vera rollback` to restore the
+previous release.
+
+Before installing an update, `vera update` prints the nonempty release notes
+for published releases newer than the running version, oldest first. If the
+release list exceeds the page limit, it prints the notes gathered and a link
+to the releases page for the rest. It
+verifies the tarball's SHA-256 checksum and refuses musl Linux. It unpacks into
+a staging directory inside the install prefix's `releases` directory and does
+not move `current`, `rollback`, or the running host before the handoff. A
+failed download, checksum, or unpack leaves the previous release untouched.
+Once the handoff begins it follows the same rules as
+[Activate a new release](#activate-a-new-release).
+
+Run `vera update` from an installed release. A checkout or development
+instance is refused and pointed at `bun run install:local`, and the command
+always uses the install prefix of the running release.
 
 ## Roll back
 
 `vera rollback` makes the previous release active again, without packing or
-using the network. If a host is running, it stops it first and starts the
-restored release's host afterward, as an install does. Failure leaves the
-release that was active before. `--prefix DIR` and `VERA_HOME` pair the same
-way as for an install. If an earlier install or rollback was interrupted,
+using the network. When the previous release supports the handoff, rollback
+waits for running turns and restarts an open TUI in the same terminal with its
+session and unsent draft, as an update does. For an older release, rollback
+stops the host and starts the restored release's host; an open TUI says to quit
+and reopen Vera. Failure leaves the
+release that was active before. Rollback uses the running installation's
+prefix by default; `--prefix DIR` overrides it. `--prefix DIR` and `VERA_HOME`
+pair the same way as for an install. If an earlier install or rollback was interrupted,
 `vera rollback` finishes it, names the release that is now active if there is
 one, and rolls nothing back. An install that was interrupted after its start
 failed is finished by restoring the previous release. So is an install that was

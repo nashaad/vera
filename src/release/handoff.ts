@@ -1,9 +1,10 @@
 import { accessSync, constants, unlinkSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { activateRelease } from "./activate.ts";
 import {
     currentReleaseBuildId,
+    prefixOfReleaseRoot,
     RELEASE_HOST_NAME,
     releaseDirectory,
     thisProcessReleaseRoot,
@@ -27,20 +28,7 @@ import { checkRecordIdentity, processIsAlive } from "../host/process-identity.ts
 export const HANDOFF_PUBLISH_TIMEOUT_MS = 30_000;
 const HANDOFF_POLL_INTERVAL_MS = 100;
 
-// A host runs from <prefix>/share/vera/releases/<build>.
-export function prefixOfReleaseRoot(releaseRoot: string): string | undefined {
-    const releases = dirname(releaseRoot);
-    const veraRoot = dirname(releases);
-    const shareRoot = dirname(veraRoot);
-    if (
-        basename(releases) !== "releases"
-        || basename(veraRoot) !== "vera"
-        || basename(shareRoot) !== "share"
-    ) {
-        return undefined;
-    }
-    return dirname(shareRoot);
-}
+export { prefixOfReleaseRoot } from "./layout.ts";
 
 // A release can start when its stamp names the build and its host binary runs.
 export function releaseProblem(releaseRoot: string, buildId: string): string | undefined {

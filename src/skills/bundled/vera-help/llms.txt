@@ -31,7 +31,7 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=21]
+## Start, development, and upgrades [lines=22]
 Run `vera` for the installed daily Vera using `~/.vera`.
 To install without a checkout or Bun, run the GitHub release's `install.sh`, which downloads the file for your platform and puts `vera` in `~/.local/bin`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host and the recorded TUI client, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
@@ -48,6 +48,7 @@ If a host is starting before its lock is published, stop reports that startup is
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing. A development instance's host runs that checkout's code, never the installed release; run `bun run pack:web` in the checkout so its annex can serve the web page.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.
+Run `vera update` from an installed Vera to install the newest release; `vera update --check` reports whether a newer release exists.
 Run `vera rollback` from a terminal outside Vera; from inside a Vera session it refuses rather than stop the session's own host. `bun run install:local` inside a Vera session returns at once, and the new build takes over when the running turns end.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
@@ -231,6 +232,7 @@ During automatic recovery the TUI keeps the conversation visible and stops its l
 A TUI talks only to a host of its own build. If the host comes back as a different build, the TUI stays disconnected, sends it no requests, makes no automatic restart, and says to quit and reopen Vera.
 While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
 When an update moves the host to a new build, the TUI restarts into that build in the same terminal and keeps its unsent draft.
+Rollback does the same when the retained release supports the handoff; for older releases, quit and reopen Vera after rollback.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
 Use `/usage` for local session usage and cost, plus current ChatGPT subscription limits when connected. It reads session files and Python workflow runs from the current Vera home and uses the saved ChatGPT sign-in to check subscription limits. Workflow calls count toward the totals only. The page keeps the same address for this Vera home across host restarts, and Chrome and Firefox also reach it at `vera.localhost` on that port. Manual: `docs/usage.md`.
 

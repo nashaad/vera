@@ -217,6 +217,7 @@ async function stageRelease(
         source_revision: identity.sourceRevision,
         build_id: identity.buildId,
         protocol_version: options.protocolVersion ?? HOST_PROTOCOL_VERSION,
+        relaunch_record_version: 1,
         platform: options.platform ?? process.platform,
         arch: options.arch ?? process.arch,
         asset_digest: digestPackedAnnex(annexRoot),

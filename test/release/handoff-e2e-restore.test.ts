@@ -36,45 +36,55 @@ test("an install whose new host does not start restores the previous build", asy
     previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = env.home;
     const broken = "vera-e2e-broken";
+    let install: ReturnType<typeof installRelease> | undefined;
+    let client: Awaited<ReturnType<typeof attachReconnectingAgent>> | undefined;
 
-    await defaultEnsureHost(env.build1Root, { operation: "install" });
-    await waitUntil(() => readHostLock(env.home)?.build_id === env.build1, 15_000, "build 1 lock");
-    const oldPid = readHostLock(env.home)!.pid;
+    try {
+        await defaultEnsureHost(env.build1Root, { operation: "install" });
+        await waitUntil(() => readHostLock(env.home)?.build_id === env.build1, 15_000, "build 1 lock");
+        const oldPid = readHostLock(env.home)!.pid;
 
-    const socketPath = join(env.home, "runtime", "host.sock");
-    const agent = await createAgentThroughHost(socketPath, env.workspace, "auto");
-    const client = await attachReconnectingAgent({
-        socketPath: () => socketPath,
-        agentId: agent.id,
-        buildId: env.build1,
-    });
-    client.send({ type: "prompt", content: "hello crow" });
-    await waitUntil(() => env.stub.requests() > 0, 20_000, "the held turn");
+        const socketPath = join(env.home, "runtime", "host.sock");
+        const agent = await createAgentThroughHost(socketPath, env.workspace, "auto");
+        client = await attachReconnectingAgent({
+            socketPath: () => socketPath,
+            agentId: agent.id,
+            buildId: env.build1,
+        });
+        client.send({ type: "prompt", content: "hello crow" });
+        await waitUntil(() => env.stub.requests() > 0, 20_000, "the held turn");
 
-    const brokenRoot = cloneRelease(env.build1Root, env.prefix, broken, { brokenHost: true });
-    const manifest = JSON.parse(readFileSync(join(brokenRoot, "manifest.json"), "utf8"));
-    const reports: string[] = [];
-    const install = installRelease({
-        prefix: env.prefix,
-        pack: async () => ({ releaseRoot: brokenRoot, manifest }),
-        report: (line) => reports.push(line),
-    });
+        const brokenRoot = cloneRelease(env.build1Root, env.prefix, broken, { brokenHost: true });
+        const manifest = JSON.parse(readFileSync(join(brokenRoot, "manifest.json"), "utf8"));
+        const reports: string[] = [];
+        install = installRelease({
+            prefix: env.prefix,
+            pack: async () => ({ releaseRoot: brokenRoot, manifest }),
+            report: (line) => reports.push(line),
+        });
+        install.catch(() => undefined);
 
-    await Bun.sleep(2_000);
-    expect(currentBuild(env.prefix)).toBe(env.build1);
+        await Bun.sleep(2_000);
+        expect(currentBuild(env.prefix)).toBe(env.build1);
 
-    env.stub.release();
-    const outcome = await install;
-    client.close();
+        env.stub.release();
+        const outcome = await install;
+        client.close();
 
-    expect(outcome.kind).toBe("restored");
-    expect(outcome).toMatchObject({ buildId: broken, runningBuildId: env.build1 });
-    expect(String((outcome as { message?: unknown }).message)).toContain("restored");
-    expect(currentBuild(env.prefix)).toBe(env.build1);
-    // The old host restores the build itself and exits after the restored host publishes.
-    await waitUntil(() => !processAlive(oldPid), 10_000, "the old host to exit");
-    const lock = readHostLock(env.home);
-    expect(lock?.build_id).toBe(env.build1);
-    expect(lock?.pid).not.toBe(oldPid);
-    expect(processAlive(lock!.pid)).toBe(true);
+        expect(outcome.kind).toBe("restored");
+        expect(outcome).toMatchObject({ buildId: broken, runningBuildId: env.build1 });
+        expect(String((outcome as { message?: unknown }).message)).toContain("restored");
+        expect(currentBuild(env.prefix)).toBe(env.build1);
+        // The old host restores the build itself and exits after the restored host publishes.
+        await waitUntil(() => !processAlive(oldPid), 10_000, "the old host to exit");
+        const lock = readHostLock(env.home);
+        expect(lock?.build_id).toBe(env.build1);
+        expect(lock?.pid).not.toBe(oldPid);
+        expect(processAlive(lock!.pid)).toBe(true);
+    } finally {
+        env.stub.release();
+        client?.close();
+        await install?.catch(() => undefined);
+        await stopHostProcess(env.home);
+    }
 }, 120_000);

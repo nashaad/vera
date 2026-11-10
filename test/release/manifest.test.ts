@@ -46,6 +46,15 @@ test("manifest round-trips and lists annex as an artifact", () => {
     expect(text).not.toMatch(/"protocol_version": 34/);
 });
 
+test("manifest preserves an optional relaunch record version", () => {
+    const text = serializeReleaseManifest(sample({ relaunch_record_version: 1 }));
+    expect(JSON.parse(text).relaunch_record_version).toBe(1);
+    expect(parseReleaseManifest(text).relaunch_record_version).toBe(1);
+    expect(parseReleaseManifest(serializeReleaseManifest(sample())).relaunch_record_version).toBeUndefined();
+    expect(() => parseReleaseManifest(text.replace('"relaunch_record_version": 1', '"relaunch_record_version": "1"')))
+        .toThrow(/relaunch_record_version/);
+});
+
 test("manifest parse refuses a missing annex artifact", () => {
     const text = serializeReleaseManifest(sample({
         artifacts: ["cli", "host", "worker"],

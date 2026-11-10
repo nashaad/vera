@@ -1,6 +1,6 @@
 import { existsSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 export function userHome(): string {
     const home = process.env.HOME;
@@ -19,6 +19,22 @@ export const RELEASE_SUPERVISOR_NAME = "vera-supervisor";
 
 export function defaultInstallPrefix(home = userHome()): string {
     return join(home, ".local");
+}
+
+export function prefixOfReleaseRoot(releaseRoot: string): string | undefined {
+    const releases = dirname(releaseRoot);
+    const veraRoot = dirname(releases);
+    const shareRoot = dirname(veraRoot);
+    if (basename(releases) !== "releases" || basename(veraRoot) !== "vera" || basename(shareRoot) !== "share") {
+        return undefined;
+    }
+    return dirname(shareRoot);
+}
+
+export function runningInstallPrefix(execPath = process.execPath): string | undefined {
+    if (process.env.VERA_DEV_INSTANCE !== undefined) return undefined;
+    const root = safeRealpath(dirname(execPath)) ?? dirname(execPath);
+    return existsSync(releaseManifestPath(root)) ? prefixOfReleaseRoot(root) : undefined;
 }
 
 export function veraShareRoot(prefix = defaultInstallPrefix()): string {
