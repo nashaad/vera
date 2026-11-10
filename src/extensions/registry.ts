@@ -1,6 +1,6 @@
 import { isExtensionSessionState, type ExtensionSessionState, type ExtensionSessionStates } from "./session-state.ts";
 import { pathToFileURL } from "node:url";
-import type { ModelMiddleware } from "../sdk/model-middleware.ts";
+import type { ModelMiddleware, SourcedModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
 import { MAX_HOOK_CONTEXT_BYTES } from "../engine/hooks.ts";
@@ -168,7 +168,7 @@ export interface ExtensionRegistryFailure {
 
 export interface ExtensionRegistry {
     sessionState(sessionId: string): ExtensionSessionStates;
-    modelMiddleware(): readonly ModelMiddleware[];
+    modelMiddleware(): readonly SourcedModelMiddleware[];
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
     extensionIds(): readonly string[];
@@ -489,8 +489,11 @@ export async function startExtensionRegistry(
             }
             return states;
         },
-        modelMiddleware(): readonly ModelMiddleware[] {
-            return loaded.flatMap((extension) => extension.modelMiddleware);
+        modelMiddleware(): readonly SourcedModelMiddleware[] {
+            return loaded.flatMap((extension) => extension.modelMiddleware.map((apply) => ({
+                extensionId: extension.id,
+                apply,
+            })));
         },
         sessionIdentity(): SessionIdentityProvider | undefined {
             return loaded.find(

@@ -856,7 +856,7 @@ export class AgentRegistry {
             ? sessionModelAdapter(
                 this,
                 store,
-                (text) => events.emit({ type: "notice", key: "extension", count: 1, text }),
+                (event) => events.emit(event),
                 "turn",
                 captureFailedRequest,
             )

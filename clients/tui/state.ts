@@ -809,6 +809,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             update.sourceKind,
         ));
     }
+    if (update.type === "notice" && update.facts !== undefined) return state;
     if (update.type === "notice" && update.key === "inbox") {
         return appendEntry({
             ...state,
@@ -837,7 +838,8 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         });
     }
     if (update.type === "notice") {
-        return update.text === undefined ? state : appendEntry(state, { kind: "notice", text: update.text });
+        // A notice is never in history, so a history refresh would drop it unless it is live-only.
+        return update.text === undefined ? state : appendEntry(state, { kind: "notice", text: update.text, liveOnly: true });
     }
     if (update.type === "hook_context") {
         return appendEntry(state, hookContextEntry(update.phase, update.source, update.display));

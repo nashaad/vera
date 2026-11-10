@@ -20,6 +20,7 @@ import {
 import { isPermissionPredicate } from "../engine/permission-grants.ts";
 import { isContextMeasurement } from "../engine/context-measurement.ts";
 import { isModelTurnSettings } from "../engine/model-settings.ts";
+import { isNoticeFacts } from "../engine/notice-facts.ts";
 import { parseSettingsDestination } from "../engine/settings-destination.ts";
 
 export type AgentUpdateFrame =
@@ -327,6 +328,10 @@ function parseKnownAgentUpdate(
     if (update.type === "notice") {
         return typeof update.key === "string"
                 && (update.text === undefined || (typeof update.text === "string" && update.text.length > 0))
+                && (update.source === undefined
+                    || (typeof update.source === "string" && update.source.length > 0 && update.source.length <= 128))
+                && (update.facts === undefined
+                    || (update.source !== undefined && isNoticeFacts(update.facts)))
                 && update.key.length > 0
                 && typeof update.count === "number"
                 && Number.isSafeInteger(update.count)

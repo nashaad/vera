@@ -27,8 +27,8 @@ The core and optional extensions are:
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
            vera.reasoning-cycle, vera.session-identity, vera.web-search
-included   vera.artifacts, vera.btw, vera.budget, vera.diff, vera.mcp,
-           vera.recap, vera.titles
+included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
+           vera.mcp, vera.recap, vera.titles
 ```
 
 ## BTW and Pair

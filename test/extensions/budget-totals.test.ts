@@ -172,7 +172,7 @@ test("model requests read only appends after the command builds totals and skip 
     try {
         await registry.invokeCommand("budget", "100", directory, undefined, sessionId, sessionPath);
         expect(spy.mock.calls.length).toBeGreaterThan(100);
-        const wrapped = registry.modelMiddleware()[0]!({ stream: (request) => new FauxAdapter([{ role: "assistant", content: [],
+        const wrapped = registry.modelMiddleware()[0]!.apply({ stream: (request) => new FauxAdapter([{ role: "assistant", content: [],
             source: { provider: "fixture", api: "fixture", model: "fixture" }, usage: emptyUsage(), stopReason: "stop" }]).stream(request) },
         { sessionId, sessionPath, workspace: directory, provider: "fixture", purpose: "turn",
             ask: async () => ({ outcome: "selected", choice: { id: "ignore", label: "Ignore budget and continue" } }) });

@@ -1,0 +1,10 @@
+{
+    "id": "vera.cache",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": [
+        "hooks.model_middleware",
+        "client.ui.notice"
+    ]
+}

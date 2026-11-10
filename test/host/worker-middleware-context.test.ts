@@ -19,6 +19,9 @@ import {
     emptyUsage,
     type AssistantMessage,
 } from "../../src/model/types.ts";
+import { EngineEventBus } from "../../src/engine/events.ts";
+import type { SourcedModelMiddleware } from "../../src/sdk/model-middleware.ts";
+import { workerAdapterWithMiddleware } from "../../src/host/worker/middleware.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const ADAPTER = fileURLToPath(
@@ -290,3 +293,30 @@ test("a worker session's compaction reaches host middleware", async () => {
     });
     await rm(root, { recursive: true, force: true });
 }, 60_000);
+
+test("a middleware's text and keyed notices carry its extension id as source", () => {
+    const events = new EngineEventBus();
+    const seen: unknown[] = [];
+    events.subscribe((event) => {
+        seen.push(event);
+    });
+    const probe: SourcedModelMiddleware = {
+        extensionId: "vera.example",
+        apply: (adapter, context) => {
+            context.notice?.({ key: "probe", facts: { calls: 3 } });
+            context.notice?.("Stopped at budget.");
+            return adapter;
+        },
+    };
+    const chained = workerAdapterWithMiddleware(new FauxAdapter([]), [probe], {
+        session: { path: "/tmp/probe-session.jsonl", header: { id: "probe", cwd: "/tmp" }, lineCount: 1 },
+        provider: "faux",
+        events,
+        inbound: () => undefined,
+    });
+    chained.stream({ model: "faux/test", messages: [] });
+    expect(seen).toEqual([
+        { type: "notice", key: "probe", count: 1, source: "vera.example", facts: { calls: 3 } },
+        { type: "notice", key: "extension", count: 1, text: "Stopped at budget.", source: "vera.example" },
+    ]);
+});

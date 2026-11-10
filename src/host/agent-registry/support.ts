@@ -319,7 +319,7 @@ export interface AgentRegistryOptions {
     readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
     // Sessions that close_subagent or a trash reaped, which have no caller to report them to the host.
     readonly onSessionsClosed?: (members: readonly ClosedMember[]) => Promise<void>;
-    readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
+    readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").SourcedModelMiddleware[];
     readonly createAdapter: (
         provider?: string,
         projectRoot?: string,

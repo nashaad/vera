@@ -1,6 +1,7 @@
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "./agent-client.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
+import type { TuiNoticeRenderer } from "./extension-notice.ts";
 
 export type TuiAgentAttachmentLifetime = "ephemeral" | "durable";
 
@@ -13,6 +14,7 @@ export interface TuiHostedSidebarAgentOptions {
         error: Error,
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void;
+    renderNotice?: TuiNoticeRenderer;
 }
 
 export interface TuiHostedSidebarAdoption {
@@ -124,6 +126,7 @@ export class TuiHostedSidebarAgent {
             client: request.client,
             onUpdate: this.options.onUpdate,
             onFailure: this.options.onFailure,
+            renderNotice: this.options.renderNotice,
         });
         this.pane = attached;
         this.attachmentLifetime = request.attachmentLifetime ?? "durable";

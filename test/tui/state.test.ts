@@ -1049,6 +1049,49 @@ test("TUI shows an inbox count without exposing message metadata", () => {
     );
 });
 
+test("TUI drops an extension notice that carries facts, even under a core key", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "inbox",
+        count: 1,
+        source: "vera.cache",
+        facts: { calls: 20 },
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([]);
+});
+
+test("@core an extension notice stays when the turn's history arrives", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "plot a course"), {
+        type: "assistant_delta",
+        text: "Due west.",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "notice",
+        key: "extension",
+        count: 1,
+        text: "Crows spotted off the port bow",
+        source: "vera.crows",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "plot a course" },
+            { kind: "assistant", text: "Due west." },
+        ],
+        seq: 3,
+    });
+
+    expect(state.entries.map((entry) => [entry.kind, entry.text])).toEqual([
+        ["user", "plot a course"],
+        ["assistant", "Due west."],
+        ["notice", "Crows spotted off the port bow"],
+    ]);
+});
+
 test("TUI replaces an old inbox count with the current count", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "notice",

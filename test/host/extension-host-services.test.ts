@@ -418,10 +418,10 @@ async function openVoyage(script: ScriptedReply[], onBuild: () => void = () => {
                 },
             };
         },
-        modelMiddleware: [(adapter, context) => {
+        modelMiddleware: [{ extensionId: "vera.example", apply: (adapter, context) => {
             contexts.push(context);
             return adapter;
-        }],
+        } }],
         model: "faux/test",
         approvalMode: "auto",
     });

@@ -23,14 +23,20 @@ import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import { historyUserPrompts, historyWindowFirstUserText } from "../../shared/history-window.ts";
 import { cancelExtensionReveal, failExtensionReveal } from "./extension-reveal.ts";
+import { renderedExtensionNotice } from "../extension-notice.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
     const source = rt.client;
     try {
         while (!rt.shuttingDown && generation === rt.clientGeneration) {
-            const update = await source.receive();
-            if (receiveCustomizationSources(source, update)) continue;
+            const received = await source.receive();
+            if (receiveCustomizationSources(source, received)) continue;
+            const update = renderedExtensionNotice(
+                received,
+                (extensionId, notice) => rt.clientExtensionRegistry?.renderNotice(extensionId, notice),
+            );
+            if (update === undefined) continue;
             if (rt.shuttingDown || generation !== rt.clientGeneration) {
                 return;
             }

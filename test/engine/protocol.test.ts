@@ -1712,3 +1712,29 @@ test("each new thinking block in one run starts on its own paragraph", () => {
         "**Hiding the map**",
     ]);
 });
+
+test("a notice event with a source and facts keeps both on the update", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "notice",
+        key: "probe",
+        count: 1,
+        source: "vera.example",
+        facts: { calls: 3 },
+    });
+
+    expect(updates).toEqual([{
+        type: "notice",
+        key: "probe",
+        count: 1,
+        source: "vera.example",
+        facts: { calls: 3 },
+        seq: 1,
+    }]);
+});

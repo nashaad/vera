@@ -49,6 +49,7 @@ host does while the client is still connected.
 | `vera.thread.hasEarlier` | `client.thread.read` | `true` while older entries exist that this client can load. |
 | `vera.thread.loadEarlier(signal?)` | `client.thread.read` | Loads the next older part of the conversation. Resolves at once when none is left. |
 | `vera.ui.reveal(target)` | `client.ui.reveal` | Loads earlier history as needed and scrolls to an entry, or to the end. Resolves to whether it landed. |
+| `vera.ui.registerNoticeRenderer(render)` | `client.ui.notice` | Puts a notice your host half raised with facts into one line. See [Word a notice](#word-a-notice). |
 
 ### Read the transcript
 
@@ -117,6 +118,35 @@ call takes over.
 The included `/recap` command loads every older part with `loadEarlier` before
 it reads `entries()`, and it jumps with `reveal`. See
 [Recap a conversation](included-extensions.md#recap-a-conversation).
+
+### Word a notice
+
+A model middleware can raise a notice as plain text, or as a key and a set
+of facts for your client half to put into words in each client:
+
+```ts
+// host half, inside registerModelMiddleware
+context.notice?.({
+    key: "crows_spotted",
+    facts: { crows: 3, island: "Skull Rock" },
+});
+
+// client half, in activateClient
+vera.ui.registerNoticeRenderer((notice) =>
+    notice.key === "crows_spotted"
+        ? `${notice.facts.crows} crows circling ${notice.facts.island}.`
+        : undefined,
+);
+```
+
+Facts are a flat object of strings, finite numbers and booleans: at most 16
+entries, keys of lowercase letters, digits and underscores that start with a
+letter, and strings of at most 200 characters. Each client hands a notice with
+facts only to the client half of the extension that raised it. The renderer
+is called once per notice and returns one line of at most 240 characters, or
+nothing to drop the notice. The notice is also dropped when the client half
+has no renderer, the renderer throws, or it returns anything else. Register
+it once, during activation.
 
 ## Host services
 

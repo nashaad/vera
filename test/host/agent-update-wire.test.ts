@@ -703,6 +703,27 @@ test("host wire validates bounded-data notices", () => {
     expect(parseAgentUpdate({ ...notice, count: "4" })).toBeUndefined();
 });
 
+test("host wire carries a notice's source and facts only together", () => {
+    const notice = {
+        type: "notice" as const,
+        key: "probe",
+        count: 1,
+        source: "vera.example",
+        facts: { calls: 3, warm: false, model: "faux/test" },
+        seq: 8,
+    };
+
+    expect(parseAgentUpdate(notice)).toEqual(notice);
+    expect(parseAgentUpdate({ ...notice, source: undefined, facts: undefined })).toEqual({
+        type: "notice", key: "probe", count: 1, seq: 8,
+    });
+    expect(parseAgentUpdate({ ...notice, source: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, source: "x".repeat(129) })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, source: undefined })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, facts: { nested: { calls: 1 } } })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, facts: { calls: Number.NaN } })).toBeUndefined();
+});
+
 test("host wire validates model settings results", () => {
     const availableModels = [{
         provider: "openrouter",

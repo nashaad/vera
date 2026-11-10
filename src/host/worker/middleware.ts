@@ -8,8 +8,9 @@ import {
 } from "../../model/types.ts";
 import type {
     ModelAdapterContext,
-    ModelMiddleware,
+    SourcedModelMiddleware,
 } from "../../sdk/model-middleware.ts";
+import { extensionNoticeEvent } from "../extension-notice.ts";
 import type { WorkerAdapterSpec, WorkerSessionSeed } from "./start.ts";
 
 export interface WorkerModelContextOptions {
@@ -18,6 +19,7 @@ export interface WorkerModelContextOptions {
     readonly purpose?: ModelAdapterContext["purpose"];
     readonly events?: EngineEventBus;
     readonly inbound: () => InboundCommandRouter | undefined;
+    readonly extensionId: string;
 }
 
 export function failingWorkerAdapter(
@@ -73,12 +75,9 @@ export function workerModelContext(
         ...(events === undefined
             ? {}
             : {
-                notice: (text: string) => events.emit({
-                    type: "notice",
-                    key: "extension",
-                    count: 1,
-                    text,
-                }),
+                notice: (notice) => events.emit(
+                    extensionNoticeEvent(notice, options.extensionId),
+                ),
             }),
         ask: async (request, signal) => {
             const inbound = options.inbound();
@@ -93,19 +92,21 @@ export function workerModelContext(
 
 export function applyWorkerModelMiddleware(
     adapter: ModelAdapter,
-    middleware: readonly ModelMiddleware[],
-    context: ModelAdapterContext,
+    middleware: readonly SourcedModelMiddleware[],
+    options: Omit<WorkerModelContextOptions, "extensionId">,
 ): ModelAdapter {
     let wrapped = adapter;
-    for (const apply of middleware) wrapped = apply(wrapped, context);
+    for (const entry of middleware) {
+        wrapped = entry.apply(wrapped, workerModelContext({ ...options, extensionId: entry.extensionId }));
+    }
     return wrapped;
 }
 
 /** One middleware chain per routed provider, each seeing that provider and the request's purpose. */
 export function workerAdapterWithMiddleware(
     adapter: ModelAdapter,
-    middleware: readonly ModelMiddleware[],
-    options: WorkerModelContextOptions,
+    middleware: readonly SourcedModelMiddleware[],
+    options: Omit<WorkerModelContextOptions, "extensionId">,
 ): ModelAdapter {
     if (middleware.length === 0) return adapter;
     const chains = new Map<string, ModelAdapter>();
@@ -132,7 +133,7 @@ export function workerAdapterWithMiddleware(
                 chain = applyWorkerModelMiddleware(
                     adapter,
                     middleware,
-                    workerModelContext({ ...options, provider }),
+                    { ...options, provider },
                 );
                 chains.set(provider, chain);
             }

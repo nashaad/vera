@@ -4,6 +4,7 @@ import type {
 } from "../../src/engine/protocol.ts";
 import type { TuiAgentAttachment } from "./agent-attachments.ts";
 import { TuiAgentPaneState } from "./agent-pane-state.ts";
+import { renderedExtensionNotice, type TuiNoticeRenderer } from "./extension-notice.ts";
 
 export interface TuiAgentPaneClient {
     readonly agentId: string;
@@ -30,6 +31,7 @@ export interface TuiAgentPaneOptions<Client extends TuiAgentPaneClient> {
         pane: TuiAgentPane<Client>,
     ) => void;
     readonly onFailure?: (error: Error, pane: TuiAgentPane<Client>) => void;
+    readonly renderNotice?: TuiNoticeRenderer;
 }
 
 export class TuiAgentPane<Client extends TuiAgentPaneClient>
@@ -38,6 +40,7 @@ export class TuiAgentPane<Client extends TuiAgentPaneClient>
     readonly state = new TuiAgentPaneState();
     private readonly onUpdate: TuiAgentPaneOptions<Client>["onUpdate"];
     private readonly onFailure: TuiAgentPaneOptions<Client>["onFailure"];
+    private readonly renderNotice: TuiNoticeRenderer | undefined;
     private readonly controller = new AbortController();
     private readonly pendingImages = new Map<string, PendingImageAttachment>();
     private pump: Promise<void> | undefined;
@@ -46,6 +49,7 @@ export class TuiAgentPane<Client extends TuiAgentPaneClient>
         this.client = options.client;
         this.onUpdate = options.onUpdate;
         this.onFailure = options.onFailure;
+        this.renderNotice = options.renderNotice;
     }
 
     get agentId(): string {
@@ -99,10 +103,12 @@ export class TuiAgentPane<Client extends TuiAgentPaneClient>
     private async receiveUpdates(): Promise<void> {
         try {
             while (!this.controller.signal.aborted) {
-                const update = await this.client.receive(this.controller.signal);
+                const received = await this.client.receive(this.controller.signal);
                 if (this.controller.signal.aborted) {
                     return;
                 }
+                const update = renderedExtensionNotice(received, this.renderNotice);
+                if (update === undefined) continue;
                 if (update.type === "image_attached") {
                     const pending = this.pendingImages.get(update.requestId);
                     this.pendingImages.delete(update.requestId);

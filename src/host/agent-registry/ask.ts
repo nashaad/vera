@@ -15,7 +15,9 @@ import {
     type FailedRequestCapture,
 } from "../../providers/failed-request-capture.ts";
 import { ProviderRoutingAdapter } from "../../providers/routing.ts";
+import type { NoticeEvent } from "../../engine/events.ts";
 import type { ModelAdapterContext } from "../../sdk/model-middleware.ts";
+import { extensionNoticeEvent } from "../extension-notice.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import { SessionBlockedError } from "../resident-agent.ts";
@@ -35,7 +37,7 @@ export interface SessionAskResult {
 export function sessionModelAdapter(
     reg: AgentRegistry,
     store: SessionStore,
-    notice: (text: string) => void,
+    emit: (event: NoticeEvent) => void,
     purpose: ModelAdapterContext["purpose"],
     captureFailedRequest: FailedRequestCapture,
 ): ProviderRoutingAdapter {
@@ -46,8 +48,8 @@ export function sessionModelAdapter(
                 store.header.cwd,
                 captureFailedRequest,
             );
-            for (const middleware of reg.options.modelMiddleware ?? []) {
-                created = middleware(created, {
+            for (const entry of reg.options.modelMiddleware ?? []) {
+                created = entry.apply(created, {
                     sessionId: store.header.id,
                     sessionPath: store.path,
                     ...(store.header.parentId === undefined ? {} : {
@@ -56,7 +58,7 @@ export function sessionModelAdapter(
                     workspace: store.header.cwd,
                     provider,
                     purpose,
-                    notice,
+                    notice: (notice) => emit(extensionNoticeEvent(notice, entry.extensionId)),
                     // An ask runs behind the user's back, so it never stops to question them.
                     ...(purpose === "ask" ? {} : {
                         ask: async (request, signal) => {
@@ -123,7 +125,7 @@ export async function askSession(
     const adapter = sessionModelAdapter(
         reg,
         entry.store,
-        (text) => entry.events.emit({ type: "notice", key: "extension", count: 1, text }),
+        (event) => entry.events.emit(event),
         "ask",
         capture,
     );

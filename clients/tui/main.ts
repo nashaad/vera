@@ -1186,6 +1186,7 @@ export async function startTui(
             rt.sidebar.append("agent", `Connection failed: ${error.message}`);
             renderState(rt);
         },
+        renderNotice: (extensionId, notice) => rt.clientExtensionRegistry?.renderNotice(extensionId, notice),
     });
     rt.submitAfterImageAttachment = false;
     rt.pendingQueueRecall = undefined;
