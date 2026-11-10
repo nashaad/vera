@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import {
     RELEASE_ARTIFACT_NAMES,
@@ -8,6 +9,11 @@ import {
     serializeReleaseManifest,
     type ReleaseManifest,
 } from "../../src/release/manifest.ts";
+
+test("package version matches the product version", () => {
+    const metadata = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(metadata.version).toBe(VERA_PRODUCT_VERSION);
+});
 
 function sample(overrides: Partial<ReleaseManifest> = {}): ReleaseManifest {
     return {

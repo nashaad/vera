@@ -1,5 +1,6 @@
 {
   "name": "vera",
+  "version": "0.1.0-alpha.1",
   "license": "MIT",
   "module": "index.ts",
   "bin": {

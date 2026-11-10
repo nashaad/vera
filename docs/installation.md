@@ -10,6 +10,8 @@ from its source checkout using Bun.
 
 ## Install a release
 
+Releases are tagged `v<version>`, and alpha and beta builds are GitHub pre-releases.
+
 Each GitHub release has one file per platform:
 
 | Platform | File |

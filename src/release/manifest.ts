@@ -1,5 +1,5 @@
 export const RELEASE_LAYOUT_VERSION = 1;
-export const VERA_PRODUCT_VERSION = "0.0.4";
+export const VERA_PRODUCT_VERSION = "0.1.0-alpha.1";
 
 export const RELEASE_ARTIFACT_NAMES = [
     "cli",

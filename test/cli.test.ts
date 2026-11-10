@@ -41,7 +41,7 @@ test("--help and version are available without starting a client", async () => {
             started = true;
         },
         stdout: { write: (text: string) => output += text },
-        version: "vera 0.0.4 (vera-abc1234)",
+        version: "vera 0.1.0-alpha.1 (vera-abc1234)",
     };
 
     expect(await runCli(["--help"], dependencies)).toBe(0);
@@ -63,7 +63,7 @@ test("--help and version are available without starting a client", async () => {
 
     output = "";
     expect(await runCli(["--version"], dependencies)).toBe(0);
-    expect(output).toBe("vera 0.0.4 (vera-abc1234)\n");
+    expect(output).toBe("vera 0.1.0-alpha.1 (vera-abc1234)\n");
     expect(started).toBe(false);
 });
 
