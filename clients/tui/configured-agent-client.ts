@@ -17,7 +17,7 @@ import {
     attachReconnectingAgent,
     HostBuildChangedError,
 } from "../../src/host/reconnecting-agent-client.ts";
-import { PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
+import { CLIENT_CAPABILITIES } from "../../src/host/capabilities.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import type {
@@ -81,7 +81,7 @@ export function createConfiguredTuiAgentClients(
         interactive: true,
         clientId,
         failOnDisconnect: true,
-        requestedCapabilities: PAGING_CAPABILITIES,
+        requestedCapabilities: CLIENT_CAPABILITIES,
         ...(initialLocation === undefined ? {} : { initialLocation }),
     });
     const pairedSocket = () => pairedHostSocket(socketPath(), buildId);

@@ -12,7 +12,7 @@ import { HostRouter } from "../../src/host/pool/router.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
-socketTest("large histories attach through the host and directly while routing is delayed", async () => {
+socketTest("large histories attach as one page through the host and directly while routing is delayed", async () => {
     const home = await mkdtemp(join(tmpdir(), "pd-large-"));
     const directory = join(home, "runtime", "sessions");
     const path = join(directory, "crow.jsonl");
@@ -41,20 +41,20 @@ socketTest("large histories attach through the host and directly while routing i
             return await socketFor.call(this, from, id);
         });
         restoreRouting = () => probe.mockRestore();
-        const results: Array<{ via: string; bytes?: number; error?: string }> = [];
+        const results: Array<{ via: string; bytes?: number; hasMore?: boolean; error?: string }> = [];
         for (const [via, socketPath, capabilities] of [
             ["host", host.server.socketPath, []],
             ["session", session.location!.socket_path, [HOST_CAPABILITY_SESSION_ROUTING]],
         ] as const) {
             try {
                 const client = await attachAgent({ socketPath, agentId: session.id,
-                    requestedCapabilities: capabilities, maxLineBytes: 80 * 1_024 * 1_024 });
+                    requestedCapabilities: capabilities });
                 clients.push(client);
                 const update = await client.receive(AbortSignal.timeout(90_000));
                 if (update.type !== "history") throw new Error(`Unexpected update: ${update.type}`);
                 const bytes = update.entries.reduce((sum, entry) =>
                     sum + ("text" in entry ? Buffer.byteLength(entry.text) : 0), 0);
-                results.push({ via, bytes });
+                results.push({ via, bytes, hasMore: update.page?.hasMore });
                 client.close();
             } catch (error) {
                 results.push({ via, error: error instanceof Error ? error.message : String(error) });
@@ -63,7 +63,9 @@ socketTest("large histories attach through the host and directly while routing i
         expect(results).toHaveLength(2);
         expect(results.map((result) => result.error)).toEqual([undefined, undefined]);
         for (const result of results) {
-            expect(result.bytes).toBeGreaterThan(MAX_FRAME_BYTES);
+            expect(result.bytes).toBeGreaterThan(0);
+            expect(result.bytes).toBeLessThan(MAX_FRAME_BYTES / 16);
+            expect(result.hasMore).toBe(true);
         }
     } finally {
         restoreRouting?.();

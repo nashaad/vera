@@ -52,8 +52,18 @@ vera stdio --attach <agent-id>
 vera stdio --resume <session-id|path>
 ```
 
-On attach and resume, `vera stdio` sends the whole conversation history as one
-`history` message.
+On attach and resume, `vera stdio` sends the latest page of the conversation as
+one `history` message. When its `page.hasMore` is true, older entries are on
+disk; ask for the page before `page.olderBefore` with a `history_page` request:
+
+```text
+{"type":"history_page","request_id":"page-1","before":"<page.olderBefore>"}
+```
+
+The reply is a `history_page` message with the same `request_id`, or
+`history_page_failed` with a `reason`. Send one page request at a time; a second
+request while one is open fails with reason `busy`. A client that stops reading
+falls behind, is disconnected, and can attach again.
 Its entries include `{ "kind": "reasoning", "text": "..." }` for saved
 readable reasoning summaries, in their original transcript order. Provider
 signatures and encrypted reasoning are not included.

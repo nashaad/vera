@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { resumeAgentThroughHost, type ReadyAgent, type ReadyAgentLocation } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HostConnectionClosedError } from "../../src/host/connection.ts";
-import { CLIENT_CAPABILITIES, HOST_CAPABILITY_SESSION_ROUTING, HOST_CAPABILITY_WORK_INDEX, PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
+import { CLIENT_CAPABILITIES, HOST_CAPABILITY_SESSION_ROUTING, HOST_CAPABILITY_WORK_INDEX } from "../../src/host/capabilities.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import type { HistoryUpdate } from "../../src/engine/protocol.ts";
@@ -66,13 +66,13 @@ async function receiveHistoryPages(client: AttachedAgentClient, history: History
 
 async function openClient(id: string, location?: ReadyAgentLocation, deadline = Date.now() + HISTORY_TIMEOUT_MS): Promise<AttachedAgentClient> {
     if (relay) {
-        const capabilities = paging ? PAGING_CAPABILITIES.filter((capability) => capability !== HOST_CAPABILITY_SESSION_ROUTING)
+        const capabilities = paging ? CLIENT_CAPABILITIES.filter((capability) => capability !== HOST_CAPABILITY_SESSION_ROUTING)
             : [HOST_CAPABILITY_WORK_INDEX];
         return await attachAgent({ socketPath, agentId: id, maxLineBytes: HISTORY_FRAME_BYTES,
             requestedCapabilities: capabilities, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     }
     return await attachReconnectingAgent({ socketPath: () => socketPath, agentId: id, buildId,
-        interactive: true, clientId, failOnDisconnect: true, requestedCapabilities: paging ? PAGING_CAPABILITIES : CLIENT_CAPABILITIES,
+        interactive: true, clientId, failOnDisconnect: true, requestedCapabilities: CLIENT_CAPABILITIES,
         ...(location === undefined ? {} : { initialLocation: location }) });
 }
 

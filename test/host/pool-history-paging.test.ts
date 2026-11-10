@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
-import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, CLIENT_CAPABILITIES } from "../../src/host/capabilities.ts";
 import { HostRouter } from "../../src/host/pool/router.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
@@ -48,7 +48,7 @@ socketTest("a pooled session serves every history page through its worker", asyn
             interactive: true,
             clientId: "history-paging-test",
             failOnDisconnect: true,
-            requestedCapabilities: PAGING_CAPABILITIES,
+            requestedCapabilities: CLIENT_CAPABILITIES,
             initialLocation: location,
         });
         expect(client.supportsHostCapability(HOST_CAPABILITY_AGENT_HISTORY_PAGING)).toBe(true);

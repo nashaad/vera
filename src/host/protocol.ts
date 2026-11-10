@@ -32,8 +32,8 @@ import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 // Bump this only when the base wire contract changes. Additive operations use
 // negotiated capabilities and keep the compatibility floor unchanged. Host
 // identity includes `build_id`; a client must not attach across builds.
-export const HOST_PROTOCOL_VERSION = 36;
-export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 36;
+export const HOST_PROTOCOL_VERSION = 37;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 37;
 
 export type HostRole = "host" | "worker";
 
@@ -616,10 +616,13 @@ export interface SessionTitleResponse {
     readonly title?: string;
 }
 
+export type AttachFailureReason = "not_found" | "unavailable" | "history_paging_required";
+
 export interface AttachFailedResponse {
     readonly type: "attach_failed";
     readonly agent_id: string;
-    readonly reason: "not_found" | "unavailable";
+    /** `history_paging_required`: the attach did not request history paging, and attach is pages only. */
+    readonly reason: AttachFailureReason;
     readonly unavailable_reason?: "provider_unavailable";
     readonly provider?: string;
 }

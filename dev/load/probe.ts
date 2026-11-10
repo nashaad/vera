@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { ReadyAgent } from "../../src/host/agent-start-client.ts";
-import { CLIENT_CAPABILITIES, HOST_CAPABILITY_SESSION_ROUTING, HOST_CAPABILITY_WORK_INDEX, PAGING_CAPABILITIES } from "../../src/host/capabilities.ts";
+import { CLIENT_CAPABILITIES, HOST_CAPABILITY_SESSION_ROUTING, HOST_CAPABILITY_WORK_INDEX } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -77,10 +77,10 @@ try { await Promise.all([
         const ready = await Bun.file(join(run, `resumed-${attachId}`)).json() as ReadyAgent;
         const client = relay
             ? await attachAgent({ socketPath, agentId: attachId, maxLineBytes: HISTORY_FRAME_BYTES,
-                requestedCapabilities: paging ? PAGING_CAPABILITIES.filter((capability) => capability !== HOST_CAPABILITY_SESSION_ROUTING)
+                requestedCapabilities: paging ? CLIENT_CAPABILITIES.filter((capability) => capability !== HOST_CAPABILITY_SESSION_ROUTING)
                     : [HOST_CAPABILITY_WORK_INDEX], signal: AbortSignal.timeout(ATTACH_TIMEOUT_MS) })
             : await attachReconnectingAgent({ socketPath: () => socketPath, agentId: attachId, buildId: thisProcessBuildId(),
-                failOnDisconnect: true, requestedCapabilities: paging ? PAGING_CAPABILITIES : CLIENT_CAPABILITIES,
+                failOnDisconnect: true, requestedCapabilities: CLIENT_CAPABILITIES,
                 ...(ready.location === undefined ? {} : { initialLocation: ready.location }) });
         try {
             while ((await client.receive(AbortSignal.timeout(ATTACH_TIMEOUT_MS))).type !== "history") {}

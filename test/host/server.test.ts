@@ -14,6 +14,7 @@ import { connectHost } from "../../src/host/connection.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../src/host/capabilities.ts";
+import { historyPageFromEntries } from "../../src/host/history-page.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { sessionScratchDir } from "../../src/engine/run-turn.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
@@ -83,7 +84,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await connection.receive()).toMatchObject({ type: "attached" });
             expect(await connection.receive()).toMatchObject({
                 type: "history", extensionState: { "test.extension": { value: 1 } },
@@ -209,7 +210,7 @@ socketTest(
         });
         const attached = await connectHost({ socketPath });
         try {
-            await attached.send({ type: "attach", agent_id: agent.id });
+            await attached.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await attached.receive();
             await attached.receive();
             expect(await requestHostShutdownIfIdle(
@@ -257,7 +258,7 @@ socketTest(
         });
         const attached = await connectHost({ socketPath });
         try {
-            await attached.send({ type: "attach", agent_id: agent.id });
+            await attached.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await attached.receive();
             await attached.receive();
             expect(await requestHostShutdownForReplacement(
@@ -532,7 +533,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             await connection.send({ type: "future_command" });
@@ -769,7 +770,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await connection.receive()).toEqual({
                 type: "attached",
                 agent_id: agent.id,
@@ -780,12 +781,13 @@ socketTest(
                     children: [],
                     has_parent: false,
                 },
-                capabilities: [],
+                capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
             });
             expect(await connection.receive()).toEqual({
                 type: "history",
                 entries: [],
                 seq: 0,
+                page: { pageVersion: 1, hasMore: false },
             });
 
             await connection.send({ type: "prompt", content: "hello" });
@@ -813,6 +815,7 @@ socketTest(
                 await reattached.send({
                     type: "attach",
                     agent_id: agent.id,
+                    requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
                 });
                 expect(await reattached.receive()).toMatchObject({
                     type: "attached",
@@ -822,6 +825,7 @@ socketTest(
                     type: "history",
                     entries: [],
                     seq: 0,
+                    page: { pageVersion: 1, hasMore: false },
                 });
                 expect(await reattached.receive()).toEqual({
                     type: "assistant_delta",
@@ -873,7 +877,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
 
@@ -984,7 +988,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
 
@@ -1034,7 +1038,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
 
@@ -1071,7 +1075,7 @@ socketTest(
         });
         const missing = await connectHost({ socketPath });
         try {
-            await missing.send({ type: "attach", agent_id: "missing" });
+            await missing.send({ type: "attach", agent_id: "missing", requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await missing.receive()).toEqual({
                 type: "attach_failed",
                 agent_id: "missing",
@@ -1081,7 +1085,7 @@ socketTest(
 
             const known = await connectHost({ socketPath });
             try {
-                await known.send({ type: "attach", agent_id: agent.id });
+                await known.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
                 expect(await known.receive()).toMatchObject({
                     type: "attached",
                     workspace: "/work/one",
@@ -1112,7 +1116,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: "broken" });
+            await connection.send({ type: "attach", agent_id: "broken", requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await connection.receive()).toEqual({
                 type: "attach_failed",
                 agent_id: "broken",
@@ -1140,7 +1144,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             connection.close();
@@ -1174,7 +1178,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await connection.receive()).toEqual({
                 type: "attach_failed",
                 agent_id: agent.id,
@@ -1203,7 +1207,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             await connection.send({ type: "prompt", content: "first" });
@@ -1343,6 +1347,7 @@ socketTest(
         try {
             await connection.send({
                 type: "attach", agent_id: "main", attachment_kind: "interactive", client_id: "client-1",
+                requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
             });
             await opened.promise;
             agents = [
@@ -1402,7 +1407,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: "main" });
+            await connection.send({ type: "attach", agent_id: "main", requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             expect(await connection.receive()).toMatchObject({
                 type: "attached",
                 background_agents: {
@@ -1507,7 +1512,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: "main" });
+            await connection.send({ type: "attach", agent_id: "main", requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             expect(listeners.size).toBe(1);
@@ -1693,10 +1698,13 @@ socketTest(
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");
-        const agent = new ResidentAgent("agent-1", "/work/one");
+        const entries = transcriptEntries(500);
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: (before) => historyPageFromEntries(entries, before),
+        });
         agent.engine.send({
             type: "history",
-            entries: transcriptEntries(500),
+            entries,
             seq: 0,
         });
         const server = await startHostServer({
@@ -1767,46 +1775,25 @@ socketTest(
 );
 
 socketTest(
-    "host keeps the full history and refuses page requests from a legacy client",
+    "host refuses an attach that does not request history paging",
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");
         const agent = new ResidentAgent("agent-1", "/work/one");
-        agent.engine.send({
-            type: "history",
-            entries: transcriptEntries(500),
-            seq: 0,
-        });
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
-            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
             findAgent: () => agent,
         });
         const connection = await connectHost({ socketPath });
         try {
             await connection.send({ type: "attach", agent_id: agent.id });
-            expect(await connection.receive()).toMatchObject({
-                type: "attached",
-                capabilities: [],
-            });
-            const history = await connection.receive() as {
-                readonly entries: readonly unknown[];
-                readonly page?: unknown;
-            };
-            expect(history.entries).toHaveLength(500);
-            expect(history.page).toBeUndefined();
-
-            await connection.send({
-                type: "history_page",
-                request_id: "page-1",
-                before: "message-260#0",
-            });
             expect(await connection.receive()).toEqual({
-                type: "history_page_failed",
-                request_id: "page-1",
-                reason: "unavailable",
+                type: "attach_failed",
+                agent_id: agent.id,
+                reason: "history_paging_required",
             });
+            expect(agent.attached).toBe(false);
         } finally {
             connection.close();
             agent.close();
@@ -1816,7 +1803,7 @@ socketTest(
 );
 
 socketTest(
-    "host refuses a third page while two are pending",
+    "host refuses a second page while one is pending",
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");
@@ -1867,25 +1854,20 @@ socketTest(
                 request_id: "page-1",
                 before: "outside#0",
             });
+            const deadline = Date.now() + 2_000;
+            while (calls < 1 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            expect(calls).toBe(1);
+
             await connection.send({
                 type: "history_page",
                 request_id: "page-2",
                 before: "outside#0",
             });
-            const deadline = Date.now() + 2_000;
-            while (calls < 2 && Date.now() < deadline) {
-                await new Promise((resolve) => setTimeout(resolve, 5));
-            }
-            expect(calls).toBe(2);
-
-            await connection.send({
-                type: "history_page",
-                request_id: "page-3",
-                before: "outside#0",
-            });
             expect(await connection.receive()).toEqual({
                 type: "history_page_failed",
-                request_id: "page-3",
+                request_id: "page-2",
                 reason: "busy",
             });
 
@@ -1894,10 +1876,7 @@ socketTest(
                 type: "history_page",
                 request_id: "page-1",
             });
-            expect(await connection.receive()).toMatchObject({
-                type: "history_page",
-                request_id: "page-2",
-            });
+            expect(calls).toBe(1);
         } finally {
             connection.close();
             agent.close();
@@ -2008,7 +1987,7 @@ socketTest(
             await connection.send({
                 type: "attach",
                 agent_id: "main",
-                requested_capabilities: [HOST_CAPABILITY_STOP_WAIT],
+                requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_STOP_WAIT],
             });
             return connection;
         };

@@ -15,11 +15,8 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
-import {
-    CLIENT_CAPABILITIES,
-    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-} from "../../src/host/capabilities.ts";
 import { HISTORY_PAGE_MAX_ENTRIES } from "../../src/host/history-page.ts";
+import { CLIENT_ATTACHMENT_QUEUE_LIMITS } from "../../src/host/attachment-update-queue.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { CRASH_CUT_MESSAGE, SessionStore } from "../../src/store/session-store.ts";
@@ -36,7 +33,6 @@ import {
     NdjsonInputEndedError,
     runAttachedStdioBridge,
 } from "../../clients/stdio/ndjson-bridge.ts";
-import { STDIO_CAPABILITIES } from "../../clients/stdio/process.ts";
 
 test("stdio forwards commands and rejects bad input without closing", async () => {
     const client = new FakeAttachedAgentClient();
@@ -99,7 +95,7 @@ test("stdio forwards a prompt refusal and accepts later commands", async () => {
     expect(client.detached).toBe(true);
 });
 
-test("stdio answers a history page request as unavailable", async () => {
+test("stdio forwards a history page request and reports a failed page", async () => {
     const client = new FakeAttachedAgentClient();
     let output = "";
     await runAttachedStdioBridge(
@@ -618,17 +614,6 @@ test("stdio carries a breaker trip out of a real resident host turn", async () =
     }
 });
 
-test("stdio requests every client capability except history paging", () => {
-    expect(STDIO_CAPABILITIES).not.toContain(
-        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-    );
-    expect(STDIO_CAPABILITIES).toEqual(expect.arrayContaining(
-        CLIENT_CAPABILITIES.filter(
-            (capability) => capability !== HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-        ),
-    ));
-});
-
 test("vera stdio creates, attaches, and resumes through a temporary host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-stdio-cli-"));
     const runtime = join(root, "runtime");
@@ -674,8 +659,8 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             throw new Error("stdio did not report its created agent id");
         }
         expect(historyFrame(createdFrames).entries).toHaveLength(0);
-        expect(historyFrame(createdFrames).page).toBeUndefined();
-        expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
+        expect(historyFrame(createdFrames).page).toMatchObject({ pageVersion: 1, hasMore: false });
+        expect(attach.mock.calls.at(-1)?.[1]).toBe(CLIENT_ATTACHMENT_QUEUE_LIMITS);
 
         const attachedFrames = await driveStdio(
             ["--attach", agentId],
@@ -686,8 +671,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             agent_id: agentId,
         });
         expect(historyFrame(attachedFrames).entries).toHaveLength(2);
-        expect(historyFrame(attachedFrames).page).toBeUndefined();
-        expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
+        expect(historyFrame(attachedFrames).page).toMatchObject({ pageVersion: 1, hasMore: false });
 
         const registered = (await listAgentsThroughHost(join(runtime, "host.sock")))
             .find((agent) => agent.id === agentId);
@@ -714,12 +698,12 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             type: "stdio_attached",
             workspace: process.cwd(),
         });
-        expect(historyFrame(resumedFrames).entries).toHaveLength(entryCount);
+        expect(historyFrame(resumedFrames).entries.length)
+            .toBeLessThanOrEqual(HISTORY_PAGE_MAX_ENTRIES);
         expect(historyFrame(resumedFrames).entries).not.toContainEqual({
             kind: "harness", text: CRASH_CUT_MESSAGE, tone: "soft",
         });
-        expect(historyFrame(resumedFrames).page).toBeUndefined();
-        expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
+        expect(historyFrame(resumedFrames).page?.hasMore).toBe(true);
         expect(resumedFrames.some((frame) => frame.type === "turn_finished"))
             .toBe(true);
 
@@ -731,10 +715,9 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             ["--attach", resumedAgentId],
             "attach to the larger session",
         );
-        // The resume process ran one prompt, adding its user and assistant messages.
-        expect(historyFrame(largeAttachFrames).entries).toHaveLength(entryCount + 2);
-        expect(historyFrame(largeAttachFrames).page).toBeUndefined();
-        expect(attach.mock.calls.at(-1)?.[1]?.paging).toBe(false);
+        expect(historyFrame(largeAttachFrames).entries.length)
+            .toBeLessThanOrEqual(HISTORY_PAGE_MAX_ENTRIES);
+        expect(historyFrame(largeAttachFrames).page?.hasMore).toBe(true);
     } finally {
         attach.mockRestore();
         await host?.close();
@@ -931,14 +914,14 @@ class FakeAttachedAgentClient implements AttachedAgentClient {
 
 function historyFrame(
     frames: readonly Record<string, unknown>[],
-): { readonly entries: readonly unknown[]; readonly page?: unknown } {
+): { readonly entries: readonly unknown[]; readonly page?: { readonly pageVersion?: number; readonly hasMore?: boolean } } {
     const frame = frames.find((candidate) => candidate.type === "history");
     if (frame === undefined) {
         throw new Error("stdio did not send history");
     }
     return frame as {
         readonly entries: readonly unknown[];
-        readonly page?: unknown;
+        readonly page?: { readonly pageVersion?: number; readonly hasMore?: boolean };
     };
 }
 

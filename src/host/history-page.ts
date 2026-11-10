@@ -148,16 +148,25 @@ export function historyPageFromEntries(
     };
 }
 
-/** Builds a page by walking the cursor message's own ancestor chain in the store. */
+export interface StoreHistoryPageOptions {
+    /** Lets a reader that must reach every entry take one above the entry cap. */
+    readonly allowOversized?: boolean;
+}
+
+/** Builds a page by walking the cursor message's own ancestor chain in the store; no cursor reads the latest page. */
 export async function historyPageFromStore(
     store: SessionStore,
-    before: string,
+    before?: string,
+    options: StoreHistoryPageOptions = {},
 ): Promise<HistoryPageResult> {
+    if (before === undefined) {
+        return store.exclusively(() => indexedPage(store, store.activeHeadId(), undefined, options));
+    }
     const messageId = messageIdOfEntryId(before);
     if (messageId === undefined) {
         return { kind: "cursor_not_found" };
     }
-    return store.exclusively(() => indexedPage(store, messageId, before));
+    return store.exclusively(() => indexedPage(store, messageId, before, options));
 }
 
 interface IndexedPageGroup {
@@ -167,9 +176,14 @@ interface IndexedPageGroup {
 
 async function indexedPage(
     store: SessionStore,
-    messageId: string,
-    before: string,
+    messageId: string | null,
+    before: string | undefined,
+    options: StoreHistoryPageOptions,
 ): Promise<HistoryPageResult> {
+    const pageOptions = options.allowOversized === true ? { allowOversizedTail: true } : {};
+    if (messageId === null) {
+        return historyPageFromEntries(await decorateIndexedPage(store, null, [], Infinity, true), undefined, pageOptions);
+    }
     if (await store.readMessageEntry(messageId) === undefined) return { kind: "cursor_not_found" };
     const headId = store.activeHeadId() ?? undefined;
     const groups: IndexedPageGroup[] = [];
@@ -188,7 +202,7 @@ async function indexedPage(
         const entries = await projectIndexedMessage(store, message);
         if (first) {
             first = false;
-            if (!entries.some((entry) => entry.id === before)) return { kind: "cursor_not_found" };
+            if (before !== undefined && !entries.some((entry) => entry.id === before)) return { kind: "cursor_not_found" };
         }
         if (entries.length > 0) {
             groups.push({ record, entries });
@@ -197,7 +211,7 @@ async function indexedPage(
         }
         if (!complete && count <= HISTORY_PAGE_MAX_ENTRIES && bytes <= HISTORY_PAGE_MAX_BYTES && scanned % 32 !== 0) continue;
         const candidate = await decorateIndexedPage(store, messageId, groups, oldest, complete);
-        const result = historyPageFromEntries(candidate, before, { ...(headId === undefined ? {} : { headId }) });
+        const result = historyPageFromEntries(candidate, before, { ...(headId === undefined ? {} : { headId }), ...pageOptions });
         if (complete || result.kind !== "page") return result;
         if (!result.page.hasMore || result.entries.length === 0) continue;
         const start = candidate.indexOf(result.entries[0]!);
@@ -213,7 +227,7 @@ async function indexedPage(
 
 async function decorateIndexedPage(
     store: SessionStore,
-    headId: string,
+    headId: string | null,
     groups: readonly IndexedPageGroup[],
     oldest: number,
     complete: boolean,

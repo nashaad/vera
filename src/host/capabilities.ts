@@ -49,13 +49,8 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_RESTART_RECORDS,
 ] as const;
 
-/** What a client requests unless it implements history page requests. */
-export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES.filter(
-    (capability) => capability !== HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-);
-
-/** The client list plus paging. Only a client that serves pages asks for this. */
-export const PAGING_CAPABILITIES: readonly string[] = HOST_CAPABILITIES;
+/** What a client requests. Attach is pages only, so this includes history paging. */
+export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES;
 
 export function parseHostCapabilities(
     value: unknown,

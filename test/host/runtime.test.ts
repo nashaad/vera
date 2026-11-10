@@ -48,6 +48,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import {
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
 import { socketTest } from "../support/socket-probe.ts";
@@ -798,7 +799,7 @@ socketTest(
 
             const attached = await connectHost({ socketPath });
             try {
-                await attached.send({ type: "attach", agent_id: "agent-1" });
+                await attached.send({ type: "attach", agent_id: "agent-1", requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
                 expect(await attached.receive()).toMatchObject({
                     type: "attached",
                     agent_id: "agent-1",
@@ -880,7 +881,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             await connection.send({
@@ -971,7 +972,7 @@ socketTest(
         });
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
             await connection.receive();
             await connection.receive();
             await connection.send({
@@ -1288,10 +1289,11 @@ socketTest(
                         text: "stored prompt",
                         recordedAt: expect.any(Number),
                     },
-                    { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
+                    { id: "harness:0", kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
                 ],
                 unsentPrompts: [{ content: "stored prompt" }],
                 usage: { rows: [] },
+                page: expect.objectContaining({ pageVersion: 1, hasMore: false }),
                 seq: 0,
             });
             attached.detach();

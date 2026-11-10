@@ -32,6 +32,7 @@ import {
     parseHostCapabilities,
 } from "./capabilities.ts";
 import {
+    type AttachFailureReason,
     type AttachmentReleasePolicy,
     type HistoryPageFailedResponse,
     type HistoryPageResponse,
@@ -147,7 +148,7 @@ export class ExtensionCommandError extends Error {
 export class AgentAttachError extends Error {
     constructor(
         message: string,
-        readonly reason?: "not_found" | "unavailable",
+        readonly reason?: AttachFailureReason,
         readonly reasonCode?: "provider_unavailable",
         readonly provider?: string,
     ) {
@@ -186,9 +187,10 @@ export async function attachAgent(
         options.maxPendingUpdates ?? DEFAULT_MAX_PENDING_UPDATES,
         "maximum pending agent updates",
     );
-    const requestedCapabilities = parseHostCapabilities(
-        options.requestedCapabilities ?? [],
-    );
+    // Attach is pages only: every attach asks for history paging.
+    const requestedCapabilities = parseHostCapabilities([
+        ...new Set([...(options.requestedCapabilities ?? []), HOST_CAPABILITY_AGENT_HISTORY_PAGING]),
+    ]);
     if (requestedCapabilities === undefined) {
         throw new Error("Requested host capabilities are invalid");
     }
@@ -248,7 +250,7 @@ export async function attachAgent(
             : undefined;
         const capabilities = isAttached(response, options.agentId)
             ? response.capabilities === undefined
-                ? requestedCapabilities.length === 0 ? [] : undefined
+                ? []
                 : parseHostCapabilities(response.capabilities)
             : undefined;
         if (!isAttached(response, options.agentId)
@@ -449,9 +451,7 @@ function createAttachedClient(
                 return Promise.reject(new Error("History page cursor is required"));
             }
             if (pendingHistoryPage !== undefined) {
-                return Promise.reject(
-                    new Error("A history page request is already pending"),
-                );
+                return Promise.reject(new HistoryPageRequestError("busy"));
             }
             if (signal?.aborted === true) {
                 return Promise.reject(
@@ -1038,14 +1038,16 @@ function isAttachFailure(
 ): value is {
     readonly type: "attach_failed";
     readonly agent_id: string;
-    readonly reason: "not_found" | "unavailable";
+    readonly reason: AttachFailureReason;
     readonly unavailable_reason?: unknown;
     readonly provider?: unknown;
 } {
     const response = asRecord(value);
     return response?.type === "attach_failed"
         && response.agent_id === expectedAgentId
-        && (response.reason === "not_found" || response.reason === "unavailable");
+        && (response.reason === "not_found"
+            || response.reason === "unavailable"
+            || response.reason === "history_paging_required");
 }
 
 function isDetached(value: unknown): boolean {

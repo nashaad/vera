@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 
 import { runAttachedStdioBridge } from "../../clients/stdio/ndjson-bridge.ts";
-import { STDIO_CAPABILITIES } from "../../clients/stdio/process.ts";
+import { CLIENT_CAPABILITIES } from "../../src/host/capabilities.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
@@ -77,7 +77,7 @@ test("an early resident failure reaches stdio once and records the underlying er
             socketPath: () => proxyPath,
             agentId: "early-failure",
             buildId: thisProcessBuildId(),
-            requestedCapabilities: STDIO_CAPABILITIES,
+            requestedCapabilities: CLIENT_CAPABILITIES,
         });
         const other = await attachAgent({ socketPath, agentId: "early-failure" });
         expect((await other.receive(AbortSignal.timeout(5_000))).type).toBe("history");

@@ -8,7 +8,7 @@ import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { createAgentThroughHost, resumeAgentThroughHost, type ReadyAgent } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { HOST_PROTOCOL_VERSION, requestHostIdentity } from "../../src/host/protocol.ts";
@@ -148,7 +148,7 @@ socketAndLoopbackTest("a real pool routes direct attachments and worker requests
 
         const hostOwned = await host.registry.create({ workspace: home });
         const redirect = await request(workerPath, {
-            type: "attach", agent_id: hostOwned.id, requested_capabilities: [HOST_CAPABILITY_SESSION_ROUTING],
+            type: "attach", agent_id: hostOwned.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_ROUTING],
         });
         expect(redirect).toEqual({ type: "agent_location_changed", socket_path: hostPath });
         client = await attachReconnectingAgent({

@@ -5,7 +5,6 @@ import {
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_SESSION_ROUTING,
-    PAGING_CAPABILITIES,
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "../../src/host/capabilities.ts";
@@ -30,14 +29,9 @@ test("negotiation preserves request order and returns only shared capabilities",
     )).toEqual(["agent.branch-options.v1"]);
 });
 
-test("history paging is supported but granted only when requested", () => {
+test("every client requests history paging", () => {
     expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
-    expect(CLIENT_CAPABILITIES).not.toContain(
-        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-    );
-    expect(PAGING_CAPABILITIES).toContain(
-        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-    );
+    expect(CLIENT_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_HISTORY_PAGING);
     expect(negotiateHostCapabilities(
         ["agent.attach-resume.v1"],
         HOST_CAPABILITIES,

@@ -9,6 +9,7 @@ import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { MessageChannel } from "../../src/engine/message-channel.ts";
 import {
     ExtensionCommandError,
+    HistoryPageRequestError,
     PromptRejectedError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
@@ -208,11 +209,7 @@ export async function runAttachedStdioBridge(
                     continue;
                 }
                 if (message.type === "history_page") {
-                    writeJson(output, {
-                        type: "history_page_failed",
-                        request_id: message.request_id,
-                        reason: "unavailable",
-                    });
+                    void forwardHistoryPage(message.request_id, message.before);
                     continue;
                 }
                 try {
@@ -244,6 +241,20 @@ export async function runAttachedStdioBridge(
             if (detachRequested || stopping) return;
             fail(error);
             throw error;
+        }
+    }
+
+    async function forwardHistoryPage(requestId: string, before: string): Promise<void> {
+        try {
+            const page = await client.requestHistoryPage(before);
+            if (!stopping) writeJson(output, { ...page, request_id: requestId });
+        } catch (error) {
+            if (stopping) return;
+            writeJson(output, {
+                type: "history_page_failed",
+                request_id: requestId,
+                reason: error instanceof HistoryPageRequestError ? error.reason : "unavailable",
+            });
         }
     }
 

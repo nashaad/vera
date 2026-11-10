@@ -868,6 +868,7 @@ export class AgentRegistry {
         let transferring = ownershipTransfer;
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             historyPageSource: (before) => historyPageFromStore(store, before),
+            olderHistoryOnDisk: () => (store.activeEntries()[0]?.parentId ?? null) !== null,
             ...(this.options.prepareModelCatalog === undefined ? {} : {
                 prepareModelCatalog: this.options.prepareModelCatalog,
             }),

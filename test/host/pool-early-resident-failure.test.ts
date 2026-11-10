@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 
 import { runAttachedStdioBridge } from "../../clients/stdio/ndjson-bridge.ts";
-import { STDIO_CAPABILITIES } from "../../clients/stdio/process.ts";
+import { CLIENT_CAPABILITIES } from "../../src/host/capabilities.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
 import { forceStopPool } from "../../src/host/pool/force-stop-pool.ts";
@@ -59,7 +59,7 @@ socketAndLoopbackTest("a pooled resident failure reaches stdio and records its o
             socketPath: () => socketPath,
             agentId: created.id,
             buildId,
-            requestedCapabilities: STDIO_CAPABILITIES,
+            requestedCapabilities: CLIENT_CAPABILITIES,
             ...(created.location === undefined ? {} : { initialLocation: created.location }),
         });
         const input = new Readable({ read() {} });

@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { HostModelCatalogSettings } from "./model-catalog-settings.ts";
 
 import { AsyncQueue } from "../engine/async-queue.ts";
-import { AttachmentUpdateQueue, type PendingAttachmentUpdate } from "./attachment-update-queue.ts";
+import {
+    AttachmentUpdateQueue,
+    type AttachmentQueueLimits,
+    type PendingAttachmentUpdate,
+} from "./attachment-update-queue.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -69,19 +73,14 @@ export class AgentCommandQueueFullError extends Error {
     }
 }
 
-export interface ResidentAgentAttachOptions {
-    /** Send one bounded tail page instead of the full checkpoint. */
-    readonly paging?: boolean;
-    /** Send the page even when `afterSequence` already covers the checkpoint. */
-    readonly forceCheckpoint?: boolean;
-}
-
 export interface ResidentAgentOptions {
     readonly prepareModelCatalog?: () => Promise<void>;
     /** Reads a page outside the current checkpoint from the owner's store. */
     readonly historyPageSource?: (
         before: string,
     ) => HistoryPageResult | Promise<HistoryPageResult>;
+    /** True when the session file holds messages older than the engine's first live entry. */
+    readonly olderHistoryOnDisk?: () => boolean;
     readonly modelCatalogFacts?: () => Pick<HostModelCatalogSettings, "providerCatalogs" | "selectionCleared">;
     readonly maxPendingCommands?: number;
     readonly clientPromptRefusal?: string | (() => string | undefined);
@@ -134,17 +133,17 @@ export class ResidentAgent {
 
     private readonly inbound = new AsyncQueue<QueuedCommand>();
     private readonly attachments = new Map<string, AttachmentUpdateQueue>();
-    private readonly pagingAttachments = new Set<string>();
     private readonly attachmentListeners = new Set<
         (attached: boolean) => void
     >();
     private readonly issuedAttachmentIds = new Set<string>();
     private readonly imageAttachmentTasks = new Map<string, Set<AbortController>>();
-    private checkpoint: HistoryUpdate = {
+    // Only the latest page of the engine history; older pages are read from the session file.
+    private checkpoint: HistoryUpdate = pagedTail({
         type: "history",
         entries: [],
         seq: 0,
-    };
+    });
     private lastContext: ContextMeasurement | undefined;
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
@@ -212,10 +211,8 @@ export class ResidentAgent {
         };
     }
 
-    attach(
-        afterSequence?: number,
-        options: ResidentAgentAttachOptions = {},
-    ): AgentAttachment {
+    /** Limits bound a client that can fall behind; in-process readers pass none. */
+    attach(afterSequence?: number, limits?: AttachmentQueueLimits): AgentAttachment {
         if (this.isClosed) {
             throw new ResidentAgentClosedError();
         }
@@ -226,7 +223,7 @@ export class ResidentAgent {
             throw new Error("Agent replay cursor is unavailable");
         }
 
-        const outgoing = new AttachmentUpdateQueue(options.paging === true);
+        const outgoing = new AttachmentUpdateQueue(limits);
         const attachmentId = nonEmpty(
             this.createAttachmentId(),
             "attachment ID",
@@ -237,29 +234,17 @@ export class ResidentAgent {
         let attached = true;
         this.issuedAttachmentIds.add(attachmentId);
         this.attachments.set(attachmentId, outgoing);
-        const paging = options.paging === true;
-        if (paging) {
-            this.pagingAttachments.add(attachmentId);
-        }
         this.notifyAttachmentChanged(true);
-        if (
-            paging
-            || options.forceCheckpoint === true
-            || afterSequence === undefined
-            || afterSequence < this.checkpoint.seq
-        ) {
-            const replayed = paging
-                ? pagedTail(this.checkpoint)
-                : cloneHistory(this.checkpoint);
+        if (afterSequence === undefined || afterSequence <= this.checkpoint.seq) {
             outgoing.push(this.currentStatus === "idle"
-                ? replayed
-                : { ...replayed, status: this.currentStatus });
+                ? this.checkpoint
+                : { ...this.checkpoint, status: this.currentStatus }, { counted: false });
         }
         for (const update of this.updatesAfterCheckpoint) {
             if (afterSequence === undefined
                 || !("seq" in update)
                 || update.seq > afterSequence) {
-                outgoing.push(clone(update));
+                outgoing.push(clone(update), { counted: false });
             }
         }
         if (this.terminalFailure !== undefined) {
@@ -344,7 +329,6 @@ export class ResidentAgent {
                 }
                 attached = false;
                 this.attachments.delete(attachmentId);
-                this.pagingAttachments.delete(attachmentId);
                 this.notifyAttachmentChanged(this.attachments.size > 0);
                 this.abortImageAttachments(attachmentId);
                 outgoing.fail(new AgentDetachedError(), {
@@ -574,7 +558,7 @@ export class ResidentAgent {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
-        this.checkpoint = cloneHistory(history);
+        this.checkpoint = cloneHistory(this.latestPage(history));
         this.updatesAfterCheckpoint = [];
         this.lastSequence = history.seq;
         this.fail(failureId, detail);
@@ -644,7 +628,10 @@ export class ResidentAgent {
                 `Invalid resident update sequence: expected ${expectedSequence}, received ${update.seq}`,
             );
         }
-        const snapshot = update.type === "history" ? cloneHistory(update) : clone(update);
+        // A history is cut to its latest page before the copy, so the full history is never retained.
+        const snapshot = update.type === "history"
+            ? cloneHistory(this.latestPage(update))
+            : clone(update);
         this.lastSequence = snapshot.seq;
         if (snapshot.type === "user_prompt"
             || (snapshot.type === "status" && snapshot.state === "working")) {
@@ -737,13 +724,10 @@ export class ResidentAgent {
         const outgoingUpdate = snapshot.type === "history"
             ? this.checkpoint
             : snapshot;
-        for (const [attachmentId, outgoing] of this.attachments) {
+        for (const outgoing of this.attachments.values()) {
             if (outgoingUpdate.type === "history") {
-                // History is read-only on the way out; sharing it avoids one
-                // full clone per attachment. Paging clients get a bounded tail.
-                outgoing.push(this.pagingAttachments.has(attachmentId)
-                    ? pagedTail(outgoingUpdate)
-                    : outgoingUpdate);
+                // History is read-only on the way out; every attachment shares one page.
+                outgoing.push(outgoingUpdate);
             } else {
                 outgoing.push(clone(outgoingUpdate));
             }
@@ -782,13 +766,30 @@ export class ResidentAgent {
             this.checkpoint.entries,
             before,
         );
-        if (fromCheckpoint.kind !== "cursor_not_found") {
+        // The checkpoint is only the latest page: a page that reaches its start may stop short of older history.
+        if (
+            fromCheckpoint.kind === "page_too_large"
+            || (fromCheckpoint.kind === "page"
+                && (fromCheckpoint.page.hasMore || this.checkpoint.page?.hasMore !== true))
+        ) {
             return fromCheckpoint;
         }
         if (this.options.historyPageSource === undefined) {
             return fromCheckpoint;
         }
         return this.options.historyPageSource(before);
+    }
+
+    private latestPage(history: HistoryUpdate): HistoryUpdate {
+        const tail = pagedTail(history);
+        if (tail.page?.hasMore === true || tail.entries.length !== history.entries.length) {
+            return tail;
+        }
+        const first = tail.entries.find((entry) => entry.id?.includes("#") === true)?.id;
+        if (first === undefined || this.options.olderHistoryOnDisk?.() !== true) {
+            return tail;
+        }
+        return { ...tail, page: { ...tail.page!, hasMore: true, olderBefore: first } };
     }
 
     private notifyRunStateChanged(): void {

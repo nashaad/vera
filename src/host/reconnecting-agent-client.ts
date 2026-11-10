@@ -29,7 +29,7 @@ export interface ReconnectingAgentOptions {
     readonly interactive?: boolean;
     readonly clientId?: string;
     readonly failOnDisconnect?: boolean;
-    /** Defaults to CLIENT_CAPABILITIES; paging clients pass PAGING_CAPABILITIES. */
+    /** Defaults to CLIENT_CAPABILITIES. History paging is always requested. */
     readonly requestedCapabilities?: readonly string[];
     readonly initialLocation?: ReadyAgentLocation;
 }
@@ -472,6 +472,7 @@ export function createReconnectingAgentClient(
             } catch (error) {
                 if (closed || lifecycle.signal.aborted) throw error;
                 if (error instanceof HostBuildChangedError) throw error;
+                if (error instanceof AgentAttachError && error.reason === "history_paging_required") throw error;
                 if (afterSequence !== undefined
                     && error instanceof AgentAttachError
                     && error.reason === "unavailable") {

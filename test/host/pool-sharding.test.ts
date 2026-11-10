@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { listAgentPageThroughHost } from "../../src/host/agent-list-client.ts";
 import { branchAgentThroughHost, createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { ControlPeer } from "../../src/host/pool/control.ts";
 import * as remoteRouting from "../../src/host/pool/remote-routing.ts";
@@ -259,7 +259,7 @@ socketAndLoopbackTest("control loss stops the child before its replacement recla
         expect(await request(socket, { type: "locate_agent", agent_id: session.id }))
             .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable", message: "The session process is unavailable." });
         expect(await request(join(home, "runtime", `w${hashIndex}.sock`), {
-            type: "attach", agent_id: session.id, requested_capabilities: [HOST_CAPABILITY_SESSION_ROUTING],
+            type: "attach", agent_id: session.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_ROUTING],
         })).toMatchObject({ type: "attach_failed", reason: "unavailable" });
         const path = join(home, "runtime", "sessions", `${session.id}.jsonl`);
         const unavailable = await resumeAgentThroughHost(socket, path).then(() => undefined, (error: unknown) => error);

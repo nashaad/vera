@@ -55,6 +55,8 @@ import type {
     SessionImportOutcome,
 } from "./session-import-service.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { CLIENT_ATTACHMENT_QUEUE_LIMITS } from "./attachment-update-queue.ts";
+import type { HistoryPageResult } from "./history-page.ts";
 import {
     backgroundAgentsSnapshot,
     sameBackgroundAgents,
@@ -107,7 +109,7 @@ import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
 const MAX_REQUEST_BYTES = MAX_FRAME_BYTES;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
-const MAX_PENDING_HISTORY_PAGES = 2;
+const MAX_PENDING_HISTORY_PAGES = 1;
 // Idle time, not elapsed time: a frame carrying a large transcript or an attachment streams for longer than this and must not be mistaken for a stalled client.
 const REQUEST_TIMEOUT_MS = 1_000;
 const REQUEST_CEILING_MS = 60_000;
@@ -366,7 +368,10 @@ async function startListener(
     worker?: { readonly id: string; readonly index: number; readonly count: number; readonly generation: number },
 ): Promise<HostListener | HostServer> {
     const socketPath = options.socketPath ?? defaultHostSocketPath();
-    const capabilities = parseHostCapabilities(options.capabilities ?? []);
+    // Attach is pages only, so every host pages history whatever else it offers.
+    const capabilities = parseHostCapabilities([
+        ...new Set([...(options.capabilities ?? []), HOST_CAPABILITY_AGENT_HISTORY_PAGING]),
+    ]);
     if (capabilities === undefined) {
         throw new Error("Host capabilities are invalid");
     }
@@ -968,37 +973,33 @@ function receiveConnection(
     ): Promise<void> {
         const pageAgent = attachedAgent;
         if (pageAgent === undefined) {
-            void send({
+            await send({
                 type: "history_page_failed",
                 request_id: requestId,
                 reason: "unavailable",
             }).catch(() => undefined);
             return;
         }
+        let result: HistoryPageResult | { readonly kind: "unavailable" };
         try {
-            const result = await pageAgent.historyPage(before);
-            if (result.kind === "page") {
-                void send({
-                    type: "history_page",
-                    request_id: requestId,
-                    before,
-                    entries: result.entries,
-                    page: result.page,
-                }).catch(() => undefined);
-            } else {
-                void send({
-                    type: "history_page_failed",
-                    request_id: requestId,
-                    reason: result.kind,
-                }).catch(() => undefined);
-            }
+            result = await pageAgent.historyPage(before);
         } catch {
-            void send({
+            result = { kind: "unavailable" };
+        }
+        // The page stays in flight until it is written, so a client holds at most one.
+        await send(result.kind === "page"
+            ? {
+                type: "history_page",
+                request_id: requestId,
+                before,
+                entries: result.entries,
+                page: result.page,
+            }
+            : {
                 type: "history_page_failed",
                 request_id: requestId,
-                reason: "unavailable",
+                reason: result.kind,
             }).catch(() => undefined);
-        }
     }
 
     function receiveLine(line: string): void {
@@ -1290,20 +1291,11 @@ function receiveConnection(
             return;
         }
         if (message.type === "history_page") {
-            if (
-                !attachedCapabilities.includes(
-                    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-                )
-                || pendingHistoryPages >= MAX_PENDING_HISTORY_PAGES
-            ) {
+            if (pendingHistoryPages >= MAX_PENDING_HISTORY_PAGES) {
                 void send({
                     type: "history_page_failed",
                     request_id: message.request_id,
-                    reason: attachedCapabilities.includes(
-                        HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-                    )
-                        ? "busy"
-                        : "unavailable",
+                    reason: "busy",
                 });
                 return;
             }
@@ -1323,6 +1315,17 @@ function receiveConnection(
 
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
+        if (request?.type === "attach"
+            && request.requested_capabilities?.includes(HOST_CAPABILITY_AGENT_HISTORY_PAGING) !== true) {
+            clearDeadline();
+            finished = true;
+            void send({
+                type: "attach_failed",
+                agent_id: request.agent_id,
+                reason: "history_paging_required",
+            }).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         if (request !== undefined && forwardHostRequest !== undefined && isHostOnlyRequest(request)) {
             clearDeadline();
             finished = true;
@@ -2175,9 +2178,6 @@ function receiveConnection(
             capability !== HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE
             || request.attachment_kind === "interactive"
         );
-        const paging = negotiated.includes(
-            HOST_CAPABILITY_AGENT_HISTORY_PAGING,
-        );
         let lease: string | undefined;
         if (request.attachment_kind === "interactive") {
             try {
@@ -2202,10 +2202,7 @@ function receiveConnection(
         }
         let attached: AgentAttachment;
         try {
-            attached = agent.attach(request.after_seq, {
-                paging,
-                forceCheckpoint: paging,
-            });
+            attached = agent.attach(request.after_seq, CLIENT_ATTACHMENT_QUEUE_LIMITS);
         } catch {
             if (lease !== undefined) {
                 void interactiveAttachments.detach(lease, agent.id).then((roots) => {

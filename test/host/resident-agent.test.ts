@@ -11,6 +11,7 @@ import { EngineEventBus } from "../../src/engine/events.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import type { HistoryUpdate } from "../../src/engine/protocol.ts";
+import { historyPageFromEntries } from "../../src/host/history-page.ts";
 
 test("a slow attachment skips superseded histories and keeps other updates", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
@@ -25,14 +26,14 @@ test("a slow attachment skips superseded histories and keeps other updates", asy
         agent.engine.send({ type: "ui_request_closed", requestId: "q", seq: 6 });
         agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 6 });
         agent.engine.send({ type: "turn_finished", seq: 7 });
-        expect(await client.receive()).toEqual({ type: "history", entries: [], seq: 0 });
+        expect(await client.receive()).toMatchObject({ type: "history", entries: [], seq: 0 });
         expect(await client.receive()).toEqual({ type: "status", state: "working", seq: 1 });
         expect(await client.receive()).toEqual({ type: "assistant_delta", text: "live", seq: 2 });
         expect(await client.receive()).toEqual({ type: "tool_started", tool: "read", args: {}, seq: 3 });
         expect(await client.receive()).toEqual({ type: "tool_finished", tool: "read", output: "done", seq: 4 });
         expect(await client.receive()).toMatchObject({ type: "ui_request", requestId: "q", seq: 5 });
         expect(await client.receive()).toEqual({ type: "ui_request_closed", requestId: "q", seq: 6 });
-        expect(await client.receive()).toEqual({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 6 });
+        expect(await client.receive()).toMatchObject({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 6 });
         expect(await client.receive()).toMatchObject({ type: "turn_finished", seq: 7 });
     } finally {
         client.detach();
@@ -69,21 +70,6 @@ test("a slow attachment keeps its initial status before newer histories", async 
         expect(await client.receive()).toMatchObject({ type: "history", status: "working", seq: 0 });
         expect(await client.receive()).toMatchObject({ type: "status", state: "working", seq: 1 });
         expect(await client.receive()).toMatchObject({ type: "history", entries: [{ text: "new" }], seq: 1 });
-    } finally {
-        client.detach();
-        agent.close();
-    }
-});
-
-test("paging attachments receive every history", async () => {
-    const agent = new ResidentAgent("agent-1", "/work/one");
-    const client = agent.attach(undefined, { paging: true });
-    try {
-        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "old" }], seq: 0 });
-        agent.engine.send({ type: "history", entries: [{ kind: "assistant", text: "new" }], seq: 0 });
-        expect(await client.receive()).toMatchObject({ entries: [] });
-        expect(await client.receive()).toMatchObject({ entries: [{ text: "old" }] });
-        expect(await client.receive()).toMatchObject({ entries: [{ text: "new" }] });
     } finally {
         client.detach();
         agent.close();
@@ -146,6 +132,7 @@ test("resident agent replays a checkpoint and every later update", async () => {
         type: "history",
         entries: [],
         seq: 0,
+        page: { pageVersion: 1, hasMore: false },
     });
 
     first.send({ type: "prompt", content: "hello" });
@@ -175,6 +162,7 @@ test("resident agent replays a checkpoint and every later update", async () => {
         entries: [],
         seq: 0,
         status: "working",
+        page: { pageVersion: 1, hasMore: false },
     });
     expect(await second.receive()).toEqual({
         type: "user_prompt",
@@ -202,14 +190,14 @@ test("resident agent replays a checkpoint and every later update", async () => {
         seq: 2,
     };
     agent.engine.send(checkpoint);
-    expect(await first.receive()).toEqual(checkpoint);
-    expect(await second.receive()).toEqual(checkpoint);
+    expect(await first.receive()).toEqual({ ...checkpoint, page: { pageVersion: 1, hasMore: false } });
+    expect(await second.receive()).toEqual({ ...checkpoint, page: { pageVersion: 1, hasMore: false } });
 
     const third = agent.attach();
     // The live copies above carry no status: the updates that said the turn
     // started are still ahead of them. This one replaces those updates, so it
     // carries the status instead of losing it with them.
-    expect(await third.receive()).toEqual({ ...checkpoint, status: "working" });
+    expect(await third.receive()).toEqual({ ...checkpoint, status: "working", page: { pageVersion: 1, hasMore: false } });
     const notification = {
         type: "task_notification" as const,
         deliveryId: "completion:child-1",
@@ -223,15 +211,17 @@ test("resident agent replays a checkpoint and every later update", async () => {
     expect(await third.receive()).toEqual(notification);
 
     const fourth = agent.attach();
-    expect(await fourth.receive()).toEqual({ ...checkpoint, status: "working" });
+    expect(await fourth.receive()).toEqual({ ...checkpoint, status: "working", page: { pageVersion: 1, hasMore: false } });
     expect(await fourth.receive()).toEqual(notification);
 
     const resumedFromCheckpoint = agent.attach(2);
+    expect(await resumedFromCheckpoint.receive()).toMatchObject({ type: "history", seq: 2 });
     expect(await resumedFromCheckpoint.receive()).toEqual(notification);
     const resumedBeforeCheckpoint = agent.attach(1);
     expect(await resumedBeforeCheckpoint.receive()).toEqual({
         ...checkpoint,
         status: "working",
+        page: { pageVersion: 1, hasMore: false },
     });
     expect(await resumedBeforeCheckpoint.receive()).toEqual(notification);
     expect(() => agent.attach(4)).toThrow("replay cursor is unavailable");
@@ -654,7 +644,7 @@ test("resident agent checkpoints cannot jump away from current sequence", async 
 
     const checkpoint = { type: "history" as const, entries: [], seq: 1 };
     agent.engine.send(checkpoint);
-    expect(await client.receive()).toEqual(checkpoint);
+    expect(await client.receive()).toEqual({ ...checkpoint, page: { pageVersion: 1, hasMore: false } });
     agent.close();
 });
 
@@ -695,7 +685,7 @@ test("timeline replies stay private without creating shared sequence gaps", asyn
     });
 
     const later = agent.attach();
-    expect(await later.receive()).toEqual({
+    expect(await later.receive()).toMatchObject({
         type: "history",
         entries: [],
         seq: 0,
@@ -1323,7 +1313,7 @@ test("the turn-holding request and latest context are readable, and fact changes
 
 test("a paging attach gets a page marker even on an empty session", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
-    const attachment = agent.attach(undefined, { paging: true });
+    const attachment = agent.attach();
     try {
         expect(await attachment.receive()).toEqual({
             type: "history",
@@ -1337,16 +1327,17 @@ test("a paging attach gets a page marker even on an empty session", async () => 
     }
 });
 
-test("a paging attach gets the tail and older pages follow the cursor", async () => {
-    const agent = new ResidentAgent("agent-1", "/work/one");
+test("an attach gets the tail and older pages follow the cursor", async () => {
     const entries = Array.from({ length: 500 }, (_, index) => ({
         kind: "assistant" as const,
         id: `message-${index}#0`,
         text: `message ${index}`,
     }));
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        historyPageSource: (before) => historyPageFromEntries(entries, before),
+    });
     agent.engine.send({ type: "history", entries, seq: 0 });
-    const paging = agent.attach(undefined, { paging: true });
-    const legacy = agent.attach();
+    const paging = agent.attach();
     try {
         const tail = await paging.receive();
         if (tail.type !== "history") throw new Error("expected history");
@@ -1370,14 +1361,8 @@ test("a paging attach gets the tail and older pages follow the cursor", async ()
         if (oldest.kind !== "page") throw new Error("expected a page");
         expect(oldest.entries).toHaveLength(20);
         expect(oldest.page.hasMore).toBe(false);
-
-        const full = await legacy.receive();
-        if (full.type !== "history") throw new Error("expected history");
-        expect(full.entries).toHaveLength(500);
-        expect(full.page).toBeUndefined();
     } finally {
         paging.detach();
-        legacy.detach();
         agent.close();
     }
 });
@@ -1391,7 +1376,7 @@ test("a paging attach to a huge history sends a bounded tail", async () => {
         text: body,
     }));
     agent.engine.send({ type: "history", entries, seq: 0 });
-    const attachment = agent.attach(undefined, { paging: true });
+    const attachment = agent.attach();
     try {
         const tail = await attachment.receive();
         if (tail.type !== "history") throw new Error("expected history");
@@ -1414,7 +1399,7 @@ test("a paging attach at the current cursor still sends the tail", async () => {
         entries: [{ kind: "assistant", id: "message-0#0", text: "hello" }],
         seq: 0,
     });
-    const attachment = agent.attach(0, { paging: true });
+    const attachment = agent.attach(0);
     try {
         expect(await attachment.receive()).toMatchObject({
             type: "history",
@@ -1423,36 +1408,6 @@ test("a paging attach at the current cursor still sends the tail", async () => {
         });
     } finally {
         attachment.detach();
-        agent.close();
-    }
-});
-
-test("a live history broadcast is full for a legacy attach and paged for a paging one", async () => {
-    const agent = new ResidentAgent("agent-1", "/work/one");
-    const legacy = agent.attach();
-    const paging = agent.attach(undefined, { paging: true });
-    try {
-        await legacy.receive();
-        await paging.receive();
-        const entries = Array.from({ length: 500 }, (_, index) => ({
-            kind: "assistant" as const,
-            id: `message-${index}#0`,
-            text: `message ${index}`,
-        }));
-        agent.engine.send({ type: "history", entries, seq: 0 });
-
-        const legacyUpdate = await legacy.receive();
-        if (legacyUpdate.type !== "history") throw new Error("expected history");
-        expect(legacyUpdate.entries).toHaveLength(500);
-        expect(legacyUpdate.page).toBeUndefined();
-
-        const pagingUpdate = await paging.receive();
-        if (pagingUpdate.type !== "history") throw new Error("expected history");
-        expect(pagingUpdate.entries).toHaveLength(240);
-        expect(pagingUpdate.page?.hasMore).toBe(true);
-    } finally {
-        legacy.detach();
-        paging.detach();
         agent.close();
     }
 });
@@ -1491,46 +1446,57 @@ test("a page outside the checkpoint comes from the owner's store source", async 
     }
 });
 
-test("a paging attach does not clone the full history", async () => {
+test("the resident agent keeps only the latest page of a history", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const entries = Array.from({ length: 500 }, (_, index) => ({
-        kind: "assistant" as const,
+        kind: "tool_result" as const,
         id: `message-${index}#0`,
-        text: `message ${index}`,
+        tool: "read",
+        output: `output ${index}`,
+        isError: false,
     }));
     agent.engine.send({ type: "history", entries, seq: 0 });
-
-    const original = globalThis.structuredClone;
-    const historyClones: string[] = [];
-    globalThis.structuredClone = ((
-        value: unknown,
-        options?: Parameters<typeof structuredClone>[1],
-    ) => {
-        if (
-            typeof value === "object"
-            && value !== null
-            && (value as { type?: string }).type === "history"
-        ) {
-            historyClones.push("history");
-        }
-        return original(value, options);
-    }) as typeof structuredClone;
-    const legacy = agent.attach();
+    entries[499]!.output = "changed";
+    const first = agent.attach();
+    const second = agent.attach();
     try {
-        expect(historyClones).toHaveLength(1);
-        const paging = agent.attach(undefined, { paging: true });
-        expect(historyClones).toHaveLength(1);
-        await paging.receive();
-        historyClones.length = 0;
-
-        agent.engine.send({ type: "history", entries, seq: 0 });
-        expect(historyClones).toHaveLength(1);
-        await legacy.receive();
-        await paging.receive();
-        paging.detach();
+        const one = await first.receive();
+        const two = await second.receive();
+        if (one.type !== "history" || two.type !== "history") throw new Error("expected history");
+        expect(one.entries).toHaveLength(240);
+        expect(one.entries[0]!.id).toBe("message-260#0");
+        expect(one.entries.at(-1)).toMatchObject({ output: "output 499" });
+        expect(two.entries).toBe(one.entries);
+        expect(await agent.historyPage("message-0#0")).toEqual({ kind: "cursor_not_found" });
     } finally {
-        globalThis.structuredClone = original;
-        legacy.detach();
+        first.detach();
+        second.detach();
+        agent.close();
+    }
+});
+
+test("a latest page that reaches the first live entry points older when the file holds more", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        olderHistoryOnDisk: () => true,
+        historyPageSource: () => ({ kind: "page", entries: [], page: { pageVersion: 1, hasMore: false } }),
+    });
+    agent.engine.send({
+        type: "history",
+        entries: [{ kind: "assistant", id: "summary#0", text: "summary" }],
+        seq: 0,
+    });
+    const attachment = agent.attach();
+    try {
+        expect(await attachment.receive()).toMatchObject({
+            page: { hasMore: true, olderBefore: "summary#0" },
+        });
+        expect(await agent.historyPage("summary#0")).toEqual({
+            kind: "page",
+            entries: [],
+            page: { pageVersion: 1, hasMore: false },
+        });
+    } finally {
+        attachment.detach();
         agent.close();
     }
 });

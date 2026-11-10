@@ -23,6 +23,7 @@ import {
 } from "../../src/host/capabilities.ts";
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
+import { historyPageFromEntries } from "../../src/host/history-page.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { MAX_FRAME_BYTES } from "../../src/host/connection.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
@@ -59,7 +60,10 @@ socketTest(
             ],
         });
         try {
-            expect(client.capabilities).toEqual(["agent.branch-options.v1"]);
+            expect(client.capabilities).toEqual([
+                "agent.branch-options.v1",
+                HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+            ]);
             expect(client.supportsHostCapability("agent.branch-options.v1"))
                 .toBe(true);
             expect(client.supportsHostCapability("agent.future.v1"))
@@ -73,7 +77,7 @@ socketTest(
 );
 
 socketTest(
-    "an old client can attach to a capability-advertising host",
+    "a client that requests no capability still attaches with history paging",
     async () => {
         const directory = temporaryDirectory();
         const socketPath = join(directory, "host.sock");
@@ -89,7 +93,7 @@ socketTest(
             agentId: agent.id,
         });
         try {
-            expect(oldClient.capabilities).toEqual([]);
+            expect(oldClient.capabilities).toEqual([HOST_CAPABILITY_AGENT_HISTORY_PAGING]);
             expect((await oldClient.receive()).type).toBe("history");
         } finally {
             oldClient.close();
@@ -352,6 +356,7 @@ socketTest(
                 type: "history",
                 entries: [],
                 seq: 0,
+                page: { pageVersion: 1, hasMore: false },
             });
 
             const sending = client.send({ type: "prompt", content: "hello" });
@@ -1482,6 +1487,7 @@ socketTest(
                 type: "history",
                 entries: [],
                 seq: 0,
+                page: { pageVersion: 1, hasMore: false },
             });
             expect(client.backgroundAgents).toEqual({
                 running: 0,
@@ -1592,10 +1598,13 @@ socketTest(
     async () => {
         const directory = temporaryDirectory();
         const socketPath = join(directory, "host.sock");
-        const agent = new ResidentAgent("agent-1", "/work/one");
+        const entries = transcriptEntries(500);
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            historyPageSource: (before) => historyPageFromEntries(entries, before),
+        });
         agent.engine.send({
             type: "history",
-            entries: transcriptEntries(500),
+            entries,
             seq: 0,
         });
         const server = await startHostServer({
@@ -1645,29 +1654,25 @@ socketTest(
 );
 
 socketTest(
-    "a page request without the negotiated capability is refused",
+    "a host that refuses an attach without paging raises a typed error",
     async () => {
         const directory = temporaryDirectory();
         const socketPath = join(directory, "host.sock");
-        const agent = new ResidentAgent("agent-1", "/work/one");
-        const server = await startHostServer({
-            socketPath,
-            lockPath: join(directory, "host.json"),
-            capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
-            findAgent: () => agent,
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.end(`${JSON.stringify({
+                    type: "attach_failed",
+                    agent_id: "agent-1",
+                    reason: "history_paging_required",
+                })}\n`);
+            });
         });
-        const client = await attachAgent({
-            socketPath,
-            agentId: agent.id,
-        });
+        await new Promise<void>((resolve) => server.listen(socketPath, resolve));
         try {
-            await client.receive();
-            await expect(client.requestHistoryPage("message-0#0")).rejects
-                .toThrow("does not support history paging");
+            await expect(attachAgent({ socketPath, agentId: "agent-1" })).rejects
+                .toMatchObject({ name: "AgentAttachError", reason: "history_paging_required" });
         } finally {
-            client.close();
-            agent.close();
-            await server.close();
+            await new Promise<void>((resolve) => server.close(() => resolve()));
         }
     },
 );
@@ -1727,7 +1732,7 @@ socketTest(
             await client.receive();
             const first = client.requestHistoryPage("outside#0");
             await expect(client.requestHistoryPage("outside#0")).rejects
-                .toThrow("already pending");
+                .toMatchObject({ name: "HistoryPageRequestError", reason: "busy" });
             const deadline = Date.now() + 2_000;
             while (calls < 1 && Date.now() < deadline) {
                 await new Promise((resolve) => setTimeout(resolve, 5));

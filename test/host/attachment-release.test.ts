@@ -180,7 +180,7 @@ socketTest(
             requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE],
         });
         try {
-            expect(service.capabilities).toEqual([]);
+            expect(service.capabilities).not.toContain(HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE);
             await expect(service.release?.("stop_if_last")).rejects.toThrow(
                 "Host does not support attachment release",
             );
