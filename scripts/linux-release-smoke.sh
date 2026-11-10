@@ -41,9 +41,12 @@ fi
 mkdir "$work/out"
 
 git -C "$root" bundle create "$work/source.bundle" HEAD >/dev/null 2>&1
-git -C "$root" ls-files -z --modified --others --exclude-standard \
-    | (cd "$root" && COPYFILE_DISABLE=1 xargs -0 tar --no-xattrs -cf "$work/changes.tar" --) 2>/dev/null \
-    || tar -cf "$work/changes.tar" -T /dev/null
+git -C "$root" ls-files -z --modified --others --exclude-standard >"$work/changes.list"
+if [ -s "$work/changes.list" ]; then
+    (cd "$root" && COPYFILE_DISABLE=1 xargs -0 tar --no-xattrs -cf "$work/changes.tar" -- <"$work/changes.list") 2>/dev/null
+else
+    tar -cf "$work/changes.tar" -T /dev/null
+fi
 deleted=$(git -C "$root" ls-files --deleted)
 printf '%s\n' "$deleted" >"$work/deleted.txt"
 
