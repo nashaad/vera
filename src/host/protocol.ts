@@ -1882,7 +1882,7 @@ function parseStopHostLine(
 export function isBuildIdText(value: unknown): value is string {
     return typeof value === "string"
         && value.length <= 128
-        && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+        && /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(value);
 }
 
 function requestHostShutdown<Response>(

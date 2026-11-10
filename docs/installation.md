@@ -81,6 +81,19 @@ Change to your project directory, run `vera`, and follow
 
 ## Upgrade
 
+From an installed release, run:
+
+```sh
+vera update
+```
+
+It installs the newest published release and prints its release notes first.
+`vera update <version>` installs a named version, and `vera update --check`
+reports the running and newest versions without installing anything. A
+checkout or development instance is refused; update that install with
+`bun run install:local` instead. See
+[Update from a release](installed-command.md#update-from-a-release).
+
 From the checkout containing the version you want, run the same installation
 commands. Vera verifies the release before activating it. With no host running,
 the release becomes active at once. With a host running, the installer unpacks

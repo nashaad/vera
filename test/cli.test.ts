@@ -1408,20 +1408,21 @@ test("vera migrate-home --rollback restores the previous home", async () => {
 test("vera rollback does not dispatch to a retained host client", async () => {
     let output = "";
     let hops = 0;
+    let selectedPrefix = "";
     const exitCode = await runCli(["rollback", "--prefix", "/tmp/vera-rollback-cli"], {
         dispatchToHostRelease: async () => {
             hops += 1;
             return 0;
         },
-        rollbackInstall: async () => ({
-            kind: "rolled_back",
-            fromBuildId: "vera-broken",
-            toBuildId: "vera-good",
-        }),
+        rollbackInstall: async (prefix) => {
+            selectedPrefix = prefix;
+            return { kind: "rolled_back", fromBuildId: "vera-broken", toBuildId: "vera-good" };
+        },
         stdout: { write: (text: string) => output += text },
     });
     expect(exitCode).toBe(0);
     expect(hops).toBe(0);
+    expect(selectedPrefix).toBe("/tmp/vera-rollback-cli");
     expect(output).toBe("Activated vera-good (was vera-broken)\n");
 });
 

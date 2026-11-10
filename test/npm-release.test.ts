@@ -250,6 +250,81 @@ test("GitHub release marks versions with a suffix as prereleases", () => {
     }
 });
 
+test("GitHub release notes come from non-merge commit subjects since the previous reachable tag", () => {
+    const root = releaseNotesRoot();
+    try {
+        const result = runReleaseNotes(root, "0.1.0-alpha.2");
+        expect(result.exitCode, result.stderr?.toString()).toBe(0);
+        expect(readFileSync(join(root, "dist", "release-notes.md"), "utf8"))
+            .toBe("- fix: a thing\n");
+        const invocations = readFileSync(join(root, "git-log"), "utf8");
+        expect(invocations).toContain("describe --tags --abbrev=0 --match v* v0.1.0-alpha.2^");
+        expect(invocations).toContain("--no-merges");
+        expect(invocations).toContain("v0.1.0-alpha.1..v0.1.0-alpha.2");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a first GitHub release uses the last 50 non-merge commit subjects", () => {
+    const root = releaseNotesRoot();
+    try {
+        const result = runReleaseNotes(root, "0.1.0-alpha.2", { GIT_NO_PREVIOUS: "1" });
+        expect(result.exitCode, result.stderr?.toString()).toBe(0);
+        expect(readFileSync(join(root, "dist", "release-notes.md"), "utf8"))
+            .toBe("- fix: a thing\n");
+        const invocations = readFileSync(join(root, "git-log"), "utf8");
+        expect(invocations).toContain("--no-merges -n 50 v0.1.0-alpha.2");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+function releaseNotesRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), "vera-release-notes-test-"));
+    mkdirSync(join(root, "bin"));
+    mkdirSync(join(root, "dist"));
+    writeFileSync(
+        join(root, "bin", "git"),
+        `#!/bin/sh
+printf '%s\\n' "$*" >> "$GIT_LOG"
+case "$1" in
+    describe)
+        [ -z "\${GIT_NO_PREVIOUS:-}" ] || exit 128
+        printf '%s\\n' v0.1.0-alpha.1
+        ;;
+    log) printf '%s\\n' '- fix: a thing' ;;
+esac
+`,
+    );
+    chmodSync(join(root, "bin", "git"), 0o755);
+    return root;
+}
+
+function runReleaseNotes(
+    root: string,
+    version: string,
+    extraEnv: Record<string, string> = {},
+): ReturnType<typeof Bun.spawnSync> {
+    const script = releaseWorkflow.jobs["github-release"]?.steps
+        ?.find((step) => step.name === "Generate release notes")?.run;
+    expect(script).toBeDefined();
+    writeFileSync(join(root, "git-log"), "");
+    rmSync(join(root, "dist", "release-notes.md"), { force: true });
+    return Bun.spawnSync(["sh", "-c", script!], {
+        cwd: root,
+        env: {
+            ...process.env,
+            PATH: `${join(root, "bin")}${delimiter}${process.env.PATH ?? ""}`,
+            GIT_LOG: join(root, "git-log"),
+            RELEASE_VERSION: version,
+            ...extraEnv,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+}
+
 test("all npm publish commands remain in the explicitly gated step", () => {
     const publishSteps = Object.entries(releaseWorkflow.jobs).flatMap(
         ([jobName, job]) => (job.steps ?? [])

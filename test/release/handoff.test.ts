@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import type { StopWhenIdleOutcome } from "../../src/host/force-stop.ts";
 import { handOffUpdate, prefixOfReleaseRoot } from "../../src/release/handoff.ts";
+import { runningInstallPrefix } from "../../src/release/layout.ts";
 
 function liveRecord(pid: number, buildId: string): HostLockRecord {
     return { pid, build_id: buildId } as HostLockRecord;
@@ -19,6 +20,25 @@ test("prefixOfReleaseRoot reads the prefix only from an installed release path",
     expect(prefixOfReleaseRoot("/opt/p/share/vera/releases/vera-a")).toBe("/opt/p");
     expect(prefixOfReleaseRoot("/opt/p/other/releases/vera-a")).toBeUndefined();
     expect(prefixOfReleaseRoot("/opt/p/share/vera/vera-a")).toBeUndefined();
+});
+
+test("running install prefix ignores checkouts and development instances", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-prefix-"));
+    const previous = process.env.VERA_DEV_INSTANCE;
+    try {
+        delete process.env.VERA_DEV_INSTANCE;
+        const root = join(prefix, "share", "vera", "releases", "vera-one");
+        mkdirSync(root, { recursive: true });
+        writeFileSync(join(root, "manifest.json"), "{}");
+        expect(runningInstallPrefix(join(root, "vera-bin"))).toBe(prefix);
+        expect(runningInstallPrefix(join(prefix, "checkout", "bun"))).toBeUndefined();
+        process.env.VERA_DEV_INSTANCE = "test";
+        expect(runningInstallPrefix(join(root, "vera-bin"))).toBeUndefined();
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+        rmSync(prefix, { recursive: true, force: true });
+    }
 });
 
 test("handOffUpdate reports not_moved when no host runs", async () => {

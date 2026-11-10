@@ -74,12 +74,17 @@ import {
 import {
     dispatchToHostRelease,
 } from "../../src/release/dispatch.ts";
-import { defaultInstallPrefix } from "../../src/release/layout.ts";
+import { defaultInstallPrefix, runningInstallPrefix } from "../../src/release/layout.ts";
 import {
     rollbackLocalInstall,
     type FinishedInterruptedSwitch,
     type RolledBackRelease,
 } from "../../src/release/rollback.ts";
+import type { HandOffOutcome } from "../../src/release/handoff.ts";
+import {
+    runUpdate,
+    type UpdateOptions,
+} from "../../src/release/update.ts";
 import {
     HomeMigrationError,
     migrateHome,
@@ -259,7 +264,8 @@ interface PrintOutcome {
 
 type RollbackInstallResult =
     | Pick<RolledBackRelease, "kind" | "fromBuildId" | "toBuildId">
-    | Pick<FinishedInterruptedSwitch, "kind" | "activeBuildId">;
+    | Pick<FinishedInterruptedSwitch, "kind" | "activeBuildId">
+    | HandOffOutcome;
 
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void | "no_turn">;
@@ -350,6 +356,7 @@ export interface CliDependencies {
         argv: readonly string[],
     ) => Promise<number | undefined>;
     readonly rollbackInstall?: (prefix: string) => Promise<RollbackInstallResult>;
+    readonly update?: (options: UpdateOptions) => Promise<number>;
     readonly migrateHome?: (home: string) => HomeMigrationResult;
     readonly rollbackHomeMigration?: (home: string) => HomeMigrationResult;
 }
@@ -405,6 +412,10 @@ export async function runCli(
 
     if (args[0] === "rollback") {
         return runRollbackCommand(args.slice(1), output, errorOutput, dependencies);
+    }
+
+    if (args[0] === "update") {
+        return runUpdateCommand(args.slice(1), output, errorOutput, dependencies);
     }
 
     if (args[0] === "migrate-home") {
@@ -1792,6 +1803,44 @@ function renderHomeMigration(result: HomeMigrationResult): string {
     return `Migrated ${result.home}.${backup}${extra}${unknown}${resumed}\n`;
 }
 
+async function runUpdateCommand(
+    flags: readonly string[],
+    output: CliOutput,
+    errorOutput: CliOutput,
+    dependencies: CliDependencies,
+): Promise<number> {
+    let check = false;
+    let version: string | undefined;
+    for (const flag of flags) {
+        if (flag === "--check") {
+            check = true;
+            continue;
+        }
+        if (flag.startsWith("-")) {
+            errorOutput.write(`vera update: unknown flag: ${flag}\n`);
+            return 1;
+        }
+        if (version !== undefined) {
+            errorOutput.write("vera update: usage: vera update [VERSION] [--check]\n");
+            return 1;
+        }
+        version = flag;
+    }
+    try {
+        return await (dependencies.update ?? runUpdate)({
+            check,
+            ...(version === undefined ? {} : { version }),
+            output: (text) => output.write(text),
+            errorOutput: (text) => errorOutput.write(text),
+        });
+    } catch (error) {
+        errorOutput.write(
+            `vera update: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        return 1;
+    }
+}
+
 async function runRollbackCommand(
     flags: readonly string[],
     output: CliOutput,
@@ -1816,7 +1865,7 @@ async function runRollbackCommand(
         errorOutput.write("vera rollback: usage: vera rollback [--prefix DIR]\n");
         return 1;
     }
-    const target = prefix ?? defaultInstallPrefix();
+    const target = prefix ?? runningInstallPrefix() ?? defaultInstallPrefix();
     try {
         const result = await (dependencies.rollbackInstall ?? rollbackLocalInstall)(target);
         if (result.kind === "finished_interrupted") {
@@ -1829,6 +1878,13 @@ async function runRollbackCommand(
                         + ` ${result.activeBuildId} is active. If that is not the`
                         + " release you want, run 'vera rollback'.\n",
             );
+        } else if (result.kind === "accepted") {
+            output.write(`Rollback to ${result.buildId} will start when running turns end.\n`);
+        } else if (result.kind === "updated") {
+            output.write(`Activated ${result.buildId}\n`);
+        } else if (result.kind !== "rolled_back") {
+            errorOutput.write(`vera rollback: ${result.message}\n`);
+            return 1;
         } else if (result.fromBuildId === undefined) {
             output.write(`Activated ${result.toBuildId}\n`);
         } else {

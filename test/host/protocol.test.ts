@@ -887,6 +887,18 @@ test("host stop-wait decoder rejects malformed events", () => {
     expect(parseHostStopWaitEvent(null)).toBeUndefined();
 });
 
+test("handoff messages accept dirty build ids and reject paths", () => {
+    const buildId = "vera-0617ff577+242436c361fd";
+    const request = { type: "stop_host" as const, pid: 123, started_at: "2026-11-10T00:00:00.000Z", target_build_id: buildId };
+    expect(parseHostRequest(JSON.stringify(request))).toEqual(request);
+    expect(parseHostStopWaitEvent({ type: "host_restarting", build_id: buildId }))
+        .toEqual({ type: "host_restarting", build_id: buildId });
+    for (const unsafe of ["../other", "vera-a/../../other", ".", "..", "vera-a\\other"]) {
+        expect(parseHostRequest(JSON.stringify({ ...request, target_build_id: unsafe }))).toBeUndefined();
+        expect(parseHostStopWaitEvent({ type: "host_restarting", build_id: unsafe })).toBeUndefined();
+    }
+});
+
 test("host protocol parses cut_stop_wait and the forced stop_host flag", () => {
     expect(parseHostRequest('{"type":"cut_stop_wait"}')).toEqual({ type: "cut_stop_wait" });
     const identity = { pid: 101, started_at: "2026-07-17T12:00:00.123Z" };

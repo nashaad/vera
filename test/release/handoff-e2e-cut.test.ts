@@ -36,39 +36,45 @@ test("a host killed after current moves leaves the next start on the target buil
     previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = env.home;
     const build2 = "vera-e2e-cut";
+    let install: ReturnType<typeof installRelease> | undefined;
 
-    await defaultEnsureHost(env.build1Root, { operation: "install" });
-    await waitUntil(() => readHostLock(env.home)?.build_id === env.build1, 15_000, "build 1 lock");
-    const oldPid = readHostLock(env.home)!.pid;
+    try {
+        await defaultEnsureHost(env.build1Root, { operation: "install" });
+        await waitUntil(() => readHostLock(env.home)?.build_id === env.build1, 15_000, "build 1 lock");
+        const oldPid = readHostLock(env.home)!.pid;
 
-    const build2Root = cloneRelease(env.build1Root, env.prefix, build2);
-    const manifest = JSON.parse(readFileSync(join(build2Root, "manifest.json"), "utf8"));
-    const install = installRelease({
-        prefix: env.prefix,
-        pack: async () => ({ releaseRoot: build2Root, manifest }),
-        report: () => {},
-    });
-    install.catch(() => undefined);
+        const build2Root = cloneRelease(env.build1Root, env.prefix, build2);
+        const manifest = JSON.parse(readFileSync(join(build2Root, "manifest.json"), "utf8"));
+        install = installRelease({
+            prefix: env.prefix,
+            pack: async () => ({ releaseRoot: build2Root, manifest }),
+            report: () => {},
+        });
+        install.catch(() => undefined);
 
-    // The old host moves current and then closes; it is killed in the gap before
-    // the target host is started and publishes its lock.
-    const deadline = Date.now() + 20_000;
-    while (currentBuild(env.prefix) !== build2) {
-        if (Date.now() > deadline) throw new Error("Timed out waiting for current to move");
-        await Bun.sleep(1);
+        // The old host moves current and then closes; it is killed in the gap before
+        // the target host is started and publishes its lock.
+        const deadline = Date.now() + 20_000;
+        while (currentBuild(env.prefix) !== build2) {
+            if (Date.now() > deadline) throw new Error("Timed out waiting for current to move");
+            await Bun.sleep(1);
+        }
+        process.kill(oldPid, "SIGKILL");
+        await waitUntil(() => !processAlive(oldPid), 10_000, "the old host to die");
+        expect(currentBuild(env.prefix)).toBe(build2);
+        expect(readHostLock(env.home)?.build_id).toBe(env.build1);
+
+        await defaultEnsureHost(releaseDirectory(currentBuild(env.prefix), env.prefix));
+        await waitUntil(() => readHostLock(env.home)?.build_id === build2, 30_000, "build 2 lock");
+        const lock = readHostLock(env.home)!;
+        expect(processAlive(lock.pid)).toBe(true);
+        expect(lock.pid).not.toBe(oldPid);
+        expect(currentBuild(env.prefix)).toBe(build2);
+        expect(listRestartRecords(defaultRestartRecordPath(env.home)).filter(
+            (record) => record.cause === "crash",
+        )).toEqual([]);
+    } finally {
+        await install?.catch(() => undefined);
+        await stopHostProcess(env.home);
     }
-    process.kill(oldPid, "SIGKILL");
-    await waitUntil(() => !processAlive(oldPid), 10_000, "the old host to die");
-    expect(currentBuild(env.prefix)).toBe(build2);
-    expect(readHostLock(env.home)?.build_id).toBe(env.build1);
-
-    await defaultEnsureHost(releaseDirectory(currentBuild(env.prefix), env.prefix));
-    await waitUntil(() => readHostLock(env.home)?.build_id === build2, 30_000, "build 2 lock");
-    const lock = readHostLock(env.home)!;
-    expect(processAlive(lock.pid)).toBe(true);
-    expect(lock.pid).not.toBe(oldPid);
-    expect(currentBuild(env.prefix)).toBe(build2);
-    expect(listRestartRecords(defaultRestartRecordPath(env.home)).filter(
-        (record) => record.cause === "crash",
-    )).toEqual([]);
 }, 120_000);
