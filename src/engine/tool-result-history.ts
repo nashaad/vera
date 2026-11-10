@@ -56,6 +56,8 @@ const UNKNOWN_CAPACITY_TOKENS = 100_000;
 // not re-age results on every request and break the prompt prefix.
 export const TOKEN_TRIM_STEP_FRACTION = 0.1;
 export const BYTE_TRIM_STEP_FRACTION = 0.25;
+const ACTIVE_TURN_TRIM_HIGH_FRACTION = 0.75;
+const ACTIVE_TURN_TRIM_LOW_FRACTION = 0.35;
 
 // Savings needed to bring `excess` under the limit, rounded up to whole steps.
 function stepRequirement(excess: number, step: number): number {
@@ -202,7 +204,17 @@ export function assembleAgedToolResults(
     );
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
-    const pressureTokens = measureMessages(projected)
+    let historyEnd = projected.length;
+    if ((policy.pendingUserTurns ?? 0) === 0) {
+        for (let index = projected.length - 1; index >= 0; index -= 1) {
+            const message = projected[index];
+            if (message?.role === "user" && message.internal !== true) {
+                historyEnd = index + 1;
+                break;
+            }
+        }
+    }
+    const pressureTokens = measureMessages(projected.slice(0, historyEnd))
         + (policy.overheadTokens ?? 0);
 
     const candidates: number[] = [];
@@ -218,7 +230,7 @@ export function assembleAgedToolResults(
             continue;
         }
         const age = turn - (turnsAt.get(index) ?? -1);
-        if (age < ageAfterTurns) continue;
+        if (age === 0 || age < ageAfterTurns) continue;
         const call = calls.get(message.toolCallId);
         if (readsSpill(call, policy.spillDirectory)) continue;
         if (message.toolName === "read") {
@@ -252,14 +264,66 @@ export function assembleAgedToolResults(
         projected[index] = aged;
     }
 
-    return Object.freeze(applyToolResultBudget(
+    const budgeted = applyToolResultBudget(
         projected,
         calls,
         budgetBytes,
         provenanceText,
-        { turn, turnsAt, ageAfterTurns, pressureTokens, gateTokens },
+        { turn, turnsAt, ageAfterTurns, pressureTokens, gateTokens, historyEnd },
         cache,
-    ));
+    );
+    return Object.freeze(trimActiveSteps(entries, budgeted, calls, policy));
+}
+
+function trimActiveSteps(
+    entries: readonly ToolResultHistoryEntry[],
+    projected: readonly ModelMessage[],
+    calls: ReadonlyMap<string, ToolCallContent>,
+    policy: ToolResultAgingPolicy,
+): readonly ModelMessage[] {
+    if ((policy.pendingUserTurns ?? 0) > 0) return projected;
+    let activeStart = -1;
+    for (let index = 0; index < entries.length; index += 1) {
+        const message = entries[index]?.message;
+        if (message?.role === "user" && message.internal !== true) activeStart = index;
+    }
+    if (activeStart < 0) return projected;
+    const messages = [...projected];
+    const capacity = policy.capacity ?? UNKNOWN_CAPACITY_TOKENS;
+    const high = capacity * ACTIVE_TURN_TRIM_HIGH_FRACTION;
+    const low = capacity * ACTIVE_TURN_TRIM_LOW_FRACTION;
+    let tokens = (policy.overheadTokens ?? 0) + measureMessages(messages.slice(0, activeStart + 1));
+    let stepStart = -1;
+    let trimmedThrough = -1;
+    let armed = true;
+    const trimBefore = () => {
+        if (!armed && tokens <= low) armed = true;
+        if (!armed || tokens < high || stepStart < 0) return;
+        const before = tokens;
+        for (let index = trimmedThrough + 1; index < stepStart; index += 1) {
+            const message = messages[index];
+            if (message?.role !== "tool_result") continue;
+            if (message !== entries[index]?.message) continue;
+            if (readsSpill(calls.get(message.toolCallId), policy.spillDirectory)) continue;
+            const stub = stubbedToolResult(message);
+            if (toolResultBytes(stub) >= toolResultBytes(message)) continue;
+            tokens -= measureMessages([message]) - measureMessages([stub]);
+            messages[index] = stub;
+        }
+        trimmedThrough = stepStart - 1;
+        if (tokens < before) armed = tokens <= low;
+    };
+    for (let index = activeStart + 1; index < messages.length; index += 1) {
+        const message = messages[index];
+        if (message === undefined) continue;
+        if (message.role === "assistant" && message.content.some((part) => part.type === "tool_call")) {
+            trimBefore();
+            stepStart = index;
+        }
+        tokens += measureMessages([message]);
+    }
+    trimBefore();
+    return messages;
 }
 
 function readsSpill(
@@ -284,6 +348,7 @@ interface ToolResultBudgetCut {
     readonly ageAfterTurns: number;
     readonly pressureTokens: number;
     readonly gateTokens: number;
+    readonly historyEnd: number;
 }
 
 function applyToolResultBudget(
@@ -295,7 +360,7 @@ function applyToolResultBudget(
     cache: ToolResultDigestCache | null,
 ): readonly ModelMessage[] {
     const messages = [...projected];
-    const startBytes = totalToolResultBytes(messages);
+    const startBytes = totalToolResultBytes(messages.slice(0, cut.historyEnd));
     let carriedBytes = startBytes;
     if (carriedBytes <= budgetBytes) return messages;
     if (cut.pressureTokens < cut.gateTokens) return messages;
@@ -308,7 +373,8 @@ function applyToolResultBudget(
         if (startBytes - carriedBytes >= requiredBytes) break;
         const message = messages[index];
         if (message?.role !== "tool_result") continue;
-        if (cut.turn - (cut.turnsAt.get(index) ?? -1) < cut.ageAfterTurns) {
+        const age = cut.turn - (cut.turnsAt.get(index) ?? -1);
+        if (age === 0 || age < cut.ageAfterTurns) {
             continue;
         }
         const digestible = message.toolResultSource?.spillPath !== undefined
