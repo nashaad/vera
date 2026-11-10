@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { ScrollBoxRenderable, type CliRenderer } from "@opentui/core";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -6,7 +7,7 @@ import { createResizeAnchorDependencies } from "../../support/tui-resize-anchor-
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 async function open() {
-    const root = "/private/tmp/vera-dev";
+    const root = join(tmpdir(), "vera-dev");
     mkdirSync(root, { recursive: true });
     let renderer: CliRenderer | undefined;
     const session = await startTuiTestSession({

@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -60,7 +61,8 @@ socketTest(
 );
 
 socketTest("agent listing carries unavailable session process ids", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs9-list-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-list-"));
     const host = await startHostServer({
         socketPath: join(root, "host.sock"),
         lockPath: join(root, "host.json"),

@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -15,7 +16,8 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 
 socketTest("worker settings writes go through the host and catalog replies are cached", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7cs-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7cs-"));
     const configPath = join(home, "config.json");
     const initial = {
         schema_version: 1 as const, provider: "stub", model: "stub-model", approval_mode: "auto" as const,
@@ -138,7 +140,8 @@ socketTest("worker settings writes go through the host and catalog replies are c
 }, 90_000);
 
 socketTest("the host migrates configuration before starting a worker", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7cm-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7cm-"));
     const path = join(home, "config.json");
     const initial = {
         schema_version: 1 as const, provider: "digitalocean", model: "fixture", approval_mode: "auto" as const,
@@ -178,7 +181,8 @@ socketTest("the host migrates configuration before starting a worker", async () 
 }, 60_000);
 
 socketTest("an override saved through one worker is reloaded by another with the selected home", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7co-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7co-"));
     const initial = {
         schema_version: 1 as const, provider: "stub", model: "stub-model", approval_mode: "auto" as const, curated_models_url: "",
         providers: { stub: { protocol: "openai-chat" as const, base_url: "http://127.0.0.1:9/v1", credential: "none" as const } },
@@ -221,8 +225,10 @@ socketTest("an override saved through one worker is reloaded by another with the
 }, 60_000);
 
 socketTest("project inbox admissions from both workers and the host are written by the host", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7ch-");
-    const workspace = await mkdtemp("/private/tmp/vera-dev/h7cw-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7ch-"));
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const workspace = await mkdtemp(join(tmpdir(), "vera-dev", "h7cw-"));
     const path = join(workspace, ".vera", "config.json");
     const remember = InboxAdmissionPolicy.prototype.remember;
     const writers: number[] = [];

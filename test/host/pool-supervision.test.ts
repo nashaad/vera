@@ -1,9 +1,9 @@
 import { expect, spyOn } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { createServer, type Server } from "node:net";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -57,7 +57,8 @@ function slowStopProvider() {
 }
 
 async function fixture(options: FixtureOptions = {}) {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8s-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8s-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

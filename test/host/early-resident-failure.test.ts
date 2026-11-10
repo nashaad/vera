@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
@@ -16,7 +18,8 @@ import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("an early resident failure reaches stdio once and records the underlying error", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/early-failure-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "early-failure-"));
     const socketPath = join(home, "host.sock");
     const error = new Error("Injected context persistence failure");
     const failure = spyOn(SessionStore.prototype, "appendContextMeasurement")
@@ -132,7 +135,8 @@ test("an early resident failure reaches stdio once and records the underlying er
 }, 15_000);
 
 test("a worker startup failure records the worker stack once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/worker-failure-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "worker-failure-"));
     const logPath = join(home, "runtime", "logs", "host.jsonl");
     const registry = new AgentRegistry({
         home,

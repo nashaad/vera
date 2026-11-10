@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import {
     existsSync,
@@ -466,7 +467,7 @@ function createTestLockfile(
 }
 
 function temporaryLockPath(): string {
-    const root = mkdtempSync(join("/private/tmp", "vera-host-lock-"));
+    const root = mkdtempSync(join(tmpdir(), "vera-host-lock-"));
     temporaryDirectories.push(root);
     return join(root, "host", "host.json");
 }

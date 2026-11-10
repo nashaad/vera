@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -20,7 +21,8 @@ interface PoolInfo {
 }
 
 async function recordWithoutHostPid(): Promise<{ home: string; path: string; record: string }> {
-    const home = await mkdtemp("/private/tmp/vera-dev/poolmod-record-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "poolmod-record-"));
     const runtime = join(home, "runtime");
     const directory = join(runtime, "workers");
     const path = join(directory, "w0.json");
@@ -64,7 +66,8 @@ socketTest("startup rejects a session process record without a host pid", async 
 });
 
 socketTest("startup replaces a verified worker from another build and a dead record", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-records-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-records-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -132,7 +135,8 @@ socketTest("startup replaces a verified worker from another build and a dead rec
 }, 40_000);
 
 socketTest("startup leaves an answering socket alone when it belongs to another process", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-busy-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-busy-"));
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
     await mkdir(workers, { recursive: true });
@@ -171,7 +175,8 @@ socketTest("startup leaves an answering socket alone when it belongs to another 
 }, 20_000);
 
 socketTest("startup does not touch workers of an answering host whose lockfile disappeared", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-live-host-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-live-host-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

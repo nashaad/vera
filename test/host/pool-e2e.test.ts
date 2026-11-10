@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -15,7 +17,8 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
 socketAndLoopbackTest("a real worker serves sessions and preserves an existing owner", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-pool-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-pool-"));
     let turns = 0;
     let modelLists = 0;
     const stub = Bun.serve({
@@ -91,7 +94,8 @@ socketAndLoopbackTest("a real worker serves sessions and preserves an existing o
 }, 30_000);
 
 socketAndLoopbackTest("abrupt socket closure releases attachments on both owners", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-drop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-drop-"));
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
         fetch(request) {
@@ -165,7 +169,8 @@ socketAndLoopbackTest("abrupt socket closure releases attachments on both owners
 }, 25_000);
 
 socketAndLoopbackTest("a killed session worker repairs its turn and re-offers a queued prompt once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-crash-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-crash-"));
     const started = deferred();
     const release = deferred();
     let hold = true;
@@ -247,7 +252,8 @@ socketAndLoopbackTest("a killed session worker repairs its turn and re-offers a 
 }, 30_000);
 
 socketAndLoopbackTest("a worker durably accepts, rejects, withdraws, and clears queued prompts", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-queue-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-queue-"));
     const started = deferred();
     const release = deferred();
     const stub = Bun.serve({
@@ -320,7 +326,8 @@ socketAndLoopbackTest("a worker durably accepts, rejects, withdraws, and clears 
 }, 30_000);
 
 socketAndLoopbackTest("extension calls cross the process boundary and blocked moves attach to the owner", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-ext-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-ext-"));
     const previousHome = process.env.VERA_HOME;
     const extension = join(home, "extensions", "route-test");
     await mkdir(extension, { recursive: true });

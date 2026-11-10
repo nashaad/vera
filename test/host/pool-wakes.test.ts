@@ -1,6 +1,7 @@
+import { mkdirSync } from "node:fs";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -17,7 +18,8 @@ import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 for (const source of ["inbox", "watch"] as const) {
     test(`a ${source} entry wakes its owning worker once`, async () => {
-        const home = await mkdtemp("/private/tmp/vera-dev/h7-wake-");
+        mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+        const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-wake-"));
         const extension = join(home, "extension");
         const stub = startScheduleWakeProvider(true);
         const watching = Promise.withResolvers<WatchRuntimeContext>();
@@ -123,7 +125,8 @@ for (const source of ["inbox", "watch"] as const) {
 }
 
 test("a watch entry for a stored session waits until a client attaches", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-held-watch-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-held-watch-"));
     const extension = join(home, "extension");
     const stub = startScheduleWakeProvider(true);
     const watching = Promise.withResolvers<WatchRuntimeContext>();

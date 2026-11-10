@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection, createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -23,7 +24,8 @@ interface WorkerProcess {
 }
 
 socketTest("pool-off create, resume, and identity replies keep their existing bytes", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-wire-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-wire-"));
     const socketPath = join(root, "host.sock");
     const host = await startHostServer({
         socketPath, lockPath: join(root, "host.json"), buildId: BUILD, pid: process.pid, startedAt: STARTED,
@@ -48,7 +50,8 @@ socketTest("pool-off create, resume, and identity replies keep their existing by
 });
 
 socketTest("a client without a returned worker socket attaches to the host", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-old-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-old-"));
     const socketPath = join(root, "host.sock");
     const requests: string[] = [];
     const host = await listen(socketPath, (request, socket) => {
@@ -90,7 +93,8 @@ socketTest("a client without a returned worker socket attaches to the host", asy
 });
 
 socketTest("a partial worker location in an agent-ready reply is rejected", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-bad-ready-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-bad-ready-"));
     const socketPath = join(root, "host.sock");
     const host = await listen(socketPath, (_request, socket) => {
         socket.end('{"type":"agent_ready","agent_id":"crow","workspace":"/work","socket_path":"/tmp/w0.sock","worker_id":"w0"}\n');
@@ -104,7 +108,8 @@ socketTest("a partial worker location in an agent-ready reply is rejected", asyn
 });
 
 socketTest("a restarted worker is located again and an unavailable replay falls back to history", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-reconnect-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-reconnect-"));
     const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const log = join(root, "worker.log");
@@ -142,7 +147,8 @@ socketTest("a restarted worker is located again and an unavailable replay falls 
 }, 20_000);
 
 socketTest("a real stale worker redirects once to the owner resolved by the host", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-redirect-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-redirect-"));
     const hostPath = join(root, "host.sock");
     const stalePath = join(root, "stale.sock");
     const ownerPath = join(root, "owner.sock");
@@ -183,7 +189,8 @@ socketTest("a real stale worker redirects once to the owner resolved by the host
 }, 20_000);
 
 socketTest("a generation mismatch is resolved again before attaching", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-generation-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-generation-"));
     const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const log = join(root, "worker.log");
@@ -213,7 +220,8 @@ socketTest("a generation mismatch is resolved again before attaching", async () 
 }, 20_000);
 
 socketTest("a starting location gets one retry after the worker has time to report", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-starting-"));
     const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const requests: string[] = [];
@@ -238,7 +246,8 @@ socketTest("a starting location gets one retry after the worker has time to repo
 }, 20_000);
 
 socketTest("a host-forwarded legacy attachment heals a worker redirect", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-legacy-redirect-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-legacy-redirect-"));
     const hostPath = join(root, "host.sock");
     const stalePath = join(root, "stale.sock");
     const ownerPath = join(root, "owner.sock");

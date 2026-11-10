@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -757,7 +758,7 @@ test("a paging client retries a page on its replacement attachment", async () =>
 });
 
 function temporaryDirectory(): string {
-    const directory = mkdtempSync(join("/private/tmp", "vera-reconnect-client-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-reconnect-client-"));
     temporaryDirectories.push(directory);
     return directory;
 }

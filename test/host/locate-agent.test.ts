@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ afterEach(() => {
 });
 
 function temporaryHostDirectory(): string {
-    const directory = mkdtempSync(join("/private/tmp", "vera-locate-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-locate-"));
     temporaryDirectories.push(directory);
     return directory;
 }

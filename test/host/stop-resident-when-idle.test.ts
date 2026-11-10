@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +19,7 @@ afterEach(() => {
 socketTest(
     "stopResidentHostWhenIdle waits for a verified host to finish its turns",
     async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-stop-when-idle-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-stop-when-idle-"));
         directories.push(directory);
         let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
         let alive = true;
@@ -56,7 +57,7 @@ socketTest(
 );
 
 socketTest("stopResidentHostWhenIdle reports a host that does not accept stops, and never signals a verified host", async () => {
-    const directory = mkdtempSync(join("/private/tmp", "vera-stop-when-idle-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-stop-when-idle-"));
     directories.push(directory);
     const server = await startHostServer({
         socketPath: join(directory, "host.sock"),
@@ -88,7 +89,7 @@ socketTest("stopResidentHostWhenIdle reports a host that does not accept stops, 
 
 for (const force of [false, true]) {
     socketTest(`a ${force ? "forced" : "plain"} accepted stop cleans files after an abrupt host exit`, async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-stop-abrupt-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-stop-abrupt-"));
         directories.push(directory);
         const socketPath = join(directory, "host.sock");
         const lockPath = join(directory, "host.json");
@@ -113,7 +114,7 @@ for (const force of [false, true]) {
 }
 
 test("an update never signals a host it cannot confirm, and reports the refusal", async () => {
-    const directory = mkdtempSync(join("/private/tmp", "vera-stop-update-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-stop-update-"));
     directories.push(directory);
     const kill = (): void => {
         throw new Error("an update must not signal a host");
@@ -134,7 +135,7 @@ test("an update never signals a host it cannot confirm, and reports the refusal"
 });
 
 socketTest("an update reports stopped at once and forwards the target to the host", async () => {
-    const directory = mkdtempSync(join("/private/tmp", "vera-stop-target-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-stop-target-"));
     directories.push(directory);
     const server = await startHostServer({
         socketPath: join(directory, "host.sock"),
@@ -167,7 +168,7 @@ socketTest("an update reports stopped at once and forwards the target to the hos
 socketTest(
     "a forced stop cuts the waited session and stops without signalling a verified host",
     async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-stop-cut-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-stop-cut-"));
         directories.push(directory);
         let waiting: StopWaitTarget[] = [{ session_id: "s1", name: "build", status: "working" }];
         const cuts: string[] = [];

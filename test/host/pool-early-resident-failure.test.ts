@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -18,7 +19,8 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 
 socketAndLoopbackTest("a pooled resident failure reaches stdio and records its original stack", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/pool-failure-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "pool-failure-"));
     const web = join(home, "web");
     await mkdir(web);
     for (const name of ["index.html", "main.js", "styles.css"]) await writeFile(join(web, name), "");

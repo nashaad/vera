@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -21,7 +23,8 @@ interface PoolFixture {
 }
 
 async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>): Promise<void> {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7br-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7br-"));
     const webRoot = join(home, "web");
     const requests: string[] = [];
     const stub = Bun.serve({

@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,7 +12,7 @@ export interface ReopenTmux {
 }
 
 export function startReopenTmux(mode: string): ReopenTmux {
-    const root = "/private/tmp/vera-dev";
+    const root = join(tmpdir(), "vera-dev");
     mkdirSync(root, { recursive: true });
     const directory = mkdtempSync(join(root, "rp-"));
     const home = join(directory, "home");

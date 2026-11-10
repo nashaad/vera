@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,7 +22,8 @@ interface RequestResult {
 }
 
 async function runSessions(pool: boolean): Promise<readonly RequestResult[]> {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7ba-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7ba-"));
     const extension = join(home, "extension");
     await mkdir(extension);
     await writeFile(join(extension, "vera.extension.json"), JSON.stringify({

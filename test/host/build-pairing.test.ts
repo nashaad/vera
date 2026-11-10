@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -110,7 +111,7 @@ test("the same protocol with a different build ID is refused", async () => {
 socketTest(
     "the host identity handshake reports this process's stamped build ID",
     async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-build-id-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-build-id-"));
         const socketPath = join(directory, "host.sock");
         const server = await startHostServer({
             socketPath,
@@ -129,6 +130,6 @@ socketTest(
 );
 
 function temporaryLockPath(): string {
-    const root = mkdtempSync(join("/private/tmp", "vera-build-pair-"));
+    const root = mkdtempSync(join(tmpdir(), "vera-build-pair-"));
     return join(root, "host", "host.json");
 }

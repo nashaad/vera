@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -14,7 +16,8 @@ test("worker generations increase independently for each worker id", () => {
 });
 
 socketTest("a worker that exits before ready is reaped", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs4-supervisor-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-supervisor-"));
     await mkdir(join(home, "runtime"));
     let pid: number | undefined;
     try {
@@ -42,7 +45,7 @@ socketTest("a worker that exits before ready is reaped", async () => {
 }, 20_000);
 
 test("control socket paths enforce the macOS byte limit", () => {
-    const prefix = "/private/tmp/";
+    const prefix = "/tmp/";
     const suffix = "/runtime/control.sock";
     const home = prefix + "a".repeat(103 - Buffer.byteLength(prefix + suffix));
     expect(Buffer.byteLength(controlSocketPath(home))).toBe(103);

@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { expect, spyOn } from "bun:test";
-import { closeSync, constants, openSync } from "node:fs";
+import { mkdirSync, closeSync, constants, openSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -155,7 +155,8 @@ async function closePool(host: ResidentHost | undefined, probe: PoolProbe, home:
 }
 
 socketAndLoopbackTest("a due schedule wakes and is acknowledged by its nonzero worker once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-schedule-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-schedule-"));
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
     let host: ResidentHost | undefined;
@@ -191,7 +192,8 @@ socketAndLoopbackTest("a due schedule wakes and is acknowledged by its nonzero w
 }, 45_000);
 
 socketAndLoopbackTest("an inbox entry is delivered only on w2", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-inbox-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-inbox-"));
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
     let host: ResidentHost | undefined;
@@ -222,7 +224,8 @@ socketAndLoopbackTest("an inbox entry is delivered only on w2", async () => {
 }, 45_000);
 
 socketAndLoopbackTest("a due startup schedule waits while its hash worker scans", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-start-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-start-"));
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
     let host: ResidentHost | undefined;
@@ -278,7 +281,8 @@ socketAndLoopbackTest("a due startup schedule waits while its hash worker scans"
 }, 45_000);
 
 socketAndLoopbackTest("a watch admission waits for the scanning hash owner to register its consumer", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-scan-watch-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-scan-watch-"));
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
     const watching = Promise.withResolvers<WatchRuntimeContext>();
@@ -344,7 +348,8 @@ socketAndLoopbackTest("a watch admission waits for the scanning hash owner to re
 }, 45_000);
 
 socketAndLoopbackTest("an entry for a stored session stays unread while its hash worker is gone", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-offline-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-offline-"));
     const stub = startScheduleWakeProvider(true);
     const release = Promise.withResolvers<void>();
     const probe = probePool(async (index, generation) => {
@@ -405,7 +410,8 @@ socketAndLoopbackTest("an entry for a stored session stays unread while its hash
 }, 60_000);
 
 socketAndLoopbackTest("a dropped worker releases its claim after exit and the held entry follows the reopened session", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-drop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-multi-drop-"));
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
     const claims = new Map<string, HostInboxBridge>();

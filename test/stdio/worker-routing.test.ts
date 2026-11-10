@@ -1,6 +1,9 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import { attachAgent } from "../../src/host/attached-client.ts";
 import * as forwarding from "../../src/host/pool/forward.ts";
@@ -8,7 +11,8 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 
 socketAndLoopbackTest("stdio attaches to the worker returned by the host", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs5-stdio-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-stdio-"));
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
         fetch(request) {

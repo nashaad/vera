@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,7 +66,8 @@ function running(pid: number): boolean {
 }
 
 test("budget middleware and titles hooks run once on each owning worker", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7bt-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7bt-"));
     const log = join(home, "marks.ndjson");
     const budget = await instrument(home, BUDGET, "budget", log);
     const titles = await instrument(home, TITLES, "titles", log);

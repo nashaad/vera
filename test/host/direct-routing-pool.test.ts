@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -18,7 +20,8 @@ import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts"
 import { SessionStore } from "../../src/store/session-store.ts";
 
 socketAndLoopbackTest("locate and create wait while resume refuses a starting worker", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-starting-"));
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const startWorker = supervisor.startSessionWorkerSupervisor;
@@ -88,7 +91,8 @@ socketAndLoopbackTest("locate and create wait while resume refuses a starting wo
 }, 30_000);
 
 socketAndLoopbackTest("a real pool routes direct attachments and worker requests through the host", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs5-pool-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-pool-"));
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const stub = Bun.serve({
@@ -192,7 +196,8 @@ socketAndLoopbackTest("a real pool routes direct attachments and worker requests
 }, 40_000);
 
 socketAndLoopbackTest("a shutdown accepted on a worker socket reaches the client before the pool exits", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs5-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-stop-"));
     const stub = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("not found", { status: 404 }) });
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let workerPid: number | undefined;
@@ -227,7 +232,8 @@ socketAndLoopbackTest("a shutdown accepted on a worker socket reaches the client
 }, 30_000);
 
 socketAndLoopbackTest("a reconnecting client reaches a replacement worker without restarting the host", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs5-real-reconnect-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-real-reconnect-"));
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const start = supervisor.startSessionWorkerSupervisor;

@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +28,8 @@ interface PoolInfo {
 }
 
 socketAndLoopbackTest("an adopted worker uses the new host's MCP server, credential broker and settings writer", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-services-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-services-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

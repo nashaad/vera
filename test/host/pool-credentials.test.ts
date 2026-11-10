@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
@@ -14,7 +16,8 @@ import { createAuthStorage, defaultAuthStoragePath } from "../../src/providers/a
 import { OPENAI_CODEX_PROVIDER_ID } from "../../src/providers/openai-codex-oauth.ts";
 
 socketAndLoopbackTest("three workers share a refresh and pick up a client credential write", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7ca-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7ca-"));
     const authPath = defaultAuthStoragePath(home);
     const disk = createAuthStorage({ path: authPath });
     const secrets: string[] = [];
@@ -208,7 +211,8 @@ socketAndLoopbackTest("three workers share a refresh and pick up a client creden
 }, 90_000);
 
 socketAndLoopbackTest("a worker obtains the current API key once per request", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7ck-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7ck-"));
     const disk = createAuthStorage({ path: defaultAuthStoragePath(home) });
     const first = randomUUID();
     const second = randomUUID();

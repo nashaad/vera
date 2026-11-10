@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../../support/socket-probe.ts";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -24,7 +25,8 @@ async function until(check: () => boolean | Promise<boolean>, label: string): Pr
 
 for (const force of [false, true]) {
     socketAndLoopbackTest(`a pooled TUI shows host stopped promptly after a ${force ? "forced" : "waiting"} stop`, async () => {
-        const root = await mkdtemp("/private/tmp/vera-dev/pool-stop-tui-");
+        mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+        const root = await mkdtemp(join(tmpdir(), "vera-dev", "pool-stop-tui-"));
         const home = join(root, "host");
         const web = join(home, "web");
         await mkdir(web, { recursive: true });

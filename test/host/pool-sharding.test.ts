@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -79,7 +80,8 @@ function poolOptions(home: string, port: number | undefined) {
 }
 
 socketAndLoopbackTest("three workers scan thirty sessions, own each once, and search fails closed", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-scan-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-pool-scan-"));
     const directory = join(home, "runtime", "sessions");
     await mkdir(directory, { recursive: true });
     const expected = new Set<string>();
@@ -166,7 +168,8 @@ socketAndLoopbackTest("three workers scan thirty sessions, own each once, and se
 }, 90_000);
 
 socketAndLoopbackTest("creates balance resident sessions, concurrent resumes converge, and two workers run turns", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-turn-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-pool-turn-"));
     const stub = stubProvider();
     const probe = probePool();
     let host: ResidentHost | undefined;
@@ -233,7 +236,8 @@ socketAndLoopbackTest("creates balance resident sessions, concurrent resumes con
 }, 90_000);
 
 socketAndLoopbackTest("control loss stops the child before its replacement reclaims sessions", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-control-loss-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-control-loss-"));
     const stub = stubProvider();
     const probe = probePool();
     let host: ResidentHost | undefined;
@@ -295,7 +299,8 @@ socketAndLoopbackTest("control loss stops the child before its replacement recla
 }, 90_000);
 
 socketAndLoopbackTest("a resume fails while its unindexed hash owner is still starting", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-owner-start-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-owner-start-"));
     const directory = join(home, "runtime", "sessions");
     await mkdir(directory, { recursive: true });
     let number = 0;
@@ -342,7 +347,8 @@ socketAndLoopbackTest("a resume fails while its unindexed hash owner is still st
 }, 90_000);
 
 socketAndLoopbackTest("a lost create reply must not leave one session open on two workers", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-loss-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-pool-loss-"));
     const stub = stubProvider();
     const probe = probePool(true);
     const originalRequest = ControlPeer.prototype.request;
@@ -414,7 +420,8 @@ socketAndLoopbackTest("a lost create reply must not leave one session open on tw
 }, 90_000);
 
 socketAndLoopbackTest("imports keep their assigned owner and deduplicate after the pool restarts", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-import-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-pool-import-"));
     const source = join(home, "source.jsonl");
     const stub = stubProvider();
     const probe = probePool();
@@ -461,7 +468,8 @@ socketAndLoopbackTest("imports keep their assigned owner and deduplicate after t
 }, 90_000);
 
 socketAndLoopbackTest("a branch being published cannot be resumed on its hash owner", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-pool-branch-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-pool-branch-"));
     const stub = stubProvider();
     const probe = probePool();
     const held = Promise.withResolvers<void>();

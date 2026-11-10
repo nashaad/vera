@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,7 +29,8 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 socketAndLoopbackTest("a ten-megabyte MCP result keeps host identity responsive", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7bl-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7bl-"));
     await writeFile(join(home, "hold-result"), "");
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,

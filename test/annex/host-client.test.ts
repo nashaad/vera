@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,7 +11,7 @@ async function withServer(
     onSocket: (socket: Socket) => void,
     run: (socketPath: string) => Promise<void>,
 ): Promise<void> {
-    const directory = mkdtempSync(join("/private/tmp", "vera-annex-url-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-annex-url-"));
     const socketPath = join(directory, "host.sock");
     const server: Server = createServer(onSocket);
     try {

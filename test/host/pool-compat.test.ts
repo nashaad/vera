@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -20,7 +22,8 @@ async function identityLine(socketPath: string): Promise<string> {
 }
 
 test("a plain host preserves the lock, identity and ls bytes", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-plain-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-plain-"));
     const socketPath = join(home, "host.sock");
     const lockPath = join(home, "host.json");
     const startedAt = "2026-07-17T12:00:00.000Z";
@@ -45,7 +48,8 @@ test("a plain host preserves the lock, identity and ls bytes", async () => {
 });
 
 test("a pool host publishes schema 3 with its role and process count", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-lock-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-lock-"));
     const socketPath = join(home, "host.sock");
     const lockPath = join(home, "host.json");
     const server = await startHostServer({

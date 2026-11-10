@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -21,7 +22,8 @@ interface PoolHostInfo {
 }
 
 socketAndLoopbackTest("restart scan repairs a killed worker's turn and queued prompt", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs4-scan-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-scan-"));
     const home = join(root, "home");
     await mkdir(home);
     const started = Promise.withResolvers<void>();

@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ function running(pid: number): boolean {
 }
 
 test("Down crosses the resume heading and Enter opens the recent row", async () => {
-    const root = "/private/tmp/vera-dev";
+    const root = join(tmpdir(), "vera-dev");
     mkdirSync(root, { recursive: true });
     const directory = mkdtempSync(join(root, "tuifix2-picker-"));
     const home = join(directory, "home");

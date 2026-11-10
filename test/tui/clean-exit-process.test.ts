@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { spawnSync } from "node:child_process";
@@ -25,7 +26,8 @@ const realProcessTest = process.platform === "win32"
     ? test.skip : socketAndLoopbackTest;
 
 realProcessTest("a TUI that exits after a busy host stop removes its live record", async () => {
-    const root = mkdtempSync("/private/tmp/vera-dev/tui-clean-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = mkdtempSync(join(tmpdir(), "vera-dev", "tui-clean-stop-"));
     const home = join(root, "vera");
     const socket = join(root, "tmux.sock");
     const live = join(home, "machine", "live");

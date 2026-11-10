@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,8 @@ const MCP = fileURLToPath(new URL("../../extensions/mcp", import.meta.url));
 const SERVER = fileURLToPath(new URL("../extensions/fixtures/mcp-reconnect-server.ts", import.meta.url));
 
 socketAndLoopbackTest("a host MCP server and its commands survive worker replacement", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8m-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8m-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
@@ -15,7 +17,8 @@ import { createAuthStorage, defaultAuthStoragePath } from "../../src/providers/a
 
 for (const order of ["catalog-first", "request-first", "catalog-rejected", "forget-during-refresh"] as const) {
 socketAndLoopbackTest(`${order}: credential writes are coordinated`, async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7cx-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7cx-"));
     const disk = createAuthStorage({ path: defaultAuthStoragePath(home) });
     const initialAccess = randomUUID();
     disk.setCredential("openai-codex", { type: "oauth", token: JSON.stringify({

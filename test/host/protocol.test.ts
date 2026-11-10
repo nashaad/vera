@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -439,7 +440,7 @@ test("host protocol parses attached extension command requests", () => {
 socketTest(
     "shutdown-if-idle client returns only typed host responses",
     async () => {
-    const directory = mkdtempSync(join("/private/tmp", "vera-shutdown-client-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-shutdown-client-"));
     const socketPath = join(directory, "host.sock");
     const server = createServer((socket) => {
         socket.once("data", () => {
@@ -679,7 +680,7 @@ test("host protocol parses messages after attach", () => {
 socketTest(
     "identity request finishes when a peer closes without a response",
     async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
         const server = createServer((socket) => socket.end());
         try {
@@ -702,7 +703,7 @@ socketTest(
 socketTest(
     "identity request has a fixed deadline while a peer drips bytes",
     async () => {
-        const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
+        const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
         const server = createServer((socket) => {
             const drip = setInterval(() => socket.write(" "), 50);
@@ -733,7 +734,7 @@ socketTest(
 );
 
 async function requestIdentityFromPeer(reply: string) {
-    const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
     const socketPath = join(directory, "host.sock");
     const server = createServer((socket) => socket.end(reply));
     try {

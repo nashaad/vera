@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,8 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 test("a timed-out MCP activation leaves no server behind when the host restarts", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs7b-mcp-activation-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs7b-mcp-activation-"));
     const fast = join(home, "fast");
     await mkdir(fast);
     const responses: Array<(response: Response) => void> = [];
@@ -84,7 +86,8 @@ test("a timed-out MCP activation leaves no server behind when the host restarts"
 }, 20_000);
 
 test("a connection completing after the registry closed is not retained", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs7b-mcp-late-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs7b-mcp-late-"));
     const connected = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const completed = Promise.withResolvers<void>();
@@ -125,7 +128,8 @@ test("a connection completing after the registry closed is not retained", async 
 }, 10_000);
 
 test("an installed MCP copy closes its clients when activation times out", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs7b-mcp-copy-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs7b-mcp-copy-"));
     const copy = join(home, "copy");
     const fast = join(home, "fast");
     const slow = join(home, "slow");

@@ -106,7 +106,7 @@ test("page routes answer reads from anywhere and writes only from the page's ori
 });
 
 test("a page server reaches its own extension's host handlers, and fails plainly without a host", async () => {
-    const socketPath = join(mkdtempSync(join("/private/tmp", "vera-annex-host-")), "host.sock");
+    const socketPath = join(mkdtempSync(join(tmpdir(), "vera-annex-host-")), "host.sock");
     temporaryDirectories.push(join(socketPath, ".."));
     const requests: unknown[] = [];
     const host: Server = createServer((socket) => {

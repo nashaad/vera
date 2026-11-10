@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,8 +16,8 @@ import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
 socketTest("a pooled session serves every history page through its worker", async () => {
-    await mkdir("/private/tmp/vera-dev", { recursive: true });
-    const home = await mkdtemp("/private/tmp/vera-dev/histport-pool-");
+    await mkdir(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "histport-pool-"));
     const directory = join(home, "runtime", "sessions");
     const path = join(directory, "crow.jsonl");
     let host: ResidentHost | undefined;

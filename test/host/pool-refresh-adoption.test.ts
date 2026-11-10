@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,8 @@ interface PoolInfo {
 }
 
 socketAndLoopbackTest("a worker does not repeat the host's interrupted credential refresh", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-refresh-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-refresh-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

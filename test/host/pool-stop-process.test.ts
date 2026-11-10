@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
@@ -42,7 +43,8 @@ async function finishPool(child: ChildProcess, exited: Promise<number | null>, h
 }
 
 async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = false) {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-stop-"));
     const web = join(home, "web");
     await mkdir(web);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(web, name), "")));

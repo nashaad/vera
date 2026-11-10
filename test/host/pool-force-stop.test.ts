@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -47,7 +48,8 @@ async function clean(children: readonly TestChild[]): Promise<void> {
 }
 
 test("force stop kills the host then stops every verified worker", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-force-"));
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
     await mkdir(workers, { recursive: true });
@@ -82,7 +84,8 @@ test("force stop kills the host then stops every verified worker", async () => {
 }, 15_000);
 
 test("a reused worker pid is not signalled", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-reused-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-reused-"));
     const workers = join(home, "runtime", "workers");
     await mkdir(workers, { recursive: true });
     const marker = join(home, "unrelated");
@@ -102,7 +105,8 @@ test("a reused worker pid is not signalled", async () => {
 }, 15_000);
 
 test("force stop reaches verified workers during startup but leaves a reused pid alone", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-start-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-force-start-"));
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
     await mkdir(workers, { recursive: true });
@@ -144,7 +148,8 @@ test("force stop reaches verified workers during startup but leaves a reused pid
 }, 15_000);
 
 test("force stop reaches a verified pooled host when another startup holds the claim", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-lock-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-force-lock-"));
     const runtime = join(home, "runtime");
     await mkdir(join(runtime, "workers"), { recursive: true });
     const marker = join(home, "host");
@@ -168,7 +173,8 @@ test("force stop reaches a verified pooled host when another startup holds the c
 }, 15_000);
 
 test("force stop accepts a startup claim already held by its caller", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-owned-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-force-owned-"));
     const runtime = join(home, "runtime");
     await mkdir(join(runtime, "workers"), { recursive: true });
     const marker = join(home, "host");
@@ -193,7 +199,8 @@ test("force stop accepts a startup claim already held by its caller", async () =
 }, 15_000);
 
 test("a stale plain host lock cannot hide a live recorded session process", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-stale-worker-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-stale-worker-"));
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
     await mkdir(workers, { recursive: true });

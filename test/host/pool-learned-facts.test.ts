@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,7 +16,8 @@ import { emptyUsage, type AssistantMessage, type ModelAdapter, type ModelRequest
 import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
 
 test("a learned refusal reaches the host before recovery retries", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7cl-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7cl-"));
     const path = join(home, "pool.json");
     await writeFile(path, JSON.stringify({ models: { "stub/m": { efforts: { high: "high", medium: "medium" } } } }));
     const attempts: string[] = [];
@@ -64,7 +67,8 @@ test("a learned refusal reaches the host before recovery retries", async () => {
 });
 
 test("partial and aborted failures do not record facts, and accepted images do", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7li-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7li-"));
     const path = join(home, "pool.json");
     const calls: string[] = [];
     const globals = {

@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,8 @@ interface CaseResult {
 }
 
 async function runCase(pool: boolean): Promise<CaseResult> {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7bc-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7bc-"));
     const local = join(home, "local");
     await mkdir(local);
     await writeFile(join(local, "vera.extension.json"), JSON.stringify({

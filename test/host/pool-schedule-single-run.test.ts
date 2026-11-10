@@ -1,7 +1,9 @@
+import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { hostname } from "node:os";
+import { join } from "node:path";
+import { tmpdir, hostname } from "node:os";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
@@ -30,7 +32,8 @@ test("existing behavior: a worker reasks for an unread schedule after reconnect"
 }, 30_000);
 
 async function checkScheduleReconnect(processWorker: boolean, readInbox: boolean): Promise<void> {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-single-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-single-"));
     const stub = startScheduleWakeProvider(readInbox);
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let client: AttachedAgentClient | undefined;

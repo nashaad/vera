@@ -112,7 +112,7 @@ test("factory uses readable sessions, billed compactions and stash sidecars", as
 });
 
 test("runner refuses homes outside the trial tree", () => {
-    expect(() => assertTrialHome("/private/tmp/unsafe-load-home")).toThrow();
+    expect(() => assertTrialHome("/tmp/unsafe-load-home")).toThrow();
 });
 
 test("load options select routed attachments by default and relay explicitly", () => {

@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdtemp, rename, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -7,7 +8,8 @@ import { join } from "node:path";
 import { removeSocketFile, removeUnusedSocketFile, socketFileIdentity } from "../../src/host/socket-file.ts";
 
 test("stale cleanup keeps a socket with a listener", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/socket-listener-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "socket-listener-"));
     const path = join(home, "host.sock");
     const server = createServer();
     try {
@@ -21,7 +23,8 @@ test("stale cleanup keeps a socket with a listener", async () => {
 });
 
 test("socket cleanup keeps a replacement socket", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/socket-owner-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "socket-owner-"));
     const path = join(home, "host.sock");
     const first = createServer();
     const second = createServer();

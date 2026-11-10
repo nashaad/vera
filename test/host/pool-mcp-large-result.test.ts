@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,8 @@ const MCP = fileURLToPath(new URL("../../extensions/mcp", import.meta.url));
 const SERVER = fileURLToPath(new URL("../extensions/fixtures/mcp-reconnect-server.ts", import.meta.url));
 
 test("a worker receives an MCP result larger than one control frame", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7bg-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7bg-"));
     const bytes = MAX_FRAME_BYTES + 1_024;
     let received = "";
     const stub = Bun.serve({

@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -20,7 +21,8 @@ interface PoolInfo {
 }
 
 socketTest("ordinary discovery answers while the host supervises a silent worker", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-discovery-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-discovery-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

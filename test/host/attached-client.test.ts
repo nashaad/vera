@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -1372,7 +1373,7 @@ async function releasingHost(
 }
 
 function temporaryDirectory(): string {
-    const directory = mkdtempSync(join("/private/tmp", "vera-attached-client-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-attached-client-"));
     temporaryDirectories.push(directory);
     return directory;
 }

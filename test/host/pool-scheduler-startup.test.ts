@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -23,7 +23,8 @@ interface PoolHostInfo {
 }
 
 test("a schedule due at startup wakes its worker once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-start-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-start-"));
     const stub = startScheduleWakeProvider(true);
     const id = "startup-crow";
     const sessionPath = join(defaultSessionDirectory(home), `${id}.jsonl`);

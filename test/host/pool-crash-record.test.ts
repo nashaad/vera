@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +8,8 @@ import { projectTranscript } from "../../src/engine/protocol.ts";
 import { readSessionTurnState, SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
 test("worker recovery records one failed turn and preserves unsent prompts", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs8-record-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs8-record-"));
     const path = join(home, "crow.jsonl");
     try {
         const store = await SessionStore.create(path, { sessionId: "crow", cwd: home });

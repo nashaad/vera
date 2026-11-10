@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,7 +9,8 @@ import { inspectPoolHealth } from "../../clients/process-doctor.ts";
 import { startHostServer, startWorkerServer } from "../../src/host/server.ts";
 
 socketTest("doctor checks the host before reporting an unavailable session process", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-doctor-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-doctor-"));
     const previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = home;
     const runtime = join(home, "runtime");

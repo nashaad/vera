@@ -1,5 +1,6 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +20,8 @@ interface Fixture {
 }
 
 async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<void> {
-    const directory = await mkdtemp("/private/tmp/vera-dev/hs7b-mcp-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const directory = await mkdtemp(join(tmpdir(), "vera-dev", "hs7b-mcp-"));
     const client = new McpServerClient({
         kind: "stdio", name: "stub", command: [process.execPath, SERVER],
         env: { MCP_RECONNECT_FIXTURE: directory },

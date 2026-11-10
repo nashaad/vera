@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -10,7 +12,8 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import * as hostServer from "../../src/host/server.ts";
 
 socketTest("a forwarded shutdown reply is delivered before the worker stops", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-reply-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-reply-"));
     const frameHeld = Promise.withResolvers<void>();
     const releaseFrame = Promise.withResolvers<void>();
     const shutdownNotified = Promise.withResolvers<void>();

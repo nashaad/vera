@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
@@ -14,7 +16,8 @@ import { acquireHostStartupClaim } from "../../src/host/startup-claim.ts";
 import { handOffUpdate } from "../../src/release/handoff.ts";
 
 socketAndLoopbackTest("host stop does not report success while a pool is starting", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-start-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-start-stop-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -81,7 +84,8 @@ socketAndLoopbackTest("host stop does not report success while a pool is startin
 }, 30_000);
 
 test("an update handoff can stop its existing host while it holds the startup claim", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-owned-claim-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-owned-claim-"));
     const runtime = join(home, "runtime");
     const lockPath = join(runtime, "host.json");
     await mkdir(runtime);
@@ -112,7 +116,8 @@ test("an update handoff can stop its existing host while it holds the startup cl
 });
 
 socketTest("plain host stop refuses while startup holds the claim", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-plain-start-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-plain-start-"));
     const runtime = join(home, "runtime");
     const previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = home;
@@ -166,7 +171,8 @@ socketTest("plain host stop refuses while startup holds the claim", async () => 
 }, 30_000);
 
 test("a pooled host with a custom socket refuses while its startup claim is held", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-custom-claim-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-custom-claim-"));
     const runtime = join(home, "runtime");
     const socket = join(runtime, "custom.sock");
     const previousHome = process.env.VERA_HOME;
@@ -196,7 +202,8 @@ test("a pooled host with a custom socket refuses while its startup claim is held
 });
 
 test("a dangling home alias and its target share the startup claim for both stops", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs9-claim-alias-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-claim-alias-"));
     const previousHome = process.env.VERA_HOME;
     const alias = join(root, "alias");
     const target = join(root, "missing-home");

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -31,7 +33,8 @@ test("invalid shard counts and indexes are rejected", () => {
 });
 
 test("three startup scans read each session file once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs6-scan-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs6-scan-"));
     const paths: string[] = [];
     const reads: string[] = [];
     const originalRead = sessionStore.readSessionIndexMetadata;

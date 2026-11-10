@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -27,7 +29,8 @@ interface FixtureOptions {
 
 async function fixture(options: FixtureOptions) {
     const optionsForFixture = options;
-    const home = await mkdtemp("/private/tmp/vera-dev/h8scope-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8scope-"));
     const directory = join(home, "runtime", "sessions");
     const webRoot = join(home, "web");
     await mkdir(directory, { recursive: true });

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -13,7 +15,8 @@ import { defaultSessionDirectory, SessionStore } from "../../src/store/session-s
 import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 socketAndLoopbackTest("a schedule created by a worker session lands in the host scheduler", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7-tool-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7-tool-"));
     const pidPath = join(home, "tool.pid");
     let command = "";
     let requests = 0;

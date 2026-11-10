@@ -522,7 +522,7 @@ socketTest("a missing worker socket returns an unavailable attachment", async ()
 }, 20_000);
 
 test("worker socket paths enforce the macOS byte limit", () => {
-    const prefix = "/private/tmp/";
+    const prefix = "/tmp/";
     const suffix = "/runtime/w0.sock";
     const home = prefix + "a".repeat(103 - Buffer.byteLength(prefix + suffix));
     expect(Buffer.byteLength(inProcessWorkerSocket(home))).toBe(103);

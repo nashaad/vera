@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -129,7 +131,8 @@ socketTest("a failed response send returns an error", async () => {
 });
 
 async function withPeers(run: (host: ControlPeer, worker: ControlPeer) => Promise<void>): Promise<void> {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs4-control-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-control-"));
     const socketPath = join(root, "control.sock");
     const accepted = Promise.withResolvers<ControlPeer>();
     const server: Server = createServer((socket) => accepted.resolve(new ControlPeer(acceptHostConnection(socket))));

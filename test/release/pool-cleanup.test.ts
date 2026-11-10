@@ -1,7 +1,8 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -14,7 +15,8 @@ import { defaultEnsureHost, stopLeftoverPoolWorkers } from "../../src/release/up
 import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
 
 test("an installer stops a verified leftover session process before starting a build", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-upgrade-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-upgrade-"));
     const workers = join(home, "runtime", "workers");
     const ready = join(home, "ready");
     await mkdir(workers, { recursive: true });
@@ -47,7 +49,8 @@ test("an installer stops a verified leftover session process before starting a b
 }, 15_000);
 
 socketTest("a development pool starts only after a verified old-build session process exits", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-upgrade-dev-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-upgrade-dev-"));
     const workers = join(home, "runtime", "workers");
     const releaseRoot = join(home, "release");
     const web = join(home, "web");

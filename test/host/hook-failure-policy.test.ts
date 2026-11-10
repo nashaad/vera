@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,8 +27,8 @@ const cases = [
 ];
 
 for (const scenario of cases) test(scenario.name, async () => {
-    mkdirSync("/private/tmp/vera-dev", { recursive: true });
-    const root = mkdtempSync("/private/tmp/vera-dev/hookfail-host-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = mkdtempSync(join(tmpdir(), "vera-dev", "hookfail-host-"));
     const previousHome = process.env.VERA_HOME;
     const previousInstance = process.env.VERA_DEV_INSTANCE;
     process.env.VERA_HOME = root;

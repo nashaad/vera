@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,8 @@ function running(pid: number): boolean {
 }
 
 socketAndLoopbackTest("a host-owned turn does not start another MCP server", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h7bm-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7bm-"));
     const webRoot = join(home, "web");
     const previous = process.env.VERA_WORKER_EXTENSIONS;
     process.env.VERA_WORKER_EXTENSIONS = "1";

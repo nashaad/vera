@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,7 +14,8 @@ import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts"
 import { HostSocketHeldError } from "../../src/host/server.ts";
 
 socketTest("a second host cannot start while the pool lock is being removed", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/m9-fence-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "m9-fence-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

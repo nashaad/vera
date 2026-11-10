@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { socketTest } from "../support/socket-probe.ts";
 import { expect } from "bun:test";
-import { existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -23,7 +23,8 @@ interface PoolInfo {
 }
 
 socketTest("an entry due while the host is gone wakes the adopted session once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-inbox-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-inbox-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,7 +10,8 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { checkRecordIdentity } from "../../src/host/process-identity.ts";
 
 test("older-host replacement does not signal a reused pid", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/hs9-identity-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-identity-"));
     const path = join(home, "host.json");
     const socketPath = join(home, "host.sock");
     const record = {

@@ -1,6 +1,7 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -33,7 +34,8 @@ interface StartedProcess {
 }
 
 socketAndLoopbackTest("a new host adopts both workers and a running turn survives its death", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -186,7 +188,8 @@ socketAndLoopbackTest("a new host adopts both workers and a running turn survive
 }, 40_000);
 
 socketTest("a lost adopted session process logs unavailable exit details", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-log-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-log-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -240,7 +243,8 @@ socketTest("a lost adopted session process logs unavailable exit details", async
 }, 40_000);
 
 socketTest("a stop requested during adoption closes the host after startup", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-stop-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -305,7 +309,8 @@ socketTest("a stop requested during adoption closes the host after startup", asy
 }, 35_000);
 
 socketAndLoopbackTest("a stop during adoption holds and waits for the surviving turn", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-stop-turn-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-stop-turn-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -405,7 +410,8 @@ socketAndLoopbackTest("a stop during adoption holds and waits for the surviving 
 }, 35_000);
 
 socketAndLoopbackTest("adoption clears a stop wait abandoned by a dead host", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-abandoned-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-abandoned-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -486,7 +492,8 @@ socketAndLoopbackTest("adoption clears a stop wait abandoned by a dead host", as
 }, 35_000);
 
 socketTest("a reconnect waits until an adopted worker has restored its attachment services", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-adopt-ready-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-adopt-ready-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
@@ -598,7 +605,8 @@ async function waitFor(predicate: () => boolean, label: string): Promise<void> {
     }
 }
 socketAndLoopbackTest("a stop refused during adoption never takes effect later", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h9-adopt-slow-stop-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h9-adopt-slow-stop-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

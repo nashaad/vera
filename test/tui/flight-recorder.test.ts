@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTuiFlightRecorder } from "../../clients/tui/flight-recorder.ts";
@@ -73,7 +73,8 @@ test("heartbeat age rejects malformed timestamps", () => {
 });
 
 test("a stopped watchdog removes its own live record", async () => {
-    const home = mkdtempSync("/private/tmp/vera-dev/watchdog-exit-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = mkdtempSync(join(tmpdir(), "vera-dev", "watchdog-exit-"));
     roots.push(home);
     const child = Bun.spawn([
         process.execPath,

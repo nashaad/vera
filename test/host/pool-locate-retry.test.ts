@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,7 +9,8 @@ import { join } from "node:path";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 
 socketTest("a client retries a starting session location once", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8b-locate-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-locate-"));
     const socketPath = join(home, "host.sock");
     let locations = 0;
     const server = createServer((socket) => socket.once("data", (chunk: Buffer) => {

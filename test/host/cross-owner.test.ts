@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
@@ -27,8 +28,8 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 const config = { schema_version: 1, provider: "openrouter", model: "faux/test", approval_mode: "ask" } as const;
 
 async function createTestHome(): Promise<string> {
-    await mkdir("/private/tmp/vera-dev", { recursive: true });
-    return mkdtemp("/private/tmp/vera-dev/hs4-cross-");
+    await mkdir(join(tmpdir(), "vera-dev"), { recursive: true });
+    return mkdtemp(join(tmpdir(), "vera-dev", "hs4-cross-"));
 }
 
 socketTest("rename reaches sessions on both owners", async () => {

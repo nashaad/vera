@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -11,7 +12,7 @@ import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
 socketTest("the development pool flag respects the single-process setting", async () => {
-    const base = process.env.VERA_TEST_TEMP_BASE ?? "/private/tmp/vera-dev";
+    const base = process.env.VERA_TEST_TEMP_BASE ?? join(tmpdir(), "vera-dev");
     await mkdir(base, { recursive: true });
     const root = await mkdtemp(join(base, "pc-"));
     const sourceHome = join(root, "factory");

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
@@ -15,7 +17,8 @@ socketTest("a paging client does not attach to a worker from another build", asy
 });
 
 async function refusesOtherBuild(method: "attach" | "attachPaged"): Promise<void> {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs5-tui-build-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs5-tui-build-"));
     const hostPath = join(root, "host.sock");
     const workerPath = join(root, "worker.sock");
     const hostRequests: string[] = [];

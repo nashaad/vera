@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,7 +33,8 @@ socketTest(
 );
 
 socketTest("pool abort reports no turn only after the owning process has exited", async () => {
-    const root = await mkdtemp("/private/tmp/vera-dev/hs9-abort-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-abort-"));
     let ownerPid = 2_147_483_646;
     const server = await startHostServer({
         socketPath: join(root, "host.sock"),

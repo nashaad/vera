@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,7 +15,8 @@ import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts"
 import { SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
 socketAndLoopbackTest("a killed worker reconnects once, records its failed turn, and leaves another worker running", async () => {
-    const home = await mkdtemp("/private/tmp/vera-dev/h8r-");
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8r-"));
     const webRoot = join(home, "web");
     await mkdir(webRoot);
     await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));

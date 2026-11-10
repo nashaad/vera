@@ -64,7 +64,7 @@ socketTest("a real host reports the extensions it could not load", async () => {
 });
 
 socketTest("a host without the request reports no failures", async () => {
-    const root = await mkdtemp(join("/private/tmp", "vera-old-host-"));
+    const root = await mkdtemp(join(tmpdir(), "vera-old-host-"));
     const socketPath = join(root, "host.sock");
     const server: Server = createServer((socket) => {
         socket.on("data", () => {
