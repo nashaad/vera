@@ -57,12 +57,15 @@ export function updateTargetProblem(buildId: string): string | undefined {
     return releaseProblem(releaseDirectory(buildId, prefix), buildId);
 }
 
-interface PendingHandoff {
+export interface PendingHandoff {
     readonly prefix: string;
     readonly ownRoot: string;
     readonly ownBuildId: string;
     readonly buildId: string;
 }
+
+// One start attempt may take this long before it counts as failed, so the closed host always exits.
+export const HANDOFF_ATTEMPT_TIMEOUT_MS = HANDOFF_PUBLISH_TIMEOUT_MS + 5_000;
 
 let pendingHandoff: PendingHandoff | undefined;
 
@@ -95,22 +98,53 @@ export async function runPendingHandoff(
     if (handoff === undefined) return;
     pendingHandoff = undefined;
     await removeOwnLock();
+    await runHandoff(handoff, {
+        ensureHost,
+        report,
+        ...(process.argv.includes("--pool") ? { pool: true } : {}),
+    });
+}
+
+export interface HandoffSteps {
+    readonly ensureHost: (releaseRoot: string, options: EnsureHostOptions) => Promise<void>;
+    readonly report: (line: string) => void;
+    readonly activate?: (releaseRoot: string, prefix: string) => void;
+    readonly pool?: boolean;
+    readonly attemptTimeoutMs?: number;
+}
+
+// Ends with the target published, this build restored, or a report; it never waits past two attempts.
+export async function runHandoff(handoff: PendingHandoff, steps: HandoffSteps): Promise<void> {
     const options: EnsureHostOptions = {
         publishTimeoutMs: HANDOFF_PUBLISH_TIMEOUT_MS,
-        ...(process.argv.includes("--pool") ? { pool: true } : {}),
+        ...(steps.pool === true ? { pool: true } : {}),
     };
+    const attemptMs = steps.attemptTimeoutMs ?? HANDOFF_ATTEMPT_TIMEOUT_MS;
+    const activate = steps.activate ?? activateRelease;
     try {
-        await ensureHost(releaseDirectory(handoff.buildId, handoff.prefix), options);
+        await withinDeadline(steps.ensureHost(releaseDirectory(handoff.buildId, handoff.prefix), options), attemptMs);
         return;
     } catch (error) {
-        report(`Vera could not start build ${handoff.buildId}: ${errorText(error)}`);
+        steps.report(`Vera could not start build ${handoff.buildId}: ${errorText(error)}`);
     }
     try {
-        activateRelease(handoff.ownRoot, handoff.prefix);
-        await ensureHost(handoff.ownRoot, options);
-        report(`Vera restored build ${handoff.ownBuildId} and started its host.`);
+        activate(handoff.ownRoot, handoff.prefix);
+        await withinDeadline(steps.ensureHost(handoff.ownRoot, options), attemptMs);
+        steps.report(`Vera restored build ${handoff.ownBuildId} and started its host.`);
     } catch (error) {
-        report(`Vera could not restore build ${handoff.ownBuildId}: ${errorText(error)}`);
+        steps.report(`Vera could not restore build ${handoff.ownBuildId}: ${errorText(error)}`);
+    }
+}
+
+async function withinDeadline(attempt: Promise<void>, ms: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`The host start did not finish within ${ms} ms.`)), ms);
+    });
+    try {
+        await Promise.race([attempt, expired]);
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -224,7 +258,7 @@ async function awaitTargetHost(
     previousPid: number | undefined,
 ): Promise<HandOffOutcome> {
     const readLive = options.readLiveHost ?? defaultReadLiveHost;
-    const timeoutMs = options.timeoutMs ?? 2 * HANDOFF_PUBLISH_TIMEOUT_MS + 10_000;
+    const timeoutMs = options.timeoutMs ?? 2 * HANDOFF_ATTEMPT_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMs;
     let running: string | undefined;
     while (Date.now() < deadline) {

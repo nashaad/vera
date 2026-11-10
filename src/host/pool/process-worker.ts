@@ -725,6 +725,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (identity === undefined || !processIsAlive(identity.pid)) return [];
             return checkRecordIdentity(identity) === "mismatch" ? [] : [identity.pid];
         }),
+        stopSupervising() {
+            closing = true;
+            if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
+        },
         stopMaintenance() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.stopMaintenance").catch(() => {});
         },

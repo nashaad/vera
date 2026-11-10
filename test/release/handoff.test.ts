@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import type { StopWhenIdleOutcome } from "../../src/host/force-stop.ts";
-import { handOffUpdate, prefixOfReleaseRoot } from "../../src/release/handoff.ts";
+import { handOffUpdate, prefixOfReleaseRoot, runHandoff } from "../../src/release/handoff.ts";
 import { runningInstallPrefix } from "../../src/release/layout.ts";
 
 function liveRecord(pid: number, buildId: string): HostLockRecord {
@@ -162,4 +162,36 @@ test("handOffUpdate omits the repeated id when a waiting target has no name", as
         },
     });
     expect(lines).toContain("Waiting on s2 (working)");
+});
+
+const pending = { prefix: "/p", ownRoot: "/p/share/vera/releases/vera-old", ownBuildId: "vera-old", buildId: "vera-new" };
+
+test("runHandoff restores this build when starting the target never finishes", async () => {
+    const started: string[] = [];
+    const activated: string[] = [];
+    const reports: string[] = [];
+    await runHandoff(pending, {
+        ensureHost: (root) => {
+            started.push(root);
+            return root === pending.ownRoot ? Promise.resolve() : new Promise<void>(() => {});
+        },
+        activate: (root) => { activated.push(root); },
+        report: (line) => reports.push(line),
+        attemptTimeoutMs: 20,
+    });
+    expect(started).toEqual(["/p/share/vera/releases/vera-new", pending.ownRoot]);
+    expect(activated).toEqual([pending.ownRoot]);
+    expect(reports.at(-1)).toBe("Vera restored build vera-old and started its host.");
+});
+
+test("runHandoff returns when neither start finishes", async () => {
+    const reports: string[] = [];
+    await runHandoff(pending, {
+        ensureHost: () => new Promise<void>(() => {}),
+        activate: () => {},
+        report: (line) => reports.push(line),
+        attemptTimeoutMs: 20,
+    });
+    expect(reports).toHaveLength(2);
+    expect(reports[1]).toStartWith("Vera could not restore build vera-old");
 });

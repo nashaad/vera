@@ -3,6 +3,8 @@ import type { ResidentHost } from "../../src/host/runtime.ts";
 
 // Keep under the SIGTERM grace in src/host/force-stop.ts, or an upgrade reports this host as still running.
 export const HOST_CLOSE_DEADLINE_MS = 2_500;
+// Covers both hand-off attempts in src/release/handoff.ts, so the process always exits.
+export const AFTER_CLOSE_DEADLINE_MS = 75_000;
 
 export interface ShutdownSignalWait {
     readonly promise: Promise<void>;
@@ -20,6 +22,7 @@ export interface ResidentHostProcessOptions {
     readonly log?: HostLog;
     // Runs after a failed or clean close and before exit. A timed-out close skips it, since that host may still serve.
     readonly afterClose?: () => Promise<void>;
+    readonly afterCloseDeadlineMs?: number;
 }
 
 type CloseableResidentHost = Pick<ResidentHost, "shutdownRequested" | "close">;
@@ -78,10 +81,21 @@ export async function runResidentHostProcess(
         if (outcome.kind !== "timed_out"
             && (outcome.kind !== "failed" || options.poolWorkerPids === undefined)
             && options.afterClose !== undefined) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const afterCloseMs = options.afterCloseDeadlineMs ?? AFTER_CLOSE_DEADLINE_MS;
             try {
-                await options.afterClose();
+                await Promise.race([
+                    options.afterClose(),
+                    new Promise<never>((_resolve, reject) => {
+                        timer = setTimeout(() => reject(new Error(
+                            `The update hand-off did not finish within ${afterCloseMs} ms; exiting so the next vera can start a host.`,
+                        )), afterCloseMs);
+                    }),
+                ]);
             } catch (error) {
                 process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+            } finally {
+                clearTimeout(timer);
             }
         }
     }

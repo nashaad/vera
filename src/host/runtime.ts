@@ -1074,6 +1074,8 @@ async function startHostRuntime(
         announceShutdown = resolve;
     });
     const closeHost = (): Promise<void> => {
+        // A worker lost while the host closes must not be replaced.
+        inProcessWorker?.stopSupervising?.();
         sessionHost.stopMaintenance();
         inProcessWorker?.stopMaintenance();
         if (logPruneTimer !== undefined) {
