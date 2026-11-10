@@ -2577,7 +2577,7 @@ test("real shell targets decide whether a bash write is inside the workspace", (
 });
 
 test("a real target inside the scratch dir is still routine", () => {
-    const scratchDir = "/private/tmp/vera/session-1";
+    const scratchDir = "/tmp/vera/session-1";
     expect(decideToolPermission(
         "ask",
         bash("printf x > /tmp/vera/session-1/notes.txt"),

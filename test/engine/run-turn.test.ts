@@ -5812,15 +5812,15 @@ async function denialToolResultText(
 
 test("a denied write outside the workspace names the scratch directory", async () => {
     const text = await denialToolResultText(
-        "echo hi > /private/tmp/vera-denial-note.txt",
-        "/private/tmp/vera-scratch-note",
+        "echo hi > /tmp/vera-denial-note.txt",
+        "/tmp/vera-scratch-note",
     );
-    expect(text).toContain("/private/tmp/vera-scratch-note");
+    expect(text).toContain("/tmp/vera-scratch-note");
 });
 
 test("a denial with no scratch directory keeps the bare reason", async () => {
     const text = await denialToolResultText(
-        "echo hi > /private/tmp/vera-denial-note.txt",
+        "echo hi > /tmp/vera-denial-note.txt",
         undefined,
     );
     expect(text).not.toContain("scratch directory");
@@ -5828,8 +5828,8 @@ test("a denial with no scratch directory keeps the bare reason", async () => {
 
 test("a denied read outside the workspace is not offered the scratch directory", async () => {
     const text = await denialToolResultText(
-        "cat /private/tmp/vera-denial-note.txt",
-        "/private/tmp/vera-scratch-note",
+        "cat /tmp/vera-denial-note.txt",
+        "/tmp/vera-scratch-note",
     );
-    expect(text).not.toContain("/private/tmp/vera-scratch-note");
+    expect(text).not.toContain("/tmp/vera-scratch-note");
 });
