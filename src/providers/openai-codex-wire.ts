@@ -91,6 +91,7 @@ export interface OpenAICodexStreamEvent {
 export type SendOpenAICodexResponse = (
     request: OpenAICodexRequest,
     signal?: AbortSignal,
+    turnId?: string,
 ) => Promise<AsyncIterable<OpenAICodexStreamEvent>>;
 
 export function encodeOpenAICodexInput(
