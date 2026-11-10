@@ -9,7 +9,6 @@ import { localRuntimeStatusOf } from "../../clients/tui/main/outrider-control.ts
 import {
     newWizardSession,
     wizardScreen,
-    wizardAdoptsDefault,
 } from "../../clients/tui/onboarding-wizard.ts";
 import type { OnboardingInput } from "../../src/providers/onboarding.ts";
 import { providerActions } from "../../clients/tui/provider-actions.ts";
@@ -169,24 +168,6 @@ describe("the provider row's menu", () => {
 
     test("a provider screen with no reading yet offers only what it is sure of", () => {
         expect(menu(undefined)).toEqual(["Edit"]);
-    });
-});
-
-describe("which model the wizard makes the default", () => {
-    test("a home with nothing connected adopts whatever answers", () => {
-        expect(wizardAdoptsDefault("outrider", true, undefined)).toBe(true);
-    });
-
-    test("connecting a second provider leaves the default where it is", () => {
-        expect(wizardAdoptsDefault("outrider", false, "openrouter")).toBe(false);
-    });
-
-    test("a wizard run against the provider in use is a model change", () => {
-        expect(wizardAdoptsDefault("outrider", false, "outrider")).toBe(true);
-    });
-
-    test("the provider step has no provider yet, so it adopts nothing", () => {
-        expect(wizardAdoptsDefault(undefined, false, "outrider")).toBe(false);
     });
 });
 

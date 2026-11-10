@@ -89,18 +89,8 @@ export interface WizardSession {
     readonly spinnerFrame: number;
     /** Only set for a provider Vera can put on the machine itself. */
     readonly runtime?: WizardRuntime;
-    /** Set when the home has nothing connected yet, so the model that answers becomes the default. A home that already has one keeps it. */
+    /** Set when the verified model should become the default. */
     readonly adopts?: boolean;
-}
-
-/** Whether the model a wizard verifies also becomes the default. A home with nothing connected has no default worth keeping, and a wizard run against the provider already in use is the user changing which model that provider serves. Anything else is a second provider being added beside the first, which leaves the default alone. */
-export function wizardAdoptsDefault(
-    provider: string | undefined,
-    needsProvider: boolean,
-    current: string | undefined,
-): boolean {
-    if (needsProvider) return true;
-    return provider !== undefined && provider === current;
 }
 
 export function newWizardSession(at: OnboardingStepId): WizardSession {

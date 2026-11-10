@@ -3,7 +3,11 @@
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { credentialRefusal, holdsCredential, providerMessage } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
-import { loadOptionalVeraConfig } from "../../../src/config.ts";
+import {
+    loadOptionalVeraConfig,
+    startingVeraConfig,
+} from "../../../src/config.ts";
+import { shouldAdoptWizardModel } from "../onboarding-model-default.ts";
 import {
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
@@ -14,7 +18,6 @@ import { isHomeClient } from "../home-client.ts";
 import type { OnboardingScreenAction } from "../onboarding-screen.ts";
 import {
     newWizardSession,
-    wizardAdoptsDefault,
     OUTRIDER_REPO,
     RUNTIME_INSTALL_ROW,
     RUNTIME_MANUAL_ROW,
@@ -45,7 +48,7 @@ import { appendTuiError, appendTuiNotice } from "../state.ts";
 import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
-import { homeNeedsProvider, onboardingInput } from "./model-pickers.ts";
+import { onboardingInput } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { requestPoolAdmission } from "../main.ts";
@@ -92,12 +95,9 @@ function showWizard(rt: TuiRuntime, session: WizardSession): void {
     focusActiveSurface(rt);
 }
 
-function wizardAdopts(rt: TuiRuntime, provider: string | undefined): boolean {
-    return wizardAdoptsDefault(
-        provider,
-        homeNeedsProvider(rt),
-        loadOptionalVeraConfig()?.provider,
-    );
+export function wizardAdopts(rt: TuiRuntime, provider: string | undefined): boolean {
+    const config = loadOptionalVeraConfig() ?? startingVeraConfig();
+    return shouldAdoptWizardModel(config, focusedAgentState(rt), provider);
 }
 
 export function openOnboardingWizard(rt: TuiRuntime): void {
