@@ -6,10 +6,13 @@ import {
     rmSync,
     readFileSync,
     symlinkSync,
+    utimesSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { copySleep } from "../support/copied-sleep.ts";
 
 import { defaultHostLockPath } from "../../src/host/lockfile.ts";
 import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
@@ -65,15 +68,21 @@ test("removeRelease refuses a rollback-protected build", () => {
     }
 });
 
-test("gcReleases deletes only unreferenced builds", () => {
+test("gcReleases retains links, three newest by build time, and processes from any home", () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-gc-sweep-"));
     try {
-        writeRelease(prefix, "vera-keep");
-        writeRelease(prefix, "vera-drop");
-        writeCurrent(prefix, "vera-keep");
-        expect(gcReleases(prefix)).toEqual(["vera-drop"]);
-        expect(existsSync(releaseDirectory("vera-keep", prefix))).toBe(true);
+        for (const [index, name] of ["current", "rollback", "running", "drop", "new1", "new2", "new3"].entries()) {
+            const release = writeRelease(prefix, `vera-${name}`);
+            utimesSync(release, index + 1, index + 1);
+        }
+        writeFileSync(join(releaseDirectory("vera-new1", prefix), "manifest.json"), JSON.stringify({ built_at: "2030-01-01T00:00:00Z" }));
+        writeCurrent(prefix, "vera-current");
+        symlinkSync(releaseDirectory("vera-rollback", prefix), rollbackSymlinkPath(prefix));
+        expect(gcReleases(prefix, { listProcessExecutables: () => [join(releaseDirectory("vera-running", prefix), "vera-bin")] })).toEqual(["vera-drop"]);
         expect(existsSync(releaseDirectory("vera-drop", prefix))).toBe(false);
+        for (const name of ["current", "rollback", "running", "new1", "new2", "new3"]) {
+            expect(existsSync(releaseDirectory(`vera-${name}`, prefix))).toBe(true);
+        }
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }
@@ -84,6 +93,12 @@ test("gcReleases leaves a pack's staging and retired directories alone", () => {
     try {
         writeRelease(prefix, "vera-keep");
         writeRelease(prefix, "vera-drop");
+        for (const [index, name] of ["vera-new-1", "vera-new-2", "vera-new-3"].entries()) {
+            const release = writeRelease(prefix, name);
+            utimesSync(release, 100 + index, 100 + index);
+        }
+        utimesSync(releaseDirectory("vera-keep", prefix), 2, 2);
+        utimesSync(releaseDirectory("vera-drop", prefix), 1, 1);
         writeCurrent(prefix, "vera-keep");
         const staging = writeRelease(prefix, ".staging-1-vera-next");
         const retired = writeRelease(prefix, ".retired-1-vera-next");
@@ -95,25 +110,84 @@ test("gcReleases leaves a pack's staging and retired directories alone", () => {
     }
 });
 
-test("gcReleases removes nothing while a damaged host lockfile may name a live host", () => {
-    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-damaged-"));
-    const lockPath = defaultHostLockPath();
-    mkdirSync(dirname(lockPath), { recursive: true });
-    writeFileSync(lockPath, `{"schema_version": 3, "socket_pa`);
+test("gcReleases keeps every release when the first process scan fails", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-first-scan-fail-"));
     try {
-        writeRelease(prefix, "vera-keep");
-        writeRelease(prefix, "vera-other");
-        writeCurrent(prefix, "vera-keep");
+        for (const name of ["old", "one", "two", "three"]) writeRelease(prefix, `vera-${name}`);
+        const old = releaseDirectory("vera-old", prefix);
+        utimesSync(old, 1, 1);
         const reasons: string[] = [];
-        expect(gcReleases(prefix, { onHeld: (reason) => reasons.push(reason) }))
-            .toEqual([]);
-        expect(existsSync(releaseDirectory("vera-other", prefix))).toBe(true);
+        expect(gcReleases(prefix, {
+            onHeld: (reason) => reasons.push(reason),
+            listProcessExecutables: () => { throw new Error("Cannot inspect running processes"); },
+        })).toEqual([]);
+        expect(existsSync(old)).toBe(true);
         expect(reasons).toHaveLength(1);
-        expect(reasons[0]).toContain("damaged");
-        expect(reasons[0]).toContain(lockPath);
     } finally {
-        rmSync(lockPath, { force: true });
         rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("gcReleases restores a renamed release when the second process scan fails", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-scan-fail-"));
+    try {
+        for (const name of ["old", "one", "two", "three"]) writeRelease(prefix, `vera-${name}`);
+        utimesSync(releaseDirectory("vera-old", prefix), 1, 1);
+        const reasons: string[] = [];
+        let calls = 0;
+        expect(gcReleases(prefix, {
+            onHeld: (reason) => reasons.push(reason),
+            listProcessExecutables: () => {
+                if (++calls > 1) throw new Error("Cannot inspect running processes");
+                return [];
+            },
+        })).toEqual([]);
+        expect(existsSync(releaseDirectory("vera-old", prefix))).toBe(true);
+        expect(reasons).toHaveLength(1);
+        expect(reasons[0]).toContain("Cannot inspect running processes");
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("gcReleases restores a release that appears in the second process scan", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-race-"));
+    try {
+        const old = writeRelease(prefix, "vera-old");
+        for (const name of ["one", "two", "three"]) writeRelease(prefix, `vera-${name}`);
+        utimesSync(old, 1, 1);
+        let calls = 0;
+        expect(gcReleases(prefix, { listProcessExecutables: () => ++calls === 1 ? [] : [join(dirname(old), `.gc-vera-old-${process.pid}`, "vera-bin")] })).toEqual([]);
+        expect(existsSync(old)).toBe(true);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("gcReleases keeps a real running executable through a symlinked prefix", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-gc-real-"));
+    const physical = join(root, "physical");
+    const prefix = join(root, "link");
+    mkdirSync(physical);
+    symlinkSync(physical, prefix);
+    const running = writeRelease(prefix, "vera-running");
+    const executable = join(running, "vera-bin");
+    copySleep(executable);
+    const child = Bun.spawn([executable, "60"], { stdout: "ignore", stderr: "ignore" });
+    try {
+        const drop = writeRelease(prefix, "vera-drop");
+        for (const name of ["one", "two", "three"]) writeRelease(prefix, `vera-${name}`);
+        utimesSync(running, 1, 1);
+        utimesSync(drop, 2, 2);
+        await Bun.sleep(100);
+        expect(child.exitCode).toBeNull();
+        expect(gcReleases(prefix)).toEqual(["vera-drop"]);
+        expect(existsSync(running)).toBe(true);
+        expect(existsSync(drop)).toBe(false);
+    } finally {
+        child.kill();
+        await child.exited;
+        rmSync(root, { recursive: true, force: true });
     }
 });
 
@@ -152,11 +226,8 @@ test("gcReleases and removeRelease keep every release while a live host's lockfi
         writeRelease(prefix, "vera-other");
         writeCurrent(prefix, "vera-keep");
         const reasons: string[] = [];
-        expect(gcReleases(prefix, { onHeld: (reason) => reasons.push(reason) }))
-            .toEqual([]);
+        expect(gcReleases(prefix, { onHeld: (reason) => reasons.push(reason) })).toEqual([]);
         expect(existsSync(releaseDirectory("vera-other", prefix))).toBe(true);
-        expect(reasons).toHaveLength(1);
-        expect(reasons[0]).toContain("names no build");
         expect(() => removeRelease("vera-other", prefix)).toThrow(ReleaseInUseError);
         expect(() => removeRelease("vera-other", prefix)).toThrow(
             "The host lockfile names no build",
@@ -165,7 +236,7 @@ test("gcReleases and removeRelease keep every release while a live host's lockfi
 
         host.kill("SIGKILL");
         await host.exited;
-        expect(gcReleases(prefix)).toEqual(["vera-other"]);
+        expect(gcReleases(prefix)).toEqual([]);
     } finally {
         rmSync(lockPath, { force: true });
         host.kill("SIGKILL");
