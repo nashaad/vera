@@ -2263,7 +2263,7 @@ async function importFreshClientExtension(
                 builder.onLoad(
                     { filter: /.*/, namespace: "client-tui-runtime" },
                     async () => {
-                        const runtime = await import("@opentui/core");
+                        const runtime = await import(tuiModule);
                         const exports = Object.keys(runtime).join(", ");
                         return {
                             contents: `export { ${exports} } from ${JSON.stringify(tuiModule)};`,
