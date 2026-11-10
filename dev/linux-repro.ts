@@ -80,7 +80,7 @@ const dir = mkdtempSync(join(tmpdir(), "linux-repro-"));
 const header = '{"type":"header"}\n';
 for (const size of [64 * 1024, MIB - 10, MIB + 10, 3 * MIB + 200]) {
     for (const emoji of [false, true]) {
-        if (emoji && size < MIB) continue;
+        if (emoji && size < 2 * MIB) continue;
         const line = makeLine(size, emoji);
         const lineBytes = Buffer.byteLength(line);
         for (const [name, write] of variants) {
