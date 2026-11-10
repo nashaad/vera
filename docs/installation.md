@@ -1,14 +1,44 @@
 ---
 title: "Installation and upgrades"
-description: "Install Vera from a checkout and activate a verified release."
+description: "Install Vera from a release download or from a checkout."
 ---
 
 # Installation and upgrades
 
-Install Vera from its source checkout using Bun. The installer builds and
-verifies a release, then makes it available as the `vera` command.
+Install Vera from a release download, which needs nothing else installed, or
+from its source checkout using Bun.
 
-## Install
+## Install a release
+
+Each GitHub release has one file per platform:
+
+| Platform | File |
+|---|---|
+| macOS, Apple silicon | `vera-darwin-arm64.tar.gz` |
+| macOS, Intel | `vera-darwin-x64.tar.gz` |
+| Linux x64 (glibc) | `vera-linux-x64.tar.gz` |
+| Linux arm64 (glibc) | `vera-linux-arm64.tar.gz` |
+
+Run the release's `install.sh`. It picks the file for your platform,
+checks its SHA-256 sum, and installs it:
+
+```sh
+curl -fsSL https://github.com/nashaad/vera/releases/latest/download/install.sh | sh
+```
+
+To install a file you already downloaded, pass it to the script:
+
+```sh
+sh install.sh ~/Downloads/vera-darwin-arm64.tar.gz
+```
+
+Set `VERA_VERSION` to install a version other than the latest, and
+`VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. The release
+includes its own runtime, so Bun and Node are not needed. Installing the same
+release again leaves it in place, and installing a newer one keeps the previous
+release for [`vera rollback`](installed-command.md).
+
+## Install from a checkout
 
 From the checkout's root directory:
 

@@ -10,6 +10,7 @@ import {
     renameSync,
     rmSync,
     statSync,
+    writeFileSync,
 } from "node:fs";
 import {
     basename,
@@ -316,6 +317,51 @@ export async function packRunnableRelease(
     return { prefix, releaseRoot: target, manifest };
 }
 
+export interface PackedTarball {
+    readonly path: string;
+    readonly digestPath: string;
+    readonly manifest: ReleaseManifest;
+}
+
+/**
+ * Pack a runnable release and archive it as `<build-id>/...` in a gzip tarball,
+ * the shape install.sh extracts into releases/. Writes `<path>.sha256` beside it.
+ */
+export async function packReleaseTarball(
+    path: string,
+    options: Omit<InstallReleaseOptions, "prefix"> = {},
+): Promise<PackedTarball> {
+    const target = resolve(path);
+    if (!target.endsWith(".tar.gz")) {
+        throw new Error(`tarball path must end in .tar.gz: ${target}`);
+    }
+    mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
+    const prefix = join(dirname(target), `.tarball-${process.pid}`);
+    rmSync(prefix, { recursive: true, force: true });
+    try {
+        const packed = await packRunnableRelease({ ...options, prefix, force: true });
+        const releasesRoot = dirname(packed.releaseRoot);
+        const temporary = `${target}.${process.pid}.tmp`;
+        const tar = Bun.spawnSync(
+            ["tar", "-czf", temporary, "-C", releasesRoot, packed.manifest.build_id],
+            { stdout: "inherit", stderr: "inherit" },
+        );
+        if (tar.exitCode !== 0) {
+            rmSync(temporary, { force: true });
+            throw new Error(`tar exited with ${tar.exitCode}`);
+        }
+        renameSync(temporary, target);
+        const digest = new Bun.CryptoHasher("sha256")
+            .update(readFileSync(target))
+            .digest("hex");
+        const digestPath = `${target}.sha256`;
+        writeFileSync(digestPath, `${digest}  ${basename(target)}\n`);
+        return { path: target, digestPath, manifest: packed.manifest };
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+}
+
 // Built beside the target and moved in whole: building in place leaves a mixed tree
 // when the build fails, and copying over an existing tree nests each directory in itself.
 export async function buildThenSwap(
@@ -428,11 +474,13 @@ function stampedBuildId(releaseRoot: string): string | undefined {
 function parseArgs(argv: readonly string[]): {
     readonly outputDirectory: string | undefined;
     readonly install: boolean;
+    readonly tarball: string | undefined;
     readonly prefix: string | undefined;
     readonly force: boolean;
 } {
     let force = false;
     let install = false;
+    let tarball: string | undefined;
     let prefix: string | undefined;
     const positional: string[] = [];
     for (let i = 0; i < argv.length; i++) {
@@ -452,16 +500,29 @@ function parseArgs(argv: readonly string[]): {
             }
             continue;
         }
+        if (arg === "--tarball") {
+            tarball = argv[++i];
+            if (tarball === undefined || tarball.length === 0) {
+                fail("missing --tarball path");
+            }
+            continue;
+        }
         if (arg?.startsWith("-")) {
             fail(`unknown flag: ${arg}`);
         }
         if (arg !== undefined) positional.push(arg);
     }
+    if (tarball !== undefined) {
+        if (install || prefix !== undefined || positional.length > 0) {
+            fail("usage: scripts/pack-release.ts --tarball FILE.tar.gz");
+        }
+        return { outputDirectory: undefined, install: false, tarball, prefix, force };
+    }
     if (install) {
         if (positional.length > 0) {
             fail("usage: scripts/pack-release.ts --install [--prefix DIR] [--force]");
         }
-        return { outputDirectory: undefined, install: true, prefix, force };
+        return { outputDirectory: undefined, install: true, tarball, prefix, force };
     }
     if (prefix !== undefined) {
         fail("--prefix is only valid with --install");
@@ -472,6 +533,7 @@ function parseArgs(argv: readonly string[]): {
     return {
         outputDirectory: positional[0],
         install: false,
+        tarball: undefined,
         prefix: undefined,
         force,
     };
@@ -480,7 +542,11 @@ function parseArgs(argv: readonly string[]): {
 if (import.meta.main) {
     try {
         const args = parseArgs(Bun.argv.slice(2));
-        if (args.install) {
+        if (args.tarball !== undefined) {
+            const result = await packReleaseTarball(args.tarball);
+            process.stdout.write(`${result.path}\n`);
+            process.stdout.write(`${result.manifest.build_id}\n`);
+        } else if (args.install) {
             const result = await installRelease({
                 force: args.force,
                 ...(args.prefix === undefined ? {} : { prefix: args.prefix }),
