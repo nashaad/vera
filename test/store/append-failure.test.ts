@@ -102,10 +102,12 @@ async function createStore(plan: readonly (Faults | undefined)[]): Promise<{
 
 test("a write that fails halfway leaves the file as it was and the next append lands cleanly", async () => {
     const { path, store } = await createStore([undefined, { partialWriteBytes: 40 }]);
-    await store.appendMessage(user("one"));
+    const one = await store.appendMessage(user("one"));
     const before = readFileSync(path);
 
     await expect(store.appendMessage(user("two"))).rejects.toThrow("ENOSPC");
+    expect(store.recordIndexStats().records).toBe(2);
+    expect((await store.readIndexedMessage(one.id))?.message).toEqual(user("one"));
 
     expect(readFileSync(path).equals(before)).toBe(true);
     expect(texts(store)).toEqual(["one"]);
@@ -211,6 +213,7 @@ test("an attachment recovered after an uncertain write remains indexed", async (
     expect(await store.appendAttachment(attachment)).toEqual(attachment);
     expect(await store.appendAttachment(attachment)).toEqual(attachment);
     expect(store.attachmentRecords()).toEqual([attachment]);
+    expect(store.recordIndexStats().records).toBe(2);
     expect((await SessionStore.open(path)).attachmentRecords()).toEqual([attachment]);
 });
 

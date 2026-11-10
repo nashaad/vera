@@ -20,6 +20,7 @@ import { AsyncQueue } from "../../engine/async-queue.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { SessionFacts } from "../../store/session-facts.ts";
 import { sessionRecordForWire } from "../../store/session-record-projection.ts";
+import { scanSessionLines } from "../../store/session-lines.ts";
 import type { InstructionRoot } from "../../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type {
@@ -600,17 +601,15 @@ export class WorkerCapReachedError extends Error {
 }
 
 export async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
-    const lines = (await Bun.file(path).text())
-        .split("\n")
-        .filter((line) => line.length > 0);
-    const [header, ...records] = lines;
-    return {
-        path,
-        header: JSON.parse(header ?? "{}") as Record<string, unknown>,
-        records: records.map(
-            (line) => sessionRecordForWire(JSON.parse(line) as Record<string, unknown>),
-        ),
-    };
+    let header: Record<string, unknown> | undefined;
+    const records: Record<string, unknown>[] = [];
+    await scanSessionLines(path, ({ text }) => {
+        if (text.length === 0) return;
+        const value = JSON.parse(text) as Record<string, unknown>;
+        if (header === undefined) header = value;
+        else records.push(sessionRecordForWire(value));
+    }, true);
+    return { path, header: header ?? {}, records };
 }
 
 export class ReportedWorkerFailure extends Error {}

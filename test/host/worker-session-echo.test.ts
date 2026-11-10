@@ -391,3 +391,15 @@ test("a host write made while the seed is being read is in the worker's first re
         await handle.outcome;
     }
 }, 30_000);
+
+test("worker seed streams long UTF-8 records in order", async () => {
+    const directory = workspace();
+    const host = await SessionStore.create(join(directory, "seed.jsonl"), {
+        sessionId: "seed", cwd: directory,
+    });
+    const first = await host.appendMessage(user("x".repeat(65500) + "🦜" + "y".repeat(140000)));
+    const second = await host.appendMessage(user("second"));
+    const seed = await readSessionSeed(host.path);
+    expect(seed.records.map((record) => record.id)).toEqual([first.id, second.id]);
+    expect(seed.records[0]?.message).toEqual(first.message);
+});

@@ -6,11 +6,12 @@ import {
     isTurnTiming,
 } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
+import { scanSessionLines, readSessionLine, SESSION_SCAN_CHUNK_BYTES } from "./session-lines.ts";
+import { SessionRecordIndex } from "./session-record-index.ts";
 import {
     chmod,
     mkdir,
     open,
-    readFile,
     rm,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -421,6 +422,7 @@ interface ParsedSessionFile {
     readonly header: SessionHeader;
     readonly state: SessionProjectionState;
     readonly lineCount: number;
+    readonly index: SessionRecordIndex;
 }
 
 export class SessionStore {
@@ -433,6 +435,7 @@ export class SessionStore {
     private writeFault: Error | undefined;
     private pendingAppend: Promise<void> = Promise.resolve();
     private lineCount: number;
+    private recordIndex: SessionRecordIndex;
     private onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
@@ -446,6 +449,7 @@ export class SessionStore {
         state: SessionProjectionState,
         options: OpenSessionStoreOptions,
         lineCount = 1,
+        index?: SessionRecordIndex,
     ) {
         this.path = path;
         this.header = header;
@@ -455,6 +459,10 @@ export class SessionStore {
         this.openAppendFile = options.openAppendFile
             ?? ((appendPath) => open(appendPath, "a", 0o600));
         this.lineCount = lineCount;
+        this.recordIndex = index ?? new SessionRecordIndex();
+        if (index === undefined) {
+            this.recordIndex.append(0, Buffer.byteLength(jsonLine(header)), header as unknown as Record<string, unknown>);
+        }
         if (options.onRecordAppended !== undefined) {
             this.onRecordAppended = options.onRecordAppended;
         }
@@ -530,9 +538,7 @@ export class SessionStore {
         path: string,
         options: OpenSessionStoreOptions = {},
     ): Promise<SessionStore> {
-        const source = await readFile(path, "utf8");
-        const completeSource = await removeUnterminatedTail(path, source);
-        const loaded = parseSessionFile(path, completeSource);
+        const loaded = await scanSessionFile(path, true);
         await chmod(path, 0o600);
         return new SessionStore(
             path,
@@ -540,7 +546,19 @@ export class SessionStore {
             loaded.state,
             options,
             loaded.lineCount,
+            loaded.index,
         );
+    }
+
+    async readIndexedMessage(id: string): Promise<Record<string, unknown> | undefined> {
+        const number = this.recordIndex.messageRecord(id);
+        const location = number === undefined ? undefined : this.recordIndex.location(number);
+        if (location === undefined) return undefined;
+        return parseJsonObject(this.path, number! + 1, await readSessionLine(this.path, location.offset, location.length));
+    }
+
+    recordIndexStats(): { records: number; columnBytes: number } {
+        return { records: this.recordIndex.length, columnBytes: this.recordIndex.columnBytes };
     }
 
     entries(): readonly SessionMessageEntry[] {
@@ -1556,15 +1574,16 @@ export class SessionStore {
             const durable = await readDurableAttachment(this.path, stored.id);
             if (
                 durable === undefined
-                || !sameAttachmentContent(durable, stored)
+                || !sameAttachmentContent(durable.attachment, stored)
             ) {
                 throw error;
             }
+            this.recordIndex = durable.index;
             addAttachmentEntry(this.projection, {
                 ...entry,
-                attachment: durable,
+                attachment: durable.attachment,
             });
-            return { ...durable };
+            return { ...durable.attachment };
         }
         addAttachmentEntry(this.projection, entry);
         return { ...stored };
@@ -1771,8 +1790,9 @@ export class SessionStore {
         }
         const line = jsonLine(record);
         const file = await this.openAppendFile(this.path);
+        let lengthBefore = 0;
         try {
-            const { size: lengthBefore } = await file.stat();
+            ({ size: lengthBefore } = await file.stat());
             try {
                 await file.writeFile(line, "utf8");
                 await file.sync();
@@ -1788,6 +1808,7 @@ export class SessionStore {
             // The line is durable or rolled back by now, so a failed close changes neither.
             await file.close().catch(() => {});
         }
+        this.recordIndex.append(lengthBefore, Buffer.byteLength(line), record as Record<string, unknown>);
         this.lineCount += 1;
         return this.lineCount;
     }
@@ -1921,13 +1942,13 @@ export async function readSessionIndexMetadata(
 async function readDurableAttachment(
     path: string,
     id: string,
-): Promise<SessionImageAttachmentMetadata | undefined> {
+): Promise<{ attachment: SessionImageAttachmentMetadata; index: SessionRecordIndex } | undefined> {
     try {
-        const source = await readFile(path, "utf8");
-        const complete = completeSessionSource(path, source);
-        return parseSessionFile(path, complete).state.attachmentEntries.find(
+        const loaded = await scanSessionFile(path, false);
+        const attachment = loaded.state.attachmentEntries.find(
             (entry) => entry.attachment.id === id,
         )?.attachment;
+        return attachment === undefined ? undefined : { attachment, index: loaded.index };
     } catch {
         return undefined;
     }
@@ -1981,8 +2002,7 @@ export async function openSessionForRecovery(path: string): Promise<SessionStore
 export async function readSessionTurnState(
     path: string,
 ): Promise<SessionTurnState> {
-    const source = await readFile(path, "utf8");
-    const loaded = parseSessionFile(path, completeSessionSource(path, source));
+    const loaded = await scanSessionFile(path, false);
     const active = loaded.state.activeMessageEntries;
     return {
         sessionId: loaded.header.id,
@@ -2047,8 +2067,7 @@ function hasOpenDeliveryTurn(
 export async function readSessionSnapshot(
     path: string,
 ): Promise<ReadonlySessionSnapshot> {
-    const source = await readFile(path, "utf8");
-    const loaded = parseSessionFile(path, completeSessionSource(path, source));
+    const loaded = await scanSessionFile(path, false);
     const active = loaded.state.activeMessageEntries;
     return {
         header: loaded.header,
@@ -2096,36 +2115,6 @@ function projectHarnessMessages(
             ? []
             : [{ afterMessage, text: entry.text, tone: entry.tone }];
     });
-}
-
-async function removeUnterminatedTail(
-    path: string,
-    source: string,
-): Promise<string> {
-    const completeSource = completeSessionSource(path, source);
-    if (completeSource === source) {
-        return source;
-    }
-    const file = await open(path, "r+");
-    try {
-        await file.truncate(Buffer.byteLength(completeSource));
-        await file.sync();
-    } finally {
-        await file.close();
-    }
-    return completeSource;
-}
-
-function completeSessionSource(path: string, source: string): string {
-    if (source.endsWith("\n")) {
-        return source;
-    }
-
-    const finalNewline = source.lastIndexOf("\n");
-    if (finalNewline < 0) {
-        throw invalidSession(path, "has no complete header line");
-    }
-    return source.slice(0, finalNewline + 1);
 }
 
 export interface SessionProjectionState {
@@ -2596,121 +2585,128 @@ export function ingestSessionRecord(
     );
 }
 
-function parseSessionFile(path: string, source: string): ParsedSessionFile {
-    const lines = source.slice(0, -1).split("\n");
-    const header = parseHeader(path, lines[0]);
+async function scanSessionFile(path: string, repair: boolean): Promise<ParsedSessionFile> {
+    let header: SessionHeader | undefined;
     const state = createSessionProjectionState();
+    const index = new SessionRecordIndex();
     const deferred: DeferredContextMeasurement[] = [];
     let failureLine: number | undefined;
-
-    for (let index = 1; index < lines.length; index += 1) {
-        const lineNumber = index + 1;
-        const line = lines[index]!;
-        if (line.startsWith(CONTEXT_MEASUREMENT_LINE_PREFIX)) {
-            const afterMessageId = measuredAfterMessageId(line);
-            if (afterMessageId !== undefined) {
-                deferred.push({
-                    lineNumber,
-                    afterMessageId,
-                    line,
-                    compact: line.includes('"contextRecipe":'),
-                });
-                continue;
+    let scanError: unknown;
+    let lineCount = 0;
+    const file = await open(path, "r");
+    try {
+        const sizes = await scanSessionLines(path, (scanned) => {
+            const { offset, length, bytes } = scanned;
+            lineCount += 1;
+            if (scanError !== undefined) return;
+            try {
+                if (lineCount === 1) {
+                    header = parseHeader(path, scanned.text);
+                    index.append(offset, length, header as unknown as Record<string, unknown>);
+                    return;
+                }
+                if (bytes.subarray(0, CONTEXT_MEASUREMENT_LINE_PREFIX.length).equals(CONTEXT_MEASUREMENT_LINE_PREFIX)) {
+                    const afterMessageId = measuredAfterMessageId(bytes);
+                    if (afterMessageId !== undefined) {
+                        deferred.push({ lineNumber: lineCount, afterMessageId, offset, length,
+                            compact: bytes.includes(CONTEXT_RECIPE_KEY) });
+                        index.append(offset, length, { type: "context_measurement" });
+                        return;
+                    }
+                }
+                const value = parseJsonObject(path, lineCount, scanned.text);
+                if (value.type === "context_measurement") {
+                    const afterMessageId = value.afterMessageId;
+                    if (afterMessageId !== null && typeof afterMessageId !== "string") {
+                        throw invalidSession(path, `line ${lineCount} is not a valid context measurement entry`);
+                    }
+                    deferred.push({ lineNumber: lineCount, afterMessageId, offset, length,
+                        compact: value.contextRecipe !== undefined });
+                } else {
+                    ingestSessionRecord(path, lineCount, value, state);
+                    if (state.agentFailure !== undefined && failureLine === undefined) failureLine = lineCount;
+                }
+                index.append(offset, length, value);
+            } catch (error) {
+                scanError = error;
+            }
+        }, false, file);
+        if (sizes.completeBytes === 0) throw invalidSession(path, "has no complete header line");
+        if (repair && sizes.completeBytes !== sizes.totalBytes) {
+            const file = await open(path, "r+");
+            try {
+                await file.truncate(sizes.completeBytes);
+                await file.sync();
+            } finally {
+                await file.close();
             }
         }
-        const value = parseJsonObject(path, lineNumber, line);
-        if (value.type === "context_measurement") {
-            const afterMessageId = value.afterMessageId;
-            if (afterMessageId !== null && typeof afterMessageId !== "string") {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} is not a valid context measurement entry`,
-                );
+        if (scanError !== undefined) throw scanError;
+        for (const candidate of deferred) {
+            if (failureLine !== undefined && candidate.lineNumber > failureLine) {
+                throw invalidSession(path, `line ${candidate.lineNumber} follows the terminal agent failure`);
             }
-            deferred.push({
-                lineNumber,
-                afterMessageId,
-                line,
-                compact: value.contextRecipe !== undefined,
-                record: value,
-            });
-            continue;
         }
-        ingestSessionRecord(path, lineNumber, value, state);
-        if (state.agentFailure !== undefined && failureLine === undefined) {
-            failureLine = lineNumber;
-        }
+        await ingestDeferredContextMeasurements(path, state, deferred, file);
+        return { header: header!, state, lineCount, index };
+    } finally {
+        await file.close();
     }
-
-    for (const candidate of deferred) {
-        if (failureLine !== undefined && candidate.lineNumber > failureLine) {
-            throw invalidSession(
-                path,
-                `line ${candidate.lineNumber} follows the terminal agent failure`,
-            );
-        }
-    }
-    ingestDeferredContextMeasurements(path, state, deferred);
-
-    return { header, state, lineCount: lines.length };
 }
 
 interface DeferredContextMeasurement {
     readonly lineNumber: number;
     readonly afterMessageId: string | null;
-    readonly line: string;
+    readonly offset: number;
+    readonly length: number;
     readonly compact: boolean;
-    readonly record?: Record<string, unknown>;
 }
 
-const CONTEXT_MEASUREMENT_LINE_PREFIX = '{"type":"context_measurement"';
+const CONTEXT_MEASUREMENT_LINE_PREFIX = Buffer.from('{"type":"context_measurement"');
+const CONTEXT_RECIPE_KEY = Buffer.from('"contextRecipe":');
+const AFTER_MESSAGE_KEY = Buffer.from('"afterMessageId":');
+const MEASUREMENT_KEY = Buffer.from('"measurement":');
 
-/**
- * Reads the top-level afterMessageId without parsing a measurement recipe that
- * may never be kept. Returns undefined when the line needs a full parse.
- */
-function measuredAfterMessageId(line: string): string | null | undefined {
-    if (!line.endsWith("}")) return undefined;
-    const key = '"afterMessageId":';
-    const measurementAt = line.indexOf('"measurement":', CONTEXT_MEASUREMENT_LINE_PREFIX.length);
-    const keyAt = line.indexOf(key, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
-    if (keyAt === -1 || (measurementAt !== -1 && keyAt > measurementAt)) {
-        return undefined;
-    }
-    const valueAt = keyAt + key.length;
-    if (line.startsWith("null", valueAt)) return null;
-    if (line[valueAt] !== '"') return undefined;
+function measuredAfterMessageId(line: Buffer): string | null | undefined {
+    if (line.at(-1) !== 125) return undefined;
+    const measurementAt = line.indexOf(MEASUREMENT_KEY, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
+    const keyAt = line.indexOf(AFTER_MESSAGE_KEY, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
+    if (keyAt === -1 || (measurementAt !== -1 && keyAt > measurementAt)) return undefined;
+    const valueAt = keyAt + AFTER_MESSAGE_KEY.length;
+    if (line[valueAt] === 110 && line[valueAt + 1] === 117
+        && line[valueAt + 2] === 108 && line[valueAt + 3] === 108) return null;
+    if (line[valueAt] !== 34) return undefined;
     let end = valueAt + 1;
     let escaped = false;
     for (; end < line.length; end += 1) {
         const character = line[end]!;
-        if (escaped) {
-            escaped = false;
-        } else if (character === "\\") {
-            escaped = true;
-        } else if (character === '"') {
-            break;
-        }
+        if (escaped) escaped = false;
+        else if (character === 92) escaped = true;
+        else if (character === 34) break;
     }
     if (end >= line.length) return undefined;
     try {
-        const parsed: unknown = JSON.parse(line.slice(valueAt, end + 1));
+        const parsed: unknown = JSON.parse(line.subarray(valueAt, end + 1).toString("utf8"));
         return typeof parsed === "string" ? parsed : undefined;
     } catch {
         return undefined;
     }
 }
 
-function ingestDeferredContextMeasurements(
+async function ingestDeferredContextMeasurements(
     path: string,
     state: SessionProjectionState,
     deferred: readonly DeferredContextMeasurement[],
-): void {
+    file: Awaited<ReturnType<typeof open>>,
+): Promise<void> {
     if (deferred.length === 0) return;
     const kept = reachableContextMeasurementIndexes(
         state,
         deferred.map((candidate) => candidate.afterMessageId),
     );
+    let window = Buffer.allocUnsafe(SESSION_SCAN_CHUNK_BYTES);
+    let windowOffset = -1;
+    let windowLength = 0;
     for (let index = 0; index < deferred.length; index += 1) {
         const candidate = deferred[index]!;
         const isKept = kept.has(index);
@@ -2722,8 +2718,19 @@ function ingestDeferredContextMeasurements(
             state.contextMeasurementsSinceKeyframe = 0;
             continue;
         }
-        const value = candidate.record
-            ?? parseJsonObject(path, candidate.lineNumber, candidate.line);
+        if (candidate.offset < windowOffset || candidate.offset + candidate.length > windowOffset + windowLength) {
+            if (window.length < candidate.length) window = Buffer.allocUnsafe(candidate.length);
+            windowOffset = candidate.offset;
+            windowLength = 0;
+            while (windowLength < candidate.length) {
+                const result = await file.read(window, windowLength, window.length - windowLength, windowOffset + windowLength);
+                if (result.bytesRead === 0) throw new Error(`Unexpected end of session file ${path}`);
+                windowLength += result.bytesRead;
+            }
+        }
+        const start = candidate.offset - windowOffset;
+        const value = parseJsonObject(path, candidate.lineNumber,
+            window.subarray(start, start + candidate.length - 1).toString("utf8"));
         const parsed = parseContextMeasurementEntry(
             path,
             candidate.lineNumber,
