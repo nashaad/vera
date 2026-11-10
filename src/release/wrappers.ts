@@ -3,7 +3,6 @@ import { basename, join } from "node:path";
 
 import {
     RELEASE_ANNEX_NAME,
-    RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
     RELEASE_SESSION_WORKER_NAME,

@@ -208,6 +208,124 @@ jobs:
           package_root="$RUNNER_TEMP/vera-install/lib/node_modules/@nashaad/vera"
           bun scripts/release-npm-native-smoke.ts "$package_root"
 
+  release-tarballs:
+    name: Build release tarball for ${{ matrix.platform }}/${{ matrix.arch }}
+    needs: validate-request
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 1
+
+      - name: Set up portable Bun for Linux x64
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-download-url: >-
+            https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-linux-x64-baseline.zip
+
+      - name: Set up Bun
+        if: matrix.platform != 'linux' || matrix.arch != 'x64'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Pack release tarball
+        run: |
+          set -eu
+          bun install --frozen-lockfile
+          bun run pack:web
+          bun run scripts/pack-release.ts --tarball \
+            "dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+
+      - name: Install the tarball with install.sh and run the CLI
+        run: |
+          set -eu
+          asset="dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+          export VERA_INSTALL_PREFIX="$RUNNER_TEMP/vera-prefix"
+          export VERA_HOME="$RUNNER_TEMP/vera-home"
+          mkdir -p "$VERA_HOME"
+          sh scripts/install.sh "$asset"
+          vera="$VERA_INSTALL_PREFIX/bin/vera"
+          "$vera" --version
+          "$vera" --help | grep -q "Run one bounded turn"
+          "$vera" doctor
+
+      - name: Upload release tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vera-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+            dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+
+  linux-release-smoke:
+    name: Smoke test release tarball in a clean Linux container
+    needs: validate-request
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 1
+
+      - name: Pack in a Bun container, install and run in Debian without Bun
+        run: scripts/linux-release-smoke.sh x64
+
+  github-release:
+    name: Draft GitHub release with tarballs
+    if: inputs.release_mode == 'publish-public'
+    needs: [release-tarballs, linux-release-smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 1
+
+      - name: Download release tarballs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: vera-*-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          cp scripts/install.sh dist/install.sh
+          gh release create "v$RELEASE_VERSION" --draft --verify-tag \
+            --title "Vera $RELEASE_VERSION" \
+            dist/vera-*.tar.gz dist/vera-*.tar.gz.sha256 dist/install.sh
+
   container-smoke:
     name: Smoke test curl installer and faux model
     needs: build-package

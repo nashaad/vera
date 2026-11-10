@@ -1,6 +1,6 @@
 import { releaseSourceEntries, writeExternalWrappers } from "../../src/release/wrappers.ts";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
@@ -107,6 +107,8 @@ test("handoff moves from a source release to an executable and back", async () =
     process.env.VERA_HOME = env.home;
     const sourceId = "vera-e2e-source";
     const sourceRoot = cloneRelease(env.build1Root, env.prefix, sourceId);
+    copyFileSync(process.execPath, join(sourceRoot, "bun"));
+    chmodSync(join(sourceRoot, "bun"), 0o755);
     writeExternalWrappers(sourceRoot, join(sourceRoot, "bun"), releaseSourceEntries(sourceRoot));
     activateRelease(sourceRoot, env.prefix);
     await defaultEnsureHost(sourceRoot, { operation: "install" });

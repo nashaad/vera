@@ -1105,3 +1105,24 @@ test("a pack whose second rename fails puts the old tree back", async () => {
         rmSync(parent, { recursive: true, force: true });
     }
 });
+
+test("pack-release --tarball refuses a path that is not .tar.gz and combinations with --install", () => {
+    const output = mkdtempSync(join(tmpdir(), "vera-release-tarball-"));
+    try {
+        const wrongName = Bun.spawnSync(["bun", packer, "--tarball", join(output, "vera.zip")], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(wrongName.exitCode).toBe(1);
+        expect(wrongName.stderr.toString()).toContain("must end in .tar.gz");
+        const combined = Bun.spawnSync(
+            ["bun", packer, "--tarball", join(output, "vera.tar.gz"), "--install"],
+            { stdout: "pipe", stderr: "pipe" },
+        );
+        expect(combined.exitCode).toBe(1);
+        expect(combined.stderr.toString()).toContain("usage: scripts/pack-release.ts --tarball");
+        expect(readdirSync(output)).toEqual([]);
+    } finally {
+        rmSync(output, { recursive: true, force: true });
+    }
+});

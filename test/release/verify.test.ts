@@ -11,7 +11,6 @@ import { join } from "node:path";
 
 import {
     RELEASE_ANNEX_NAME,
-    RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
     RELEASE_SESSION_WORKER_NAME,
@@ -44,7 +43,6 @@ function writeWrappers(releaseRoot: string): void {
         RELEASE_SESSION_WORKER_NAME,
         RELEASE_ANNEX_NAME,
         RELEASE_SUPERVISOR_NAME,
-        RELEASE_BUN_NAME,
     ]) {
         const path = join(releaseRoot, name);
         writeFileSync(path, "#!/bin/sh\nexit 0\n", { encoding: "utf8", mode: 0o755 });
