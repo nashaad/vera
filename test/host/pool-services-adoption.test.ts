@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -9,7 +10,7 @@ import * as configModule from "../../src/config.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import * as credentials from "../../src/host/master/credentials.ts";
+import * as credentials from "../../src/host/pool/credentials.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
@@ -25,7 +26,7 @@ interface PoolInfo {
     readonly socket: string;
 }
 
-test("an adopted worker uses the new master's MCP server, credential broker and settings writer", async () => {
+socketAndLoopbackTest("an adopted worker uses the new host's MCP server, credential broker and settings writer", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-services-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

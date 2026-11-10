@@ -14,10 +14,7 @@ import {
     clearRestartRecordsForSession,
     listRestartRecords,
 } from "../../src/store/restart-records.ts";
-
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
+import { socketTest } from "../support/socket-probe.ts";
 
 const at = "2026-11-07T10:00:00.000Z";
 

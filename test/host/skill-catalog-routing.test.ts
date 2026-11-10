@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,9 +103,7 @@ async function receiveCatalog(
     }
 }
 
-const skipInSandbox = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test;
-
-skipInSandbox("requester gets skill_catalog when a second client attached before the request", async () => {
+socketTest("requester gets skill_catalog when a second client attached before the request", async () => {
     const harness = await startHarness(false);
     const a = await attach(harness, "client-a");
     const b = await attach(harness, "client-b");
@@ -121,7 +120,7 @@ skipInSandbox("requester gets skill_catalog when a second client attached before
     }
 });
 
-skipInSandbox("requester gets skill_catalog when a second client attaches while the request is in flight", async () => {
+socketTest("requester gets skill_catalog when a second client attaches while the request is in flight", async () => {
     const harness = await startHarness(true);
     const a = await attach(harness, "client-a");
     try {
@@ -142,7 +141,7 @@ skipInSandbox("requester gets skill_catalog when a second client attaches while 
     }
 });
 
-skipInSandbox("requester gets skill_catalog when a second client attaches just after the reply", async () => {
+socketTest("requester gets skill_catalog when a second client attaches just after the reply", async () => {
     const harness = await startHarness(false);
     const a = await attach(harness, "client-a");
     try {
@@ -158,7 +157,7 @@ skipInSandbox("requester gets skill_catalog when a second client attaches just a
     }
 });
 
-skipInSandbox("requester gets skill_catalog on a fresh agent with a second client attached", async () => {
+socketTest("requester gets skill_catalog on a fresh agent with a second client attached", async () => {
     const harness = await startHarness(false);
     const a = await attach(harness, "client-a");
     const b = await attach(harness, "client-b");

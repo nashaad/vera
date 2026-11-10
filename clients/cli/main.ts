@@ -55,7 +55,7 @@ import {
     type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
 import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
-import { forceStopPool, ForcePoolStartupInProgressError } from "../../src/host/master/force-stop-pool.ts";
+import { forceStopPool, ForcePoolStartupInProgressError } from "../../src/host/pool/force-stop-pool.ts";
 import { HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 import {
     type SupervisionReport,
@@ -941,13 +941,13 @@ export async function runCli(
                     if (dependencies.stopHost !== undefined || dependencies.forceStopHost !== undefined) return false;
                     const pool = await forceStopPool(veraHomeDirectory());
                     if (pool === undefined) return false;
-                    if (pool.masterPid !== undefined) {
-                        output.write(`Stopped resident Vera host PID ${pool.masterPid}.\n`);
+                    if (pool.hostPid !== undefined) {
+                        output.write(`Stopped resident Vera host PID ${pool.hostPid}.\n`);
                     }
                     for (const pid of pool.workerPids) {
                         output.write(`Stopped session process PID ${pid}.\n`);
                     }
-                    if (pool.masterPid === undefined && pool.workerPids.length === 0) {
+                    if (pool.hostPid === undefined && pool.workerPids.length === 0) {
                         output.write("No resident Vera host is recorded.\n");
                     }
                     return true;
@@ -998,8 +998,8 @@ export async function runCli(
             return rendered.exitCode;
         } catch (error) {
             if (error instanceof ForcePoolStartupInProgressError) {
-                if (error.stoppedMasterPid !== undefined) {
-                    output.write(`Stopped resident Vera host PID ${error.stoppedMasterPid}.\n`);
+                if (error.stoppedHostPid !== undefined) {
+                    output.write(`Stopped resident Vera host PID ${error.stoppedHostPid}.\n`);
                 }
                 for (const pid of error.stoppedWorkerPids) {
                     output.write(`Stopped session process PID ${pid}.\n`);

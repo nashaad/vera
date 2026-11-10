@@ -1,13 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { readAnnexUrlThroughHost } from "../../src/annex/host-client.ts";
-
-const skipIfNoNetwork = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
+import { socketTest } from "../support/socket-probe.ts";
 
 async function withServer(
     onSocket: (socket: Socket) => void,
@@ -32,7 +29,7 @@ async function withServer(
     }
 }
 
-skipIfNoNetwork(
+socketTest(
     "a completed annex reply close is not an unhandled rejection",
     async () => {
         const rejections: unknown[] = [];
@@ -64,7 +61,7 @@ skipIfNoNetwork(
     },
 );
 
-skipIfNoNetwork(
+socketTest(
     "an annex helper still fails when the host drops before the reply",
     async () => {
         await withServer(

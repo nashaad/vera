@@ -2,7 +2,7 @@ import type { HostLog } from "../host-log.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { basename } from "node:path";
 import { belongsToSessionShard, type SessionShard } from "../shard.ts";
-import { orderByExtension, type WorkerExtensionServices } from "../master/extension-catalog.ts";
+import { orderByExtension, type WorkerExtensionServices } from "../pool/extension-catalog.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -115,7 +115,7 @@ interface SessionHandlerOptions {
     readonly storedSessions: Promise<ReadonlyMap<string, RegisteredAgentSummary>>;
     readonly importRoots?: ImportRoots;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
-    readonly forgetRestartRecords: (sessionId: string) => void;
+    readonly forgetRestartRecords: (sessionId: string) => void | Promise<void>;
     readonly recentScheduleRuns: () => readonly EmittedScheduleRun[];
     readonly onWorkChanged: (listener: () => void) => () => void;
     readonly hostLog: HostLog;
@@ -157,7 +157,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         const resident = await registry.trashSession(targetId);
         if (resident === "trashed") {
             storedSessionIndex.delete(targetId);
-            forgetRestartRecords(targetId);
+            const forgotten = forgetRestartRecords(targetId);
+            if (forgotten !== undefined) await forgotten;
         }
         if (resident !== "not_found") return resident;
         const stored = await registry.trashStoredSession(targetId, async () => {
@@ -173,7 +174,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         });
         if (stored === "trashed") {
             storedSessionIndex.delete(targetId);
-            forgetRestartRecords(targetId);
+            const forgotten = forgetRestartRecords(targetId);
+            if (forgotten !== undefined) await forgotten;
         }
         return stored;
     };
@@ -217,7 +219,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             await indexClosedMembers(registry, trashed ? closed.filter((member) => member.id !== rootId) : closed, storedSessionIndex).catch(() => {});
             if (trashed) {
                 storedSessionIndex.delete(rootId);
-                forgetRestartRecords(rootId);
+                const forgotten = forgetRestartRecords(rootId);
+                if (forgotten !== undefined) await forgotten;
             }
             registry.notifyRosterChanged();
         },

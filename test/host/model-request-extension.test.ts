@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,8 +11,9 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import type { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a real host applies a model request extension before provider dispatch",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-model-request-hook-"));
@@ -97,7 +98,7 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a real host combines hooks with the latest persisted exact-model options",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-model-request-options-"));
@@ -202,7 +203,7 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident model verification uses the configured request options",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-model-verify-options-"));

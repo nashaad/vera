@@ -1,26 +1,27 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 
 import { acceptHostConnection, connectHost, MAX_FRAME_BYTES, type HostConnection } from "../../src/host/connection.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
 import { ExtensionCommandUnavailableError, InvalidExtensionCommandResultError } from "../../src/extensions/commands.ts";
 import { ExtensionOperationTimeoutError } from "../../src/extensions/operation.ts";
 
-test("control requests run in both directions and preserve optional arguments", async () => {
-    await withPeers(async (master, worker) => {
-        master.setHandler(async (_method, args) => {
+socketTest("control requests run in both directions and preserve optional arguments", async () => {
+    await withPeers(async (host, worker) => {
+        host.setHandler(async (_method, args) => {
             expect(args).toEqual(["crow", undefined, null]);
             return "returned";
         });
         worker.setHandler(async (_method, args) => await worker.request("return", args));
-        expect(await master.request<string>("roundtrip", ["crow", undefined, null])).toBe("returned");
+        expect(await host.request<string>("roundtrip", ["crow", undefined, null])).toBe("returned");
     });
 });
 
-test("control cancellation and disconnect release both sides", async () => {
-    await withPeers(async (master, worker) => {
+socketTest("control cancellation and disconnect release both sides", async () => {
+    await withPeers(async (host, worker) => {
         const entered = Promise.withResolvers<void>();
         const cancelled = Promise.withResolvers<void>();
         worker.setHandler(async (_method, _args, signal) => {
@@ -32,7 +33,7 @@ test("control cancellation and disconnect release both sides", async () => {
             signal.throwIfAborted();
         });
         const controller = new AbortController();
-        const call = master.request("ask", [], controller.signal);
+        const call = host.request("ask", [], controller.signal);
         await entered.promise;
         controller.abort();
         await expect(call).rejects.toThrow();
@@ -40,16 +41,16 @@ test("control cancellation and disconnect release both sides", async () => {
 
         const waiting = Promise.withResolvers<void>();
         worker.setHandler(async () => { waiting.resolve(); return await new Promise(() => {}); });
-        const abandoned = master.request("investigate");
+        const abandoned = host.request("investigate");
         await waiting.promise;
         worker.close();
         await expect(abandoned).rejects.toThrow();
-        await Promise.all([master.closed, worker.closed]);
+        await Promise.all([host.closed, worker.closed]);
     });
 });
 
-test("extension command failures retain their types across the control channel", async () => {
-    await withPeers(async (master, worker) => {
+socketTest("extension command failures retain their types across the control channel", async () => {
+    await withPeers(async (host, worker) => {
         const errors = [
             new ExtensionCommandUnavailableError("unavailable"),
             new InvalidExtensionCommandResultError("invalid"),
@@ -57,17 +58,17 @@ test("extension command failures retain their types across the control channel",
         ];
         for (const error of errors) {
             worker.setHandler(async () => { throw error; });
-            const returned = await master.request("command").then(() => undefined, (failure: unknown) => failure);
+            const returned = await host.request("command").then(() => undefined, (failure: unknown) => failure);
             expect(returned).toBeInstanceOf(error.constructor);
             expect((returned as Error).message).toBe(error.message);
         }
     });
 });
 
-test("a tool result larger than one frame reaches the requesting worker intact", async () => {
-    await withPeers(async (master, worker) => {
+socketTest("a tool result larger than one frame reaches the requesting worker intact", async () => {
+    await withPeers(async (host, worker) => {
         const value = `start${"x".repeat(MAX_FRAME_BYTES)}end`;
-        master.setHandler(async () => ({ kind: "output", output: value, isError: false }));
+        host.setHandler(async () => ({ kind: "output", output: value, isError: false }));
         const received = await worker.request<{ output: string }>("extension.executeTool");
         expect(received.output.length).toBe(value.length);
         expect(received.output.startsWith("start")).toBe(true);
@@ -76,11 +77,11 @@ test("a tool result larger than one frame reaches the requesting worker intact",
     });
 }, 30_000);
 
-test("large concurrent responses preserve escaped text and stay independent", async () => {
-    await withPeers(async (master, worker) => {
+socketTest("large concurrent responses preserve escaped text and stay independent", async () => {
+    await withPeers(async (host, worker) => {
         const first = "\\\n😊".repeat(300_000);
         const second = "two".repeat(400_000);
-        master.setHandler(async (_method, args) => args[0] === "first" ? first : second);
+        host.setHandler(async (_method, args) => args[0] === "first" ? first : second);
         const received = await Promise.all([
             worker.request<string>("first", ["first"]),
             worker.request<string>("second", ["second"]),
@@ -90,7 +91,7 @@ test("large concurrent responses preserve escaped text and stay independent", as
     });
 }, 30_000);
 
-test("a failed response send returns an error", async () => {
+socketTest("a failed response send returns an error", async () => {
     const answered = Promise.withResolvers<unknown>();
     const closed = Promise.withResolvers<Error>();
     let received = false;
@@ -109,6 +110,7 @@ test("a failed response send returns an error", async () => {
             throw await closed.promise;
         },
         async receiveWithin() { throw new Error("not used"); },
+        setFrameObserver() {},
         closedReason: () => closed.promise,
         expectPeerClose() {},
         close() { isClosed = true; closed.resolve(new Error("closed")); },
@@ -126,7 +128,7 @@ test("a failed response send returns an error", async () => {
     }
 });
 
-async function withPeers(run: (master: ControlPeer, worker: ControlPeer) => Promise<void>): Promise<void> {
+async function withPeers(run: (host: ControlPeer, worker: ControlPeer) => Promise<void>): Promise<void> {
     const root = await mkdtemp("/private/tmp/vera-dev/hs4-control-");
     const socketPath = join(root, "control.sock");
     const accepted = Promise.withResolvers<ControlPeer>();
@@ -135,14 +137,14 @@ async function withPeers(run: (master: ControlPeer, worker: ControlPeer) => Prom
         server.once("error", reject);
         server.listen(socketPath, resolve);
     });
-    const master = new ControlPeer(await connectHost({ socketPath }));
+    const host = new ControlPeer(await connectHost({ socketPath }));
     const worker = await accepted.promise;
     try {
-        await run(master, worker);
+        await run(host, worker);
     } finally {
-        master.close();
+        host.close();
         worker.close();
-        await Promise.all([master.closed, worker.closed]);
+        await Promise.all([host.closed, worker.closed]);
         await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
         await rm(root, { recursive: true, force: true });
     }

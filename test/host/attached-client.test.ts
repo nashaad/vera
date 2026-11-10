@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -27,6 +27,7 @@ import { MAX_FRAME_BYTES } from "../../src/host/connection.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -36,7 +37,7 @@ afterEach(() => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached clients negotiate capabilities on each connection",
     async () => {
         const directory = temporaryDirectory();
@@ -70,7 +71,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an old client can attach to a capability-advertising host",
     async () => {
         const directory = temporaryDirectory();
@@ -97,7 +98,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "skill authority crosses only the typed attached-client command",
     async () => {
         const directory = temporaryDirectory();
@@ -167,7 +168,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached clients resume after their last accepted sequence",
     async () => {
         const directory = temporaryDirectory();
@@ -257,7 +258,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached clients require negotiated support for a replay cursor",
     async () => {
         const directory = temporaryDirectory();
@@ -276,7 +277,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a rejected prompt admission reaches its sender and the attachment stays usable",
     async () => {
         const directory = temporaryDirectory();
@@ -306,7 +307,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a host prompt refusal rejects its sender once with a typed reason",
     async () => {
         const directory = temporaryDirectory();
@@ -331,7 +332,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client exchanges typed commands and updates until detach",
     async () => {
         const directory = temporaryDirectory();
@@ -398,7 +399,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client correlates extension replies beside agent updates",
     async () => {
         const directory = temporaryDirectory();
@@ -477,7 +478,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client returns typed extension failures and remains usable",
     async () => {
         const directory = temporaryDirectory();
@@ -533,7 +534,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "extension replies pass a full agent update queue",
     async () => {
         const directory = temporaryDirectory();
@@ -566,7 +567,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "agent updates cannot grow the buffer while a control reply is pending",
     async () => {
         const directory = temporaryDirectory();
@@ -615,7 +616,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "malformed correlated extension replies reject instead of hanging",
     async () => {
         const directory = temporaryDirectory();
@@ -669,7 +670,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client notices disconnect while update delivery is paused",
     async () => {
         const directory = temporaryDirectory();
@@ -719,7 +720,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "detaching rejects a pending extension request",
     async () => {
         const directory = temporaryDirectory();
@@ -756,7 +757,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "two socket clients receive the same resident update stream",
     async () => {
         const directory = temporaryDirectory();
@@ -799,7 +800,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client receives a resident failure before disconnect",
     async () => {
         const directory = temporaryDirectory();
@@ -839,7 +840,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client reports a typed missing-agent failure",
     async () => {
         const directory = temporaryDirectory();
@@ -862,7 +863,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client rejects malformed host updates",
     async () => {
         const directory = temporaryDirectory();
@@ -918,7 +919,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached history skips unknown entries and rejects malformed known entries",
     async () => {
         const directory = temporaryDirectory();
@@ -939,7 +940,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client rejects a gap after its replay checkpoint",
     async () => {
         const directory = temporaryDirectory();
@@ -971,7 +972,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client rejects a checkpoint jump after replay begins",
     async () => {
         const directory = temporaryDirectory();
@@ -995,7 +996,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client requires history before sequenced updates",
     async () => {
         const directory = temporaryDirectory();
@@ -1015,7 +1016,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client rejects duplicate and regressing update sequences",
     async () => {
         for (const invalidSequence of [4, 3]) {
@@ -1049,7 +1050,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client skips an unknown update type and keeps its sequence",
     async () => {
         const directory = temporaryDirectory();
@@ -1073,7 +1074,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client skips an unknown update type without a sequence",
     async () => {
         const directory = temporaryDirectory();
@@ -1095,7 +1096,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client rejects a gap after a skipped unknown update",
     async () => {
         const directory = temporaryDirectory();
@@ -1118,7 +1119,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client requires history before a sequenced unknown update",
     async () => {
         const directory = temporaryDirectory();
@@ -1138,7 +1139,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client still rejects a known update with an invalid shape",
     async () => {
         const directory = temporaryDirectory();
@@ -1161,7 +1162,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a skipped unknown update does not move lastSequence past buffered known updates",
     async () => {
         const directory = temporaryDirectory();
@@ -1187,7 +1188,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a skipped unknown update advances lastSequence when nothing is buffered",
     async () => {
         const directory = temporaryDirectory();
@@ -1275,7 +1276,7 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
     });
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client reads background work from the attach and the pushes after it",
     async () => {
         const directory = temporaryDirectory();
@@ -1367,7 +1368,7 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "attached client exposes the session scratch directory when the host sends one",
     async () => {
         for (const scratch of ["/tmp/vera/agent-1", undefined]) {
@@ -1399,7 +1400,7 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an attach without an explicit limit keeps the 64 MiB frame ceiling",
     async () => {
         const directory = temporaryDirectory();
@@ -1449,7 +1450,7 @@ function transcriptEntries(count: number): readonly {
     }));
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a paging client reads older pages without advancing its sequence",
     async () => {
         const directory = temporaryDirectory();
@@ -1506,7 +1507,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a page request without the negotiated capability is refused",
     async () => {
         const directory = temporaryDirectory();
@@ -1534,7 +1535,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "only one page request may be in flight",
     async () => {
         const directory = temporaryDirectory();
@@ -1609,7 +1610,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an aborted page request ignores its late reply and can be retried",
     async () => {
         const directory = temporaryDirectory();
@@ -1688,7 +1689,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a pending page request rejects on close and a new attachment retries",
     async () => {
         const directory = temporaryDirectory();
@@ -1759,7 +1760,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a refused page rejects with the host's reason",
     async () => {
         const directory = temporaryDirectory();
@@ -1807,7 +1808,7 @@ function transcriptEntries(count: number): readonly {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a page response does not count toward the pending update limit",
     async () => {
         const directory = temporaryDirectory();

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,8 +8,9 @@ import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session rename client preserves typed host outcomes",
     async () => {
         const root = await mkdtemp(
@@ -65,7 +66,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host renames a closed session in the durable store",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-stored-rename-"));
@@ -102,7 +103,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session rename client normalizes transport failure",
     async () => {
         const root = await mkdtemp(

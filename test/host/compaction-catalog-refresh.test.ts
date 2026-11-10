@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,9 @@ import { providerCatalogCacheDir, writeProviderCatalogSnapshot } from "../../src
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "a single-provider refresh changes the catalog window used by compaction",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-compact-catalog-"));

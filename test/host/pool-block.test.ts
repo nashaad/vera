@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { blockSessionThroughHost } from "../../src/host/session-block-client.ts";
@@ -13,7 +14,7 @@ import { veraBlockedDirectory } from "../../src/profile-paths.ts";
 import { defaultSessionDirectory, SessionStore } from "../../src/store/session-store.ts";
 
 for (const owner of ["host", "worker"] as const) {
-    test(`block fences a late descendant on the ${owner}`, async () => {
+    socketTest(`block fences a late descendant on the ${owner}`, async () => {
         const home = await mkdtemp("/private/tmp/vera-dev/hs4-block-");
         const host = await startResidentHost({
             home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,

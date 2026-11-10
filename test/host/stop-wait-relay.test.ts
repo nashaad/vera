@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { StopWaitRelay } from "../../src/host/master/stop-wait-relay.ts";
+import { StopWaitRelay } from "../../src/host/pool/stop-wait-relay.ts";
 import type { StopWaitEvent } from "../../src/host/stop-when-idle.ts";
 
 const waiting: StopWaitEvent = {

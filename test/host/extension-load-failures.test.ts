@@ -8,10 +8,7 @@ import { readExtensionLoadFailuresThroughHost } from "../../src/host/extension-l
 import { parseHostRequest } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
-
-const networkTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
+import { socketTest } from "../support/socket-probe.ts";
 
 test("extension_load_failures parses as a host request", () => {
     expect(parseHostRequest('{"type":"extension_load_failures"}')).toEqual({
@@ -19,7 +16,7 @@ test("extension_load_failures parses as a host request", () => {
     });
 });
 
-networkTest("a real host reports the extensions it could not load", async () => {
+socketTest("a real host reports the extensions it could not load", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-extension-load-failures-"));
     const extension = join(root, "crow-fetch");
     await mkdir(extension);
@@ -66,7 +63,7 @@ networkTest("a real host reports the extensions it could not load", async () => 
     }
 });
 
-networkTest("a host without the request reports no failures", async () => {
+socketTest("a host without the request reports no failures", async () => {
     const root = await mkdtemp(join("/private/tmp", "vera-old-host-"));
     const socketPath = join(root, "host.sock");
     const server: Server = createServer((socket) => {

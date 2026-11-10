@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -9,14 +10,14 @@ import { runAttachedStdioBridge } from "../../clients/stdio/ndjson-bridge.ts";
 import { STDIO_CAPABILITIES } from "../../clients/stdio/process.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
-import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
-import { stopWorkerProcess } from "../../src/host/master/stop-worker.ts";
-import { readRecordedWorkers, type RecordedWorker } from "../../src/host/master/worker-records.ts";
+import { forceStopPool } from "../../src/host/pool/force-stop-pool.ts";
+import { stopWorkerProcess } from "../../src/host/pool/stop-worker.ts";
+import { readRecordedWorkers, type RecordedWorker } from "../../src/host/pool/worker-records.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 
-test("a pooled resident failure reaches stdio and records its original stack", async () => {
+socketAndLoopbackTest("a pooled resident failure reaches stdio and records its original stack", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/pool-failure-");
     const web = join(home, "web");
     await mkdir(web);

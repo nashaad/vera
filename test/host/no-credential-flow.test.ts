@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const config = {
     schema_version: 1,
@@ -23,7 +24,7 @@ const config = {
  * The whole path a user on a clean machine takes: start with nothing connected,
  * find out why, connect, and keep going in the same session.
  */
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an unconnected provider fails the turn, not the startup, and connecting fixes it in place",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-no-credential-"));

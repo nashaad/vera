@@ -1,17 +1,18 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import { stopWorkerProcess } from "../../src/host/master/stop-worker.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { stopWorkerProcess } from "../../src/host/pool/stop-worker.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { HostSocketHeldError } from "../../src/host/server.ts";
 
-test("a second host cannot start while the pool lock is being removed", async () => {
+socketTest("a second host cannot start while the pool lock is being removed", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/m9-fence-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

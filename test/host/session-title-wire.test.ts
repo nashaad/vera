@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { attachAgent } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_SESSION_TITLE } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -35,11 +36,7 @@ function roster(title: string | undefined): RegisteredAgentSummary[] {
     }];
 }
 
-const networked = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
-
-networked("a title change reaches the attached client once", async () => {
+socketTest("a title change reaches the attached client once", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");
@@ -85,7 +82,7 @@ networked("a title change reaches the attached client once", async () => {
     }
 });
 
-networked("a client that did not ask is never sent a title", async () => {
+socketTest("a client that did not ask is never sent a title", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");
@@ -120,7 +117,7 @@ networked("a client that did not ask is never sent a title", async () => {
     }
 });
 
-networked("a title that exists at attach is reported behind the attach reply", async () => {
+socketTest("a title that exists at attach is reported behind the attach reply", async () => {
     const directory = temporaryDirectory();
     const socketPath = join(directory, "host.sock");
     const agent = new ResidentAgent("agent-1", "/work/one");

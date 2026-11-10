@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 /**
  * A session that really edits a file, through the real tool, becoming a real
@@ -17,10 +18,6 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
  * The count has to come from what the session actually did, so nothing here
  * hands the host a number: it writes a file and then asks what the inbox says.
  */
-
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
 
 socketTest("a session that edited files is ready to review", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-review-row-"));

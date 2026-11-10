@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { expect, spyOn, test } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
+import { expect, spyOn } from "bun:test";
 import { closeSync, constants, openSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -7,9 +8,9 @@ import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import type { ControlPeer } from "../../src/host/master/control.ts";
-import { MasterInboxBridge } from "../../src/host/master/inbox.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import type { ControlPeer } from "../../src/host/pool/control.ts";
+import { HostInboxBridge } from "../../src/host/pool/inbox.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
@@ -153,7 +154,7 @@ async function closePool(host: ResidentHost | undefined, probe: PoolProbe, home:
     }
 }
 
-test("a due schedule wakes and is acknowledged by its nonzero worker once", async () => {
+socketAndLoopbackTest("a due schedule wakes and is acknowledged by its nonzero worker once", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-schedule-");
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
@@ -189,7 +190,7 @@ test("a due schedule wakes and is acknowledged by its nonzero worker once", asyn
     }
 }, 45_000);
 
-test("an inbox entry is delivered only on w2", async () => {
+socketAndLoopbackTest("an inbox entry is delivered only on w2", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-inbox-");
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
@@ -220,7 +221,7 @@ test("an inbox entry is delivered only on w2", async () => {
     }
 }, 45_000);
 
-test("a due startup schedule waits while its hash worker scans", async () => {
+socketAndLoopbackTest("a due startup schedule waits while its hash worker scans", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-start-");
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
@@ -276,7 +277,7 @@ test("a due startup schedule waits while its hash worker scans", async () => {
     }
 }, 45_000);
 
-test("a watch admission waits for the scanning hash owner to register its consumer", async () => {
+socketAndLoopbackTest("a watch admission waits for the scanning hash owner to register its consumer", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-scan-watch-");
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
@@ -342,7 +343,7 @@ test("a watch admission waits for the scanning hash owner to register its consum
     }
 }, 45_000);
 
-test("an entry for a stored session stays unread while its hash worker is gone", async () => {
+socketAndLoopbackTest("an entry for a stored session stays unread while its hash worker is gone", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-offline-");
     const stub = startScheduleWakeProvider(true);
     const release = Promise.withResolvers<void>();
@@ -403,23 +404,23 @@ test("an entry for a stored session stays unread while its hash worker is gone",
     }
 }, 60_000);
 
-test("a dropped worker releases its claim after exit and the held entry follows the reopened session", async () => {
+socketAndLoopbackTest("a dropped worker releases its claim after exit and the held entry follows the reopened session", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7-multi-drop-");
     const stub = startScheduleWakeProvider(true);
     const probe = probePool();
-    const claims = new Map<string, MasterInboxBridge>();
-    const closed = new Set<MasterInboxBridge>();
-    const handle = MasterInboxBridge.prototype.handle;
-    const close = MasterInboxBridge.prototype.close;
-    const handleSpy = spyOn(MasterInboxBridge.prototype, "handle").mockImplementation(async function (
-        this: MasterInboxBridge, method: string, args: readonly unknown[], signal?: AbortSignal,
+    const claims = new Map<string, HostInboxBridge>();
+    const closed = new Set<HostInboxBridge>();
+    const handle = HostInboxBridge.prototype.handle;
+    const close = HostInboxBridge.prototype.close;
+    const handleSpy = spyOn(HostInboxBridge.prototype, "handle").mockImplementation(async function (
+        this: HostInboxBridge, method: string, args: readonly unknown[], signal?: AbortSignal,
     ) {
         const result = await handle.call(this, method, args, signal);
         const registration = args[1] as { label?: unknown } | undefined;
         if (method === "attach" && typeof registration?.label === "string") claims.set(registration.label, this);
         return result;
     });
-    const closeSpy = spyOn(MasterInboxBridge.prototype, "close").mockImplementation(function (this: MasterInboxBridge) {
+    const closeSpy = spyOn(HostInboxBridge.prototype, "close").mockImplementation(function (this: HostInboxBridge) {
         close.call(this);
         closed.add(this);
     });

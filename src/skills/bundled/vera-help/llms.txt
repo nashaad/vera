@@ -34,15 +34,15 @@ Manual: `docs/how-vera-works.md`.
 ## Start, development, and upgrades [lines=20]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
-Run `bun run dev:tui --pool` to attach conversations to a separate session process and resolve reconnections through the development host.
-In pool mode, the host replaces a failed session process and an interrupted prompt can be sent again.
-In pool mode, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.
+By default, the host runs conversations in separate session processes; set `host.workers` to `0` in Home config to use a single-process host.
+Unless `host.workers` is `0`, the host replaces a failed session process and an interrupted prompt can be sent again.
+Unless `host.workers` is `0`, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.
 An interrupted inbox, schedule, or watch wake stays unread and appears when you next attach.
 A later entry can wake the conversation normally.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
 `vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
-In pool mode, stop waits for turns across the session processes, force-stop stops the master and its session processes, and `vera ls` names unavailable session processes after their last known summaries.
-If a host is starting before its lock is published, stop reports that startup is in progress. In pool mode, ordinary stop also reports startup while the host adopts session processes.
+Unless `host.workers` is `0`, stop waits for turns across the session processes, force-stop stops the host and its session processes, and `vera ls` names unavailable session processes after their last known summaries.
+If a host is starting before its lock is published, stop reports that startup is in progress. When session processes are enabled, ordinary stop also reports startup while the host adopts them.
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing. A development instance's host runs that checkout's code, never the installed release; run `bun run pack:web` in the checkout so its annex can serve the web page.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.
@@ -204,7 +204,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=26]
+## Diagnostics and recovery [lines=27]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
@@ -213,6 +213,7 @@ If a key, paste or submitted command fails in the TUI, the conversation shows an
 Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Repeated reads of one background process fold into one Waited row. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.
+You can switch back to the single-process host in Home config and apply the change with Reconnect host. Manual: `docs/troubleshooting.md`.
 Quitting with Ctrl+C while disconnected prints the command to resume this session.
 When the host is lost, the TUI offers one key to restart into the same conversation.
 Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.

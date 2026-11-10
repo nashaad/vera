@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { runResidentHostProcess } from "../../../clients/host/process-lifecycle.ts";
 import { loadVeraConfig } from "../../../src/config.ts";
-import * as supervisor from "../../../src/host/master/supervisor.ts";
+import * as supervisor from "../../../src/host/pool/supervisor.ts";
 import { startResidentHost } from "../../../src/host/runtime.ts";
 
 const home = process.env.VERA_HOME!;

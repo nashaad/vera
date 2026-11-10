@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -19,7 +20,7 @@ interface PoolInfo {
     readonly socket: string;
 }
 
-test("a worker does not repeat the master's interrupted credential refresh", async () => {
+socketAndLoopbackTest("a worker does not repeat the host's interrupted credential refresh", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-refresh-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

@@ -29,6 +29,23 @@ already exist; choosing configuration does not create them.
 `/settings` remains a separate menu of settings controls. For a map of other
 saved data, see [Vera's files and settings](config-reference.md).
 
+## Host processes
+
+Home config controls how the host runs conversations. To use a single-process
+host, add this to the top level of Home config:
+
+```json
+{
+    "host": { "workers": 0 }
+}
+```
+
+Omit `host.workers` to use the default pool, sized to one fewer than the
+available processor cores with at least one session process. A positive
+integer sets the number of session processes. Other values are configuration
+errors. The host reads this setting when it starts; choose Reconnect host from
+Ctrl+P after saving a change.
+
 ## Assistant message dots
 
 Set `assistant_marker` at the top level of the home's `tui.json`:

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
 import { connectHost } from "../../src/host/connection.ts";
-import { ControlPeer } from "../../src/host/master/control.ts";
-import { WorkerControlLink } from "../../src/host/master/worker-link.ts";
-import { startControlledWorker, type WorkerBootstrap, type WorkerHello } from "../../src/host/master/worker-control.ts";
+import { ControlPeer } from "../../src/host/pool/control.ts";
+import { WorkerControlLink } from "../../src/host/pool/worker-link.ts";
+import { startControlledWorker, type WorkerBootstrap, type WorkerHello } from "../../src/host/pool/worker-control.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { forbidWorkerConfigWrites } from "../../src/config.ts";
 import { forbidWorkerAuthWrites } from "../../src/providers/auth-storage.ts";
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
         const bootstrap = await peer.request<WorkerBootstrap>("hello", [hello]);
         link.bind(peer);
         const worker = await startControlledWorker(link, bootstrap, hello, generation, onSignal);
-        let masterLost = false;
+        let hostLost = false;
         try {
             while (true) {
                 const ended = await Promise.race([
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
                 ]);
                 if (ended === "shutdown") break;
                 link.unbind(peer);
-                const deadline = performance.now() + (bootstrap.masterGraceMs ?? 30_000);
+                const deadline = performance.now() + (bootstrap.hostGraceMs ?? 30_000);
                 let adopted = false;
                 while (performance.now() < deadline) {
                     const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
@@ -85,10 +85,10 @@ async function main(): Promise<void> {
                     ]);
                     if (stopped) break;
                 }
-                if (!adopted) { masterLost = true; break; }
+                if (!adopted) { hostLost = true; break; }
             }
         } finally {
-            await worker.close(masterLost);
+            await worker.close(hostLost);
         }
     } finally {
         link.unbind(peer);

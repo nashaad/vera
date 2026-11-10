@@ -16,6 +16,7 @@ import { SessionImportNotes } from "../../src/host/session-import-note.ts";
 import { exportSession } from "../../src/session-export.ts";
 import { readSessionSnapshot } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 function claudeCodeSession(reply: string): string {
     const base = {
@@ -44,7 +45,7 @@ function claudeCodeSession(reply: string): string {
     ].map((record) => JSON.stringify(record)).join("\n") + "\n";
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host imports a Claude Code session once and lists it as imported",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-session-import-"));
@@ -116,7 +117,7 @@ function claudeCodeSession(reply: string): string {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host rejects files it cannot import",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-session-import-"));
@@ -149,7 +150,7 @@ function claudeCodeSession(reply: string): string {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host lists sessions on disk and marks the ones already imported",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-session-import-"));

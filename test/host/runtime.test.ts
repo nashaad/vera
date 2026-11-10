@@ -50,6 +50,7 @@ import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 test("the resident host fails closed without an identity provider", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-host-no-identity-"));
@@ -75,7 +76,7 @@ test("the resident host fails closed without an identity provider", async () => 
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "hard close through the resident host retains a resumable session",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-close-resume-"));
@@ -129,7 +130,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the last interactive release retains and resumes the real session",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-release-resume-"));
@@ -189,7 +190,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resume finds a live agent through a symlinked session directory",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-resume-alias-"));
@@ -229,7 +230,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host reports startup phase timings through readiness",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-startup-timing-"));
@@ -275,7 +276,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a removed workspace reaches the startup client as the reason",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-missing-cwd-"));
@@ -309,7 +310,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an accepted idle shutdown closes that exact resident host",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-shutdown-"));
@@ -352,7 +353,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an idle attached durable session survives graceful host replacement",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-replacement-"));
@@ -444,7 +445,7 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
-test("host shutdown still reaches session_end hooks", async () => {
+socketTest("host shutdown still reaches session_end hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-host-session-end-"));
     const extensionPath = join(root, "extension");
     const logPath = join(root, "ends.jsonl");
@@ -500,7 +501,7 @@ test("host shutdown still reaches session_end hooks", async () => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host wires public extension tool hooks into each agent",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-extension-hook-"));
@@ -571,7 +572,7 @@ test("host shutdown still reaches session_end hooks", async () => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host runs the hooks the config points at",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-config-hook-"));
@@ -640,7 +641,7 @@ process.stdout.write(JSON.stringify({
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host runs Claude-format turn hooks from the config",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-claude-hooks-"));
@@ -733,7 +734,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host wires its registry to list and attach requests",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-runtime-"));
@@ -823,7 +824,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host loads and routes a configured extension command",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-extension-"));
@@ -917,7 +918,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "an extension command receives the session file of a resident agent outside the session directory",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-command-path-"));
@@ -992,7 +993,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host exposes a configured extension tool to the model loop",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-extension-tool-"));
@@ -1075,7 +1076,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident rewind stays attached across the Unix socket",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-rewind-"));
@@ -1175,7 +1176,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session search resolves an imported transcript through its header id",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-search-path-"));
@@ -1219,7 +1220,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host loads only the session explicitly resumed",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-restore-"));
@@ -1301,7 +1302,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resume reports a stored provider this Vera build cannot use",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-stale-provider-"));
@@ -1400,7 +1401,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a corrupt lazy session does not affect another resumed session",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-corrupt-restore-"));
@@ -1453,7 +1454,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "resident host replays the same failed agent after restart",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-failure-restart-"));
@@ -1540,7 +1541,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "closing the resident host aborts an active model request",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-close-"));
@@ -1611,7 +1612,7 @@ if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a measured request persists its recipe so resume history still names files",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-context-resume-"));

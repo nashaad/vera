@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,10 +29,7 @@ const config = {
     approval_mode: "full_access",
 } as const;
 
-const skipOnSandbox = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1";
-const inProcessTest = skipOnSandbox ? test.skip : test;
-
-inProcessTest(
+socketTest(
     "a block stops an in-process turn, drops its queued prompts, and unblock lets a new turn start",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-inproc-block-"));

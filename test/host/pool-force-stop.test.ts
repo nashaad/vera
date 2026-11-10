@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { runCli, runCliMain } from "../../clients/cli/main.ts";
 import { forceStopHostProcess } from "../../src/host/force-stop.ts";
-import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
+import { forceStopPool } from "../../src/host/pool/force-stop-pool.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { acquireHostStartupClaim, HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 
@@ -46,18 +46,18 @@ async function clean(children: readonly TestChild[]): Promise<void> {
     }
 }
 
-test("force stop kills the master then stops every verified worker", async () => {
+test("force stop kills the host then stops every verified worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-");
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
     await mkdir(workers, { recursive: true });
-    const markers = ["master", "w0", "w1", "w2"].map((name) => join(home, name));
+    const markers = ["host", "w0", "w1", "w2"].map((name) => join(home, name));
     const children = markers.map((marker, index) => startChild(marker, index === 2));
     try {
         await ready(markers);
-        const master = children[0]!;
+        const host = children[0]!;
         await writeFile(join(runtime, "host.json"), JSON.stringify({
-            schema_version: 3, pid: master.pid, started_at: master.started_at,
+            schema_version: 3, pid: host.pid, started_at: host.started_at,
             socket_path: join(runtime, "host.sock"), build_id: "test", role: "host", worker_count: 3,
         }));
         for (let index = 0; index < 3; index += 1) {
@@ -69,7 +69,7 @@ test("force stop kills the master then stops every verified worker", async () =>
         const started = performance.now();
         const result = await forceStopPool(home);
         expect(performance.now() - started).toBeLessThan(2_500);
-        expect(result?.masterPid).toBe(master.pid);
+        expect(result?.hostPid).toBe(host.pid);
         expect([...result!.workerPids].sort()).toEqual(children.slice(1).map((child) => child.pid).sort());
         await Promise.all(children.map((child) => child.exited));
         expect(children.every((child) => !processIsAlive(child.pid))).toBe(true);
@@ -143,26 +143,26 @@ test("force stop reaches verified workers during startup but leaves a reused pid
     }
 }, 15_000);
 
-test("force stop reaches a verified pooled master when another startup holds the claim", async () => {
+test("force stop reaches a verified pooled host when another startup holds the claim", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-lock-");
     const runtime = join(home, "runtime");
     await mkdir(join(runtime, "workers"), { recursive: true });
-    const marker = join(home, "master");
-    const master = startChild(marker, false);
+    const marker = join(home, "host");
+    const host = startChild(marker, false);
     const claim = await acquireHostStartupClaim({ path: join(runtime, "host.sock.starting") });
     try {
         await ready([marker]);
         await writeFile(join(runtime, "host.json"), JSON.stringify({
-            schema_version: 3, pid: master.pid, started_at: master.started_at,
+            schema_version: 3, pid: host.pid, started_at: host.started_at,
             socket_path: join(runtime, "host.sock"), build_id: "test", role: "host", worker_count: 1,
         }));
         const result = await forceStopPool(home).then(() => undefined, (error: unknown) => error);
         expect(result).toBeInstanceOf(HostStartupInProgressError);
-        await master.exited;
-        expect(processIsAlive(master.pid)).toBe(false);
+        await host.exited;
+        expect(processIsAlive(host.pid)).toBe(false);
     } finally {
         await claim.release();
-        await clean([master]);
+        await clean([host]);
         await rm(home, { recursive: true, force: true });
     }
 }, 15_000);
@@ -171,23 +171,23 @@ test("force stop accepts a startup claim already held by its caller", async () =
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-force-owned-");
     const runtime = join(home, "runtime");
     await mkdir(join(runtime, "workers"), { recursive: true });
-    const marker = join(home, "master");
-    const master = startChild(marker, false);
+    const marker = join(home, "host");
+    const host = startChild(marker, false);
     const claimPath = join(runtime, "host.sock.starting");
     const claim = await acquireHostStartupClaim({ path: claimPath });
     try {
         await ready([marker]);
         await writeFile(join(runtime, "host.json"), JSON.stringify({
-            schema_version: 3, pid: master.pid, started_at: master.started_at,
+            schema_version: 3, pid: host.pid, started_at: host.started_at,
             socket_path: join(runtime, "host.sock"), build_id: "test", role: "host", worker_count: 1,
         }));
-        expect(await forceStopPool(home, { startupClaim: claim })).toEqual({ masterPid: master.pid, workerPids: [] });
-        await master.exited;
-        expect(processIsAlive(master.pid)).toBe(false);
+        expect(await forceStopPool(home, { startupClaim: claim })).toEqual({ hostPid: host.pid, workerPids: [] });
+        await host.exited;
+        expect(processIsAlive(host.pid)).toBe(false);
         expect(existsSync(claimPath)).toBe(true);
     } finally {
         await claim.release();
-        await clean([master]);
+        await clean([host]);
         await rm(home, { recursive: true, force: true });
     }
 }, 15_000);

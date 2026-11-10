@@ -1,7 +1,7 @@
 import type { VeraConfig, VeraExtensionConfig } from "../../config.ts";
 import { hostExtensionConfigs } from "../../extensions/host-set.ts";
 import { loadExtensionManifest } from "../../extensions/manifest.ts";
-import { MASTER_EXTENSION_IDS, type WorkerExtensionServices } from "../master/extension-catalog.ts";
+import { HOST_EXTENSION_IDS, type WorkerExtensionServices } from "../pool/extension-catalog.ts";
 import { veraMachineDirectoryIn } from "../../profile-paths.ts";
 import type { HostLog } from "../host-log.ts";
 
@@ -34,7 +34,7 @@ export async function startSessionExtensions(options: SessionExtensionOptions) {
         if (available === undefined) return true;
         try {
             const id = loadExtensionManifest(extension.path).manifest.id;
-            return available.has(id) && !MASTER_EXTENSION_IDS.has(id);
+            return available.has(id) && !HOST_EXTENSION_IDS.has(id);
         } catch {
             return false;
         }
@@ -90,9 +90,9 @@ export async function startSessionExtensions(options: SessionExtensionOptions) {
     return { extensions, sessionIdentity, extensionLoadFailures };
 }
 
-export function withoutMasterExtensions(configs: readonly VeraExtensionConfig[]): readonly VeraExtensionConfig[] {
+export function withoutHostExtensions(configs: readonly VeraExtensionConfig[]): readonly VeraExtensionConfig[] {
     return configs.filter((extension) => {
-        try { return !MASTER_EXTENSION_IDS.has(loadExtensionManifest(extension.path).manifest.id); }
+        try { return !HOST_EXTENSION_IDS.has(loadExtensionManifest(extension.path).manifest.id); }
         catch { return true; }
     });
 }

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadVeraConfig } from "../../../src/config.ts";
-import { inProcessWorkerSocket } from "../../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../../src/host/protocol.ts";
 import { startResidentHost } from "../../../src/host/runtime.ts";
 

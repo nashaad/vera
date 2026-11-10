@@ -5,10 +5,12 @@ import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import { inspectWorkerRecords } from "../../src/host/pool/worker-record.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 interface PoolInfo {
     readonly pid: number;
@@ -17,7 +19,51 @@ interface PoolInfo {
     readonly socket: string;
 }
 
-test("startup replaces a verified worker from another build and a dead record", async () => {
+async function recordWithoutHostPid(): Promise<{ home: string; path: string; record: string }> {
+    const home = await mkdtemp("/private/tmp/vera-dev/poolmod-record-");
+    const runtime = join(home, "runtime");
+    const directory = join(runtime, "workers");
+    const path = join(directory, "w0.json");
+    const record = JSON.stringify({
+        id: "w0", index: 0, pid: process.pid,
+        started_at: new Date(Date.now() - process.uptime() * 1_000).toISOString(),
+        socket_path: inProcessWorkerSocket(home, 0), control_path: join(runtime, "control.sock"),
+        build_id: "record-build", owner: 123, count: 1,
+    });
+    await mkdir(directory, { recursive: true });
+    await writeFile(path, record);
+    return { home, path, record };
+}
+
+test("session process records require a host pid", async () => {
+    const { home, path, record } = await recordWithoutHostPid();
+    try {
+        await expect(inspectWorkerRecords(home, "record-build")).rejects.toThrow("Invalid session process record");
+        expect(await readFile(path, "utf8")).toBe(record);
+    } finally {
+        await rm(home, { recursive: true, force: true });
+    }
+});
+
+socketTest("startup rejects a session process record without a host pid", async () => {
+    const { home, path, record } = await recordWithoutHostPid();
+    let unexpected: ResidentHost | undefined;
+    try {
+        await expect(startResidentHost({
+            home, buildId: "record-build", processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
+            config: {
+                schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
+                providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:9/v1", credential: "none" } },
+            },
+        }).then((host) => { unexpected = host; return host; })).rejects.toThrow("Invalid session process record");
+        expect(await readFile(path, "utf8")).toBe(record);
+    } finally {
+        await unexpected?.close();
+        await rm(home, { recursive: true, force: true });
+    }
+});
+
+socketTest("startup replaces a verified worker from another build and a dead record", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-records-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -85,7 +131,7 @@ test("startup replaces a verified worker from another build and a dead record", 
     }
 }, 40_000);
 
-test("startup leaves an answering socket alone when it belongs to another process", async () => {
+socketTest("startup leaves an answering socket alone when it belongs to another process", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-busy-");
     const runtime = join(home, "runtime");
     const workers = join(runtime, "workers");
@@ -104,7 +150,7 @@ test("startup leaves an answering socket alone when it belongs to another proces
         await new Promise<void>((resolve, reject) => server!.once("error", reject).listen(socketPath, resolve));
         await writeFile(join(workers, "w0.json"), JSON.stringify({
             id: "w0", index: 0, pid: child.pid, started_at: recordedStart, socket_path: socketPath,
-            control_path: join(runtime, "control.sock"), build_id: "unrelated-build", master_pid: child.pid, count: 1,
+            control_path: join(runtime, "control.sock"), build_id: "unrelated-build", host_pid: child.pid, count: 1,
         }));
         const config = {
             schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
@@ -124,7 +170,7 @@ test("startup leaves an answering socket alone when it belongs to another proces
     }
 }, 20_000);
 
-test("startup does not touch workers of an answering host whose lockfile disappeared", async () => {
+socketTest("startup does not touch workers of an answering host whose lockfile disappeared", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-live-host-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

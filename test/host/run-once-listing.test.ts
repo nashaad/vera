@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { Vera } from "../../src/sdk/agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 function textReply(text: string): AssistantMessage {
     return {
@@ -19,7 +20,7 @@ function textReply(text: string): AssistantMessage {
     };
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a bounded run leaves the session listing unchanged",
     async () => {
         const root = await realpath(

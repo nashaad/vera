@@ -1,10 +1,11 @@
 import { expect, spyOn, test } from "bun:test";
+import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
 import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
@@ -12,7 +13,7 @@ import { startHostServer } from "../../src/host/server.ts";
 import { acquireHostStartupClaim } from "../../src/host/startup-claim.ts";
 import { handOffUpdate } from "../../src/release/handoff.ts";
 
-test("host stop does not report success while a pool is starting", async () => {
+socketAndLoopbackTest("host stop does not report success while a pool is starting", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-start-stop-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);
@@ -110,7 +111,7 @@ test("an update handoff can stop its existing host while it holds the startup cl
     }
 });
 
-test("plain host stop refuses while startup holds the claim", async () => {
+socketTest("plain host stop refuses while startup holds the claim", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-plain-start-");
     const runtime = join(home, "runtime");
     const previousHome = process.env.VERA_HOME;

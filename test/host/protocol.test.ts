@@ -16,6 +16,7 @@ import {
     requestHostShutdownIfIdle,
     type HistoryPageResponse,
 } from "../../src/host/protocol.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 test("the host history page wire carries reasoning facts", () => {
     const page: HistoryPageResponse = {
@@ -435,7 +436,7 @@ test("host protocol parses attached extension command requests", () => {
     }))).toBeUndefined();
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "shutdown-if-idle client returns only typed host responses",
     async () => {
     const directory = mkdtempSync(join("/private/tmp", "vera-shutdown-client-"));
@@ -675,7 +676,7 @@ test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage('{"type":"unknown"}')).toBeUndefined();
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "identity request finishes when a peer closes without a response",
     async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
@@ -698,7 +699,7 @@ test("host protocol parses messages after attach", () => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "identity request has a fixed deadline while a peer drips bytes",
     async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-protocol-"));
@@ -751,7 +752,7 @@ async function requestIdentityFromPeer(reply: string) {
     }
 }
 
-test("host identity round trips role and worker fields", async () => {
+socketTest("host identity round trips role and worker fields", async () => {
     expect(await requestIdentityFromPeer(encodeHostResponse({
         type: "host_identity",
         pid: 202,
@@ -782,7 +783,7 @@ test("host identity round trips role and worker fields", async () => {
     });
 });
 
-test("a worker identity rejects an invalid generation", async () => {
+socketTest("a worker identity rejects an invalid generation", async () => {
     const identity = {
         type: "host_identity", pid: 202, started_at: "2026-07-17T12:00:00.000Z",
         build_id: "vera-abc1234", role: "worker", worker_id: "w1", worker_generation: 0,
@@ -790,7 +791,7 @@ test("a worker identity rejects an invalid generation", async () => {
     expect(await requestIdentityFromPeer(`${JSON.stringify(identity)}\n`)).toBeUndefined();
 });
 
-test("an identity without a role parses as the host role", async () => {
+socketTest("an identity without a role parses as the host role", async () => {
     const oldIdentity = JSON.stringify({
         type: "host_identity",
         pid: 101,

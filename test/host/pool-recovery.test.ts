@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -6,12 +7,12 @@ import { applyAgentUpdate, beginTuiTurn, createTuiState } from "../../clients/tu
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
-test("a killed worker reconnects once, records its failed turn, and leaves another worker running", async () => {
+socketAndLoopbackTest("a killed worker reconnects once, records its failed turn, and leaves another worker running", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8r-");
     const webRoot = join(home, "web");
     await mkdir(webRoot);

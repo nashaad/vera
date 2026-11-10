@@ -1,11 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -19,7 +20,7 @@ interface PoolHostInfo {
     readonly socket: string;
 }
 
-test("restart scan repairs a killed worker's turn and queued prompt", async () => {
+socketAndLoopbackTest("restart scan repairs a killed worker's turn and queued prompt", async () => {
     const root = await mkdtemp("/private/tmp/vera-dev/hs4-scan-");
     const home = join(root, "home");
     await mkdir(home);
@@ -75,7 +76,7 @@ test("restart scan repairs a killed worker's turn and queued prompt", async () =
         client = undefined;
         child.kill("SIGKILL");
         await child.exited;
-        await waitFor(() => !alive(child.pid), "master exit");
+        await waitFor(() => !alive(child.pid), "host exit");
         hold = false;
         release.resolve();
 

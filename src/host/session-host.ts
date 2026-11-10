@@ -30,9 +30,9 @@ import {
 } from "../engine/permission-preferences.ts";
 import { credentialFingerprint } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
-import { createLeasedAdapter } from "./master/leased-adapter.ts";
-import { createLearnedFactObserver } from "./master/learned-facts.ts";
-import { applyConfigDefaults } from "./master/config-defaults.ts";
+import { createLeasedAdapter } from "./pool/leased-adapter.ts";
+import { createLearnedFactObserver } from "./pool/learned-facts.ts";
+import { applyConfigDefaults } from "./pool/config-defaults.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { skillScriptTool } from "../skills/script.ts";
@@ -42,10 +42,10 @@ import {
 } from "./agent-registry.ts";
 import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
-import { orderByExtension } from "./master/extension-catalog.ts";
+import { orderByExtension } from "./pool/extension-catalog.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
 
-import { startSessionExtensions, withoutMasterExtensions } from "./session-host/extensions.ts";
+import { startSessionExtensions, withoutHostExtensions } from "./session-host/extensions.ts";
 import { createSessionHandlers } from "./session-host/handlers.ts";
 import { createSessionHooks } from "./session-host/hooks.ts";
 import { indexClosedMembers, indexStoredSessions } from "./session-host/storage.ts";
@@ -104,7 +104,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                     ? {}
                     : { captureFailedRequest }),
             };
-            const lease = options.workerGlobals?.lease.bind(options.workerGlobals) ?? options.masterCredentialLease;
+            const lease = options.workerGlobals?.lease.bind(options.workerGlobals) ?? options.hostCredentialLease;
             return lease === undefined
                 ? createConfiguredModelAdapter(selected, adapterOptions)
                 : createLeasedAdapter(selected, adapterOptions, lease);
@@ -209,8 +209,8 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             tools: extensions.installedUnreviewedTools(),
             store: new TrustNoticeStore(defaultTrustNoticePath(home)),
         },
-        workerExtensions: () => options.poolMaster === true
-            ? withoutMasterExtensions(workerExtensionConfigs(currentConfig()))
+        workerExtensions: () => options.poolHost === true
+            ? withoutHostExtensions(workerExtensionConfigs(currentConfig()))
             : workerExtensionConfigs(currentConfig()),
         registeredAgents: extensions.agents(),
         sessionIdentity,
@@ -296,9 +296,11 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             storageStarted = true;
             if (storageOptions?.scan === false) publishStoredSessions(storedSessionIndex);
             else void indexStoredSessions(sessionDirectory, storedSessionIndex, hostLog, options.shard).then(publishStoredSessions);
-            parkIdleTimer = setInterval(() => {
-                void parkIdle().catch(() => { });
-            }, 30_000);
+            if (options.sessionWorker !== true) {
+                parkIdleTimer = setInterval(() => {
+                    void parkIdle().catch(() => { });
+                }, 30_000);
+            }
         },
         stopMaintenance,
         async clearProviderSelection(provider) {

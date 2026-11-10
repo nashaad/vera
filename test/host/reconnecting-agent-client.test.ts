@@ -20,6 +20,7 @@ import {
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import type { HostStopWaitEvent } from "../../src/host/protocol.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const CROW_BUILD = "vera-crow-1";
 const KRAKEN_BUILD = "vera-kraken-2";
@@ -29,7 +30,7 @@ type ScriptedIdentity = { readonly buildId: string } | "no_build_id" | "silent";
 
 const temporaryDirectories: string[] = [];
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a stopped peer stays attached until it is killed, then closes immediately",
     async () => {
         const directory = temporaryDirectory();
@@ -88,7 +89,7 @@ afterEach(() => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "reconnecting clients resume from the last update delivered to their caller",
     async () => {
         const directory = temporaryDirectory();
@@ -144,7 +145,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a reattach refuses a host that came back as another build, without retrying",
     async () => {
         const directory = temporaryDirectory();
@@ -190,7 +191,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a first attach refuses a host of another build or one that reports none",
     async () => {
         const directory = temporaryDirectory();
@@ -217,7 +218,7 @@ afterEach(() => {
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a host that never confirms its build is not attached",
     async () => {
         const socketPath = join(temporaryDirectory(), "host.sock");

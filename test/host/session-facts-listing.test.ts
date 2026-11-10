@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,8 +10,9 @@ import { ModelFailureLedger } from "../../src/store/model-failures.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { ModelMessage } from "../../src/model/types.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "the host serves paged session facts, and they survive a restart",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-facts-"));
@@ -143,7 +144,7 @@ import type { ModelMessage } from "../../src/model/types.ts";
     },
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "session facts use the cached window resolved by the host catalog",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-host-facts-cache-"));

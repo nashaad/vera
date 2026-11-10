@@ -101,7 +101,7 @@ import {
 } from "./capabilities.ts";
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
-import { forwardSessionConnection } from "./master/forward.ts";
+import { forwardSessionConnection } from "./pool/forward.ts";
 import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./attachment-coordinator.ts";
 
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
@@ -138,13 +138,13 @@ export type ExtensionRequestHandler = (
 ) => Promise<JsonValue>;
 
 export interface RestartRecordsPort {
-    list(): readonly RestartRecordWire[];
-    dismiss(sessionId: string): number;
+    list(): readonly RestartRecordWire[] | Promise<readonly RestartRecordWire[]>;
+    dismiss(sessionId: string): number | Promise<number>;
 }
 
 type ForwardableHostRequest = Extract<HostRequest, { readonly type: "attach" | "branch_agent" }>;
 
-function isMasterOnlyRequest(request: HostRequest): boolean {
+function isHostOnlyRequest(request: HostRequest): boolean {
     switch (request.type) {
         case "create_agent":
         case "resume_agent":
@@ -200,7 +200,7 @@ export interface StartHostServerOptions {
     readonly readyLocation?: (agentId: string) => Promise<AgentLocationResponse | undefined>;
     readonly readWorkersReady?: () => number;
     readonly readUnavailableWorkers?: () => readonly string[];
-    readonly forwardMasterRequest?: (
+    readonly forwardHostRequest?: (
         request: HostRequest,
         send: (message: object) => Promise<void>,
         signal: AbortSignal,
@@ -520,7 +520,7 @@ async function startListener(
             options.readyLocation,
             options.readWorkersReady,
             options.readUnavailableWorkers,
-            options.forwardMasterRequest,
+            options.forwardHostRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
@@ -718,7 +718,7 @@ function receiveConnection(
     readyLocation: StartHostServerOptions["readyLocation"],
     readWorkersReady: StartHostServerOptions["readWorkersReady"],
     readUnavailableWorkers: StartHostServerOptions["readUnavailableWorkers"],
-    forwardMasterRequest: StartHostServerOptions["forwardMasterRequest"],
+    forwardHostRequest: StartHostServerOptions["forwardHostRequest"],
     routeRequest: StartHostServerOptions["routeRequest"],
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
@@ -1323,17 +1323,18 @@ function receiveConnection(
 
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
-        if (request !== undefined && forwardMasterRequest !== undefined && isMasterOnlyRequest(request)) {
+        if (request !== undefined && forwardHostRequest !== undefined && isHostOnlyRequest(request)) {
             clearDeadline();
             finished = true;
             const controller = new AbortController();
             socket.once("close", () => controller.abort());
-            void forwardMasterRequest(request, send, controller.signal)
+            void forwardHostRequest(request, send, controller.signal)
                 .then(() => socket.end(), () => socket.destroy());
             return;
         }
         if ((request?.type === "attach" || request?.type === "branch_agent")
             && routeRequest !== undefined && !isShutdownFenced()) {
+            clearDeadline();
             let destination: string | undefined;
             try {
                 destination = await routeRequest(request);
@@ -1351,7 +1352,6 @@ function receiveConnection(
                 return;
             }
             if (destination !== undefined) {
-                clearDeadline();
                 if (request.type === "attach" && identity.role === "worker"
                     && request.requested_capabilities?.includes(HOST_CAPABILITY_SESSION_ROUTING)) {
                     finished = true;
@@ -1492,10 +1492,13 @@ function receiveConnection(
         if (request?.type === "restart_records") {
             clearDeadline();
             finished = true;
-            void send({
-                type: "restart_records_list",
-                records: restartRecords.list(),
-            }).then(() => socket.end(), () => socket.destroy());
+            const records = restartRecords.list();
+            if (records instanceof Promise) {
+                void records.then((value) => send({ type: "restart_records_list", records: value }))
+                    .then(() => socket.end(), () => socket.destroy());
+            } else {
+                void send({ type: "restart_records_list", records }).then(() => socket.end(), () => socket.destroy());
+            }
             return;
         }
         if (request?.type === "restart_record_dismiss") {

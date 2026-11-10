@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
 } from "../../src/host/session-search-client.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { searchSessions } from "../../src/store/session-search.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const roots: string[] = [];
 
@@ -49,11 +50,7 @@ function writeSession(
     ].join("\n"), "utf8");
 }
 
-const networked = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
-
-networked("a search over the socket returns the transcripts on disk", async () => {
+socketTest("a search over the socket returns the transcripts on disk", async () => {
     const directory = root();
     const sessions = join(directory, "sessions");
     mkdirSync(sessions, { recursive: true });
@@ -80,7 +77,7 @@ networked("a search over the socket returns the transcripts on disk", async () =
     }
 });
 
-networked("a host with nothing to scan says unavailable, not empty", async () => {
+socketTest("a host with nothing to scan says unavailable, not empty", async () => {
     const directory = root();
     const socketPath = join(directory, "host.sock");
     const server = await startHostServer({
@@ -95,7 +92,7 @@ networked("a host with nothing to scan says unavailable, not empty", async () =>
     }
 });
 
-networked("a scan that throws is a refusal, never a wrong answer", async () => {
+socketTest("a scan that throws is a refusal, never a wrong answer", async () => {
     const directory = root();
     const socketPath = join(directory, "host.sock");
     const server = await startHostServer({
@@ -111,7 +108,7 @@ networked("a scan that throws is a refusal, never a wrong answer", async () => {
     }
 });
 
-networked("a query the host will not accept closes without answering", async () => {
+socketTest("a query the host will not accept closes without answering", async () => {
     const directory = root();
     const socketPath = join(directory, "host.sock");
     let scanned = false;
@@ -136,7 +133,7 @@ networked("a query the host will not accept closes without answering", async () 
     }
 });
 
-networked("a search naming one session carries the id across", async () => {
+socketTest("a search naming one session carries the id across", async () => {
     const directory = root();
     const sessions = join(directory, "sessions");
     mkdirSync(sessions, { recursive: true });
@@ -160,7 +157,7 @@ networked("a search naming one session carries the id across", async () => {
     }
 });
 
-networked("a named session carries more than the list hit cap", async () => {
+socketTest("a named session carries more than the list hit cap", async () => {
     const directory = root();
     const sessions = join(directory, "sessions");
     mkdirSync(sessions, { recursive: true });
@@ -187,7 +184,7 @@ networked("a named session carries more than the list hit cap", async () => {
     }
 });
 
-networked("a session id past the bound is refused, not scanned", async () => {
+socketTest("a session id past the bound is refused, not scanned", async () => {
     const directory = root();
     const socketPath = join(directory, "host.sock");
     let scanned = false;

@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -9,14 +10,14 @@ import { createAgentThroughHost, resumeAgentThroughHost, type ReadyAgent } from 
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_SESSION_ROUTING } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
-import * as supervisor from "../../src/host/master/supervisor.ts";
+import * as supervisor from "../../src/host/pool/supervisor.ts";
 import { HOST_PROTOCOL_VERSION, requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
-test("locate and create wait while resume refuses a starting worker", async () => {
+socketAndLoopbackTest("locate and create wait while resume refuses a starting worker", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-starting-");
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -44,14 +45,14 @@ test("locate and create wait while resume refuses a starting worker", async () =
         });
         void starting.catch(() => {});
         await within(entered.promise);
-        const masterPath = join(home, "runtime", "host.sock");
-        expect(await requestHostIdentity(masterPath)).toMatchObject({ workers_ready: 0 });
-        expect(await request(masterPath, { type: "locate_agent", agent_id: "crow" }))
+        const hostPath = join(home, "runtime", "host.sock");
+        expect(await requestHostIdentity(hostPath)).toMatchObject({ workers_ready: 0 });
+        expect(await request(hostPath, { type: "locate_agent", agent_id: "crow" }))
             .toMatchObject({ type: "agent_location_failed", reason: "starting" });
         let createFinished = false;
         let resumeFinished = false;
-        creating = createAgentThroughHost(masterPath, home).finally(() => { createFinished = true; });
-        resuming = resumeAgentThroughHost(masterPath, sessionPath).finally(() => { resumeFinished = true; });
+        creating = createAgentThroughHost(hostPath, home).finally(() => { createFinished = true; });
+        resuming = resumeAgentThroughHost(hostPath, sessionPath).finally(() => { resumeFinished = true; });
         void creating.catch(() => {});
         void resuming.catch(() => {});
         await Bun.sleep(100);
@@ -61,11 +62,11 @@ test("locate and create wait while resume refuses a starting worker", async () =
         expect(unavailable).toMatchObject({ name: "AgentStartError", message: "The session process is unavailable." });
         release.resolve();
         host = await starting;
-        resuming = resumeAgentThroughHost(masterPath, sessionPath);
+        resuming = resumeAgentThroughHost(hostPath, sessionPath);
         const [created, resumed] = await Promise.all([creating, resuming]);
         expect(created.location).toMatchObject({ worker_id: "w0", socket_path: join(home, "runtime", "w0.sock") });
         expect(resumed.location).toEqual(created.location);
-        const location = await request(masterPath, { type: "locate_agent", agent_id: "crow" });
+        const location = await request(hostPath, { type: "locate_agent", agent_id: "crow" });
         expect(location).toMatchObject({ type: "agent_location", worker_id: "w0", socket_path: join(home, "runtime", "w0.sock") });
         expect(host.registry.agents.has("crow")).toBe(false);
         workerPid = (await requestHostIdentity(join(home, "runtime", "w0.sock")))!.pid;
@@ -86,7 +87,7 @@ test("locate and create wait while resume refuses a starting worker", async () =
     }
 }, 30_000);
 
-test("a real pool routes direct attachments and worker requests through the master", async () => {
+socketAndLoopbackTest("a real pool routes direct attachments and worker requests through the host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-pool-");
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -113,25 +114,25 @@ test("a real pool routes direct attachments and worker requests through the mast
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
             },
         });
-        const masterPath = host.server.socketPath;
-        const master = await requestHostIdentity(masterPath);
-        expect(master?.workers_ready).toBe(1);
-        const created = await within(createAgentThroughHost(masterPath, home));
+        const hostPath = host.server.socketPath;
+        const hostIdentity = await requestHostIdentity(hostPath);
+        expect(hostIdentity?.workers_ready).toBe(1);
+        const created = await within(createAgentThroughHost(hostPath, home));
         expect(created.location).toMatchObject({ worker_id: "w0", worker_generation: 1 });
         const workerPath = created.location!.socket_path;
         const worker = await requestHostIdentity(workerPath);
         workerPid = worker!.pid;
-        expect(worker).toMatchObject({ role: "worker", worker_id: "w0", worker_generation: 1, build_id: master?.build_id });
+        expect(worker).toMatchObject({ role: "worker", worker_id: "w0", worker_generation: 1, build_id: hostIdentity?.build_id });
         expect(workerPid).not.toBe(process.pid);
 
         const throughWorker = await within(createAgentThroughHost(workerPath, home));
         expect(throughWorker.location).toEqual(created.location);
         const resumed = await within(resumeAgentThroughHost(workerPath, join(home, "runtime", "sessions", `${throughWorker.id}.jsonl`)));
         expect(resumed.location).toEqual(created.location);
-        expect((await listAgentsThroughHost(masterPath)).map((row) => row.id)).toContain(created.id);
-        expect(await listAgentsThroughHost(workerPath)).toEqual(await listAgentsThroughHost(masterPath));
+        expect((await listAgentsThroughHost(hostPath)).map((row) => row.id)).toContain(created.id);
+        expect(await listAgentsThroughHost(workerPath)).toEqual(await listAgentsThroughHost(hostPath));
         expect(await request(workerPath, { type: "model_settings", workspace: home }))
-            .toEqual(await request(masterPath, { type: "model_settings", workspace: home }));
+            .toEqual(await request(hostPath, { type: "model_settings", workspace: home }));
         const operation = await connectHost({ socketPath: workerPath });
         try {
             await operation.send({ type: "model_operation", operation: "keep", models: [{ provider: "stub", model: "missing" }] });
@@ -142,39 +143,39 @@ test("a real pool routes direct attachments and worker requests through the mast
         } finally {
             operation.close();
         }
-        const shutdown = { type: "shutdown_if_idle", pid: master!.pid + 1, started_at: master!.started_at, requester_protocol_version: HOST_PROTOCOL_VERSION };
-        expect(await request(workerPath, shutdown)).toEqual(await request(masterPath, shutdown));
+        const shutdown = { type: "shutdown_if_idle", pid: hostIdentity!.pid + 1, started_at: hostIdentity!.started_at, requester_protocol_version: HOST_PROTOCOL_VERSION };
+        expect(await request(workerPath, shutdown)).toEqual(await request(hostPath, shutdown));
 
-        const masterOwned = await host.registry.create({ workspace: home });
+        const hostOwned = await host.registry.create({ workspace: home });
         const redirect = await request(workerPath, {
-            type: "attach", agent_id: masterOwned.id, requested_capabilities: [HOST_CAPABILITY_SESSION_ROUTING],
+            type: "attach", agent_id: hostOwned.id, requested_capabilities: [HOST_CAPABILITY_SESSION_ROUTING],
         });
-        expect(redirect).toEqual({ type: "agent_location_changed", socket_path: masterPath });
+        expect(redirect).toEqual({ type: "agent_location_changed", socket_path: hostPath });
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: masterOwned.id, buildId: master!.build_id!,
+            socketPath: () => hostPath, agentId: hostOwned.id, buildId: hostIdentity!.build_id!,
             initialLocation: created.location,
         });
         expect((await client.receive()).type).toBe("history");
         client.close();
-        client = await attachAgent({ socketPath: workerPath, agentId: masterOwned.id, requestedCapabilities: [] });
+        client = await attachAgent({ socketPath: workerPath, agentId: hostOwned.id, requestedCapabilities: [] });
         expect((await client.receive()).type).toBe("history");
         client.close();
 
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: created.id, buildId: master!.build_id!,
+            socketPath: () => hostPath, agentId: created.id, buildId: hostIdentity!.build_id!,
             initialLocation: created.location,
         });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Find the map." });
         await within(entered.promise);
-        await within(abortAgentThroughHost(masterPath, created.id));
+        await within(abortAgentThroughHost(hostPath, created.id));
         release.resolve();
         let finished;
         do { finished = await client.receive(AbortSignal.timeout(8_000)); }
         while (finished.type !== "turn_finished");
         expect(finished.outcome).toBe("aborted");
-        expect(await closeAgentThroughHost(masterPath, throughWorker.id)).toMatchObject({ status: "closed" });
-        expect(await trashSessionThroughHost(masterPath, throughWorker.id)).toEqual({ status: "trashed" });
+        expect(await closeAgentThroughHost(hostPath, throughWorker.id)).toMatchObject({ status: "closed" });
+        expect(await trashSessionThroughHost(hostPath, throughWorker.id)).toEqual({ status: "trashed" });
     } finally {
         release.resolve();
         client?.close();
@@ -190,7 +191,7 @@ test("a real pool routes direct attachments and worker requests through the mast
     }
 }, 40_000);
 
-test("a shutdown accepted on a worker socket reaches the client before the pool exits", async () => {
+socketAndLoopbackTest("a shutdown accepted on a worker socket reaches the client before the pool exits", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-stop-");
     const stub = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("not found", { status: 404 }) });
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
@@ -203,13 +204,13 @@ test("a shutdown accepted on a worker socket reaches the client before the pool 
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
             },
         });
-        const master = await requestHostIdentity(host.server.socketPath);
+        const hostIdentity = await requestHostIdentity(host.server.socketPath);
         const workerPath = join(home, "runtime", "w0.sock");
         workerPid = (await requestHostIdentity(workerPath))!.pid;
         expect(await request(workerPath, {
-            type: "shutdown_if_idle", pid: master!.pid, started_at: master!.started_at,
+            type: "shutdown_if_idle", pid: hostIdentity!.pid, started_at: hostIdentity!.started_at,
             requester_protocol_version: HOST_PROTOCOL_VERSION,
-        })).toMatchObject({ type: "shutdown_if_idle_accepted", pid: master!.pid, started_at: master!.started_at });
+        })).toMatchObject({ type: "shutdown_if_idle_accepted", pid: hostIdentity!.pid, started_at: hostIdentity!.started_at });
         await host.close();
         expect(() => process.kill(workerPid!, 0)).toThrow();
     } finally {
@@ -225,7 +226,7 @@ test("a shutdown accepted on a worker socket reaches the client before the pool 
     }
 }, 30_000);
 
-test("a reconnecting client reaches a replacement worker without restarting the host", async () => {
+socketAndLoopbackTest("a reconnecting client reaches a replacement worker without restarting the host", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs5-real-reconnect-");
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -258,13 +259,13 @@ test("a reconnecting client reaches a replacement worker without restarting the 
     try {
         host = await startResidentHost(options);
         if (host.annexPid !== undefined) pids.push(host.annexPid);
-        const masterPath = host.server.socketPath;
-        const ready = await createAgentThroughHost(masterPath, home);
+        const hostPath = host.server.socketPath;
+        const ready = await createAgentThroughHost(hostPath, home);
         const first = await requestHostIdentity(ready.location!.socket_path);
         expect(first).toMatchObject({ role: "worker", worker_id: "w0", worker_generation: 1 });
         pids.push(first!.pid);
         client = await attachReconnectingAgent({
-            socketPath: () => masterPath, agentId: ready.id, buildId: host.server.identity.build_id!,
+            socketPath: () => hostPath, agentId: ready.id, buildId: host.server.identity.build_id!,
             initialLocation: ready.location,
         });
         expect((await client.receive()).type).toBe("history");
@@ -273,13 +274,13 @@ test("a reconnecting client reaches a replacement worker without restarting the 
         await waitForExit(first!.pid);
         await within(entered.promise);
         const deadline = Date.now() + 5_000;
-        while ((await requestHostIdentity(masterPath))?.workers_ready !== 0) {
-            if (Date.now() >= deadline) throw new Error("Master did not observe the worker exit");
+        while ((await requestHostIdentity(hostPath))?.workers_ready !== 0) {
+            if (Date.now() >= deadline) throw new Error("Host did not observe the worker exit");
             await Bun.sleep(10);
         }
-        expect(await request(masterPath, { type: "locate_agent", agent_id: ready.id }))
+        expect(await request(hostPath, { type: "locate_agent", agent_id: ready.id }))
             .toMatchObject({ type: "agent_location_failed", reason: "worker_unavailable" });
-        expect(await request(masterPath, {
+        expect(await request(hostPath, {
             type: "resume_agent", session_path: join(home, "runtime", "sessions", `${ready.id}.jsonl`),
         })).toMatchObject({ type: "agent_start_failed", reason: "The session process is unavailable." });
         release.resolve();
@@ -299,7 +300,7 @@ test("a reconnecting client reaches a replacement worker without restarting the 
         pending = undefined;
         while (update.type !== "turn_finished") update = await client.receive(AbortSignal.timeout(8_000));
         expect(update.outcome).toBeUndefined();
-        expect(await request(masterPath, { type: "locate_agent", agent_id: ready.id }))
+        expect(await request(hostPath, { type: "locate_agent", agent_id: ready.id }))
             .toMatchObject({ type: "agent_location", worker_id: "w0", socket_path: ready.location!.socket_path });
     } finally {
         release.resolve();

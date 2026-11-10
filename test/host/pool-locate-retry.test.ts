@@ -1,13 +1,14 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 
-test("a client retries a starting session location once", async () => {
+socketTest("a client retries a starting session location once", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h8b-locate-");
-    const socketPath = join(home, "master.sock");
+    const socketPath = join(home, "host.sock");
     let locations = 0;
     const server = createServer((socket) => socket.once("data", (chunk: Buffer) => {
         const request = JSON.parse(chunk.toString("utf8")) as { type: string };

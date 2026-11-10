@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -14,7 +15,7 @@ interface RequestResult {
     readonly owner: string;
     readonly workerSocket: string;
     readonly workerAnswer: unknown;
-    readonly masterAnswer: unknown;
+    readonly hostAnswer: unknown;
     readonly otherWorkerAnswer?: unknown;
 }
 
@@ -78,7 +79,7 @@ async function runSessions(pool: boolean): Promise<readonly RequestResult[]> {
             } while (Date.now() < deadline);
             results.push({
                 prompt, session: created.id, owner, workerSocket, workerAnswer,
-                masterAnswer: await request(host.server.socketPath),
+                hostAnswer: await request(host.server.socketPath),
             });
             client.close();
             client = undefined;
@@ -110,17 +111,17 @@ function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-test("pool-mode limitation: master requests cannot read worker-local session state", async () => {
+socketAndLoopbackTest("pool-mode limitation: host requests cannot read worker-local session state", async () => {
     const single = await runSessions(false);
     const pool = await runSessions(true);
     console.log(JSON.stringify({ single, pool }));
     expect(pool.map((result) => result.otherWorkerAnswer)).toEqual(["missing", "missing"]);
     for (const result of single) {
         expect(result.workerAnswer).toBe(result.session);
-        expect(result.masterAnswer).toBe(result.session);
+        expect(result.hostAnswer).toBe(result.session);
     }
     for (const result of pool) {
         expect(result.workerAnswer).toBe(result.session);
-        expect(result.masterAnswer).toBe("missing");
+        expect(result.hostAnswer).toBe("missing");
     }
 }, 45_000);

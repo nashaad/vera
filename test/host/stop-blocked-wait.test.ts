@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,10 +27,7 @@ const config = {
     approval_mode: "full_access",
 } as const;
 
-const skipOnSandbox = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1";
-const blockedWaitTest = skipOnSandbox ? test.skip : test;
-
-blockedWaitTest(
+socketTest(
     "a blocked session with queued prompts does not keep an open stop wait waiting",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-blocked-wait-"));

@@ -55,13 +55,16 @@ import {
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
-import { createHostLogger, defaultHostLogPath, type HostLog } from "./host-log.ts";
+import { createAsyncHostLogger, createHostLogger, defaultHostLogPath, type HostLog, type HostLogEntry } from "./host-log.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
-import { removeStoppedPoolLock } from "./master/worker-records.ts";
+import { removeStoppedPoolLock } from "./pool/worker-records.ts";
+import { hasInterruptedPoolScan } from "./pool/crash-scan.ts";
+import { stopRecordedWorkers } from "./pool/stop-worker.ts";
+import { RestartLedger } from "./pool/restart-ledger.ts";
 import { acquireHostStartupClaim, type HostStartupClaim } from "./startup-claim.ts";
 import { HostSocketHeldError } from "./server.ts";
-import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./master/worker-record.ts";
-import { occupiedWorkerSockets, workerCountFromReconnect } from "./master/worker-sockets.ts";
+import { inspectWorkerRecords, settleWorkerRecords, type WorkerRecordScan } from "./pool/worker-record.ts";
+import { occupiedWorkerSockets, workerCountFromReconnect } from "./pool/worker-sockets.ts";
 import {
     LOG_PRUNE_INTERVAL_MS,
     logMaxAgeMs,
@@ -166,14 +169,14 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
-import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./master/in-process.ts";
+import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./pool/in-process.ts";
 import type { SessionShard } from "./shard.ts";
-import { prepareProcessWorker } from "./master/process-worker.ts";
-import { controlSocketPath } from "./master/supervisor.ts";
-import { cachedHostAuthStorage, createCredentialBroker } from "./master/credentials.ts";
-import type { GlobalChange } from "./master/global-services.ts";
-import type { WorkerGlobals } from "./master/worker-globals.ts";
-import type { WorkerExtensionServices } from "./master/extension-catalog.ts";
+import { prepareProcessWorker } from "./pool/process-worker.ts";
+import { controlSocketPath } from "./pool/supervisor.ts";
+import { cachedHostAuthStorage, createCredentialBroker } from "./pool/credentials.ts";
+import type { GlobalChange } from "./pool/global-services.ts";
+import type { WorkerGlobals } from "./pool/worker-globals.ts";
+import type { WorkerExtensionServices } from "./pool/extension-catalog.ts";
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -184,7 +187,7 @@ export interface StartResidentHostOptions {
     readonly processWorker?: boolean;
     readonly processWorkerCount?: number;
     readonly processWorkerHeartbeatDeadlineMs?: number;
-    readonly processWorkerMasterGraceMs?: number;
+    readonly processWorkerHostGraceMs?: number;
     readonly skipStartupDiscovery?: boolean;
     // The Vera home itself, not the user's home. Every unset path below stays under it.
     readonly home?: string;
@@ -230,7 +233,7 @@ export interface StartResidentHostOptions {
 export interface HostHealth {
     readonly annex: "ok" | "failed";
     readonly annexReason?: string;
-    readonly workers?: readonly import("./master/in-process.ts").WorkerHealth[];
+    readonly workers?: readonly import("./pool/in-process.ts").WorkerHealth[];
 }
 
 export interface ResidentHost {
@@ -250,6 +253,7 @@ const activeResidentHostSockets = new Set<string>();
 interface ResidentHostStartup {
     readonly claim: HostStartupClaim;
     readonly recovery: WorkerRecordScan;
+    readonly interruptedScan: boolean;
     readonly settleRecovery: () => Promise<WorkerRecordScan>;
     readonly onClosed: () => void;
 }
@@ -297,10 +301,23 @@ export async function startResidentHost(
             const count = workers.count ?? await workerCountFromReconnect(home, sockets, buildId) ?? configuredCount;
             sockets = await occupiedWorkerSockets(home, count);
             recovery = { ...recovery, unrecorded: sockets.filter((socket) => !recorded.has(socket.path)) };
-            resolved = { ...options, inProcessWorker: false, processWorker: true, processWorkerCount: count };
+            const changeMode = options.processWorker === false
+                || (options.processWorker === true && count !== configuredCount);
+            if (changeMode) {
+                await stopRecordedWorkers(home);
+                const remaining = await inspectWorkerRecords(home, buildId);
+                const occupied = await occupiedWorkerSockets(home, remaining.count ?? configuredCount);
+                if (remaining.recoverable.length > 0 || remaining.pending.length > 0 || occupied.length > 0) {
+                    throw new Error("A session process is still running; the requested host cannot start.");
+                }
+                recovery = remaining;
+            } else {
+                resolved = { ...options, inProcessWorker: false, processWorker: true, processWorkerCount: count };
+            }
         }
+        const interruptedScan = hasWorkerRecovery(recovery) && await hasInterruptedPoolScan(lockPath, recovery);
         const host = await startHostRuntime(resolved, undefined, undefined, undefined, undefined, undefined, {
-            claim, recovery,
+            claim, recovery, interruptedScan,
             settleRecovery: () => settleWorkerRecords(recovery, buildId, heartbeatDeadline,
                 (pid) => startupLog({ type: "session_process_unresponsive", message: `Session process PID ${pid} is not answering.` })),
             onClosed: () => { activeResidentHostSockets.delete(activeSocket); },
@@ -340,6 +357,11 @@ async function startHostRuntime(
     const home = selectedVeraHome(options.home);
     const logDirectory = eventLogRoot(home);
     const hostLog = createHostLogger({ path: defaultHostLogPath(home) });
+    const asyncHostLog = options.processWorker === true ? createAsyncHostLogger({ path: defaultHostLogPath(home) }) : undefined;
+    const logRestart = (entry: HostLogEntry): void | Promise<void> => {
+        if (asyncHostLog === undefined) return hostLog(entry);
+        return asyncHostLog(entry);
+    };
     const startupLog = options.startupLog ?? hostLog;
     const timed = async <T>(
         phase: string,
@@ -430,24 +452,34 @@ async function startHostRuntime(
     }
     let inProcessWorker: InProcessWorker | undefined;
     const restartRecordPath = defaultRestartRecordPath(home);
-    const forgetRestartRecords = (sessionId: string): void => {
+    const restartLedger = options.processWorker === true ? new RestartLedger(restartRecordPath) : undefined;
+    const clearFailure = (error: unknown): void => {
+        hostLog({
+            type: "restart_records_clear_failed",
+            message: error instanceof Error ? error.message : String(error),
+        });
+    };
+    const forgetRestartRecords = (sessionId: string): void | Promise<void> => {
+        if (workerGlobals !== undefined) return workerGlobals.request<void>("forgetRestartRecords", sessionId).catch(clearFailure);
+        if (restartLedger !== undefined) return restartLedger.clear(sessionId).then(() => {}, clearFailure);
         try {
             clearRestartRecordsForSession(sessionId, restartRecordPath);
         } catch (error) {
-            hostLog({
-                type: "restart_records_clear_failed",
-                message: error instanceof Error ? error.message : String(error),
-            });
+            clearFailure(error);
         }
     };
-    const recordStopCut = (record: RestartRecord): void => {
+    const recordWriteFailure = (error: unknown): void => {
+        hostLog({
+            type: "restart_record_write_failed",
+            message: error instanceof Error ? error.message : String(error),
+        });
+    };
+    const recordStopCut = (record: RestartRecord): void | Promise<void> => {
+        if (restartLedger !== undefined) return restartLedger.append(record).catch(recordWriteFailure);
         try {
             appendRestartRecord(record, restartRecordPath);
         } catch (error) {
-            hostLog({
-                type: "restart_record_write_failed",
-                message: error instanceof Error ? error.message : String(error),
-            });
+            recordWriteFailure(error);
         }
     };
     const modelFailureLedgerPath = options.modelFailureLedgerPath
@@ -576,7 +608,7 @@ async function startHostRuntime(
         cutSession: (sessionId, reason) => inProcessWorker === undefined
             ? registry.cutSessionForStop(sessionId, reason)
             : inProcessWorker.cutSession(sessionId, reason),
-        recordCut: recordStopCut,
+        ...(workerGlobals === undefined ? { recordCut: recordStopCut } : {}),
     });
     if (options.processWorker === true) {
         stopWhenIdle.observe((event) => {
@@ -600,9 +632,9 @@ async function startHostRuntime(
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
         ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
-        ...(credentials === undefined ? {} : { masterCredentialLease: credentials.lease }),
+        ...(credentials === undefined ? {} : { hostCredentialLease: credentials.lease }),
         ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
-        ...(options.processWorker === true ? { poolMaster: true } : {}),
+        ...(options.processWorker === true ? { poolHost: true } : {}),
         ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,
         home, configPath, cacheDirectory, currentConfig, currentReachability,
@@ -1079,12 +1111,14 @@ async function startHostRuntime(
         sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
             const workerOptions = {
-                master: sessionHost, sessionOptions, masterSocket: socketPath,
+                host: sessionHost, sessionOptions, hostSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
             };
             inProcessWorker = options.processWorker === true
                 ? prepareProcessWorker({ ...workerOptions, hostOptions: options, workerCount, credentials: credentials!,
+                    interruptedScan: startup?.interruptedScan === true,
+                    restartLedger: restartLedger!,
                     recoverableWorkers: startup?.recovery.recoverable ?? [],
                     stoppedWorkers: startup?.recovery.stopped ?? [],
                     pendingWorkers: startup?.recovery.pending ?? [],
@@ -1133,13 +1167,14 @@ async function startHostRuntime(
             "server_listen_and_lockfile",
             () => startHostServer({
                 ...sessionHost.handlers,
-                ...inProcessWorker?.masterHandlers,
+                ...inProcessWorker?.hostHandlers,
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
                 ...(options.processWorker === true ? { poolWorkerCount: workerCount } : {}),
                 ...(startup === undefined ? {} : { startupClaim: startup.claim }),
-                ...(startup === undefined || !hasWorkerRecovery(startup.recovery) ? {} : { publishBeforeWorkers: true }),
+                ...(startup === undefined || !hasWorkerRecovery(startup.recovery) || startup.interruptedScan
+                    ? {} : { publishBeforeWorkers: true }),
                 ...(options.pid === undefined ? {} : { pid: options.pid }),
                 ...(options.startedAt === undefined
                     ? {}
@@ -1154,44 +1189,52 @@ async function startHostRuntime(
                     onListening: (identity) => inProcessWorker!.start(identity),
                 }),
                 recoverPrevious: async () => {
-                    if (startup !== undefined && hasWorkerRecovery(startup.recovery)) return;
+                    if (startup !== undefined && hasWorkerRecovery(startup.recovery) && !startup.interruptedScan) return;
                     try {
-                        const scan = await recoverCrashedTurns({
-                            lockPath,
-                            sessionDirectory,
-                            recordPath: restartRecordPath,
-                            withSession: async (path, recover) => {
-                                await withSessionReservation(path, restoringSessions, async () => {
-                                    const header = await readSessionHeader(path).catch(() => undefined);
-                                    if (header === undefined) return;
-                                    const { id } = header;
-                                    if (
-                                        registry.agents.has(id)
-                                        || registry.startingIds.has(id)
-                                        || registry.trashingIds.has(id)
-                                        || await (inProcessWorker?.hasSession(id) ?? false)
-                                    ) return;
-                                    await recover();
-                                });
-                            },
-                        });
+                        const scan = options.processWorker === true
+                            ? await inProcessWorker!.recoverCrashedTurns!({ lockPath, sessionDirectory, recordPath: restartRecordPath })
+                            : await recoverCrashedTurns({
+                                lockPath,
+                                sessionDirectory,
+                                recordPath: restartRecordPath,
+                                withSession: async (path, recover) => {
+                                    await withSessionReservation(path, restoringSessions, async () => {
+                                        const header = await readSessionHeader(path).catch(() => undefined);
+                                        if (header === undefined) return;
+                                        const { id } = header;
+                                        if (
+                                            registry.agents.has(id)
+                                            || registry.startingIds.has(id)
+                                            || registry.trashingIds.has(id)
+                                            || await (inProcessWorker?.hasSession(id) ?? false)
+                                        ) return;
+                                        await recover();
+                                    });
+                                },
+                            });
+                        if ("failures" in scan && scan.failures.length > 0) {
+                            const logged = logRestart({ type: "restart_scan_failed", message: [...new Set(scan.failures)].join(" ") });
+                            if (logged !== undefined) await logged;
+                        }
                         if (scan.recorded.length > 0) {
-                            hostLog({
+                            const logged = logRestart({
                                 type: "restart_turns_recorded",
                                 message: `${scan.recorded.length} session(s) had a turn open at the last exit`,
                             });
+                            if (logged !== undefined) await logged;
                         }
                     } catch (error) {
-                        hostLog({
+                        const logged = logRestart({
                             type: "restart_scan_failed",
                             message: error instanceof Error ? error.message : String(error),
                         });
+                        if (logged !== undefined) await logged;
                     }
                 },
                 restartRecords: {
-                    list: () => listRestartRecords(restartRecordPath),
+                    list: () => restartLedger?.list() ?? listRestartRecords(restartRecordPath),
                     dismiss: (sessionId) =>
-                        clearRestartRecordsForSession(sessionId, restartRecordPath),
+                        restartLedger?.clear(sessionId) ?? clearRestartRecordsForSession(sessionId, restartRecordPath),
                 },
 
                 stopWhenIdle,

@@ -144,7 +144,7 @@ test("the sweep stops a recorded session process with its host", async () => {
     const directory = join(instance.veraHome, "runtime", "workers");
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "w0.json"), JSON.stringify({
-        id: "w0", pid: workerPid, started_at: new Date().toISOString(), master_pid: instance.pid,
+        id: "w0", pid: workerPid, started_at: new Date().toISOString(), host_pid: instance.pid,
     }));
 
     const written = await sweep({ maxAgeMs: 0, dryRun: false, root });
@@ -276,7 +276,7 @@ for (const pooled of [false, true]) {
                 const directory = join(instance.veraHome, "runtime", "workers");
                 mkdirSync(directory, { recursive: true });
                 writeFileSync(join(directory, "w0.json"), JSON.stringify({
-                    id: "w0", pid: workerPid, started_at: new Date().toISOString(), master_pid: instance.pid,
+                    id: "w0", pid: workerPid, started_at: new Date().toISOString(), host_pid: instance.pid,
                 }));
             }
             let replaced = false;

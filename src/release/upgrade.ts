@@ -43,8 +43,8 @@ import {
 } from "../host/force-stop.ts";
 import { checkRecordIdentity } from "../host/process-identity.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";
-import { stopRecordedWorkers } from "../host/master/stop-worker.ts";
-import { readRecordedWorkers } from "../host/master/worker-records.ts";
+import { stopRecordedWorkers } from "../host/pool/stop-worker.ts";
+import { readRecordedWorkers } from "../host/pool/worker-records.ts";
 import { acquireStopStartupClaim } from "../host/stop-claim.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 

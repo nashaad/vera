@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
-import { createLearnedFactObserver } from "../../src/host/master/learned-facts.ts";
-import type { WorkerGlobals } from "../../src/host/master/worker-globals.ts";
+import { createLearnedFactObserver } from "../../src/host/pool/learned-facts.ts";
+import type { WorkerGlobals } from "../../src/host/pool/worker-globals.ts";
 import { createPoolEffortPool } from "../../src/model/effort-pool.ts";
 import { recordLearned } from "../../src/model/pool-file-store.ts";
 import type { LearnedFact } from "../../src/model/pool-file.ts";
@@ -13,7 +13,7 @@ import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type AssistantMessage, type ModelAdapter, type ModelRequest } from "../../src/model/types.ts";
 import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
 
-test("a learned refusal reaches the master before recovery retries", async () => {
+test("a learned refusal reaches the host before recovery retries", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/h7cl-");
     const path = join(home, "pool.json");
     await writeFile(path, JSON.stringify({ models: { "stub/m": { efforts: { high: "high", medium: "medium" } } } }));

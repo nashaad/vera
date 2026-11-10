@@ -84,7 +84,7 @@ export interface StopWhenIdleOptions {
     // Halts one session and clears the halt again. False when the session did not confirm.
     readonly cutSession?: (sessionId: string, reason: string) => Promise<boolean>;
     // Receives one record per session per wait, after the session confirms the cut.
-    readonly recordCut?: (record: RestartRecord) => void;
+    readonly recordCut?: (record: RestartRecord) => void | Promise<void>;
     readonly now?: () => Date;
 }
 
@@ -211,13 +211,14 @@ export class StopWhenIdle implements StopWhenIdleControl {
             cut.push(target.session_id);
             if (this.recordedThisWait.has(target.session_id)) continue;
             this.recordedThisWait.add(target.session_id);
-            this.recordCut(target.session_id, cause);
+            const recorded = this.recordCut(target.session_id, cause);
+            if (recorded !== undefined) await recorded;
         }
         return { status: "done", cut, failed };
     }
 
     // A failed write does not undo the cut or the stop.
-    private recordCut(sessionId: string, cause: StopCause): void {
+    private recordCut(sessionId: string, cause: StopCause): void | Promise<void> {
         const record: RestartRecord = {
             session_id: sessionId,
             cause,
@@ -225,7 +226,8 @@ export class StopWhenIdle implements StopWhenIdleControl {
             at: (this.options.now?.() ?? new Date()).toISOString(),
         };
         try {
-            this.options.recordCut?.(record);
+            const recorded = this.options.recordCut?.(record);
+            if (recorded !== undefined) return recorded.catch(() => {});
         } catch {
             // The writer reports its own failures; the cut continues.
         }

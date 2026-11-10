@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -10,9 +11,9 @@ import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-c
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { forceStopHostProcess, forceStopResidentHost, stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
-import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
-import { stopWorkerProcess } from "../../src/host/master/stop-worker.ts";
-import { readRecordedWorkers, type RecordedWorker } from "../../src/host/master/worker-records.ts";
+import { forceStopPool } from "../../src/host/pool/force-stop-pool.ts";
+import { stopWorkerProcess } from "../../src/host/pool/stop-worker.ts";
+import { readRecordedWorkers, type RecordedWorker } from "../../src/host/pool/worker-records.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
@@ -80,7 +81,7 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
         if ((mode === "pool" && workers.length !== 3) || child.pid === undefined) throw new Error("Pool processes are unavailable");
         const records = await readRecordedWorkers(home);
         return {
-            home, socket, masterPid: child.pid, workers, exited,
+            home, socket, hostPid: child.pid, workers, exited,
             get requests() { return requests; },
             release: () => gate.resolve(),
             releaseReplacement: async () => { await writeFile(join(home, "replacement-release"), ""); },
@@ -112,11 +113,11 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
 
 for (const mode of ["plain", "pool"] as const) {
     for (const force of [false, true]) {
-        test(`${mode} fresh host ${force ? "forced" : "ordinary"} stop works without an attached TUI`, async () => {
+        socketTest(`${mode} fresh host ${force ? "forced" : "ordinary"} stop works without an attached TUI`, async () => {
             const fixture = await startPool(mode);
             try {
                 const liveDirectory = join(fixture.home, "machine", "live");
-                await waitFor(() => existsSync(join(liveDirectory, `${fixture.masterPid}.json`)), "host live record");
+                await waitFor(() => existsSync(join(liveDirectory, `${fixture.hostPid}.json`)), "host live record");
                 const recordedPids = (await readdir(liveDirectory)).map((name) => Number(name.replace(/\.json$/, "")))
                     .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
                 const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
@@ -143,10 +144,10 @@ for (const mode of ["plain", "pool"] as const) {
     }
 
     for (const force of [false, true]) {
-        test(`${mode} ${force ? "forced" : "ordinary"} stop clears a crashed host socket and live record`, async () => {
+        socketTest(`${mode} ${force ? "forced" : "ordinary"} stop clears a crashed host socket and live record`, async () => {
             const fixture = await startPool(mode);
             try {
-                const livePath = join(fixture.home, "machine", "live", `${fixture.masterPid}.json`);
+                const livePath = join(fixture.home, "machine", "live", `${fixture.hostPid}.json`);
                 await waitFor(() => existsSync(livePath), "host live record");
                 await fixture.crash();
                 expect(existsSync(fixture.socket)).toBe(true);
@@ -174,7 +175,7 @@ for (const mode of ["plain", "pool"] as const) {
     }
 
     for (const force of [false, true]) {
-        test(`${mode} ${force ? "forced" : "ordinary"} idle stop removes owned process records and notifies attachments`, async () => {
+        socketTest(`${mode} ${force ? "forced" : "ordinary"} idle stop removes owned process records and notifies attachments`, async () => {
             const fixture = await startPool(mode);
             let client: AttachedAgentClient | undefined;
             try {
@@ -193,11 +194,11 @@ for (const mode of ["plain", "pool"] as const) {
                 fixture.release();
                 while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
                 const liveDirectory = join(fixture.home, "machine", "live");
-                await waitFor(() => existsSync(join(liveDirectory, `${fixture.masterPid}.json`)), "host live record");
+                await waitFor(() => existsSync(join(liveDirectory, `${fixture.hostPid}.json`)), "host live record");
                 const liveNames = await readdir(liveDirectory);
                 const recordedPids = liveNames.map((name) => Number(name.replace(/\.json$/, "")))
                     .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
-                expect(recordedPids).toContain(fixture.masterPid);
+                expect(recordedPids).toContain(fixture.hostPid);
 
                 const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
                     cwd: process.cwd(),
@@ -228,7 +229,7 @@ for (const mode of ["plain", "pool"] as const) {
         }, 30_000);
     }
 
-    test(`${mode} forced stop tells an attachment before cutting a running turn`, async () => {
+    socketTest(`${mode} forced stop tells an attachment before cutting a running turn`, async () => {
         const fixture = await startPool(mode);
         let client: AttachedAgentClient | undefined;
         try {
@@ -266,15 +267,15 @@ for (const mode of ["plain", "pool"] as const) {
         }
     }, 30_000);
 
-    test(`${mode} signal fallback removes the stopped host's socket and live record`, async () => {
+    socketTest(`${mode} signal fallback removes the stopped host's socket and live record`, async () => {
         const fixture = await startPool(mode);
         try {
-            const livePath = join(fixture.home, "machine", "live", `${fixture.masterPid}.json`);
+            const livePath = join(fixture.home, "machine", "live", `${fixture.hostPid}.json`);
             await waitFor(() => existsSync(livePath), "host live record");
             expect(existsSync(fixture.socket)).toBe(true);
             if (mode === "pool") {
                 const result = await forceStopPool(fixture.home);
-                expect(result?.masterPid).toBe(fixture.masterPid);
+                expect(result?.hostPid).toBe(fixture.hostPid);
             } else {
                 const result = await forceStopResidentHost({
                     home: fixture.home, lockPath: join(fixture.home, "runtime", "host.json"),
@@ -293,7 +294,7 @@ for (const mode of ["plain", "pool"] as const) {
     }, 30_000);
 }
 
-test("a pool stop waits for a running turn and reaps every process before removing the lock", async () => {
+socketTest("a pool stop waits for a running turn and reaps every process before removing the lock", async () => {
     const pool = await startPool();
     let client: AttachedAgentClient | undefined;
     try {
@@ -311,12 +312,12 @@ test("a pool stop waits for a running turn and reaps every process before removi
         await waiting.promise;
         await Bun.sleep(300);
         expect(finished).toBe(false);
-        expect(processIsAlive(pool.masterPid)).toBe(true);
+        expect(processIsAlive(pool.hostPid)).toBe(true);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(true);
         pool.release();
         expect((await stop)?.endedBy).toBe("stopped");
         expect(await pool.exited).toBe(0);
-        expect([pool.masterPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
+        expect([pool.hostPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
     } finally {
         client?.close();
@@ -324,7 +325,7 @@ test("a pool stop waits for a running turn and reaps every process before removi
     }
 }, 30_000);
 
-test("a stop replies immediately and waits for a delayed replacement and running turn", async () => {
+socketTest("a stop replies immediately and waits for a delayed replacement and running turn", async () => {
     const pool = await startPool("pool", true);
     let client: AttachedAgentClient | undefined;
     let stop: Promise<number> | undefined;
@@ -359,7 +360,7 @@ test("a stop replies immediately and waits for a delayed replacement and running
         expect(await Promise.race([first.promise, Bun.sleep(900).then(() => { throw new Error("No first stop reply"); })])).toEqual([]);
         await Bun.sleep(1_250);
         expect(finished).toBe(false);
-        expect(processIsAlive(pool.masterPid)).toBe(true);
+        expect(processIsAlive(pool.hostPid)).toBe(true);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(true);
         await pool.releaseReplacement();
         let replacement: RecordedWorker | undefined;
@@ -374,9 +375,9 @@ test("a stop replies immediately and waits for a delayed replacement and running
         pool.release();
         expect(await stop).toBe(0);
         expect(error).toBe("");
-        expect(output).toContain(`Stopped resident Vera host PID ${pool.masterPid} after its running turns ended.`);
+        expect(output).toContain(`Stopped resident Vera host PID ${pool.hostPid} after its running turns ended.`);
         expect(await pool.exited).toBe(0);
-        expect([pool.masterPid, ...pool.workers, replacement!.pid].filter(processIsAlive)).toEqual([]);
+        expect([pool.hostPid, ...pool.workers, replacement!.pid].filter(processIsAlive)).toEqual([]);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
     } finally {
         await pool.releaseReplacement().catch(() => {});
@@ -387,7 +388,7 @@ test("a stop replies immediately and waits for a delayed replacement and running
     }
 }, 35_000);
 
-test("a stop already waiting does not finish while a replacement is starting", async () => {
+socketTest("a stop already waiting does not finish while a replacement is starting", async () => {
     const pool = await startPool("pool", true);
     let client: AttachedAgentClient | undefined;
     let stop: Promise<number> | undefined;
@@ -424,13 +425,13 @@ test("a stop already waiting does not finish while a replacement is starting", a
         await Bun.sleep(600);
         expect(finished).toBe(false);
         expect(events).not.toContain("host_stop_wait_cleared");
-        expect(processIsAlive(pool.masterPid)).toBe(true);
+        expect(processIsAlive(pool.hostPid)).toBe(true);
         await pool.releaseReplacement();
         await waitFor(() => existsSync(join(pool.home, "replacement-ready.json")), "replacement readiness");
         const replacement = JSON.parse(await readFile(join(pool.home, "replacement-ready.json"), "utf8")) as { pid: number };
         expect(await stop).toBe(0);
         expect(await pool.exited).toBe(0);
-        expect([pool.masterPid, ...pool.workers, replacement.pid].filter(processIsAlive)).toEqual([]);
+        expect([pool.hostPid, ...pool.workers, replacement.pid].filter(processIsAlive)).toEqual([]);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
     } finally {
         await pool.releaseReplacement().catch(() => {});
@@ -441,7 +442,7 @@ test("a stop already waiting does not finish while a replacement is starting", a
     }
 }, 35_000);
 
-test("a lost final stop reply has the same CLI result in plain and pool mode", async () => {
+socketTest("a lost final stop reply has the same CLI result in plain and pool mode", async () => {
     for (const mode of ["plain", "pool"] as const) {
         const pool = await startPool(mode);
         const proxyPath = join(pool.home, "runtime", "stop-proxy.sock");
@@ -484,11 +485,11 @@ test("a lost final stop reply has the same CLI result in plain and pool mode", a
             });
             expect({ code, output, error }).toEqual({
                 code: 1,
-                output: `Resident Vera host PID ${pool.masterPid} did not answer the stop request, so it was left running. Run 'vera host stop --force' to stop it now and cut its running turns.\n`,
+                output: `Resident Vera host PID ${pool.hostPid} did not answer the stop request, so it was left running. Run 'vera host stop --force' to stop it now and cut its running turns.\n`,
                 error: "",
             });
             expect(await pool.exited).toBe(0);
-            expect([pool.masterPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
+            expect([pool.hostPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
         } finally {
             await new Promise<void>((resolve) => proxy.close(() => resolve()));
             await pool.cleanup();
@@ -496,7 +497,7 @@ test("a lost final stop reply has the same CLI result in plain and pool mode", a
     }
 }, 30_000);
 
-test("a pooled attachment hears the host stop wait", async () => {
+socketTest("a pooled attachment hears the host stop wait", async () => {
     const pool = await startPool();
     let client: AttachedAgentClient | undefined;
     let stop: ReturnType<typeof stopResidentHostWhenIdle> | undefined;
@@ -530,7 +531,7 @@ test("a pooled attachment hears the host stop wait", async () => {
     }
 }, 30_000);
 
-test("plain and pooled attachments receive the same stop notifications", async () => {
+socketTest("plain and pooled attachments receive the same stop notifications", async () => {
     const outcomes: Array<readonly string[]> = [];
     for (const mode of ["plain", "pool"] as const) {
         const fixture = await startPool(mode);
@@ -578,7 +579,7 @@ test("plain and pooled attachments receive the same stop notifications", async (
     ]);
 }, 30_000);
 
-test("an idle pool stops every process within 2.5 seconds", async () => {
+socketTest("an idle pool stops every process within 2.5 seconds", async () => {
     const pool = await startPool();
     try {
         const started = performance.now();
@@ -586,7 +587,7 @@ test("an idle pool stops every process within 2.5 seconds", async () => {
         expect(result?.endedBy).toBe("stopped");
         expect(performance.now() - started).toBeLessThan(2_500);
         expect(await pool.exited).toBe(0);
-        expect([pool.masterPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
+        expect([pool.hostPid, ...pool.workers].filter(processIsAlive)).toEqual([]);
         expect(existsSync(join(pool.home, "runtime", "host.json"))).toBe(false);
     } finally {
         await pool.cleanup();

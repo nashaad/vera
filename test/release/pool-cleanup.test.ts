@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { forceStopPool } from "../../src/host/master/force-stop-pool.ts";
+import { forceStopPool } from "../../src/host/pool/force-stop-pool.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { releaseManifestPath } from "../../src/release/layout.ts";
@@ -45,7 +46,7 @@ test("an installer stops a verified leftover session process before starting a b
     }
 }, 15_000);
 
-test("a development pool starts only after a verified old-build session process exits", async () => {
+socketTest("a development pool starts only after a verified old-build session process exits", async () => {
     const home = await mkdtemp("/private/tmp/vera-dev/hs9-upgrade-dev-");
     const workers = join(home, "runtime", "workers");
     const releaseRoot = join(home, "release");

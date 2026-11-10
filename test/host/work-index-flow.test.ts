@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 /**
  * The work index against a real resident host and a real session store, so the
@@ -22,10 +23,6 @@ const config = {
     model: "faux/test",
     approval_mode: "ask",
 } as const;
-
-const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test;
 
 socketTest("a real pending approval reaches a real client's work index", async () => {
     const root = await realpath(

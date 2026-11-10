@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,10 +13,11 @@ import {
     listRestartRecords,
 } from "../../src/store/restart-records.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const at = "2026-11-07T10:00:00.000Z";
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "trashing a session clears its restart records and keeps the others",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-restart-trash-"));

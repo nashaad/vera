@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { addPoolModel } from "../../src/model/pool-file-store.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
+import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 
 const adapter: ModelAdapter = {
     stream() {
@@ -53,7 +54,7 @@ async function receiveUntil(
     }
 }
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "CLI models refresh updates a running host catalog without restart",
     async () => {
         const root = await realpath(

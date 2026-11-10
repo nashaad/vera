@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -8,8 +9,8 @@ import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE, HOST_CAPABILITY_WORK_INDEX } from "../../src/host/capabilities.ts";
-import { inProcessWorkerSocket } from "../../src/host/master/in-process.ts";
-import type { HostRouter } from "../../src/host/master/router.ts";
+import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
+import type { HostRouter } from "../../src/host/pool/router.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { blockSessionThroughHost, unblockSessionThroughHost } from "../../src/host/session-block-client.ts";
@@ -23,7 +24,6 @@ import { defaultSessionDirectory, SessionStore } from "../../src/store/session-s
 import { searchSessions } from "../../src/store/session-search.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
-const socketTest = test;
 const config = { schema_version: 1, provider: "openrouter", model: "faux/test", approval_mode: "ask" } as const;
 
 async function createTestHome(): Promise<string> {
@@ -36,9 +36,9 @@ socketTest("rename reaches sessions on both owners", async () => {
     const host = await startResidentHost({ home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]) });
     let client: AttachedAgentClient | undefined;
     try {
-        const master = await host.registry.create({ workspace: home });
+        const hostSession = await host.registry.create({ workspace: home });
         const worker = await createAgentThroughHost(host.server.socketPath, home);
-        for (const [id, title] of [[master.id, "Master crow"], [worker.id, "Worker crow"]] as const) {
+        for (const [id, title] of [[hostSession.id, "Host crow"], [worker.id, "Worker crow"]] as const) {
             expect(await renameSessionThroughHost(host.server.socketPath, id, title)).toEqual({ status: "renamed", name: title });
             const row = (await listAgentsThroughHost(host.server.socketPath)).find((candidate) => candidate.id === id)!;
             expect((await SessionStore.open(row.session_path)).name()).toBe(title);
@@ -198,18 +198,18 @@ socketTest("native peers find and message each other across owners", async () =>
     });
     let client: AttachedAgentClient | undefined;
     try {
-        const master = await host.registry.create({ workspace: home });
+        const hostSession = await host.registry.create({ workspace: home });
         const worker = await createAgentThroughHost(host.server.socketPath, home);
         const otherWorkspace = join(home, "other");
         await mkdir(otherWorkspace);
         const stranger = await createAgentThroughHost(host.server.socketPath, otherWorkspace);
-        const roster = await host.registry.applyAgentRosterEffect(master.id, true);
+        const roster = await host.registry.applyAgentRosterEffect(hostSession.id, true);
         const participants = JSON.parse(roster.output).participants.map((entry: { participant_id: string }) => entry.participant_id);
         expect(participants).toContain(worker.id);
         expect(participants).not.toContain(stranger.id);
-        expect(await host.registry.applyAgentSendEffect(master.id, { type: "agent_send", to: stranger.id, text: "Outside." }))
+        expect(await host.registry.applyAgentSendEffect(hostSession.id, { type: "agent_send", to: stranger.id, text: "Outside." }))
             .toMatchObject({ isError: true, output: "agent_send recipients must be in the same workspace." });
-        const outgoing = await host.registry.applyAgentSendEffect(master.id, {
+        const outgoing = await host.registry.applyAgentSendEffect(hostSession.id, {
             type: "agent_send", to: worker.id, text: "A crow found the map.",
         });
         expect(outgoing.isError).toBe(false);
@@ -218,7 +218,7 @@ socketTest("native peers find and message each other across owners", async () =>
         script = [
             toolCall("roster", "agent_roster", { details: true }),
             toolCall("read", "agent_inbox", {}),
-            toolCall("send", "agent_send", { to: master.id, text: "The map is aboard.", reply_to: JSON.parse(outgoing.output).message_id }),
+            toolCall("send", "agent_send", { to: hostSession.id, text: "The map is aboard.", reply_to: JSON.parse(outgoing.output).message_id }),
             textResponse("Sent."),
         ];
         const path = (await listAgentsThroughHost(host.server.socketPath)).find((row) => row.id === worker.id)!.session_path;
@@ -229,12 +229,12 @@ socketTest("native peers find and message each other across owners", async () =>
         const messages = (await SessionStore.open(path)).messages();
         const results = messages.flatMap((message) => message.role === "tool_result" ? [message.content[0]?.text] : []);
         expect(JSON.parse(results[0] ?? "{}").participants.map((entry: { participant_id: string }) => entry.participant_id))
-            .toContain(master.id);
-        expect(JSON.parse(results[1] ?? "{}")).toMatchObject({ from: master.id, to: worker.id, text: "A crow found the map." });
+            .toContain(hostSession.id);
+        expect(JSON.parse(results[1] ?? "{}")).toMatchObject({ from: hostSession.id, to: worker.id, text: "A crow found the map." });
         expect(JSON.parse(results[2] ?? "{}")).toMatchObject({ stored: true, delivered: false, not_delivered_because: "approval_mode", reply_to_applied: true });
-        await host.registry.agents.get(master.id)!.store.appendMessage({ role: "user", content: [{ type: "text", text: "A crow found the map." }] });
+        await host.registry.agents.get(hostSession.id)!.store.appendMessage({ role: "user", content: [{ type: "text", text: "A crow found the map." }] });
         const search = await searchSessionsThroughHost(host.server.socketPath, { query: "crow" });
-        expect(search.results.map((result) => result.session_id).sort()).toEqual([master.id, worker.id].sort());
+        expect(search.results.map((result) => result.session_id).sort()).toEqual([hostSession.id, worker.id].sort());
         expect(search.truncated).toBe(false);
     } finally {
         client?.close();
@@ -898,9 +898,9 @@ socketTest("schedule and inbox wakes reach both owners", async () => {
     const host = await startResidentHost({ home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]) });
     const clients: AttachedAgentClient[] = [];
     try {
-        const master = await host.registry.create({ workspace: home });
+        const hostSession = await host.registry.create({ workspace: home });
         const worker = await createAgentThroughHost(host.server.socketPath, home);
-        for (const [index, id] of [master.id, worker.id].entries()) {
+        for (const [index, id] of [hostSession.id, worker.id].entries()) {
             const client = await attachAgent({ socketPath: host.server.socketPath, agentId: id });
             clients.push(client);
             expect((await client.receive()).type).toBe("history");
@@ -934,9 +934,9 @@ socketTest("stop waiting and cut reach active sessions on both owners", async ()
     });
     const clients: AttachedAgentClient[] = [];
     try {
-        const master = await host.registry.create({ workspace: home });
+        const hostSession = await host.registry.create({ workspace: home });
         const worker = await createAgentThroughHost(host.server.socketPath, home);
-        for (const id of [master.id, worker.id]) {
+        for (const id of [hostSession.id, worker.id]) {
             const client = await attachAgent({ socketPath: host.server.socketPath, agentId: id, requestedCapabilities: [HOST_CAPABILITY_WORK_INDEX] });
             clients.push(client);
             expect((await client.receive()).type).toBe("history");
@@ -946,14 +946,14 @@ socketTest("stop waiting and cut reach active sessions on both owners", async ()
         const deadline = Date.now() + 5_000;
         while (true) {
             const waiting = await router.stopWaitTargets();
-            if (waiting.some((entry) => entry.session_id === master.id)
+            if (waiting.some((entry) => entry.session_id === hostSession.id)
                 && waiting.some((entry) => entry.session_id === worker.id)
-                && clients.every((client) => client.workIndex?.rows.some((row) => row.session_id === master.id)
+                && clients.every((client) => client.workIndex?.rows.some((row) => row.session_id === hostSession.id)
                     && client.workIndex.rows.some((row) => row.session_id === worker.id))) break;
             if (Date.now() >= deadline) throw new Error("Both sessions did not enter the stop wait");
             await Bun.sleep(10);
         }
-        expect(await Promise.all([router.cut(master.id, "Vera is stopping"), router.cut(worker.id, "Vera is stopping")]))
+        expect(await Promise.all([router.cut(hostSession.id, "Vera is stopping"), router.cut(worker.id, "Vera is stopping")]))
             .toEqual([true, true]);
         for (const client of clients) {
             let update = await client.receive(AbortSignal.timeout(5_000));
@@ -979,10 +979,10 @@ socketTest("checkpoint waits for both owners' session writes", async () => {
     const reached = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     try {
-        const master = await host.registry.create({ workspace: home });
+        const hostSession = await host.registry.create({ workspace: home });
         const worker = await createAgentThroughHost(host.server.socketPath, home);
         const rows = await listAgentsThroughHost(host.server.socketPath);
-        const paths = new Set(rows.filter((row) => row.id === master.id || row.id === worker.id).map((row) => row.session_path));
+        const paths = new Set(rows.filter((row) => row.id === hostSession.id || row.id === worker.id).map((row) => row.session_path));
         SessionStore.prototype.exclusively = function <T>(this: SessionStore, run: () => Promise<T>): Promise<T> {
             if (!paths.has(this.path)) return original.call(this, run) as Promise<T>;
             seen.add(this.path);

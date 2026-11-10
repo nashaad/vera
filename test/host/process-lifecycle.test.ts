@@ -14,6 +14,7 @@ import {
     requestHostShutdownIfIdle,
     type HostIdentity,
 } from "../../src/host/protocol.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 test("an internal host shutdown closes and exits the dedicated process", async () => {
     const shutdown = Promise.withResolvers<void>();
@@ -227,7 +228,7 @@ test("the host gives up closing before the installer gives up waiting", () => {
     expect(HOST_CLOSE_DEADLINE_MS).toBeLessThan(DEFAULT_SIGTERM_GRACE_MS);
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "protocol shutdown terminates the dedicated host process",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-process-lifecycle-"));

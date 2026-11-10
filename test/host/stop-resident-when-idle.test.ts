@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { stopResidentHostWhenIdle } from "../../src/host/force-stop.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { StopWhenIdle, type StopWaitTarget } from "../../src/host/stop-when-idle.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const directories: string[] = [];
 
@@ -14,7 +15,7 @@ afterEach(() => {
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "stopResidentHostWhenIdle waits for a verified host to finish its turns",
     async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-stop-when-idle-"));
@@ -54,7 +55,7 @@ afterEach(() => {
     },
 );
 
-test("stopResidentHostWhenIdle reports a host that does not accept stops, and never signals a verified host", async () => {
+socketTest("stopResidentHostWhenIdle reports a host that does not accept stops, and never signals a verified host", async () => {
     const directory = mkdtempSync(join("/private/tmp", "vera-stop-when-idle-"));
     directories.push(directory);
     const server = await startHostServer({
@@ -86,7 +87,7 @@ test("stopResidentHostWhenIdle reports a host that does not accept stops, and ne
 });
 
 for (const force of [false, true]) {
-    test(`a ${force ? "forced" : "plain"} accepted stop cleans files after an abrupt host exit`, async () => {
+    socketTest(`a ${force ? "forced" : "plain"} accepted stop cleans files after an abrupt host exit`, async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-stop-abrupt-"));
         directories.push(directory);
         const socketPath = join(directory, "host.sock");
@@ -132,7 +133,7 @@ test("an update never signals a host it cannot confirm, and reports the refusal"
     })).toBeUndefined();
 });
 
-test("an update reports stopped at once and forwards the target to the host", async () => {
+socketTest("an update reports stopped at once and forwards the target to the host", async () => {
     const directory = mkdtempSync(join("/private/tmp", "vera-stop-target-"));
     directories.push(directory);
     const server = await startHostServer({
@@ -163,7 +164,7 @@ test("an update reports stopped at once and forwards the target to the host", as
     }
 });
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketTest(
     "a forced stop cuts the waited session and stops without signalling a verified host",
     async () => {
         const directory = mkdtempSync(join("/private/tmp", "vera-stop-cut-"));

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import { readProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
+import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 
 const adapter: ModelAdapter = {
     stream() {
@@ -38,7 +39,7 @@ const adapter: ModelAdapter = {
     },
 };
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "a declared credentialless provider refreshes without spending a stale key",
     async () => {
         const root = await realpath(
@@ -132,7 +133,7 @@ const adapter: ModelAdapter = {
     15_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "a real host asks the provider again only when a refresh is requested",
     async () => {
         const root = await realpath(
@@ -247,7 +248,7 @@ const adapter: ModelAdapter = {
     15_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "a resident host refresh removes an oMLX model that disappeared",
     async () => {
         const root = await realpath(
@@ -326,7 +327,7 @@ const adapter: ModelAdapter = {
     15_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "editing a custom provider endpoint refreshes the new URL, not the old one",
     async () => {
         const root = await realpath(
@@ -434,7 +435,7 @@ const adapter: ModelAdapter = {
     15_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "home refreshes a moved custom provider without a session",
     async () => {
         const root = await realpath(
@@ -525,7 +526,7 @@ const adapter: ModelAdapter = {
     15_000,
 );
 
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+socketAndLoopbackTest(
     "forgetting a provider clears the live reply and the persisted selection",
     async () => {
         const { forgetProviderThroughHost } = await import("../../src/host/provider-forget-client.ts");
@@ -606,7 +607,7 @@ const adapter: ModelAdapter = {
     }, 15_000,
 );
 
-test(
+socketTest(
     "a Codex credential that arrives after startup brings its models in on a refresh",
     async () => {
         const root = await realpath(

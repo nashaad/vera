@@ -39,7 +39,7 @@ These paths are inside `~/.vera`:
 
 | Path | Purpose |
 | --- | --- |
-| `config.json` | Provider, permission, model, extension, skill, and hook settings. |
+| `config.json` | Host, provider, permission, model, extension, skill, and hook settings. |
 | `tui.json` | Display preferences and keybindings. |
 | `skills/` | Installed skills. Turn one off with `disabled_skills`; see [Turn a skill off](skills.md#turn-a-skill-off). |
 | `agents/` | Reusable definitions. |
@@ -51,6 +51,11 @@ These paths are inside `~/.vera`:
 
 Use a validating settings screen when one is available. The file editor is
 useful for settings without a dedicated control.
+
+The `host.workers` setting chooses the number of session processes. Omit it
+for the default, set it to a positive integer for a specific number, or set
+it to `0` for a single-process host. Changes apply the next time the host
+starts. See [Configuration files](configuration-files.md#host-processes).
 
 ## Files in a project
 
