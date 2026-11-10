@@ -1,6 +1,6 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`model requests match the recorded requests before and after a compaction and a rewind 1`] = `
+exports[`@core model requests match the recorded requests before and after a compaction and a rewind 1`] = `
 "[
  [
   {

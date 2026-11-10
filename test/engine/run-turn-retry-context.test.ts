@@ -16,7 +16,7 @@ import { ImageAttachmentService, OMITTED_IMAGE_TEXT, sessionAttachmentSource } f
 import { createCompactionController } from "../../src/engine/compaction-controller.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
-test("a retry after a model switch uses the newly compacted context", async () => {
+test("@core a retry after a model switch uses the newly compacted context", async () => {
     const root = mkdtempSync(join(tmpdir(), "lqms-context-check-"));
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

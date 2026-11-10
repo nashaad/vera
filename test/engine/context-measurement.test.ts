@@ -48,7 +48,7 @@ test("large projections match the prior measurement across history changes", () 
     }
 });
 
-test("tool labels preserve the first matching call and later calls", () => {
+test("@core tool labels preserve the first matching call and later calls", () => {
     const messages = syntheticMeasurementStages()[0]!;
     const measured = measureProjectedRequest(
         request({ messages }),
