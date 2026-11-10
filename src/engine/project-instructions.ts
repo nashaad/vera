@@ -19,6 +19,16 @@ export const PROJECT_INSTRUCTION_FILENAMES = [
 const MAX_FILE_BYTES = 128 * 1024;
 const MAX_TOTAL_BYTES = 256 * 1024;
 const MAX_IMPORT_HOPS = 4;
+const MAX_IMPORT_CACHE_ENTRIES = 64;
+
+interface CachedImports {
+    readonly size: number;
+    readonly mtimeMs: number;
+    readonly content: string;
+    readonly candidates: readonly string[];
+}
+
+const importCache = new Map<string, CachedImports>();
 
 const TEXT_FILE_EXTENSIONS = new Set([
     ".md",
@@ -169,6 +179,8 @@ async function loadInstructionFile(
     }
 
     let bytes: Uint8Array;
+    let size: number;
+    let mtimeMs: number;
     try {
         const details = await stat(resolvedPath);
         if (!details.isFile()) {
@@ -183,6 +195,8 @@ async function loadInstructionFile(
             );
             return;
         }
+        size = details.size;
+        mtimeMs = details.mtimeMs;
         bytes = await readFile(resolvedPath);
         if (bytes.byteLength > MAX_FILE_BYTES) {
             state.warnings.push(
@@ -224,7 +238,7 @@ async function loadInstructionFile(
         sha256: createHash("sha256").update(bytes).digest("hex"),
     });
 
-    const imports = extractImportPaths(content, resolvedPath);
+    const imports = cachedImportPaths(content, resolvedPath, size, mtimeMs);
     if (imports.length > 0 && importHops >= MAX_IMPORT_HOPS) {
         state.warnings.push(
             `${displayPath(state.workspace, path)} imports were skipped after ${MAX_IMPORT_HOPS} hops`,
@@ -236,9 +250,37 @@ async function loadInstructionFile(
     }
 }
 
-function extractImportPaths(
+function cachedImportPaths(
     content: string,
     sourcePath: string,
+    size: number,
+    mtimeMs: number,
+): readonly string[] {
+    const cached = importCache.get(sourcePath);
+    let candidates: readonly string[];
+    // Rewrites can preserve size and mtime, so the decoded content must match too.
+    if (cached !== undefined
+        && cached.size === size
+        && cached.mtimeMs === mtimeMs
+        && cached.content === content) {
+        importCache.delete(sourcePath);
+        importCache.set(sourcePath, cached);
+        candidates = cached.candidates;
+    } else {
+        candidates = extractImportCandidates(content);
+        importCache.delete(sourcePath);
+        if (importCache.size >= MAX_IMPORT_CACHE_ENTRIES) {
+            const oldest = importCache.keys().next().value;
+            if (oldest !== undefined) importCache.delete(oldest);
+        }
+        importCache.set(sourcePath, { size, mtimeMs, content, candidates });
+    }
+    // Resolve imports again so home-directory and symlink changes are observed.
+    return [...new Set(candidates.map((path) => resolveImportPath(path, sourcePath)))];
+}
+
+function extractImportCandidates(
+    content: string,
 ): readonly string[] {
     const tokens = new Lexer({ gfm: false }).lex(content);
     const imports = new Set<string>();
@@ -259,7 +301,7 @@ function extractImportPaths(
             if (!isImportPath(candidate)) {
                 continue;
             }
-            imports.add(resolveImportPath(candidate, sourcePath));
+            imports.add(candidate);
         }
     }
 

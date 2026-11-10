@@ -1,19 +1,233 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { expect, spyOn, test } from "bun:test";
+import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     assembleAgedToolResults,
+    ToolResultDigestCache,
     TOOL_RESULT_STUB_AFTER_TURNS,
     toolResultAgingLevel,
     TOOL_RESULT_TOTAL_BUDGET_BYTES,
     TOOL_RESULT_TOTAL_BUDGET_FLOOR_BYTES,
     TOOL_RESULT_TOTAL_BUDGET_MAX_BYTES,
     toolResultTotalBudgetBytes,
+    type ToolResultAgingPolicy,
 } from "../../src/engine/tool-result-history.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
 import { toolResultCeilingBytes } from "../../src/tools/tool-result-limit.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+
+test("pending and committed messages can cross the aging gate differently", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-aging-gate-"));
+    try {
+        const output = "src/chart.ts:12:buried chest\n".repeat(180);
+        const path = join(directory, "grep.txt");
+        await writeFile(path, output);
+        const entries = agedEntries("grep", output, path);
+        for (let index = 0; index < 1_000; index += 1) {
+            entries.push(user(`turn ${index}`), assistant(`charted ${index}`), {
+                message: {
+                    role: "tool_result",
+                    toolCallId: `synthetic-${index}`,
+                    toolName: "read",
+                    content: [{ type: "text", text: "small result" }],
+                    isError: false,
+                },
+            });
+        }
+        let pending = user("x");
+        let history = entries.map((entry) => entry.message);
+        for (let adjustment = 0; adjustment < 4; adjustment += 1) {
+            pending = user("x".repeat(adjustment + 1));
+            if (measureMessages(history) + measureMessages([pending.message])
+                === measureMessages([...history, pending.message]) + 1) break;
+        }
+        if (measureMessages(history) + measureMessages([pending.message])
+            !== measureMessages([...history, pending.message]) + 1) {
+            entries.push(user("x"));
+            history = entries.map((entry) => entry.message);
+            pending = user("x");
+        }
+        expect(measureMessages(history) + measureMessages([pending.message]))
+            .toBe(measureMessages([...history, pending.message]) + 1);
+        const fixedOverhead = 60_000
+            - measureMessages(history)
+            - measureMessages([pending.message]);
+        expect(fixedOverhead).toBeGreaterThan(0);
+        const cache = new ToolResultDigestCache();
+        const beforePolicy = {
+            capacity: 100_000,
+            level: "normal" as const,
+            ageAfterTurns: 1,
+            budgetBytes: 2_000_000,
+            overheadTokens: fixedOverhead + measureMessages([pending.message]),
+            pendingUserTurns: 1,
+        };
+        const before = assembleAgedToolResults(entries, beforePolicy, cache);
+        expect(before).toEqual(assembleAgedToolResults(entries, beforePolicy, null));
+        expect(resultTexts(before)[0]).toContain("Digest of older grep");
+
+        const committed = [...entries, pending];
+        const afterPolicy = {
+            capacity: 100_000,
+            level: "normal" as const,
+            ageAfterTurns: 1,
+            budgetBytes: 2_000_000,
+            overheadTokens: fixedOverhead,
+        };
+        const after = assembleAgedToolResults(committed, afterPolicy, cache);
+        expect(after).toEqual(assembleAgedToolResults(committed, afterPolicy, null));
+        expect(resultTexts(after)[0]).toBe(output);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("cached assembly matches fresh assembly as spills and history change", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-"));
+    try {
+        const sources = [
+            ["grep", "grep", "src/map.ts:12:buried chest\n".repeat(180)],
+            ["extension", "extension_dump", "extension output\n".repeat(200)],
+            ["read", "read", "12\tburied chest\n".repeat(200)],
+            ["recent", "bash", "recent output\n".repeat(250)],
+        ] as const;
+        const entries: { readonly message: ModelMessage }[] = [user("first")];
+        for (const [id, tool, output] of sources.slice(0, 3)) {
+            const path = join(directory, `${id}.txt`);
+            await writeFile(path, output);
+            entries.push(call(id, tool), spilled(id, tool, output, path));
+        }
+        entries.push(
+            assistant("Used src/map.ts:12 and the `buried chest` line."),
+            user("second"),
+            assistant("The chest is on the map."),
+            user("third"),
+        );
+        const [id, tool, output] = sources[3];
+        const recentPath = join(directory, `${id}.txt`);
+        await writeFile(recentPath, output);
+        entries.push(call(id, tool), spilled(id, tool, output, recentPath));
+
+        const cache = new ToolResultDigestCache();
+        const lookup = spyOn(cache, "get");
+        const policy = { capacity: 1, ageAfterTurns: 2, budgetBytes: 128_000 };
+        const compare = (settings: ToolResultAgingPolicy = policy) => {
+            const uncached = JSON.stringify(assembleAgedToolResults(entries, settings, null));
+            const cached = JSON.stringify(assembleAgedToolResults(entries, settings, cache));
+            expect(cached).toBe(uncached);
+            return resultTexts(assembleAgedToolResults(entries, settings, cache));
+        };
+
+        const results = compare();
+        expect(results[0]).toContain("Digest of older grep");
+        expect(results[1]).toContain("Stub for older extension_dump");
+        expect(results[2]).toContain("Digest of older read");
+        expect(results[3]).toBe(output);
+        expect(lookup.mock.results.some((result) => result.value !== undefined)).toBe(true);
+
+        const gatePolicy = {
+            ...policy,
+            level: "normal" as const,
+            capacity: 100_000,
+            budgetBytes: 1,
+            overheadTokens: 60_000 - measureMessages(entries.map((entry) => entry.message)),
+        };
+        const originalTexts = sources.map((source) => source[2]);
+        expect(gatePolicy.overheadTokens).toBeGreaterThan(0);
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens - 1 }))
+            .toEqual(originalTexts);
+
+        const atGate = compare(gatePolicy);
+        expect(atGate[0]).toContain("Digest of older grep");
+        expect(atGate[1]).toContain("Stub for older extension_dump");
+        expect(atGate[2]).toContain("Digest of older read");
+        expect(atGate[3]).toBe(output);
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens + 1 }))
+            .toEqual(atGate);
+        expect(compare({ ...gatePolicy, ageAfterTurns: 3 })).toEqual(originalTexts);
+        expect(compare({ ...gatePolicy, pendingUserTurns: 2 })[3])
+            .toContain("Digest of older bash");
+        expect(compare({ ...gatePolicy, ageAfterTurns: 0 })[3])
+            .toContain("Digest of older bash");
+        expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens - 1 }))
+            .toEqual(originalTexts);
+
+        const grepPath = join(directory, "grep.txt");
+        const before = await stat(grepPath);
+        await writeFile(grepPath, sources[0][2].replaceAll("chest", "coast"));
+        await utimes(grepPath, before.atime, before.mtime);
+        expect(compare()[0]).toContain("coast");
+
+        entries.splice(7, 0, assistant("The map says `coast`."));
+        compare();
+        await rm(grepPath);
+        await rm(join(directory, "extension.txt"));
+        expect(compare()[0]).toBe(sources[0][2]);
+        expect(compare({ ...policy, budgetBytes: 1 })[1])
+            .toContain("no re-readable spill is available");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("cached digests follow changes to the call and result metadata", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-input-"));
+    try {
+        const source = "buried chest\n".repeat(400);
+        const path = join(directory, "bash.txt");
+        await writeFile(path, source);
+        const entries = agedEntries("bash", source, path);
+        const cache = new ToolResultDigestCache();
+        const compare = () => {
+            const fresh = assembleAgedToolResults(entries, PRESSURED, null);
+            const cached = assembleAgedToolResults(entries, PRESSURED, cache);
+            expect(JSON.stringify(cached)).toBe(JSON.stringify(fresh));
+            return resultTexts(cached)[0]!;
+        };
+        expect(compare()).toContain("Command: echo hi");
+        expect(compare()).toContain("Command: echo hi");
+        entries[1] = callWithInput("call-1", "bash", { command: "echo ahoy" });
+        expect(compare()).toContain("Command: echo ahoy");
+        const message = entries[2]!.message;
+        if (message.role !== "tool_result") throw new Error("Expected tool result");
+        entries[2] = { message: { ...message, isError: true } };
+        expect(compare()).toContain("Exit: non-zero");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("the digest cache skips oversized entries and evicts least recently used entries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-limit-"));
+    try {
+        const source = "src/map.ts:12:buried chest\n".repeat(180);
+        const path = join(directory, "grep.txt");
+        await writeFile(path, source);
+        const entries = agedEntries("grep", source, path);
+        const cache = new ToolResultDigestCache(1);
+        const lookup = spyOn(cache, "get");
+        assembleAgedToolResults(entries, PRESSURED, cache);
+        assembleAgedToolResults(entries, PRESSURED, cache);
+        expect(lookup.mock.calls.length).toBeGreaterThan(1);
+        expect(lookup.mock.results.every((result) => result.value === undefined)).toBe(true);
+
+        const otherPath = join(directory, "other.txt");
+        await writeFile(otherPath, source);
+        const other = agedEntries("grep", source, otherPath);
+        const bounded = new ToolResultDigestCache(16_000);
+        const boundedLookup = spyOn(bounded, "get");
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        assembleAgedToolResults(other, PRESSURED, bounded);
+        assembleAgedToolResults(entries, PRESSURED, bounded);
+        expect(boundedLookup.mock.results.map((result) => result.value !== undefined))
+            .toEqual([false, true, false, false]);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
 
 test("old built-in results get mechanical digests at assembly time", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-history-"));
@@ -174,7 +388,7 @@ test("results younger than the age line remain verbatim", async () => {
         .toBe(original.padEnd(3_000, "\n"));
 });
 
-test("several legal results in one turn are bounded together", async () => {
+test("several legal results in one turn are bounded once the turn has ended", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-"));
     try {
         const entries: { readonly message: ModelMessage }[] = [user("find it")];
@@ -204,7 +418,10 @@ test("several legal results in one turn are bounded together", async () => {
             });
         }
 
-        const projected = assembleAgedToolResults(entries);
+        const projected = assembleAgedToolResults(
+            [...entries, assistant("done"), user("next")],
+            { ageAfterTurns: 1 },
+        );
         const results = projected.filter((message) =>
             message.role === "tool_result"
         );
@@ -249,7 +466,10 @@ test("source-less results cannot fail open past the cumulative budget", () => {
         });
     }
 
-    const projected = assembleAgedToolResults(entries);
+    const projected = assembleAgedToolResults(
+        [...entries, assistant("done"), user("next")],
+        PRESSURED,
+    );
     const carriedBytes = projected.reduce((total, message) =>
         total + (message.role === "tool_result"
             ? Buffer.byteLength(message.content[0]?.text ?? "", "utf8")
@@ -281,7 +501,10 @@ test("an expired spill never becomes a false recovery pointer", () => {
         });
     }
 
-    const text = assembleAgedToolResults(entries)
+    const text = assembleAgedToolResults(
+        [...entries, assistant("done"), user("next")],
+        PRESSURED,
+    )
         .filter((message) => message.role === "tool_result")
         .map((message) => message.content[0]?.text ?? "")
         .join("\n");
@@ -328,6 +551,92 @@ test("over the gate, bash ages before read, and only until the context fits", as
         expect(texts[0]).toBe("1\tline\n".repeat(400));
         expect(texts[1]).toContain("Digest of older bash");
         expect(texts[2]).toBe("output\n".repeat(400));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a long turn of reads keeps current-turn results verbatim", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-live-read-"));
+    try {
+        const entries = await pair(directory, [
+            ["call-old", "grep", "src/a.ts:1:needle\n".repeat(3_000)],
+        ]);
+        for (let index = 0; index < 4; index += 1) {
+            const id = `call-read-${index}`;
+            const output = "1\tline\n".repeat(10_000);
+            const spillPath = join(directory, `${id}.txt`);
+            await writeFile(spillPath, output, "utf8");
+            entries.push(
+                call(id, "read"),
+                spilled(id, "read", output, spillPath),
+            );
+        }
+        const texts = resultTexts(
+            assembleAgedToolResults(entries, PRESSURED),
+        );
+
+        expect(texts[0]).toContain("Digest of older grep");
+        for (let index = 1; index < texts.length; index += 1) {
+            expect(texts[index]).toBe("1\tline\n".repeat(10_000));
+        }
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("under the gate, the budget leaves an over-budget request alone", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-gate-"));
+    try {
+        const entries = await pair(directory, [
+            ["call-1", "bash", "output\n".repeat(20_000)],
+            ["call-2", "bash", "output\n".repeat(20_000)],
+        ]);
+        const texts = resultTexts(assembleAgedToolResults(entries, {
+            ageAfterTurns: 1,
+            capacity: 1_000_000,
+        }));
+
+        expect(texts[0]).toBe("output\n".repeat(20_000));
+        expect(texts[1]).toBe("output\n".repeat(20_000));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("the budget stubs the oldest result before touching a fresh read", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-age-"));
+    try {
+        const entries: { readonly message: ModelMessage }[] = [user("first")];
+        for (let index = 0; index < 3; index += 1) {
+            const id = `call-small-${index}`;
+            entries.push(call(id, "bash"), {
+                message: {
+                    role: "tool_result",
+                    toolCallId: id,
+                    toolName: "bash",
+                    content: [{ type: "text", text: "x".repeat(1_024) }],
+                    isError: false,
+                },
+            });
+        }
+        entries.push(assistant("done"), user("second"));
+        const read = "1\tline\n".repeat(720);
+        const spillPath = join(directory, "read.txt");
+        await writeFile(spillPath, read, "utf8");
+        entries.push(
+            call("call-read", "read"),
+            spilled("call-read", "read", read, spillPath),
+        );
+        const texts = resultTexts(assembleAgedToolResults(entries, {
+            ...PRESSURED,
+            budgetBytes: 7_600,
+        }));
+
+        expect(texts[0]).toContain("Stub for older bash");
+        expect(texts[1]).toBe("x".repeat(1_024));
+        expect(texts[2]).toBe("x".repeat(1_024));
+        expect(texts.at(-1)).toBe(read);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

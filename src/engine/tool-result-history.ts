@@ -88,9 +88,72 @@ export interface ToolResultHistoryEntry {
     readonly message: ModelMessage;
 }
 
+interface DigestCacheKey {
+    readonly path: string;
+    readonly tool: string;
+    readonly originalBytes: number;
+    readonly isError: boolean;
+    readonly callDetail: string;
+    readonly laterText: string;
+    readonly source: string;
+}
+
+interface CachedDigest {
+    readonly key: DigestCacheKey;
+    readonly output: string;
+    readonly bytes: number;
+}
+
+export class ToolResultDigestCache {
+    private readonly entries = new Map<string, CachedDigest>();
+    private bytes = 0;
+
+    constructor(private readonly maxBytes = 16 * 1024 * 1024) {}
+
+    get(key: DigestCacheKey): string | undefined {
+        const entry = this.entries.get(key.path);
+        if (entry === undefined
+            || entry.key.tool !== key.tool
+            || entry.key.originalBytes !== key.originalBytes
+            || entry.key.isError !== key.isError
+            || entry.key.callDetail !== key.callDetail
+            || entry.key.laterText !== key.laterText
+            || entry.key.source !== key.source) {
+            return undefined;
+        }
+        this.entries.delete(key.path);
+        this.entries.set(key.path, entry);
+        return entry.output;
+    }
+
+    set(key: DigestCacheKey, output: string): void {
+        const existing = this.entries.get(key.path);
+        if (existing !== undefined) {
+            this.entries.delete(key.path);
+            this.bytes -= existing.bytes;
+        }
+        const bytes = 512 + 2 * (
+            key.path.length + key.tool.length + key.callDetail.length
+            + key.laterText.length + key.source.length + output.length
+        );
+        if (bytes > this.maxBytes) return;
+        while (this.bytes + bytes > this.maxBytes) {
+            const oldest = this.entries.keys().next().value;
+            if (oldest === undefined) break;
+            this.bytes -= this.entries.get(oldest)!.bytes;
+            this.entries.delete(oldest);
+        }
+        this.entries.set(key.path, { key, output, bytes });
+        this.bytes += bytes;
+    }
+}
+
+const digestCache = new ToolResultDigestCache();
+
 export function assembleAgedToolResults(
     entries: readonly ToolResultHistoryEntry[],
     policy: ToolResultAgingPolicy = {},
+    cache: ToolResultDigestCache | null = digestCache,
 ): readonly ModelMessage[] {
     const level = TOOL_RESULT_AGING_LEVELS[
         policy.level ?? toolResultAgingLevel(policy.capacity)
@@ -129,6 +192,7 @@ export function assembleAgedToolResults(
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
     let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
+    const pressureTokens = tokens;
 
     const candidates: number[] = [];
     const readCandidates: number[] = [];
@@ -164,6 +228,7 @@ export function assembleAgedToolResults(
             calls.get(message.toolCallId),
             provenanceText(index),
             sourceText,
+            cache,
         );
         const saved = measureMessages([message]) - measureMessages([aged]);
         if (saved <= 0) continue;
@@ -176,6 +241,8 @@ export function assembleAgedToolResults(
         calls,
         budgetBytes,
         provenanceText,
+        { turn, turnsAt, ageAfterTurns, pressureTokens, gateTokens },
+        cache,
     ));
 }
 
@@ -195,63 +262,53 @@ function readsSpill(
     return false;
 }
 
+interface ToolResultBudgetCut {
+    readonly turn: number;
+    readonly turnsAt: ReadonlyMap<number, number>;
+    readonly ageAfterTurns: number;
+    readonly pressureTokens: number;
+    readonly gateTokens: number;
+}
+
 function applyToolResultBudget(
     projected: readonly ModelMessage[],
     calls: ReadonlyMap<string, ToolCallContent>,
     budgetBytes: number,
     provenanceText: (index: number) => string,
+    cut: ToolResultBudgetCut,
+    cache: ToolResultDigestCache | null,
 ): readonly ModelMessage[] {
     const messages = [...projected];
     let carriedBytes = totalToolResultBytes(messages);
     if (carriedBytes <= budgetBytes) return messages;
+    if (cut.pressureTokens < cut.gateTokens) return messages;
 
-    const eligible: number[] = [];
-    const digestible: number[] = [];
     for (let index = 0; index < messages.length; index += 1) {
+        if (carriedBytes <= budgetBytes) break;
         const message = messages[index];
-        if (
-            message?.role === "tool_result"
-        ) {
-            eligible.push(index);
-            if (
-                message.toolResultSource?.spillPath !== undefined
-                && message.toolResultSource.originalBytes
-                    > TOOL_RESULT_VERBATIM_FLOOR_BYTES
-            ) {
-                digestible.push(index);
-            }
+        if (message?.role !== "tool_result") continue;
+        if (cut.turn - (cut.turnsAt.get(index) ?? -1) < cut.ageAfterTurns) {
+            continue;
         }
-    }
-
-    for (const index of digestible) {
-        if (carriedBytes <= budgetBytes) break;
-        const message = messages[index];
-        if (message?.role !== "tool_result") continue;
-        const source = readSpill(message.toolResultSource?.spillPath);
-        if (source === undefined) continue;
+        const digestible = message.toolResultSource?.spillPath !== undefined
+            && message.toolResultSource.originalBytes
+                > TOOL_RESULT_VERBATIM_FLOOR_BYTES;
+        const source = digestible
+            ? readSpill(message.toolResultSource?.spillPath)
+            : undefined;
         carriedBytes = replaceWhenSmaller(
             messages,
             index,
             message,
-            agedToolResult(
-                message,
-                calls.get(message.toolCallId),
-                provenanceText(index),
-                source,
-            ),
-            carriedBytes,
-        );
-    }
-
-    for (const index of eligible) {
-        if (carriedBytes <= budgetBytes) break;
-        const message = messages[index];
-        if (message?.role !== "tool_result") continue;
-        carriedBytes = replaceWhenSmaller(
-            messages,
-            index,
-            message,
-            stubbedToolResult(message),
+            source === undefined
+                ? stubbedToolResult(message)
+                : agedToolResult(
+                    message,
+                    calls.get(message.toolCallId),
+                    provenanceText(index),
+                    source,
+                    cache,
+                ),
             carriedBytes,
         );
     }
@@ -293,10 +350,24 @@ function agedToolResult(
     call: ToolCallContent | undefined,
     laterText: string,
     sourceText: string,
+    cache: ToolResultDigestCache | null,
 ): ToolResultMessage {
     const sourcePath = result.toolResultSource?.spillPath;
     if (!isDigestableTool(result.toolName)) {
         return stubbedToolResult(result);
+    }
+    const key = sourcePath === undefined ? undefined : {
+        path: sourcePath,
+        tool: result.toolName,
+        originalBytes: result.toolResultSource?.originalBytes ?? 0,
+        isError: result.isError,
+        callDetail: digestCallDetail(result.toolName, call),
+        laterText,
+        source: sourceText,
+    };
+    const cached = key === undefined ? undefined : cache?.get(key);
+    if (cached !== undefined) {
+        return { ...result, content: [{ type: "text", text: cached }] };
     }
     const references = extractReferences(laterText);
     const body = digestFor(result, call, sourceText);
@@ -313,10 +384,24 @@ function agedToolResult(
         "[vera] Full output remains available at "
             + `${sourcePath}; re-read it if needed.`,
     ].join("\n"), result.toolResultSource?.originalBytes ?? 0);
+    if (key !== undefined) cache?.set(key, output);
     return {
         ...result,
         content: [{ type: "text", text: output }],
     };
+}
+
+function digestCallDetail(tool: string, call: ToolCallContent | undefined): string {
+    if (tool === "grep") return call?.input.output_mode === "count" ? "count" : "";
+    if (tool === "bash") {
+        return typeof call?.input.command === "string"
+            ? call.input.command : "(command unavailable)";
+    }
+    if (tool === "read") {
+        return typeof call?.input.path === "string"
+            ? call.input.path : "(path unavailable)";
+    }
+    return "";
 }
 
 function stubbedToolResult(result: ToolResultMessage): ToolResultMessage {
