@@ -132,7 +132,7 @@ test("@core cached assembly matches fresh assembly as spills and history change"
             level: "normal" as const,
             capacity: 100_000,
             budgetBytes: 1,
-            overheadTokens: 60_000 - measureMessages(entries.map((entry) => entry.message)),
+            overheadTokens: 60_000 - measureMessages(entries.slice(0, -2).map((entry) => entry.message)),
         };
         const originalTexts = sources.map((source) => source[2]);
         expect(gatePolicy.overheadTokens).toBeGreaterThan(0);
@@ -149,8 +149,7 @@ test("@core cached assembly matches fresh assembly as spills and history change"
         expect(compare({ ...gatePolicy, ageAfterTurns: 3 })).toEqual(originalTexts);
         expect(compare({ ...gatePolicy, pendingUserTurns: 2 })[3])
             .toContain("Digest of older bash");
-        expect(compare({ ...gatePolicy, ageAfterTurns: 0 })[3])
-            .toContain("Digest of older bash");
+        expect(compare({ ...gatePolicy, ageAfterTurns: 0 })[3]).toBe(sources[3][2]);
         expect(compare({ ...gatePolicy, overheadTokens: gatePolicy.overheadTokens - 1 }))
             .toEqual(originalTexts);
 
@@ -164,7 +163,7 @@ test("@core cached assembly matches fresh assembly as spills and history change"
         compare();
         await rm(grepPath);
         await rm(join(directory, "extension.txt"));
-        expect(compare()[0]).toBe(sources[0][2]);
+        expect(compare()[0]).toContain("no re-readable spill is available");
         expect(compare({ ...policy, budgetBytes: 1 })[1])
             .toContain("no re-readable spill is available");
     } finally {
@@ -557,7 +556,7 @@ test("over the gate, bash ages before read, in whole steps", async () => {
     }
 });
 
-test("a long turn of reads keeps current-turn results verbatim", async () => {
+test("a long turn of reads keeps the newest steps verbatim", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-live-read-"));
     try {
         const entries = await pair(directory, [
@@ -578,7 +577,8 @@ test("a long turn of reads keeps current-turn results verbatim", async () => {
         );
 
         expect(texts[0]).toContain("Digest of older grep");
-        for (let index = 1; index < texts.length; index += 1) {
+        expect(texts[1]).toContain("Stub for older read");
+        for (let index = texts.length - 1; index < texts.length; index += 1) {
             expect(texts[index]).toBe("1\tline\n".repeat(10_000));
         }
     } finally {
@@ -703,6 +703,81 @@ test("@core budget trimming holds still while the excess stays inside one step",
     const excess900 = stubsAt([1_024, 1_024, 1_024, 1_024, 804]);
     expect(excess900).toEqual(excess860);
     expect(excess860.filter(Boolean).length).toBe(2);
+});
+
+test("@core a long turn trims older steps and keeps its prefix between thresholds", () => {
+    const entries: { readonly message: ModelMessage }[] = [user("start")];
+    const policy = { capacity: 204_800, overheadTokens: 15_000, budgetBytes: 204_800 };
+    const sizes: number[] = [];
+    let previous: readonly ModelMessage[] = [];
+    let trims = 0;
+    for (let step = 0; step < 12; step += 1) {
+        for (let part = 0; part < 3; part += 1) {
+            const id = `${step}-${part}`;
+            if (part === 0) entries.push(call(id, "read"));
+            entries.push({ message: {
+                role: "tool_result", toolCallId: id, toolName: "read",
+                content: [{ type: "text", text: "x".repeat(40_000) }], isError: false,
+            } });
+        }
+        const request = assembleAgedToolResults(entries, policy, null);
+        if (previous.length > 0 && JSON.stringify(request.slice(0, previous.length)) !== JSON.stringify(previous)) {
+            trims += 1;
+            expect(measureMessages(request) + policy.overheadTokens).toBeLessThanOrEqual(204_800 * 0.35);
+        }
+        previous = request;
+        sizes.push(measureMessages(request) + policy.overheadTokens);
+        expect(resultTexts(request).slice(-3).every((text) => text.length === 40_000)).toBe(true);
+        if (step === 6) {
+            const before = JSON.stringify(request);
+            entries.push(assistant("small continuation"));
+            const after = assembleAgedToolResults(entries, policy, null);
+            expect(JSON.stringify(after.slice(0, -1))).toBe(before);
+            previous = after;
+        }
+    }
+    expect(Math.max(...sizes.slice(4))).toBeLessThan(204_800 * 0.82);
+    expect(trims).toBe(2);
+    expect(resultTexts(assembleAgedToolResults(entries, policy, null))[0]).toContain("Stub for older read");
+});
+
+test("active-turn trimming waits for the low mark before rearming", () => {
+    const entries: { readonly message: ModelMessage }[] = [user("start")];
+    const policy = { capacity: 10_000, overheadTokens: 3_000, budgetBytes: 1_000_000 };
+    const add = (id: string, bytes: number) => {
+        entries.push(call(id, "read"), { message: {
+            role: "tool_result", toolCallId: id, toolName: "read",
+            content: [{ type: "text", text: "x".repeat(bytes) }], isError: false,
+        } });
+    };
+    add("first", 12_000);
+    add("second", 20_000);
+    const first = assembleAgedToolResults(entries, policy, null);
+    expect(resultTexts(first)[0]).toContain("Stub for older read");
+    expect(measureMessages(first) + policy.overheadTokens).toBeGreaterThan(3_500);
+    add("third", 20_000);
+    const next = assembleAgedToolResults(entries, policy, null);
+    expect(JSON.stringify(next.slice(0, first.length))).toBe(JSON.stringify(first));
+    expect(resultTexts(next)[1]).toHaveLength(20_000);
+});
+
+test("older-turn results stay unchanged while a turn grows below the high mark", () => {
+    const entries: { readonly message: ModelMessage }[] = [user("first"), call("old", "read"), {
+        message: { role: "tool_result", toolCallId: "old", toolName: "read",
+            content: [{ type: "text", text: "o".repeat(1_000) }], isError: false },
+    }, user("next")];
+    const policy = { capacity: 10_000, overheadTokens: 4_000, budgetBytes: 1_000, ageAfterTurns: 1 };
+    let previous = assembleAgedToolResults(entries, policy, null);
+    for (let step = 0; step < 3; step += 1) {
+        const id = `new-${step}`;
+        entries.push(call(id, "read"), { message: {
+            role: "tool_result", toolCallId: id, toolName: "read",
+            content: [{ type: "text", text: "n".repeat(4_000) }], isError: false,
+        } });
+        const request = assembleAgedToolResults(entries, policy, null);
+        expect(JSON.stringify(request.slice(0, previous.length))).toBe(JSON.stringify(previous));
+        previous = request;
+    }
 });
 
 function eightBashResults(output: string): [string, string, string][] {

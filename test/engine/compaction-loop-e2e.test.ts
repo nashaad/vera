@@ -55,6 +55,48 @@ afterAll(() => {
     }
 });
 
+test("@core a long read turn trims in large passes without repeated compaction", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(join(workspace, "session.jsonl"), {
+        sessionId: "long-read-pace", cwd: workspace,
+    });
+    const script: AssistantMessage[] = [];
+    for (let step = 0; step < 12; step += 1) {
+        const first = step * 2 + 1;
+        for (const number of [first, first + 1]) {
+            writeFileSync(join(workspace, `notes-${number}.txt`), `${"x".repeat(119)}\n`.repeat(500));
+        }
+        const left = toolCall(`call-${first}`, first);
+        const right = toolCall(`call-${first + 1}`, first + 1);
+        script.push({ ...left, content: [...left.content, ...right.content.filter((part) => part.type === "tool_call")] });
+    }
+    script.push(assistantText("done"));
+    const sent: ModelRequest[] = [];
+    const faux = new FauxAdapter(script);
+    const adapter: ModelAdapter = { stream(request) { sent.push(request); return faux.stream(request); } };
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, adapter, "test", undefined, { approvalMode: "auto" }, {
+        sessionStore: store, eventBus: events, compaction: compactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow: 204_800 }),
+        readApprovalMode: () => "auto", updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+    channel.client.send({ type: "prompt", content: "read the maps" });
+    const updates = await drain(channel);
+    expect(updates.some((update) => update.type === "turn_finished")).toBe(true);
+    expect(seen.filter((event) => event.type === "compaction_started")).toHaveLength(0);
+    let trims = 0;
+    for (let index = 1; index < sent.length; index += 1) {
+        const previous = sent[index - 1]!.messages;
+        const current = sent[index]!.messages;
+        if (JSON.stringify(current.slice(0, previous.length)) !== JSON.stringify(previous)) trims += 1;
+    }
+    expect(trims).toBe(2);
+}, 30_000);
+
 test("@core a retryable empty summary is retried before the next model request", async () => {
     const workspace = temporaryDirectory();
     const store = await SessionStore.create(join(workspace, "session.jsonl"), {
