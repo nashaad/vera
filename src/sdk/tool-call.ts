@@ -12,9 +12,25 @@ import {
     type ModelRequest,
 } from "../model/types.ts";
 
+export const sdkHistoryPage = Symbol("sdkHistoryPage");
+
 export const TOOL_CALL_ROUTE = { provider: "vera", model: "tool-call" } as const;
 
 const SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export class SessionNotFoundError extends Error {
+    constructor(name: string) {
+        super(`Session ${name} does not exist`);
+    }
+}
+
+function validateSessionName(name: string): void {
+    if (typeof name !== "string" || !SESSION_NAME.test(name)) {
+        throw new Error(
+            `Session name ${JSON.stringify(name)} must be letters, digits, - or _, up to 64 characters`,
+        );
+    }
+}
 
 export interface ClaimedSession {
     readonly path: string;
@@ -30,11 +46,7 @@ export class SdkRuntime {
     private closed = false;
 
     async claimSession(name: string): Promise<ClaimedSession> {
-        if (!SESSION_NAME.test(name)) {
-            throw new Error(
-                `Session name ${JSON.stringify(name)} must be letters, digits, - or _, up to 64 characters`,
-            );
-        }
+        validateSessionName(name);
         if (this.busy.has(name)) {
             throw new Error(`Session ${name} is already running a turn`);
         }
@@ -54,6 +66,19 @@ export class SdkRuntime {
             this.busy.delete(name);
             throw caught;
         }
+    }
+
+    async sessionPath(name: string): Promise<string> {
+        validateSessionName(name);
+        this.assertOpen();
+        const directory = this.directory ?? await this.creating;
+        const path = directory === undefined ? undefined : join(directory, "sessions", `${name}.jsonl`);
+        if (path === undefined || !existsSync(path)) throw new SessionNotFoundError(name);
+        return path;
+    }
+
+    assertOpen(): void {
+        if (this.closed) throw new Error("This Vera instance is closed");
     }
 
     async close(): Promise<void> {

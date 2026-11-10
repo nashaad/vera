@@ -1,4 +1,5 @@
 import { Vera, type Agent, type FunctionTool } from "../../src/sdk/agent.ts";
+import { sdkHistoryPage, SessionNotFoundError } from "../../src/sdk/tool-call.ts";
 import type {
     PreTurnHook,
     PreTurnHookPayload,
@@ -64,6 +65,13 @@ interface ToolRequest {
     readonly input: Record<string, unknown>;
 }
 
+interface HistoryRequest {
+    readonly id: number;
+    readonly type: "history";
+    readonly session: string;
+    readonly before?: string;
+}
+
 interface AbortRequest {
     readonly type: "abort";
     readonly id: number;
@@ -88,6 +96,7 @@ interface FunctionResultRequest {
 type ChildRequest =
     | RunRequest
     | ToolRequest
+    | HistoryRequest
     | AbortRequest
     | HookResultRequest
     | FunctionResultRequest;
@@ -408,6 +417,17 @@ async function runTool(vera: Vera, request: ToolRequest): Promise<void> {
     });
 }
 
+async function historyPage(vera: Vera, request: HistoryRequest): Promise<void> {
+    try {
+        const result = await vera[sdkHistoryPage](request.session, request.before);
+        if (result.kind !== "page") throw new Error(`Cannot read history: ${result.kind}`);
+        send({ id: request.id, type: "history_page", entries: result.entries, before: result.page.olderBefore ?? null });
+    } catch (caught) {
+        if (!(caught instanceof SessionNotFoundError)) throw caught;
+        send({ id: request.id, type: "error", kind: "session_not_found", message: caught.message });
+    }
+}
+
 async function main(): Promise<void> {
     const lines = console[Symbol.asyncIterator]();
     const first = await lines.next();
@@ -451,7 +471,7 @@ async function main(): Promise<void> {
         inFlight.set(id, controller);
         const work = (request.type === "run"
             ? runAgent(vera, request, controller.signal)
-            : runTool(vera, request))
+            : request.type === "history" ? historyPage(vera, request) : runTool(vera, request))
             .catch((caught: unknown) => {
                 send({ id, type: "error", kind: "runtime", message: errorMessage(caught) });
             })
@@ -529,6 +549,15 @@ function childRequest(value: unknown): ChildRequest {
             callId: value.call_id,
             ...(value.output === undefined ? {} : { output: value.output }),
             ...(value.error === undefined ? {} : { error: value.error }),
+        };
+    }
+    if (value.type === "history") {
+        const before = optionalString(value.before, "before");
+        return {
+            id: value.id,
+            type: "history",
+            session: requiredString(value.session, "session"),
+            ...(before === undefined ? {} : { before }),
         };
     }
     if (value.type === "tool") {

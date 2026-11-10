@@ -27,7 +27,7 @@ import {
     BUILT_IN_PERMISSION_MODE_NAMES,
     builtInPermissionMode,
 } from "../engine/permissions.ts";
-import type { SessionModelUsage } from "../engine/protocol.ts";
+import type { SessionModelUsage, TranscriptEntry } from "../engine/protocol.ts";
 import {
     isConfigurationRequiredUiRequestUpdate,
     isToolApprovalUiRequestUpdate,
@@ -37,6 +37,7 @@ import {
 import { EngineEventBus, type EngineEvent } from "../engine/events.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { SessionStore } from "../store/session-store.ts";
+import { historyPageFromStore, type HistoryPageResult } from "../host/history-page.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import type { PreTurnHook, TurnEndingHook } from "./hooks.ts";
 import {
@@ -79,6 +80,7 @@ import {
 } from "../providers/routing.ts";
 import {
     SdkRuntime,
+    sdkHistoryPage,
     TOOL_CALL_ROUTE,
     ToolCallAdapter,
     type ClaimedSession,
@@ -408,6 +410,31 @@ export class Vera {
             outcome: finished.isError ? "failed" : "completed",
             output: finished.output,
         };
+    }
+
+    async *history(session: string): AsyncIterableIterator<readonly TranscriptEntry[]> {
+        const store = await SessionStore.openReadOnly(await this.runtime.sessionPath(session));
+        try {
+            let before: string | undefined;
+            do {
+                this.runtime.assertOpen();
+                const result = await historyPageFromStore(store, before, { allowOversized: true });
+                if (result.kind !== "page") throw new Error(`Cannot read history for session ${session}: ${result.kind}`);
+                yield result.entries;
+                before = result.page.olderBefore;
+            } while (before !== undefined);
+        } finally {
+            await store.closeReadOnly();
+        }
+    }
+
+    async [sdkHistoryPage](session: string, before?: string): Promise<HistoryPageResult> {
+        const store = await SessionStore.openReadOnly(await this.runtime.sessionPath(session));
+        try {
+            return await historyPageFromStore(store, before, { allowOversized: true });
+        } finally {
+            await store.closeReadOnly();
+        }
     }
 
     /** Deletes this instance's runtime directory, including named sessions. */
