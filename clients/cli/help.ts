@@ -41,6 +41,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera rollback [--prefix DIR]", description: "Restore the pinned known-good release; does not pack, use Git, or use the network. --prefix is a test prefix. The daily prefix is $HOME/.local" },
     { usage: "vera migrate-home [--rollback]", docs: "config-reference.md", description: "Lift the default profile to the Vera home root; other profiles stay in a sibling backup. --rollback restores that backup" },
     { usage: "vera host stop [-y|--yes] [--force]", docs: "runtime-and-worktrees.md", description: "Stop the resident host after its running turns end; --force cuts them now" },
+    { usage: "vera host reset [-y|--yes]", docs: "runtime-and-worktrees.md", description: "Back up this home's runtime records, stop its Vera processes and clear stale sockets; the next vera starts a fresh host" },
     { usage: "vera host supervise [off|status]", description: "Let launchd restart the resident host when it dies, so schedules keep running with nobody at the keyboard" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },
     { usage: "vera stdio", docs: "programmatic-use.md", description: "Create an agent and bridge it as NDJSON" },

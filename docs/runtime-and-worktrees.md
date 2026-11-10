@@ -96,6 +96,7 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
 | `vera host stop` | Stop this home's host after its running turns end. New turns are refused meanwhile. |
 | `vera host stop --force` | Cut the running turns and stop this home's host now. |
+| `vera host reset` | Back up this home's runtime records, then stop its Vera processes, including ones `vera host stop` cannot reach. |
 | `bun run dev:tui --stop` | Stop the current worktree's development host and its recorded TUI client, and keep the home. |
 | `bun run dev:sweep` | Stop processes that have run for two days or longer in the homes of registered development instances. It never stops the default home's host. |
 
@@ -112,6 +113,55 @@ launcher to stop a trial.
 A host stops itself within about half a minute once its socket file is deleted
 or replaced, for example when a script deletes its home. Run `vera host stop`
 first anyway, so the host closes while its home still exists.
+
+## Reset a home that `vera host stop` cannot reach
+
+Use `vera host reset` when `vera` and `vera host stop` cannot reach this home's
+host. A common case is a host lock file that has gone missing: `host stop`
+finds the host through that file, so without it the command reports that no
+host is running. Reset does not depend on the lock file. It works on the
+selected home only.
+
+Reset finds this home's Vera processes and prints each one with its start time,
+the proof that it belongs to this home, and any running turns. A process
+counts as this home's when its command line has a Vera role and one of these
+holds:
+
+- its launch environment sets `VERA_HOME` to this home;
+- its launch environment has no `VERA_HOME` and this home is the default home;
+- it answers on this home's host socket;
+- it holds a socket in this home's runtime directory.
+
+Attached clients are listed and left running.
+
+If the command finds a process it cannot prove belongs to this home, it changes
+nothing, prints the process and the reason, and exits 1. A process whose start
+time cannot be read is one of these.
+
+Before it stops anything, reset asks `Back up and reset? [y/N]`. Answer `y` to
+continue. `--yes` or `-y` skips the question. Without a terminal and without
+`--yes`, reset refuses and changes nothing.
+
+Reset then copies the runtime records to `runtime/backups/reset-<time>/` under
+the home. The copy holds the host lock, the `workers/`, `relaunch/` and
+`restarts/` directories, the annex record, the live process records, the end
+of `logs/host.jsonl` (the last 256 KiB at most), and a snapshot of the processes
+it found. Sessions, configuration, the inbox and schedules are not read or
+changed.
+
+Next, reset asks the host to stop. The host stops once its running turns end,
+so reset waits up to 30 seconds. If the host has not stopped by then, does
+not answer, or refuses, reset sends SIGTERM to each remaining process and SIGKILL to any
+that ignores it. Before each signal it checks that the process still has the
+same pid, start time and Vera command line.
+
+When every process has stopped, reset removes the records of processes that are
+gone, the host lock if its process is gone, and the socket files in the runtime
+directory that no process uses. Reset does not start a host. The next `vera`
+starts a fresh one.
+
+If a process cannot be stopped, reset exits 1 and leaves the records and
+sockets in place. Run `vera host reset` again after the named process exits.
 
 ## Recover a host connection
 

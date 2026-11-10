@@ -42,6 +42,7 @@ An interrupted inbox, schedule, or watch wake stays unread and appears when you 
 A later entry can wake the conversation normally.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
 `vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
+`vera host reset` stops this home's Vera processes, including a host that `vera host stop` cannot reach, after backing up its runtime records; `docs/runtime-and-worktrees.md` says when to use it.
 Unless `host.workers` is `0`, stop waits for turns across the session processes, force-stop stops the host and its session processes, and `vera ls` names unavailable session processes after their last known summaries.
 If a host is starting before its lock is published, stop reports that startup is in progress. When session processes are enabled, ordinary stop also reports startup while the host adopts them.
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing. A development instance's host runs that checkout's code, never the installed release; run `bun run pack:web` in the checkout so its annex can serve the web page.
