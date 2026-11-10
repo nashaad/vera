@@ -8,7 +8,7 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { createFixture, processAlive, readHostLock, waitUntil } from "../support/handoff-e2e.ts";
 
 test("a bundled host launches and stops its bundled session worker", async () => {
-    const fixture = await createFixture();
+    const fixture = await createFixture({ pool: true });
     const preload = join(fixture.workspace, "one-worker.ts");
     writeFileSync(preload, `
         import * as os from "node:os";

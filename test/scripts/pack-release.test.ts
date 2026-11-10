@@ -184,7 +184,12 @@ function scaffoldReleaseSource(): string {
         "clients/cli/main.ts",
         "clients/host/main.ts",
         "clients/host/session-worker.ts",
+        "clients/tui/flight-watchdog.ts",
         "src/annex/main.ts",
+        "src/host/session-import-child.ts",
+        "src/host/worker/adapter.ts",
+        "src/host/worker/entry.ts",
+        "src/host/worker-supervisor.ts",
         "docs/index.md",
         "index.ts",
         "package.json",
@@ -204,6 +209,12 @@ function scaffoldReleaseSource(): string {
     return source;
 }
 
+function scaffoldReleaseModules(source: string): void {
+    const treeSitter = join(source, "node_modules", "web-tree-sitter");
+    mkdirSync(treeSitter, { recursive: true });
+    writeFileSync(join(treeSitter, "tree-sitter.wasm"), "\n");
+}
+
 test("a pack that fails during assembly is rebuilt on the next run, not reused", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
@@ -215,7 +226,7 @@ test("a pack that fails during assembly is rebuilt on the next run, not reused",
         await expect(packRunnableRelease(options)).rejects.toThrow(/node_modules/);
         expect(existsSync(releaseManifestPath(target))).toBe(false);
 
-        mkdirSync(join(source, "node_modules"));
+        scaffoldReleaseModules(source);
         writeFileSync(join(source, "node_modules", "dependency.js"), "\n");
         const packed = await packRunnableRelease(options);
 
@@ -233,7 +244,7 @@ test("a pack that fails during assembly is rebuilt on the next run, not reused",
 test("a finished pack of the same build is reused", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
-    mkdirSync(join(source, "node_modules"));
+    scaffoldReleaseModules(source);
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const options = { prefix, cwd: repo, sourceRoot: source };
@@ -265,7 +276,7 @@ function packLeftovers(releaseRoot: string): string[] {
 test("a forced pack over a finished release replaces it whole, with a fresh stamp", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
-    mkdirSync(join(source, "node_modules"));
+    scaffoldReleaseModules(source);
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const options = { prefix, cwd: repo, sourceRoot: source };
@@ -295,7 +306,7 @@ test("a forced pack over a finished release replaces it whole, with a fresh stam
 test("a forced pack that fails during assembly leaves the finished release untouched", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
-    mkdirSync(join(source, "node_modules"));
+    scaffoldReleaseModules(source);
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const options = { prefix, cwd: repo, sourceRoot: source };
@@ -323,7 +334,7 @@ test("a forced pack that fails during assembly leaves the finished release untou
 test("a pack removes staging left by a pack that died, and keeps a live pack's", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
-    mkdirSync(join(source, "node_modules"));
+    scaffoldReleaseModules(source);
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const target = releaseDirectory(releaseBuildId(repo), prefix);
@@ -383,7 +394,7 @@ test("a release swap that stops between its renames leaves both trees stamped", 
 test("a pack moves a finished release left in staging by a pack that died between its renames into place", async () => {
     const repo = initRepo();
     const source = scaffoldReleaseSource();
-    mkdirSync(join(source, "node_modules"));
+    scaffoldReleaseModules(source);
     const prefix = mkdtempSync(join(tmpdir(), "vera-pack-prefix-"));
     try {
         const options = { prefix, cwd: repo, sourceRoot: source };
