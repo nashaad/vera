@@ -54,7 +54,7 @@ export type ClaudeHookEvent =
     | "SessionEnd";
 
 export interface CommandHookSpec {
-    /** A Vera phase, or a Claude event name when the protocol is `claude`. */
+    /** A Vera phase, or, when `protocol` is not `vera`, that protocol's event name. */
     readonly phase: CommandHookPhase | ClaudeHookEvent;
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
@@ -93,7 +93,7 @@ const CLAUDE_EVENT_PHASES: Readonly<Record<ClaudeHookEvent, CommandHookPhase>> =
     SessionEnd: "session_end",
 };
 
-// A Vera phase name under the claude protocol means the top-level Claude event.
+// When `protocol` is not `vera`, a Vera phase name means that protocol's top-level event.
 const PHASE_CLAUDE_EVENTS: Readonly<Partial<Record<CommandHookPhase, ClaudeHookEvent>>> = {
     pre_tool_use: "PreToolUse",
     session_start: "SessionStart",

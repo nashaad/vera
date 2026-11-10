@@ -294,7 +294,7 @@ export interface VeraExtensionHooks {
 }
 
 export interface VeraExtensionCommandHookSpec {
-    /** A Vera phase, or a Claude event name such as `"Stop"` when `protocol` is `"claude"`. */
+    /** A Vera phase, or, when `protocol` is not `"vera"`, that protocol's event name such as `"Stop"`. */
     readonly phase:
         | "pre_tool_use"
         | "post_tool_use"
