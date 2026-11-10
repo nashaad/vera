@@ -145,15 +145,18 @@ export function residentWorkerSpawnCommand(
     return [process.execPath, residentWorkerEntrypoint()];
 }
 
-/** Reads the seed and starts the worker while no host append can run, so the seed and the echoed records join without a gap. */
+// Call inside `store.exclusively`: with no append in flight the count is committed, and echoed records continue from it.
+export function sessionSeedFromStore(store: SessionStore): WorkerSessionSeed {
+    return { path: store.path, header: { ...store.header }, lineCount: store.appendedLineCount() };
+}
+
 export function startSeededWorker(
     options: Omit<StartWorkerOptions, "session">,
-    readSeed: (path: string) => Promise<WorkerSessionSeed>,
 ): Promise<WorkerHandle> {
     return options.store.exclusively(async () =>
         startWorker({
             ...options,
-            session: await readSeed(options.store.path),
+            session: sessionSeedFromStore(options.store),
         })
     );
 }
