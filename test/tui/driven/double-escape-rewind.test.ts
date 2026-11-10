@@ -54,7 +54,8 @@ test("double escape opens the rewind picker when idle", async () => {
         // The second press inside the window opens the timeline picker,
         // exactly what /rewind opens.
         session.sendKey("Escape");
-        pane = await session.waitForVisiblePane("Rewind: select a point");
+        await session.waitForVisiblePane("Rewind: select a point");
+        pane = await session.waitForVisiblePane("⏎ actions");
         expect(pane).toContain("first request");
     } finally {
         await session.close();
