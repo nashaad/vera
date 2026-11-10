@@ -21,6 +21,9 @@ cd /path/to/vera/.worktrees/NAME
 bun run dev:tui
 ```
 
+The launcher requires a terminal for stdin and stdout. The `--status`, `--stop`,
+and `--discard` commands also work without a terminal.
+
 The first launch copies the factory home from `dev/factory-home`, not your
 daily `~/.vera`. The TUI displays a DEV marker. Reusing the worktree keeps its
 development conversations; a different worktree gets a different home.
@@ -93,7 +96,7 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
 | `vera host stop` | Stop this home's host after its running turns end. New turns are refused meanwhile. |
 | `vera host stop --force` | Cut the running turns and stop this home's host now. |
-| `bun run dev:tui --stop` | Stop the development host belonging to the current worktree. |
+| `bun run dev:tui --stop` | Stop the current worktree's development host and its recorded TUI client, and keep the home. |
 | `bun run dev:sweep` | Stop processes that have run for two days or longer in the homes of registered development instances. It never stops the default home's host. |
 
 A host registers as a development instance only when it runs from a Git

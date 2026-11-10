@@ -16,6 +16,7 @@ export interface ForcePoolStopResult {
 export interface ForcePoolStopOptions {
     readonly startupClaim?: HostStartupClaim;
     readonly onWorkerStopped?: (pid: number) => void;
+    readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
 }
 
 export class ForcePoolStartupInProgressError extends HostStartupInProgressError {
@@ -63,7 +64,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
             const inspection = await inspectHostLockFile(lockPath);
             const records = await readRecordedWorkers(home);
             if (inspection.state === "damaged") {
-                for (const pid of await stopRecordedWorkers(home, options.onWorkerStopped)) workerPids.add(pid);
+                for (const pid of await stopRecordedWorkers(home, options.onWorkerStopped, options.kill)) workerPids.add(pid);
                 if (inspection.pid === undefined) throw new HostLockUnreadableError(lockPath);
                 throw new Error(unverifiedHostMessage({ pid: inspection.pid, lockDamaged: true }, lockPath));
             }
@@ -73,7 +74,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
             if (inspection.state === "valid") {
                 const socket = await socketFileIdentity(inspection.record.socket_path);
                 const outcome = await forceStopHostProcess(inspection.record, {
-                    firstSignal: "SIGKILL", sigkillGraceMs: 1_000, pollIntervalMs: 25,
+                    firstSignal: "SIGKILL", sigkillGraceMs: 1_000, pollIntervalMs: 25, kill: options.kill,
                 });
                 if (outcome.endedBy === "unverified") throw new Error(unverifiedHostMessage(outcome, lockPath));
                 if (outcome.endedBy === "survived") {
@@ -89,7 +90,7 @@ export async function forceStopPool(home: string, options: ForcePoolStopOptions 
                     }
                 }
             }
-            for (const pid of await stopRecordedWorkers(home, options.onWorkerStopped)) workerPids.add(pid);
+            for (const pid of await stopRecordedWorkers(home, options.onWorkerStopped, options.kill)) workerPids.add(pid);
             if (inspection.state === "valid") await removeStoppedPoolLock(home, lockPath, inspection.record);
             return true;
         };

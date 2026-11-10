@@ -26,6 +26,7 @@ import {
     scrubLiveIdentity,
 } from "../src/host/home-clone.ts";
 import {
+    defaultKill,
     forceStopResidentHost,
     unverifiedHostMessage,
 } from "../src/host/force-stop.ts";
@@ -51,6 +52,7 @@ import { inProcessWorkerSocket } from "../src/host/pool/in-process.ts";
 import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/pool/force-stop-pool.ts";
 import { HostStartupInProgressError } from "../src/host/startup-claim.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
+import { clientLaunchHome, stopRecordedClient, trackClient, type DevClientProcessInfo } from "./dev-tui-client.ts";
 
 const CLI_ENTRYPOINT = fileURLToPath(
     new URL("../clients/cli/main.ts", import.meta.url),
@@ -192,6 +194,7 @@ export interface DevTuiDependencies extends EvictHomeOptions {
         socketPath: string,
         destination: string,
     ) => Promise<void>;
+    readonly clientProcessInfo?: DevClientProcessInfo;
     readonly temporaryRoot?: string;
     readonly sourceHome?: string;
     readonly devInstanceRoot?: string;
@@ -235,7 +238,9 @@ export async function runDevTui(
         return 0;
     }
     if (request.action === "stop") {
-        return await stopCandidate(destinationHome, stderr);
+        const stoppedHost = await stopCandidate(destinationHome, stderr);
+        const stoppedClient = await stopRecordedClient(destinationHome, stderr, dependencies.clientProcessInfo);
+        return stoppedHost !== 0 || stoppedClient !== 0 ? 1 : 0;
     }
     if (request.action === "discard") {
         const confirm = dependencies.confirm ?? confirmDiscard;
@@ -559,6 +564,15 @@ async function stopCandidate(
     stderr: { write(text: string): unknown },
 ): Promise<number> {
     const lockPath = join(destinationHome, "runtime", "host.json");
+    const inspection = await inspectHostLockFile(lockPath);
+    if (inspection.state === "valid" && inspection.record.socket_path !== join(destinationHome, "runtime", "host.sock")) {
+        stderr.write("The development host lock names a socket outside its home; the instance was kept.\n");
+        return 1;
+    }
+    const verifiedKill = (pid: number, signal: NodeJS.Signals): void => {
+        if (clientLaunchHome(pid) !== destinationHome) throw new ClientHomeMismatchError(pid);
+        defaultKill(pid, signal);
+    };
     const reported = new Set<number>();
     const reportWorker = (pid: number): void => {
         if (reported.has(pid)) return;
@@ -566,7 +580,7 @@ async function stopCandidate(
         stderr.write(`Stopped session process PID ${pid}.\n`);
     };
     try {
-        const pool = await forceStopPool(destinationHome, { onWorkerStopped: reportWorker });
+        const pool = await forceStopPool(destinationHome, { onWorkerStopped: reportWorker, kill: verifiedKill });
         if (pool !== undefined) {
             for (const pid of pool.workerPids) reportWorker(pid);
             return 0;
@@ -580,9 +594,10 @@ async function stopCandidate(
     }
     let outcome: Awaited<ReturnType<typeof forceStopResidentHost>>;
     try {
-        outcome = await forceStopResidentHost({ lockPath, home: destinationHome });
+        outcome = await forceStopResidentHost({ lockPath, home: destinationHome, kill: verifiedKill });
     } catch (error) {
-        if (!(error instanceof HostLockUnreadableError) && !(error instanceof HostStartupInProgressError)) throw error;
+        if (!(error instanceof HostLockUnreadableError) && !(error instanceof HostStartupInProgressError)
+            && !(error instanceof ClientHomeMismatchError)) throw error;
         stderr.write(`${error.message}\n`);
         return 1;
     }
@@ -603,6 +618,12 @@ async function stopCandidate(
         case "unverified":
             stderr.write(`${unverifiedHostMessage(outcome, lockPath)}\n`);
             return 1;
+    }
+}
+
+class ClientHomeMismatchError extends Error {
+    constructor(pid: number) {
+        super(`Could not verify VERA_HOME for PID ${pid}; the development instance was kept.`);
     }
 }
 
@@ -771,12 +792,31 @@ async function spawnWorktreeTui(
             stderr: "inherit",
         },
     );
-    return await child.exited;
+    const home = env.VERA_HOME;
+    if (home === undefined) {
+        child.kill();
+        await child.exited;
+        throw new Error("Development client home is missing.");
+    }
+    return await trackClient(home, child);
 }
 
 if (import.meta.main) {
     try {
-        process.exitCode = await runDevTui(process.argv.slice(2));
+        const args = process.argv.slice(2);
+        if (parseDevTuiArgs(args).action === "run") {
+            if (!process.stdin.isTTY || !process.stdout.isTTY) {
+                process.stderr.write("Cannot start the development TUI: stdin and stdout must be terminals.\n");
+                process.exitCode = 1;
+            } else {
+                const pack = Bun.spawnSync([process.execPath, "run", "pack:release"], {
+                    stdin: "inherit", stdout: "inherit", stderr: "inherit",
+                });
+                process.exitCode = pack.exitCode === 0 ? await runDevTui(args) : pack.exitCode;
+            }
+        } else {
+            process.exitCode = await runDevTui(args);
+        }
     } catch (error) {
         process.stderr.write(
             `Could not launch Vera's development TUI: ${
