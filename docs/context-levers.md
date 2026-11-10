@@ -57,6 +57,10 @@ tokens and fit hundreds of thousands.
 
 ## When compaction cannot run
 
+Vera retries retryable summary model failures before reporting that the summary
+could not be made. An idle timeout moves to the next model without retrying the
+same model. Stopping the turn also stops any retry wait.
+
 If a summary cannot be made, the transcript shows a notice starting
 `Could not summarize`, and the conversation carries on unchanged. The reason
 says what to do:

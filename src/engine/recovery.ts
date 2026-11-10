@@ -139,6 +139,12 @@ export function jitterRetryDelay(
     return Math.round(baseMs * (0.8 + 0.4 * random()));
 }
 
+export function modelRetryPolicy(failure: ProviderFailure): ModelRetryPolicy {
+    return isOverloadFailure(failure) || isNetworkFailure(failure)
+        ? DEFAULT_OVERLOAD_RETRY_POLICY
+        : DEFAULT_MODEL_RETRY_POLICY;
+}
+
 export function nextLengthContinuation(
     currentMaxTokens: number,
     completedContinuations: number,
@@ -269,10 +275,7 @@ export async function requestModelWithRecovery(
                         break;
                     }
 
-                    const policy = options.policy ?? (
-                        isOverloadFailure(failure) || isNetworkFailure(failure)
-                        ? DEFAULT_OVERLOAD_RETRY_POLICY
-                        : DEFAULT_MODEL_RETRY_POLICY);
+                    const policy = options.policy ?? modelRetryPolicy(failure);
                     const baseDelayMs = policy.delaysMs[retryAttempt];
                     if (
                         failure.resolution === "retry"
@@ -521,7 +524,7 @@ function abortModelRequest(
     return message;
 }
 
-async function waitForModelRetry(
+export async function waitForModelRetry(
     delayMs: number,
     signal?: AbortSignal,
 ): Promise<void> {
