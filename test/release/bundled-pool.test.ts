@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { readRecordedWorkers } from "../../src/host/master/worker-records.ts";
+import { readRecordedWorkers } from "../../src/host/pool/worker-records.ts";
 import { processCommandLine } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { createFixture, processAlive, readHostLock, waitUntil } from "../support/handoff-e2e.ts";
