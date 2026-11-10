@@ -10,7 +10,7 @@ import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { SessionStore } from "../../store/session-store.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../../tools/types.ts";
-import { HOST_OWNED_COMMANDS, ReportedWorkerFailure, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, readSessionSeed, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
+import { HOST_OWNED_COMMANDS, ReportedWorkerFailure, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
 import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry, type SessionBlockControl } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { ResidentAgent, SessionBlockedError, type AgentAttachment } from "../resident-agent.ts";
@@ -170,7 +170,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     markReady();
                 }
             },
-        }, readSessionSeed);
+        });
         options.entry.worker = handle;
         let workerExited = false;
         void handle.outcome.then(() => {

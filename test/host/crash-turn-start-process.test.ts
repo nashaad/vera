@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
 import { startSeededWorker, type WorkerHandle } from "../../src/host/worker/handle.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { CRASH_CUT_MESSAGE, openSessionForRecovery, readSessionSnapshot, readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
@@ -30,7 +29,7 @@ for (const kind of ["prompt", "delivery"] as const) {
             worker = await startSeededWorker({
                 store, model: "test", data: { approvalMode: "auto" },
                 adapter: { module: adapterModule, options: { script: [response], delayMs: 10_000, chunkSize: 1, requestLogPath: requestPath } },
-            }, readSessionSeed);
+            });
             worker.send(kind === "prompt"
                 ? { type: "prompt", content: "Chart the cove" }
                 : { type: "trigger_delivery_turn" });

@@ -333,7 +333,7 @@ test("a request after the worker's own writes carries each message once", async 
     }
 }, 30_000);
 
-test("a host write made while the seed is being read is in the worker's first request", async () => {
+test("a host write queued during worker startup is in the worker's first request", async () => {
     const directory = workspace();
     const path = join(directory, "session.jsonl");
     const requestPath = join(directory, "requests.jsonl");
@@ -343,35 +343,21 @@ test("a host write made while the seed is being read is in the worker's first re
     });
     await store.appendMessage(user("in the seed"));
     const updates: AgentUpdate[] = [];
-    let seedRead: () => void = () => {};
-    const seedStarted = new Promise<void>((resolve) => {
-        seedRead = resolve;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const held = store.exclusively(async () => { await gate; });
+    const starting = startSeededWorker({
+        store,
+        model: "test",
+        adapter: { module: SESSION_START_ADAPTER, options: { requestPath } },
+        data: { approvalMode: "full_access" },
+        onUpdate: (update) => void updates.push(update),
     });
-    let openGate: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-        openGate = resolve;
-    });
-
-    const starting = startSeededWorker(
-        {
-            store,
-            model: "test",
-            adapter: { module: SESSION_START_ADAPTER, options: { requestPath } },
-            data: { approvalMode: "full_access" },
-            onUpdate: (update) => void updates.push(update),
-        },
-        async (seedPath) => {
-            const seed = await readSessionSeed(seedPath);
-            seedRead();
-            await gate;
-            return seed;
-        },
-    );
-    await seedStarted;
     const writing = store.appendMessage(user("written during the seed read"));
     await Bun.sleep(50);
     expect(store.appendedLineCount()).toBe(2);
-    openGate();
+    release();
+    await held;
 
     const handle = await starting;
     try {

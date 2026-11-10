@@ -9,6 +9,8 @@ import {
     type OpenSessionAppendFile,
     type SessionAppendFile,
 } from "../../src/store/session-store.ts";
+import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
+import { sessionSeedFromStore } from "../../src/host/worker/handle.ts";
 import type { ModelMessage } from "../../src/model/types.ts";
 
 const directories: string[] = [];
@@ -112,6 +114,7 @@ test("a write that fails halfway leaves the file as it was and the next append l
     expect(readFileSync(path).equals(before)).toBe(true);
     expect(texts(store)).toEqual(["one"]);
     expect(store.appendedLineCount()).toBe(2);
+    expect(sessionSeedFromStore(store)).toEqual(await readSessionSeed(path));
 
     await store.appendMessage(user("three"));
     expect(texts(store)).toEqual(["one", "three"]);
