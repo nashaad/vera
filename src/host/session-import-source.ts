@@ -1,4 +1,4 @@
-import { runtimePath } from "../release/runtime-path.ts";
+import { isCompiledRelease, runtimePath } from "../release/runtime-path.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -55,7 +55,7 @@ export async function parseSourceFile(path: string): Promise<SourceParse> {
 // process that exits afterwards.
 export function parseSourceFileInChild(path: string): Promise<SourceParse> {
     return new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, [CHILD_ENTRY, path], {
+        const child = spawn(process.execPath, [isCompiledRelease() ? "--vera-role=import" : CHILD_ENTRY, path], {
             argv0: "vera-import",
             stdio: ["ignore", "pipe", "pipe"],
         });

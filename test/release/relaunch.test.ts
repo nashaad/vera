@@ -120,8 +120,6 @@ test("records for different launchers do not cross", () => {
     expect(takeRelaunchRecord("200")?.sessionId).toBe("one");
 });
 
-// The launcher loop: a fake bun flips `current` on the first run and exits 75,
-// then the second run in the new release exits 0.
 test("the launcher relaunches into the release that current points to", () => {
     const share = join(home, "share", "vera");
     const releaseA = join(share, "releases", "A");
@@ -131,13 +129,13 @@ test("the launcher relaunches into the release that current points to", () => {
     symlinkSync("releases/A", join(share, "current"));
     writeSelfContainedWrappers(releaseA);
     const log = join(home, "runs.log");
-    writeFakeBun(join(releaseA, "bun"), `
+    writeFakeExecutable(join(releaseA, "vera-bin"), `
 echo "A $VERA_TUI_LAUNCHER $PPID" >> "${log}"
 rm -f "${join(share, "current")}"
 ln -s releases/B "${join(share, "current")}"
 exit ${RELAUNCH_EXIT_CODE}
 `);
-    writeFakeBun(join(releaseB, "bun"), `
+    writeFakeExecutable(join(releaseB, "vera-bin"), `
 echo "B $VERA_TUI_LAUNCHER $PPID" >> "${log}"
 exit 0
 `);
@@ -160,7 +158,7 @@ test("a stray status 75 from the child ends the loop, it is not a relaunch", () 
     symlinkSync("releases/A", join(share, "current"));
     writeSelfContainedWrappers(releaseA);
     const log = join(home, "runs.log");
-    writeFakeBun(join(releaseA, "bun"), `
+    writeFakeExecutable(join(releaseA, "vera-bin"), `
 echo "A" >> "${log}"
 exit 75
 `);
@@ -176,7 +174,7 @@ test("the launcher passes through any exit status other than the relaunch code",
     symlinkSync("releases/A", join(share, "current"));
     writeSelfContainedWrappers(releaseA);
     const log = join(home, "runs.log");
-    writeFakeBun(join(releaseA, "bun"), `
+    writeFakeExecutable(join(releaseA, "vera-bin"), `
 echo "A" >> "${log}"
 exit 3
 `);
@@ -185,7 +183,7 @@ exit 3
     expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["A"]);
 });
 
-function writeFakeBun(path: string, body: string): void {
+function writeFakeExecutable(path: string, body: string): void {
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, `#!/bin/sh\n${body}`, "utf8");
     chmodSync(path, 0o755);

@@ -1,4 +1,4 @@
-import { runtimePath } from "../release/runtime-path.ts";
+import { isCompiledRelease, runtimePath } from "../release/runtime-path.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { configuredTurnPolicy } from "../turn-policy.ts";
@@ -154,7 +154,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                     readonly sessionId: string;
                 }) => ({
                     module: WORKER_ADAPTER_MODULE,
-                    export: "createWorkerAdapter",
+                    export: isCompiledRelease() ? "runWorkerAdapter" : "createWorkerAdapter",
                     options: createWorkerAdapterOptions(
                         currentConfig(),
                         configPath,
@@ -338,6 +338,6 @@ function scoped(projectRoot?: string): { readonly projectRoot?: string } {
     return projectRoot === undefined ? {} : { projectRoot };
 }
 
-const WORKER_ADAPTER_MODULE = runtimePath(fileURLToPath(
+const WORKER_ADAPTER_MODULE = isCompiledRelease() ? "vera:worker-adapter" : runtimePath(fileURLToPath(
     new URL("./worker/adapter.ts", import.meta.url),
 ), "bundle/src/host/worker/adapter.js");

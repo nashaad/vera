@@ -7,14 +7,12 @@ import { processCommandLine } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { createFixture, processAlive, readHostLock, waitUntil } from "../support/handoff-e2e.ts";
 
-test("a bundled host launches and stops its bundled session worker", async () => {
+test("a compiled host launches and stops its compiled session worker", async () => {
     const fixture = await createFixture();
-    const preload = join(fixture.workspace, "one-worker.ts");
-    writeFileSync(preload, `
-        import * as os from "node:os";
-        import { mock } from "bun:test";
-        mock.module("node:os", () => ({ ...os, availableParallelism: () => 2 }));
-    `);
+    const configPath = join(fixture.home, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.host = { workers: 1 };
+    writeFileSync(configPath, JSON.stringify(config));
     mkdirSync(join(fixture.build1Root, ".git"));
     const home = join(fixture.home, "user");
     mkdirSync(home);
@@ -24,8 +22,7 @@ test("a bundled host launches and stops its bundled session worker", async () =>
             ...process.env,
             HOME: home,
             VERA_HOME: fixture.home,
-            VERA_DEV_INSTANCE: "bundle dev",
-            BUN_OPTIONS: `--preload=${preload}`,
+            VERA_DEV_INSTANCE: "onebin dev",
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -37,11 +34,11 @@ test("a bundled host launches and stops its bundled session worker", async () =>
             Bun.sleep(20_000).then(() => undefined),
         ]);
         if (ready === undefined || ready.done || !new TextDecoder().decode(ready.value).includes("Session worker ready")) {
-            throw new Error("bundled host did not report worker readiness");
+            throw new Error("compiled host did not report worker readiness");
         }
-        await waitUntil(() => readHostLock(fixture.home) !== undefined || child.exitCode !== null, 20_000, "bundled host lock");
+        await waitUntil(() => readHostLock(fixture.home) !== undefined || child.exitCode !== null, 20_000, "compiled host lock");
         if (child.exitCode !== null) {
-            throw new Error(`bundled host exited: ${await new Response(child.stderr).text()}`);
+            throw new Error(`compiled host exited: ${await new Response(child.stderr).text()}`);
         }
         const lock = readHostLock(fixture.home)!;
         let workers = await readRecordedWorkers(fixture.home);
@@ -52,10 +49,10 @@ test("a bundled host launches and stops its bundled session worker", async () =>
         }
         expect(workers).toHaveLength(1);
         workerPid = workers[0]!.pid;
-        expect(processCommandLine(workerPid)).toContain("bundle/clients/host/session-worker.js");
+        expect(processCommandLine(workerPid)).toContain("--vera-role=session-worker");
         const identity = await requestHostIdentity(join(fixture.home, "runtime", "host.sock"));
         expect(identity?.pid).toBe(lock.pid);
-        expect(readFileSync(join(fixture.build1Root, "host"), "utf8")).toContain("bundle/clients/host/main.js");
+        expect(readFileSync(join(fixture.build1Root, "host"), "utf8")).toContain("--vera-role=host");
     } finally {
         try {
             if (workerPid === undefined) workerPid = (await readRecordedWorkers(fixture.home))[0]?.pid;
@@ -64,7 +61,7 @@ test("a bundled host launches and stops its bundled session worker", async () =>
             if (!exited) { child.kill("SIGKILL"); await child.exited; }
             if (workerPid !== undefined && processAlive(workerPid)) {
                 process.kill(workerPid, "SIGTERM");
-                await waitUntil(() => !processAlive(workerPid!), 10_000, "bundled worker exit");
+                await waitUntil(() => !processAlive(workerPid!), 10_000, "compiled worker exit");
             }
         } finally {
             fixture.cleanup();

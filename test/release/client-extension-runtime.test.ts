@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { installRelease } from "../../scripts/pack-release.ts";
+import { bundleRelease } from "../../src/release/bundle.ts";
 
 const sourceRoot = resolve(import.meta.dir, "../..");
 
@@ -44,5 +45,19 @@ test("installed client extensions share the renderer runtime across workspaces a
                 expect(stdout).toContain("diff mounted and reloaded");
             } finally { clearTimeout(timeout); child.kill(); await child.exited; }
         }
+        await bundleRelease(installed.releaseRoot, installed.releaseRoot, probe);
+        const compiled = Bun.spawn([join(installed.releaseRoot, "vera-bin"), workspace], {
+            cwd: sourceRoot,
+            env: { ...process.env, VERA_HOME: join(scratch, "home"), NODE_PATH: join(installed.releaseRoot, "node_modules") },
+            stdout: "pipe", stderr: "pipe",
+        });
+        const timeout = setTimeout(() => compiled.kill(), 15_000);
+        try {
+            const [stdout, stderr, exit] = await Promise.all([
+                new Response(compiled.stdout).text(), new Response(compiled.stderr).text(), compiled.exited,
+            ]);
+            expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+            expect(stdout).toContain("diff mounted and reloaded");
+        } finally { clearTimeout(timeout); compiled.kill(); await compiled.exited; }
     } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 60_000);

@@ -81,4 +81,6 @@ export function createWorkerRequestPreparer(
         applyModelRequestOptions(request, currentConfig(), provider);
 }
 
+export { createWorkerAdapter as runWorkerAdapter };
+
 export default createWorkerAdapter;

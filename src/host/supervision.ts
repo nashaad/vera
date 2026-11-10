@@ -57,7 +57,7 @@ function stringEntries(pairs: Readonly<Record<string, string>>): string {
 export interface SupervisionPlistInput {
     readonly label: string;
     readonly executable: string;
-    readonly entrypoint: string;
+    readonly entrypoint?: string;
     readonly logDirectory: string;
     readonly workingDirectory: string;
     readonly veraHome?: string;
@@ -81,8 +81,7 @@ export function renderSupervisionPlist(input: SupervisionPlistInput): string {
     <key>ProgramArguments</key>
     <array>
         <string>${escapeXml(input.executable)}</string>
-        <string>${escapeXml(input.entrypoint)}</string>
-    </array>
+${input.entrypoint === undefined ? "" : `        <string>${escapeXml(input.entrypoint)}</string>\n`}    </array>
     <key>EnvironmentVariables</key>
     <dict>
 ${stringEntries(environment)}
@@ -138,7 +137,7 @@ export interface SupervisionInstall extends SupervisionPaths {
 }
 
 export function installHostSupervision(
-    options: SupervisionOptions & { readonly entrypoint: string },
+    options: SupervisionOptions,
 ): SupervisionInstall {
     const platform = options.platform ?? process.platform;
     assertSupported(platform);
@@ -154,7 +153,7 @@ export function installHostSupervision(
         renderSupervisionPlist({
             label: paths.label,
             executable: options.executable ?? process.execPath,
-            entrypoint: options.entrypoint,
+            ...(options.entrypoint === undefined ? {} : { entrypoint: options.entrypoint }),
             logDirectory,
             workingDirectory: options.home ?? homedir(),
             veraHome: env[VERA_HOME_ENV]?.trim() || undefined,
@@ -203,7 +202,7 @@ export type SupervisionReport =
 
 export function superviseHost(
     action: "on" | "off" | "status",
-    options: SupervisionOptions & { readonly entrypoint: string },
+    options: SupervisionOptions,
 ): SupervisionReport {
     if (action === "on") {
         return { action, ...installHostSupervision(options) };

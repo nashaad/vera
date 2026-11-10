@@ -1,3 +1,4 @@
+import { releaseSourceEntries, writeExternalWrappers } from "../../src/release/wrappers.ts";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,12 +41,14 @@ test("an install waits for the running turn, then moves current and the host", a
     const build2 = "vera-e2e-update";
     const extension = join(env.workspace, "extension");
     const marker = join(env.workspace, "extension-activated");
-    mkdirSync(extension);
+    mkdirSync(join(extension, "node_modules", "crow-dependency"), { recursive: true });
+    writeFileSync(join(extension, "node_modules", "crow-dependency", "package.json"), JSON.stringify({ name: "crow-dependency", main: "index.js" }));
+    writeFileSync(join(extension, "node_modules", "crow-dependency", "index.js"), "export const name = 'crow';");
     writeFileSync(join(extension, "vera.extension.json"), JSON.stringify({
         id: "test.bundled", version: "1.0.0", sdk: "1", entrypoint: "extension.ts", capabilities: ["hooks.session_start"],
     }));
     writeFileSync(join(extension, "extension.ts"),
-        `import { writeFileSync } from "node:fs"; export function activate() { writeFileSync(${JSON.stringify(marker)}, "active"); }`);
+        `import { writeFileSync } from "node:fs"; import { inspectReportSection } from "vera/sdk/inspect-report"; import { name } from "crow-dependency"; export function activate() { writeFileSync(${JSON.stringify(marker)}, inspectReportSection(name, "active", 40)[0]); }`);
     const configPath = join(env.home, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     config.extensions = [{ path: extension, enabled: true, config: {} }];
@@ -58,6 +61,7 @@ test("an install waits for the running turn, then moves current and the host", a
     const socketPath = join(env.home, "runtime", "host.sock");
     const agent = await createAgentThroughHost(socketPath, env.workspace, "auto");
     await waitUntil(() => existsSync(marker), 10_000, "disk extension activation");
+    expect(readFileSync(marker, "utf8")).toContain("CROW");
     const importPath = join(env.workspace, "unknown.jsonl");
     writeFileSync(importPath, '{"hello":"crow"}\n');
     expect(await importSessionThroughHost(socketPath, importPath)).toEqual({ status: "rejected", reason: "unrecognized" });
@@ -96,28 +100,14 @@ test("an install waits for the running turn, then moves current and the host", a
     expect(processAlive(lock!.pid)).toBe(true);
 }, 120_000);
 
-test("handoff moves from a source release to a bundle and back", async () => {
+test("handoff moves from a source release to an executable and back", async () => {
     fixture = await createFixture();
     const env = fixture;
     previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = env.home;
     const sourceId = "vera-e2e-source";
     const sourceRoot = cloneRelease(env.build1Root, env.prefix, sourceId);
-    const entries: ReadonlyArray<readonly [string, string]> = [
-        ["bundle/clients/cli/main.js", "clients/cli/main.ts"],
-        ["bundle/clients/host/main.js", "clients/host/main.ts"],
-        ["bundle/clients/host/session-worker.js", "clients/host/session-worker.ts"],
-        ["bundle/src/host/worker/entry.js", "src/host/worker/entry.ts"],
-        ["bundle/src/annex/main.js", "src/annex/main.ts"],
-        ["bundle/src/host/worker-supervisor.js", "src/host/worker-supervisor.ts"],
-    ];
-    for (const name of ["vera", "host", "session-worker", "worker", "vera-annex", "vera-supervisor"]) {
-        const path = join(sourceRoot, name);
-        let wrapper = readFileSync(path, "utf8");
-        for (const [bundled, source] of entries) wrapper = wrapper.replaceAll(bundled, source);
-        writeFileSync(path, wrapper);
-    }
-    rmSync(join(sourceRoot, "bundle"), { recursive: true, force: true });
+    writeExternalWrappers(sourceRoot, join(sourceRoot, "bun"), releaseSourceEntries(sourceRoot));
     activateRelease(sourceRoot, env.prefix);
     await defaultEnsureHost(sourceRoot, { operation: "install" });
     await waitUntil(() => readHostLock(env.home)?.build_id === sourceId, 15_000, "source host lock");
@@ -125,18 +115,18 @@ test("handoff moves from a source release to a bundle and back", async () => {
     await createAgentThroughHost(join(env.home, "runtime", "host.sock"), env.workspace, "auto");
     const hostLog = join(env.home, "runtime", "logs", "host.jsonl");
     await waitUntil(() => existsSync(hostLog) && readFileSync(hostLog, "utf8").includes("host_startup_complete"), 10_000, "source host startup");
-    const bundledId = "vera-e2e-bundled";
-    const bundledRoot = cloneRelease(env.build1Root, env.prefix, bundledId);
-    const bundledManifest = JSON.parse(readFileSync(join(bundledRoot, "manifest.json"), "utf8"));
+    const compiledId = "vera-e2e-bundled";
+    const compiledRoot = cloneRelease(env.build1Root, env.prefix, compiledId);
+    const compiledManifest = JSON.parse(readFileSync(join(compiledRoot, "manifest.json"), "utf8"));
     const forward = await installRelease({
         prefix: env.prefix,
-        pack: async () => ({ releaseRoot: bundledRoot, manifest: bundledManifest }),
+        pack: async () => ({ releaseRoot: compiledRoot, manifest: compiledManifest }),
         report: () => {},
     });
     expect(forward).toMatchObject({ kind: "updated" });
     await waitUntil(() => !processAlive(sourcePid), 10_000, "source host exit");
-    expect(readHostLock(env.home)?.build_id).toBe(bundledId);
-    const bundledPid = readHostLock(env.home)!.pid;
+    expect(readHostLock(env.home)?.build_id).toBe(compiledId);
+    const compiledPid = readHostLock(env.home)!.pid;
     const sourceManifest = JSON.parse(readFileSync(join(sourceRoot, "manifest.json"), "utf8"));
     const backward = await installRelease({
         prefix: env.prefix,
@@ -144,6 +134,6 @@ test("handoff moves from a source release to a bundle and back", async () => {
         report: () => {},
     });
     expect(backward).toMatchObject({ kind: "updated" });
-    await waitUntil(() => !processAlive(bundledPid), 10_000, "bundled host exit");
+    await waitUntil(() => !processAlive(compiledPid), 10_000, "compiled host exit");
     expect(readHostLock(env.home)?.build_id).toBe(sourceId);
 }, 120_000);

@@ -14,5 +14,7 @@ test("recognizes source and bundled release processes", () => {
         expect(classifyVeraProcess(`bun /release/${source} --arg`)).toBe(kind);
         expect(classifyVeraProcess(`bun /release/${bundled} --arg`)).toBe(kind);
     }
+    expect(classifyVeraProcess("vera-bin --vera-role=host")).toBe("host");
+    expect(classifyVeraProcess("vera-bin --vera-role=session-worker")).toBe("worker");
     expect(classifyVeraProcess("bun /unrelated/clients/host/main.js")).toBeUndefined();
 });

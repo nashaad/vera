@@ -12,7 +12,7 @@ export function isSupervisedHost(env: NodeJS.ProcessEnv = process.env): boolean 
     return env[SUPERVISED_HOST_ENV] !== undefined;
 }
 
-export function anotherHostIsServing(error: unknown): boolean {
+export function anotherHostIsServing(error: unknown): error is HostStartupInProgressError | HostSocketHeldError {
     return error instanceof HostStartupInProgressError
         || error instanceof HostSocketHeldError;
 }

@@ -66,12 +66,12 @@ test("a live host B with retained client B execs that client", async () => {
         const exit = await dispatchToHostRelease({
             prefix,
             clientBuildId: "vera-c",
-            argv: ["host", "stop"],
+            argv: ["models", "refresh"],
             env: {},
             inspectHost: async () => "vera-b",
             exec: async (path, argv, env) => {
                 hops.push(path);
-                expect(argv).toEqual(["host", "stop"]);
+                expect(argv).toEqual(["models", "refresh"]);
                 expect(env[RETAINED_DISPATCH_ENV]).toBe("1");
                 expect(env).toEqual({ [RETAINED_DISPATCH_ENV]: "1" });
                 return 7;
@@ -180,11 +180,11 @@ test("a real retained wrapper is the process that runs", async () => {
         const child = await dispatchToHostRelease({
             prefix,
             clientBuildId: "vera-c",
-            argv: ["host", "stop"],
+            argv: ["models", "refresh"],
             inspectHost: async () => "vera-b",
         });
         expect(child).toBe(0);
-        expect(await Bun.file(marker).text()).toBe("ran-b host stop\n");
+        expect(await Bun.file(marker).text()).toBe("ran-b models refresh\n");
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }

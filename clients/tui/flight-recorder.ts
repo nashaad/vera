@@ -1,4 +1,4 @@
-import { runtimePath } from "../../src/release/runtime-path.ts";
+import { isCompiledRelease, runtimePath } from "../../src/release/runtime-path.ts";
 import {
     appendFileSync,
     chmodSync,
@@ -130,7 +130,7 @@ export function createTuiFlightRecorder(
         ? undefined
         : Bun.spawn([
             process.execPath,
-            runtimePath(join(import.meta.dir, "flight-watchdog.ts"), "bundle/clients/tui/flight-watchdog.js"),
+            isCompiledRelease() ? "--vera-role=watchdog" : runtimePath(join(import.meta.dir, "flight-watchdog.ts"), "bundle/clients/tui/flight-watchdog.js"),
             String(pid),
             heartbeatPath,
             logPath,

@@ -96,7 +96,7 @@ function parseArgs(argv: readonly string[]): {
     return { home, port, anyPortIfBusy, assets, extensions, hostSocket };
 }
 
-if (import.meta.main) {
+export async function runAnnexEntrypoint(): Promise<void> {
     const { home, port, anyPortIfBusy, assets, extensions, hostSocket } = parseArgs(
         Bun.argv.slice(2),
     );
@@ -135,4 +135,8 @@ if (import.meta.main) {
     } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
     }
+}
+
+if (import.meta.main) {
+    await runAnnexEntrypoint();
 }

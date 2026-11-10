@@ -7,7 +7,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import trash from "trash";
 
 export interface SessionArtifacts {
     readonly sessionPath: string;
@@ -41,7 +40,7 @@ export async function trashSessionArtifacts(
             recursive: true,
             force: false,
         });
-        await (options.moveToTrash ?? ((paths) => trash([...paths])))(
+        await (options.moveToTrash ?? (async (paths) => (await import("trash")).default([...paths])))(
             [trashBundle],
         );
 

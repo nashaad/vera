@@ -166,3 +166,17 @@ test("a bundled release must include its bundled entry points", () => {
         rmSync(prefix, { recursive: true, force: true });
     }
 });
+
+
+test("an executable release must include its executable", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-verify-binary-"));
+    try {
+        const root = writeCompleteRelease(prefix, "vera-no-binary");
+        writeFileSync(join(root, RELEASE_CLI_NAME), "#!/bin/sh\nexec vera-bin\n", { mode: 0o755 });
+        expect(() => verifyPackedRelease(root, prefix)).toThrow(/missing executable vera-bin/);
+        writeFileSync(join(root, "vera-bin"), "binary", { mode: 0o755 });
+        expect(() => verifyPackedRelease(root, prefix)).not.toThrow();
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
