@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
 import { createWorkerBoundaryServer } from "../../src/host/worker/boundary-server.ts";
-import { startSeededWorker, startWorker } from "../../src/host/worker/handle.ts";
+import { sessionSeedFromStore, startSeededWorker, startWorker } from "../../src/host/worker/handle.ts";
 import { createJsonPipe } from "../../src/host/worker/pipe.ts";
 import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.ts";
 import { WorkerSessionStore } from "../../src/host/worker/session.ts";
@@ -378,15 +378,17 @@ test("a host write queued during worker startup is in the worker's first request
     }
 }, 30_000);
 
-test("worker seed streams long UTF-8 records in order", async () => {
+test("@core worker seed streams long UTF-8 records in order", async () => {
     const directory = workspace();
     const host = await SessionStore.create(join(directory, "seed.jsonl"), {
         sessionId: "seed", cwd: directory,
     });
     const first = await host.appendMessage(user("x".repeat(1024 * 1024 - 3) + "🦜" + "y".repeat(140000)));
     const second = await host.appendMessage(user("second"));
-    const seed = await readSessionSeed(host.path);
+    const seed = await host.exclusively(async () => sessionSeedFromStore(host));
     expect(seed.lineCount).toBe(3);
+    expect(Object.keys(seed).sort()).toEqual(["header", "lineCount", "path"]);
+    expect(JSON.stringify(seed).length).toBeLessThan(4096);
     const worker = WorkerSessionStore.seed(host.path, seed.header);
     worker.applyCommittedLines(seed.lineCount);
     expect(worker.appliedThrough()).toBe(3);

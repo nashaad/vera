@@ -13,7 +13,7 @@ import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import type { HistoryUpdate } from "../../src/engine/protocol.ts";
 import { historyPageFromEntries } from "../../src/host/history-page.ts";
 
-test("a slow attachment skips superseded histories and keeps other updates", async () => {
+test("@core a slow attachment skips superseded histories and keeps other updates", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const client = agent.attach();
     try {
@@ -41,7 +41,7 @@ test("a slow attachment skips superseded histories and keeps other updates", asy
     }
 });
 
-test("a pending history can be cleared before serialization but recovered prompts cannot", async () => {
+test("@core a pending history can be cleared before serialization but recovered prompts cannot", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const client = agent.attach();
     try {
@@ -87,6 +87,38 @@ test("the history checkpoint isolates mutable fields", async () => {
     } finally {
         client.detach();
         agent.close();
+    }
+});
+
+test("@core history snapshots do not clone tool output strings", async () => {
+    const originalClone = globalThis.structuredClone;
+    const output = "crow output ".repeat(10_000);
+    const clonedOutputs: unknown[] = [];
+    globalThis.structuredClone = ((value: unknown, options?: Parameters<typeof structuredClone>[1]) => {
+        if (value !== null && typeof value === "object" && "entries" in value) {
+            const entries = (value as { entries?: unknown }).entries;
+            if (Array.isArray(entries)) {
+                for (const entry of entries) {
+                    if (entry?.kind === "tool_result") clonedOutputs.push(entry.output);
+                }
+            }
+        }
+        return originalClone(value, options);
+    }) as typeof structuredClone;
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    try {
+        agent.engine.send({ type: "history", entries: [{ kind: "tool_result", tool: "read", output, isError: false }], seq: 0 });
+        const client = agent.attach();
+        try {
+            expect(await client.receive()).toMatchObject({ entries: [{ output }] });
+            expect(clonedOutputs.length).toBeGreaterThan(0);
+            expect(clonedOutputs.every((value) => value === "")).toBe(true);
+        } finally {
+            client.detach();
+        }
+    } finally {
+        agent.close();
+        globalThis.structuredClone = originalClone;
     }
 });
 
@@ -1327,7 +1359,7 @@ test("a paging attach gets a page marker even on an empty session", async () => 
     }
 });
 
-test("an attach gets the tail and older pages follow the cursor", async () => {
+test("@core an attach gets the tail and older pages follow the cursor", async () => {
     const entries = Array.from({ length: 500 }, (_, index) => ({
         kind: "assistant" as const,
         id: `message-${index}#0`,
@@ -1367,7 +1399,7 @@ test("an attach gets the tail and older pages follow the cursor", async () => {
     }
 });
 
-test("a paging attach to a huge history sends a bounded tail", async () => {
+test("@core a paging attach to a huge history sends a bounded tail", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const body = "x".repeat(410 * 1024);
     const entries = Array.from({ length: 200 }, (_, index) => ({

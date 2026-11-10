@@ -61,7 +61,7 @@ test("patches and notices match the previous presentation at both limits", () =>
     }
 });
 
-test("patch and notice boundaries are unchanged at exactly 400 lines and 64 KiB", () => {
+test("@core patch and notice boundaries are unchanged at exactly 400 lines and 64 KiB", () => {
     for (const target of [399, 400, 401]) {
         const after = Array.from({ length: target - 6 }, (_, index) => `crow ${index}`).join("\n") + "\n";
         const patch = createTwoFilesPatch("f", "f", "", after, "", "", { context: 3 });

@@ -131,7 +131,7 @@ test("an opening worker session survives an older roster snapshot until a fresh 
     }
 });
 
-test("overlapping roster refreshes share a trailing snapshot without delaying earlier waiters", async () => {
+test("@core overlapping roster refreshes share a trailing snapshot without delaying earlier waiters", async () => {
     const host = endpoint(new Map());
     const worker = endpoint(new Map());
     const first = deferred();

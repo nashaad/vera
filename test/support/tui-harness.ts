@@ -146,6 +146,11 @@ export async function startTuiTestSession(
     activeSession = true;
     const veraHome = join(options.home, ".vera");
     const previousVeraHome = process.env[VERA_HOME_ENV];
+    const providerCredentials = Object.entries(process.env).filter(([name]) =>
+        /(?:_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN)$/.test(name),
+    );
+    for (const [name] of providerCredentials) delete process.env[name];
+    process.env.OPENROUTER_API_KEY = "test-key";
     let setup: Awaited<ReturnType<typeof createTestRenderer>> | undefined;
     let exited = false;
     let started = false;
@@ -156,6 +161,10 @@ export async function startTuiTestSession(
     const frameCancellation = new AbortController();
 
     function restoreVeraHome(): void {
+        delete process.env.OPENROUTER_API_KEY;
+        for (const [name, value] of providerCredentials) {
+            if (value !== undefined) process.env[name] = value;
+        }
         if (previousVeraHome === undefined) {
             delete process.env[VERA_HOME_ENV];
         } else {

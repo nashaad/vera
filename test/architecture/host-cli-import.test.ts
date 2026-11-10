@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { dirname, resolve } from "node:path";
 
-test("host modules do not import the CLI entry", async () => {
+test("@core host modules do not import the CLI entry", async () => {
     const cliEntry = resolve("clients/cli/main.ts");
     const violations: string[] = [];
     const files = new Bun.Glob("**/*.{ts,tsx,js,jsx}");

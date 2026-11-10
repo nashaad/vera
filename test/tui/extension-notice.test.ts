@@ -17,7 +17,7 @@ test("a text notice and a non-notice update pass through unchanged", () => {
     expect(renderedExtensionNotice(other, render)).toBe(other);
 });
 
-test("a facts notice becomes a text notice keyed extension", () => {
+test("@core a facts notice becomes a text notice keyed extension", () => {
     const update: AgentUpdate = {
         type: "notice",
         key: "cache_miss",

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { RestartLedger } from "../../src/host/pool/restart-ledger.ts";
 import { MAX_RESTART_RECORDS } from "../../src/store/restart-records.ts";
 
-test("concurrent pool record operations preserve order, unknown lines, and the cap", async () => {
+test("@core concurrent pool record operations preserve order, unknown lines, and the cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-pool-ledger-"));
     const directory = join(root, "restarts");
     const path = join(directory, "restarts.jsonl");

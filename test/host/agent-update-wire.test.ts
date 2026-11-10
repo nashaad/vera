@@ -703,7 +703,7 @@ test("host wire validates bounded-data notices", () => {
     expect(parseAgentUpdate({ ...notice, count: "4" })).toBeUndefined();
 });
 
-test("host wire carries a notice's source and facts only together", () => {
+test("@core host wire carries a notice's source and facts only together", () => {
     const notice = {
         type: "notice" as const,
         key: "probe",

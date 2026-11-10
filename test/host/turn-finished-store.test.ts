@@ -19,7 +19,7 @@ function assistant(text: string, stopReason: "stop" | "tool_use" = "stop"): Mode
     };
 }
 
-test("turn hooks keep a prompt across compaction and rewind", async () => {
+test("@core turn hooks keep a prompt across compaction and rewind", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-turn-finished-"));
     try {
         const path = join(directory, "session.jsonl");
@@ -114,7 +114,7 @@ test("foreign compactions preserve the current turn and a new delivery releases 
     }
 });
 
-test("a compacted delivery turn keeps its reply and has an empty prompt", async () => {
+test("@core a compacted delivery turn keeps its reply and has an empty prompt", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-turn-delivery-"));
     try {
         const path = join(directory, "session.jsonl");
