@@ -1,80 +1,97 @@
 // Temporary CI diagnostic for the Linux-only failure of
 // "@core streamed open indexes UTF-8, long lines, ..." in test/store/session-store.test.ts.
+// Compares ways of appending a ~3 MiB line to a file opened with "a".
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
-import { open } from "node:fs/promises";
+import { appendFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionStore } from "../src/store/session-store.ts";
-import { SESSION_SCAN_CHUNK_BYTES } from "../src/store/session-lines.ts";
-import { scanSessionIndex } from "../src/store/session-index-scan.ts";
-import { readAsciiMessageHeader, type AsciiMessageHeader } from "../src/store/session-record-header.ts";
-import { SessionFieldScanner } from "../src/store/session-json-fields.ts";
 
-const userMessage = (text: string) => ({ role: "user" as const, content: [{ type: "text" as const, text }] });
+const MIB = 1024 * 1024;
 
-async function attempt(shift: number, withTail: boolean): Promise<void> {
-    const label = `shift=${shift} tail=${withTail}`;
-    const path = join(mkdtempSync(join(tmpdir(), "linux-repro-")), "stream.jsonl");
-    const store = await SessionStore.create(path, { sessionId: "stream", cwd: "/work" });
-    const headerBytes = readFileSync(path).length;
-    const prefix = JSON.stringify({ type: "message", id: "boundary", parentId: null,
-        timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "" }] } });
-    const textStart = prefix.indexOf('"text":""') + '"text":"'.length;
-    const padding = SESSION_SCAN_CHUNK_BYTES - 1 - headerBytes - textStart + shift;
-    const text = "a".repeat(padding) + "🦜" + "b".repeat(SESSION_SCAN_CHUNK_BYTES * 2);
-    console.log(`[${label}] headerBytes=${headerBytes} textStart=${textStart} padding=${padding}`);
-    try {
-        await store.appendForeignRecord({ type: "message", id: "boundary", parentId: null,
-            timestamp: "2026-01-01T00:00:00.000Z", message: userMessage(text) });
-    } catch (error) { console.log(`[${label}] appendForeignRecord threw: ${String(error)}`); return; }
-    try {
-        await store.appendMessage(userMessage("before rewind"));
-    } catch (error) { console.log(`[${label}] appendMessage threw: ${String(error)}`); return; }
-    if (withTail) appendFileSync(path, '{"type":"unfinished", "text":"🦜');
-
+function report(label: string, path: string, expected: number): void {
     const bytes = readFileSync(path);
-    console.log(`[${label}] file size=${bytes.length}`);
-    const lineEnds: number[] = [];
-    for (let i = 0; i < bytes.length; i += 1) if (bytes[i] === 10) lineEnds.push(i);
-    console.log(`[${label}] newline offsets=${JSON.stringify(lineEnds)}`);
-    const line2 = bytes.subarray(lineEnds[0]! + 1, lineEnds[1]);
-    console.log(`[${label}] line2 length=${line2.length} boundaryBytes=${Array.from(bytes.subarray(SESSION_SCAN_CHUNK_BYTES - 3, SESSION_SCAN_CHUNK_BYTES + 3)).map((b) => b.toString(16)).join(" ")}`);
-    try { JSON.parse(line2.toString("utf8")); console.log(`[${label}] JSON.parse(line2) ok`); }
-    catch (error) { console.log(`[${label}] JSON.parse(line2) failed: ${String(error)}`); }
-    const header: AsciiMessageHeader = { type: "message", idStart: 0, idEnd: 0, parentStart: -1, parentEnd: -1 };
-    const ascii = readAsciiMessageHeader(line2, header);
-    console.log(`[${label}] readAsciiMessageHeader=${ascii} ${JSON.stringify(header)}`);
-    const scanner = new SessionFieldScanner();
-    const skip = scanner.read(line2, ascii);
-    console.log(`[${label}] fieldScanner.read(skipIds=${ascii}) -> ${skip === undefined ? "undefined" : JSON.stringify({ type: skip.type, idCount: skip.scannedIdCount, parentCount: skip.scannedParentCount })}`);
-    const full = scanner.read(line2, false);
-    console.log(`[${label}] fieldScanner.read(skipIds=false) -> ${full === undefined ? "undefined" : JSON.stringify({ type: full.type, id: full.id })}`);
-
-    // Chunk reads the way scanSessionRanges does them.
-    const file = await open(path, "r");
-    const chunk = Buffer.allocUnsafe(SESSION_SCAN_CHUNK_BYTES);
-    let position = 0;
-    const reads: number[] = [];
-    while (true) {
-        const { bytesRead } = await file.read(chunk, 0, chunk.length, position);
-        if (bytesRead === 0) break;
-        reads.push(bytesRead);
-        position += bytesRead;
+    let firstZero = -1;
+    let zeroRun = 0;
+    for (let i = 0; i < bytes.length; i += 1) {
+        if (bytes[i] === 0) {
+            if (firstZero === -1) firstZero = i;
+            if (firstZero !== -1 && zeroRun === i - firstZero) zeroRun += 1;
+        }
     }
-    await file.close();
-    console.log(`[${label}] chunk bytesRead sequence=${JSON.stringify(reads)}`);
-
-    try {
-        const scanned = await scanSessionIndex(path, undefined, withTail);
-        console.log(`[${label}] scanSessionIndex ok records=${scanned.index.length}`);
-    } catch (error) { console.log(`[${label}] scanSessionIndex threw: ${String(error)}`); }
-    try {
-        const reopened = await SessionStore.open(path);
-        const entry = await reopened.readIndexedMessage("boundary");
-        console.log(`[${label}] SessionStore.open ok boundaryFound=${entry !== undefined}`);
-    } catch (error) { console.log(`[${label}] SessionStore.open threw: ${String(error)}`); }
+    const newlines: number[] = [];
+    for (let i = 0; i < bytes.length; i += 1) if (bytes[i] === 10) newlines.push(i);
+    console.log(`[${label}] size=${bytes.length} expected=${expected} ok=${bytes.length === expected}`
+        + ` firstZero=${firstZero} zeroRun=${zeroRun} newlines=${JSON.stringify(newlines)}`
+        + ` head=${JSON.stringify(bytes.subarray(0, 40).toString("latin1"))}`
+        + ` atMiB=${Array.from(bytes.subarray(MIB - 2, MIB + 4)).map((b) => b.toString(16)).join(" ")}`);
 }
 
-console.log(`platform=${process.platform} arch=${process.arch} bun=${Bun.version} chunk=${SESSION_SCAN_CHUNK_BYTES}`);
-for (const shift of [0, -1, 1, -4, 4]) await attempt(shift, true);
-await attempt(0, false);
+function makeLine(size: number, withEmoji: boolean): string {
+    const head = '{"type":"message","text":"';
+    const body = withEmoji
+        ? "a".repeat(MIB - 1 - head.length) + "🦜" + "b".repeat(size - MIB - 3 - head.length)
+        : "a".repeat(size - head.length - 3);
+    return `${head}${body}"}\n`;
+}
+
+async function viaHandleWriteFile(path: string, line: string): Promise<void> {
+    const file = await open(path, "a", 0o600);
+    try {
+        await file.writeFile(line, "utf8");
+        await file.sync();
+    } finally { await file.close(); }
+}
+
+async function viaHandleWrite(path: string, line: string): Promise<void> {
+    const file = await open(path, "a", 0o600);
+    try {
+        const buffer = Buffer.from(line, "utf8");
+        let offset = 0;
+        while (offset < buffer.length) {
+            const { bytesWritten } = await file.write(buffer, offset, buffer.length - offset);
+            if (bytesWritten === 0) throw new Error("zero-length write");
+            offset += bytesWritten;
+        }
+        await file.sync();
+    } finally { await file.close(); }
+}
+
+async function viaHandleWriteString(path: string, line: string): Promise<void> {
+    const file = await open(path, "a", 0o600);
+    try {
+        await file.write(line, undefined, "utf8");
+        await file.sync();
+    } finally { await file.close(); }
+}
+
+async function viaAppendFile(path: string, line: string): Promise<void> {
+    await appendFile(path, line, { encoding: "utf8", mode: 0o600 });
+}
+
+const variants: Array<[string, (path: string, line: string) => Promise<void>]> = [
+    ["handle.writeFile(string)", viaHandleWriteFile],
+    ["handle.write(buffer loop)", viaHandleWrite],
+    ["handle.write(string)", viaHandleWriteString],
+    ["fs.appendFile(string)", viaAppendFile],
+];
+
+console.log(`platform=${process.platform} arch=${process.arch} bun=${Bun.version}`);
+const dir = mkdtempSync(join(tmpdir(), "linux-repro-"));
+const header = '{"type":"header"}\n';
+for (const size of [64 * 1024, MIB - 10, MIB + 10, 3 * MIB + 200]) {
+    for (const emoji of [false, true]) {
+        if (emoji && size < MIB) continue;
+        const line = makeLine(size, emoji);
+        const lineBytes = Buffer.byteLength(line);
+        for (const [name, write] of variants) {
+            const path = join(dir, `${name.replace(/[^a-z]+/gi, "_")}-${size}-${emoji}.jsonl`);
+            appendFileSync(path, header);
+            const label = `${name} size=${size} emoji=${emoji}`;
+            try {
+                await write(path, line);
+                await write(path, '{"type":"tail"}\n');
+            } catch (error) { console.log(`[${label}] threw: ${String(error)}`); continue; }
+            report(label, path, header.length + lineBytes + '{"type":"tail"}\n'.length);
+        }
+    }
+}
