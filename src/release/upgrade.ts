@@ -44,7 +44,7 @@ import {
 import { checkRecordIdentity } from "../host/process-identity.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";
 import { stopRecordedWorkers } from "../host/pool/stop-worker.ts";
-import { readRecordedWorkers } from "../host/pool/worker-records.ts";
+import { assertWorkerStopped, readRecordedWorkers } from "../host/pool/worker-records.ts";
 import { acquireStopStartupClaim } from "../host/stop-claim.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 
@@ -431,11 +431,7 @@ export async function stopLeftoverPoolWorkers(home: string): Promise<void> {
         for (const snapshot of snapshots) {
             if (snapshot === undefined) continue;
             const { record, source } = snapshot;
-            if (processIsAlive(record.pid)) {
-                const identity = checkRecordIdentity(record);
-                if (identity === "match") throw new Error(`Session process PID ${record.pid} is still running.`);
-                if (identity === "unknown") throw new Error(`Could not confirm session process PID ${record.pid} stopped.`);
-            }
+            assertWorkerStopped(record);
             const current = await readFile(record.path, "utf8").catch((error: NodeJS.ErrnoException) => {
                 if (error.code === "ENOENT") return undefined;
                 throw error;

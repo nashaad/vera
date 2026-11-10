@@ -1,6 +1,6 @@
 import { defaultKill, forceStopHostProcess } from "../force-stop.ts";
-import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
-import { assertRecordedWorkersStopped, readRecordedWorkers } from "./worker-records.ts";
+import { processIsAlive } from "../process-identity.ts";
+import { assertRecordedWorkersStopped, readRecordedWorkers, recordedWorkerState } from "./worker-records.ts";
 import type { WorkerStopIdentity } from "./worker-records.ts";
 
 export type { WorkerStopIdentity } from "./worker-records.ts";
@@ -34,7 +34,8 @@ async function stopVerifiedWorker(record: WorkerStopIdentity): Promise<boolean> 
         sigkillGraceMs: WORKER_SIGKILL_GRACE_MS,
         pollIntervalMs: 25,
     });
-    if (outcome.endedBy === "unverified") {
+    // A worker that exits while its start time is read comes back unverified.
+    if (outcome.endedBy === "unverified" && processIsAlive(record.pid)) {
         throw new Error(`Could not confirm session process PID ${record.pid} stopped.`);
     }
     if (outcome.endedBy === "survived") {
@@ -44,9 +45,8 @@ async function stopVerifiedWorker(record: WorkerStopIdentity): Promise<boolean> 
 }
 
 export function killWorkerProcess(record: WorkerStopIdentity): void {
-    if (!processIsAlive(record.pid)) return;
-    if (checkRecordIdentity(record) !== "match") {
-        throw new Error(`Could not confirm session process PID ${record.pid}.`);
-    }
+    const state = recordedWorkerState(record);
+    if (state === "stopped") return;
+    if (state !== "match") throw new Error(`Could not confirm session process PID ${record.pid}.`);
     defaultKill(record.pid, "SIGKILL");
 }
