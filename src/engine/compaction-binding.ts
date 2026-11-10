@@ -75,6 +75,7 @@ export function bindCompaction(
         }
         models[slot] = createRoutedCompletionService(adapter, {
             maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+            retryFailures: true,
             models: route.map((model) => {
                 const window = contextWindowForModel(
                     model.provider,
@@ -275,6 +276,7 @@ function bindDefault(
     }
     const complete = createRoutedCompletionService(adapter, {
         maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+        retryFailures: true,
         models: [{
             ...(sessionModel.provider === undefined
                 ? {}

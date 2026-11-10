@@ -11,6 +11,9 @@ import {
 } from "../../src/engine/compaction-full-summary.ts";
 import { createRoutedCompletionService } from
     "../../src/engine/completion-service.ts";
+import { bindCompaction, BUNDLED_COMPACTION_STRATEGIES } from
+    "../../src/engine/compaction-binding.ts";
+import { applyAgentUpdate, createTuiState } from "../../clients/tui/state.ts";
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { createInProcessChannel } from
@@ -50,6 +53,112 @@ afterAll(() => {
     for (const directory of temporaryDirectories) {
         rmSync(directory, { recursive: true, force: true });
     }
+});
+
+test("@core a retryable empty summary is retried before the next model request", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(join(workspace, "session.jsonl"), {
+        sessionId: "summary-retry", cwd: workspace,
+    });
+    writeFileSync(join(workspace, "notes-1.txt"), "treasure map ".repeat(10_000));
+    const order: string[] = [];
+    const main = new FauxAdapter([toolCall("read-1", 1), assistantText("done")]);
+    const summary = new FauxAdapter([assistantText("# Task\nRead the treasure map.")]);
+    let summaryCalls = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            if (request.model === "main") {
+                order.push("main");
+                return main.stream(request);
+            }
+            order.push("summary");
+            summaryCalls += 1;
+            if (summaryCalls > 1) return summary.stream(request);
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "unknown", resolution: "retry", message: "no visible response",
+                partialOutputReplaceable: true,
+            }, undefined);
+            stream.push({ type: "start" });
+            stream.push({ type: "thinking_start", contentIndex: 0 });
+            stream.push({ type: "thinking_delta", contentIndex: 0, text: "Let" });
+            stream.push({ type: "error", error, message: {
+                ...assistantText(""), stopReason: "error", errorMessage: error.message,
+            } });
+            return stream;
+        },
+    };
+    const bound = bindCompaction(undefined, adapter, { model: "summary" }, BUNDLED_COMPACTION_STRATEGIES)!;
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, adapter, "main", undefined, { approvalMode: "auto" }, {
+        sessionStore: store,
+        compaction: { ...bound, trigger: { tokens: 8_000 }, retainedUserTurns: 0 },
+        readModelSettings: () => ({ model: "main", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+    channel.client.send({ type: "prompt", content: "read the map" });
+    const updates = await drain(channel);
+    expect(order).toEqual(["main", "summary", "summary", "main"]);
+    expect(updates.filter((update): update is Extract<AgentUpdate, { type: "compaction" }> =>
+        update.type === "compaction" && update.phase === "finished")
+        .map((update) => update.outcome)).toEqual(["compacted"]);
+    const state = updates.reduce(applyAgentUpdate, createTuiState());
+    expect(state.entries.some((entry) => entry.kind === "notice" && entry.text.includes("Could not summarize"))).toBe(false);
+    expect(updates.some((update) => update.type === "turn_finished")).toBe(true);
+});
+
+test("an exhausted summary retry reports failure and the conversation continues", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(join(workspace, "session.jsonl"), {
+        sessionId: "summary-retry-exhausted", cwd: workspace,
+    });
+    writeFileSync(join(workspace, "notes-1.txt"), "treasure map ".repeat(10_000));
+    let summaryCalls = 0;
+    const main = new FauxAdapter([
+        toolCall("read-1", 1), assistantText("done"), assistantText("next done"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            if (request.model === "main") return main.stream(request);
+            summaryCalls += 1;
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "unknown", resolution: "retry", message: "no visible response",
+                partialOutputReplaceable: true,
+            }, undefined);
+            stream.push({ type: "error", error, message: {
+                ...assistantText(""), stopReason: "error", errorMessage: error.message,
+            } });
+            return stream;
+        },
+    };
+    const bound = bindCompaction(undefined, adapter, { model: "summary" }, BUNDLED_COMPACTION_STRATEGIES)!;
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, adapter, "main", undefined, { approvalMode: "auto" }, {
+        sessionStore: store,
+        compaction: { ...bound, trigger: { tokens: 8_000 }, retainedUserTurns: 0 },
+        readModelSettings: () => ({ model: "main", contextWindow: 40_000 }),
+        toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+    channel.client.send({ type: "prompt", content: "read the map" });
+    const updates = await drain(channel);
+    const state = updates.reduce(applyAgentUpdate, createTuiState());
+    expect(summaryCalls).toBe(3);
+    expect(state.entries.some((entry) => entry.kind === "notice"
+        && entry.text.includes("Could not summarize the earlier messages")
+        && entry.text.includes("no visible response"))).toBe(true);
+    expect(updates.some((update) => update.type === "turn_finished")).toBe(true);
+    channel.client.send({ type: "prompt", content: "continue" });
+    const next = await drain(channel);
+    expect(next.some((update) => update.type === "turn_finished")).toBe(true);
+    expect(store.messages().some((message) => message.role === "assistant"
+        && message.content.some((block) => block.type === "text" && block.text === "next done"))).toBe(true);
 });
 
 test("a long tool turn compacts mid-turn and keeps running", async () => {

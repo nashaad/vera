@@ -1,4 +1,12 @@
-import { ProviderFailureError } from "../model/provider-failure.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../model/provider-failure.ts";
+import {
+    jitterRetryDelay,
+    modelRetryPolicy,
+    waitForModelRetry,
+} from "./recovery.ts";
 import { measureMessages } from "./context-measurement.ts";
 import type {
     ModelAdapter,
@@ -36,6 +44,7 @@ export interface CompletionServiceSettings {
     readonly models: readonly CompletionModel[];
     readonly timeoutMs?: number;
     readonly maxOutputTokens?: number;
+    readonly retryFailures?: boolean;
 }
 
 // How long a call may go without a stream event. Some providers send nothing while the model reasons.
@@ -90,26 +99,18 @@ export function createRoutedCompletionService(
                 );
                 continue;
             }
-            let outcome = await attempt(
-                adapter,
-                candidate,
-                request,
-                maxTokens,
-                signal,
-                idleMs,
+            let outcome = await attemptWithRetries(
+                adapter, candidate, request, maxTokens, signal, idleMs,
+                settings.retryFailures === true,
             );
             if (
                 outcome.kind === "failed"
                 && outcome.allowance !== undefined
                 && outcome.allowance < maxTokens
             ) {
-                outcome = await attempt(
-                    adapter,
-                    candidate,
-                    request,
-                    outcome.allowance,
-                    signal,
-                    idleMs,
+                outcome = await attemptWithRetries(
+                    adapter, candidate, request, outcome.allowance, signal, idleMs,
+                    settings.retryFailures === true,
                 );
             }
             if (outcome.kind === "answered") {
@@ -141,7 +142,42 @@ type AttemptOutcome =
         readonly kind: "failed";
         readonly reason: string;
         readonly allowance?: number;
+        readonly failure?: ProviderFailure;
     };
+
+async function attemptWithRetries(
+    adapter: ModelAdapter,
+    candidate: CompletionModel,
+    request: CompletionRequest,
+    maxTokens: number,
+    signal: AbortSignal,
+    idleMs: number,
+    retryFailures: boolean,
+): Promise<AttemptOutcome> {
+    let retries = 0;
+    while (true) {
+        const outcome = await attempt(
+            adapter, candidate, request, maxTokens, signal, idleMs,
+        );
+        if (!retryFailures || outcome.kind !== "failed"
+            || outcome.failure?.resolution !== "retry") {
+            return outcome;
+        }
+        const delay = modelRetryPolicy(outcome.failure).delaysMs[retries];
+        if (delay === undefined) {
+            return outcome;
+        }
+        try {
+            await waitForModelRetry(jitterRetryDelay(delay, Math.random), signal);
+        } catch (error) {
+            if (signal.aborted) {
+                throw new CompletionUnavailableError("Cancelled.");
+            }
+            throw error;
+        }
+        retries += 1;
+    }
+}
 
 async function attempt(
     adapter: ModelAdapter,
@@ -177,8 +213,12 @@ async function attempt(
             messages: request.messages,
             signal: combined,
         });
-        for await (const _event of stream) {
+        let streamFailure: ProviderFailure | undefined;
+        for await (const event of stream) {
             rearm();
+            if (event.type === "error" && event.error instanceof ProviderFailureError) {
+                streamFailure = event.error.failure;
+            }
         }
         const message = await stream.result();
         if (signal.aborted) {
@@ -195,6 +235,7 @@ async function attempt(
                     + (message.errorMessage === undefined
                         ? ""
                         : `: ${message.errorMessage}`),
+                ...(streamFailure === undefined ? {} : { failure: streamFailure }),
             };
         }
         const text = message.content
@@ -203,7 +244,13 @@ async function attempt(
             .join("\n")
             .trim();
         if (text.length === 0) {
-            return { kind: "failed", reason: `${candidate.model} returned no text` };
+            return {
+                kind: "failed",
+                reason: `${candidate.model} returned no text`,
+                failure: {
+                    kind: "unknown", resolution: "retry", message: "Model returned no text",
+                },
+            };
         }
         return {
             kind: "answered",
@@ -232,6 +279,7 @@ async function attempt(
         return {
             kind: "failed",
             reason: `${candidate.model} failed: ${errorSummary(error)}`,
+            ...(error instanceof ProviderFailureError ? { failure: error.failure } : {}),
             ...(allowance?.kind === "max_tokens"
                     && Number.isSafeInteger(allowance.available)
                     && allowance.available > 0

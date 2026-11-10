@@ -64,6 +64,49 @@ test("an empty answer is refused", async () => {
     ).rejects.toBeInstanceOf(CompletionUnavailableError);
 });
 
+test("retryable completion failures exhaust the main-model retry budget", async () => {
+    let calls = 0;
+    const service = createRoutedCompletionService(adapter(() => {
+        calls += 1;
+        throw new ProviderFailureError({
+            kind: "unknown", resolution: "retry", message: "no visible response",
+        }, undefined);
+    }), { models: [{ model: "only" }], retryFailures: true });
+    await expect(service(
+        { systemPrompt: "s", messages: [] }, new AbortController().signal,
+    )).rejects.toThrow("no visible response");
+    expect(calls).toBe(3);
+});
+
+test("cancelling a completion during retry prevents another attempt", async () => {
+    let calls = 0;
+    const controller = new AbortController();
+    const service = createRoutedCompletionService(adapter(() => {
+        calls += 1;
+        setTimeout(() => controller.abort(), 10);
+        throw new ProviderFailureError({
+            kind: "unknown", resolution: "retry", message: "no visible response",
+        }, undefined);
+    }), { models: [{ model: "only" }], retryFailures: true });
+    await expect(service({ systemPrompt: "s", messages: [] }, controller.signal))
+        .rejects.toThrow("Cancelled");
+    expect(calls).toBe(1);
+});
+
+test("a non-retryable completion failure stops without waiting", async () => {
+    let calls = 0;
+    const service = createRoutedCompletionService(adapter(() => {
+        calls += 1;
+        throw new ProviderFailureError({
+            kind: "authentication", resolution: "user_action", message: "no key",
+        }, undefined);
+    }), { models: [{ model: "only" }], retryFailures: true });
+    await expect(service(
+        { systemPrompt: "s", messages: [] }, new AbortController().signal,
+    )).rejects.toThrow("no key");
+    expect(calls).toBe(1);
+});
+
 test("the caller cannot ask for more output than the binding allows", async () => {
     let requested = 0;
     const service = createRoutedCompletionService(
@@ -276,23 +319,50 @@ test("a deadline is reported as a timeout, not as the model's stop reason", asyn
     // An adapter that turns the deadline into an aborted message rather than
     // a throw would otherwise be reported as "stopped with aborted", which
     // names the symptom and hides the cause.
+    let calls = 0;
     const service = createRoutedCompletionService(
         {
-            stream: () => ({
-                [Symbol.asyncIterator]: async function* () {},
-                result: async () => {
-                    await new Promise((resolve) => setTimeout(resolve, 20));
-                    return assistant("", "aborted");
-                },
-            }),
+            stream: () => {
+                calls += 1;
+                return {
+                    [Symbol.asyncIterator]: async function* () {},
+                    result: async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                        return assistant("", "aborted");
+                    },
+                };
+            },
         } as unknown as ModelAdapter,
-        { models: [{ model: "slow" }], timeoutMs: 1 },
+        { models: [{ model: "slow" }], timeoutMs: 1, retryFailures: true },
     );
 
     await expect(service(
         { systemPrompt: "s", messages: [] },
         new AbortController().signal,
     )).rejects.toThrow("slow timed out");
+    expect(calls).toBe(1);
+});
+
+test("an idle timeout moves to the next model without retrying", async () => {
+    const seen: string[] = [];
+    const slow = streaming(async function* (signal) {
+        await new Promise((resolve) => {
+            signal.addEventListener("abort", resolve, { once: true });
+        });
+    });
+    const next = adapter(() => assistant("summary"));
+    const service = createRoutedCompletionService({
+        stream(request) {
+            seen.push(request.model);
+            return request.model === "slow" ? slow.stream(request) : next.stream(request);
+        },
+    }, { models: [{ model: "slow" }, { model: "next" }], timeoutMs: 20, retryFailures: true });
+
+    const result = await service(
+        { systemPrompt: "s", messages: [] }, new AbortController().signal,
+    );
+    expect(seen).toEqual(["slow", "next"]);
+    expect(result.text).toBe("summary");
 });
 
 test("a model that keeps writing is not cut off, however long it takes", async () => {
