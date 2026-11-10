@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,20 @@ import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { configuredProviders } from "../../src/providers/registry.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+
+// With no connected provider, Enter opens provider setup instead of starting the turn.
+let shellCredentials: [string, string | undefined][] = [];
+beforeEach(() => {
+    shellCredentials = Object.entries(process.env).filter(([name]) => /(?:_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN)$/.test(name));
+    for (const [name] of shellCredentials) delete process.env[name];
+    process.env.OPENROUTER_API_KEY = "test-key";
+});
+afterEach(() => {
+    delete process.env.OPENROUTER_API_KEY;
+    for (const [name, value] of shellCredentials) {
+        if (value !== undefined) process.env[name] = value;
+    }
+});
 
 // Mid-turn the key hints drop "Ctrl+P commands".
 function turnRunning(frame: string): boolean {
