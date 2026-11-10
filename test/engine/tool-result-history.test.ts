@@ -533,7 +533,7 @@ test("nothing ages while the context sits under the level's gate", async () => {
     }
 });
 
-test("over the gate, bash ages before read, and only until the context fits", async () => {
+test("over the gate, bash ages before read, in whole steps", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-order-"));
     try {
         const entries = pair(directory, [
@@ -541,7 +541,8 @@ test("over the gate, bash ages before read, and only until the context fits", as
             ["call-bash-1", "bash", "output\n".repeat(400)],
             ["call-bash-2", "bash", "output\n".repeat(400)],
         ]);
-        // Each result is ~700 tokens; a 1,600-token gate needs one digest.
+        // Each result is ~700 tokens. The trim target rounds up to the next
+        // step (10% of the window), so one digest is not enough here.
         const texts = resultTexts(assembleAgedToolResults(await entries, {
             ageAfterTurns: 1,
             level: "normal",
@@ -550,7 +551,7 @@ test("over the gate, bash ages before read, and only until the context fits", as
 
         expect(texts[0]).toBe("1\tline\n".repeat(400));
         expect(texts[1]).toContain("Digest of older bash");
-        expect(texts[2]).toBe("output\n".repeat(400));
+        expect(texts[2]).toContain("Digest of older bash");
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -633,14 +634,88 @@ test("the budget stubs the oldest result before touching a fresh read", async ()
             budgetBytes: 7_600,
         }));
 
+        // The 1,900-byte step (25% of the budget) rounds the target up, so all
+        // three small bash results are stubbed before the read is touched.
         expect(texts[0]).toContain("Stub for older bash");
-        expect(texts[1]).toBe("x".repeat(1_024));
-        expect(texts[2]).toBe("x".repeat(1_024));
+        expect(texts[1]).toContain("Stub for older bash");
+        expect(texts[2]).toContain("Stub for older bash");
         expect(texts.at(-1)).toBe(read);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
 });
+
+test("@core gate trimming holds still while pressure stays inside one step", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-step-gate-"));
+    try {
+        const output = "output\n".repeat(400);
+        const entries = await pair(directory, eightBashResults(output));
+        const raw = measureMessages(entries.map((entry) => entry.message));
+        const gate = 10_000 * 0.6;
+        const trimmedAt = (excess: number) => resultTexts(
+            assembleAgedToolResults(entries, {
+                ageAfterTurns: 1,
+                level: "normal",
+                capacity: 10_000,
+                overheadTokens: gate + excess - raw,
+            }),
+        );
+
+        // Step is 1,000 tokens (10% of 10,000). Both excesses round up to the
+        // same 2,000-token target, though one digest alone covers the first.
+        expect(trimmedAt(1_001)).toEqual(trimmedAt(1_999));
+        expect(digestCount(trimmedAt(3_500))).toBeGreaterThan(
+            digestCount(trimmedAt(1_500)),
+        );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("@core budget trimming holds still while the excess stays inside one step", () => {
+    const sized = (lengths: readonly number[]) => {
+        const entries: { readonly message: ModelMessage }[] = [user("first")];
+        lengths.forEach((length, index) => {
+            const id = `call-${index}`;
+            entries.push(call(id, "bash"), {
+                message: {
+                    role: "tool_result",
+                    toolCallId: id,
+                    toolName: "bash",
+                    content: [{ type: "text", text: "x".repeat(length) }],
+                    isError: false,
+                },
+            });
+        });
+        entries.push(assistant("done"), user("second"));
+        return entries;
+    };
+    const stubsAt = (lengths: readonly number[]) => resultTexts(
+        assembleAgedToolResults(sized(lengths), {
+            ...PRESSURED,
+            budgetBytes: 4_000,
+        }),
+    ).map((text) => text.startsWith("[vera] Stub"));
+
+    // Step is 1,000 bytes (25% of 4,000). Excesses of 860 and 900 share the
+    // step, so both stub two results; a single stub would cover only 860.
+    const excess860 = stubsAt([1_024, 1_024, 1_024, 1_024, 764]);
+    const excess900 = stubsAt([1_024, 1_024, 1_024, 1_024, 804]);
+    expect(excess900).toEqual(excess860);
+    expect(excess860.filter(Boolean).length).toBe(2);
+});
+
+function eightBashResults(output: string): [string, string, string][] {
+    return Array.from({ length: 8 }, (_, index): [string, string, string] => [
+        `call-${index}`,
+        "bash",
+        output,
+    ]);
+}
+
+function digestCount(texts: readonly string[]): number {
+    return texts.filter((text) => text.includes("Digest of older")).length;
+}
 
 test("relaxed never ages a read, even with nothing else left to give", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-relaxed-"));
