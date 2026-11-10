@@ -144,6 +144,74 @@ EOF
 chmod 755 "$launcher.$$.tmp"
 mv -f "$launcher.$$.tmp" "$launcher"
 
+process_executables() {
+    case "$(uname -s)" in
+        Linux)
+            command -v readlink >/dev/null 2>&1 || return 1
+            readlink /proc/self/exe >/dev/null 2>&1 || return 1
+            for executable in /proc/[0-9]*/exe; do
+                readlink "$executable" 2>/dev/null || true
+            done
+            ;;
+        Darwin)
+            command -v lsof >/dev/null 2>&1 || return 1
+            lsof -nP -w -d txt -Fn >"$work/lsof" 2>/dev/null || return 1
+            sed -n 's/^n//p' "$work/lsof"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+release_in_use() {
+    awk -v logical="$releases" -v physical="$physical_releases" -v name="$name" '
+        function matches(root, path, relative) {
+            if (index(path, root "/") != 1) return 0
+            relative = substr(path, length(root) + 2)
+            return index(relative, name "/") == 1 ||
+                (index(relative, ".gc-" name "-") == 1 && index(relative, "/") > 0)
+        }
+        matches(logical, $0) || matches(physical, $0) { found = 1; exit }
+        END { exit !found }
+    ' "$work/processes"
+}
+
+removed=0
+if physical_releases=$(cd "$releases" && pwd -P) && process_executables >"$work/processes"; then
+    current=$(basename "$(readlink "$share/current")")
+    rollback=""
+    if [ -L "$share/rollback" ]; then
+        rollback=$(basename "$(readlink "$share/rollback")")
+    fi
+    ls -td "$releases"/* >"$work/releases" 2>/dev/null || true
+    newest=0
+    while IFS= read -r release; do
+        [ -d "$release" ] || continue
+        newest=$((newest + 1))
+        name=${release##*/}
+        [ "$newest" -gt 3 ] || continue
+        [ "$name" != "$current" ] && [ "$name" != "$rollback" ] || continue
+        release_in_use && continue
+        retired="$releases/.gc-$name-$$"
+        [ ! -e "$retired" ] || continue
+        if ! mv "$release" "$retired"; then
+            echo "Could not remove $release" >&2
+            continue
+        fi
+        if ! process_executables >"$work/processes"; then
+            [ ! -e "$release" ] && mv "$retired" "$release" || echo "Could not restore $release" >&2
+            break
+        fi
+        if release_in_use; then
+            [ ! -e "$release" ] && mv "$retired" "$release" || echo "Could not restore $release" >&2
+        elif rm -rf "$retired"; then
+            removed=$((removed + 1))
+        else
+            echo "Could not remove $retired" >&2
+        fi
+    done <"$work/releases"
+fi
+echo "Removed $removed old releases"
+
 echo "Installed $build_id"
 echo "Launcher: $launcher"
 case ":$PATH:" in

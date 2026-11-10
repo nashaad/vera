@@ -20,10 +20,12 @@ import {
     veraShareRoot,
 } from "./layout.ts";
 import { readStampedRelease } from "./stamp.ts";
+import { gcReleases, type GcOptions } from "./gc.ts";
 
 export function activateRelease(
     releaseRoot: string,
     prefix = defaultInstallPrefix(),
+    gcOptions: GcOptions = {},
 ): void {
     const manifest = readStampedRelease(releaseRoot);
     const expected = releaseDirectory(manifest.build_id, prefix);
@@ -40,6 +42,11 @@ export function activateRelease(
     }
     writeRelativeReleaseLink(currentSymlinkPath(prefix), manifest.build_id, share);
     writeLauncher(prefix);
+    try {
+        gcReleases(prefix, { ...gcOptions, onHeld: (reason) => console.error(`Release GC: ${reason}`) });
+    } catch (error) {
+        console.error(`Release GC: ${String(error)}`);
+    }
 }
 
 function writeRelativeReleaseLink(

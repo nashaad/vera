@@ -1,11 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
     chmodSync,
+    existsSync,
     lstatSync,
     mkdirSync,
     mkdtempSync,
     readlinkSync,
     rmSync,
+    utimesSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -92,6 +94,38 @@ test("the launcher names pack:release when current is missing", () => {
         expect(launched.stderr.toString()).toMatch(/no activated release/);
         expect(launched.stderr.toString()).toMatch(/pack:release/);
         expect(launched.stdout.toString()).toBe("");
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("activation succeeds and reports a process scan failure", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-activate-gc-"));
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+        activateRelease(writeDummyRelease(prefix, "vera-one"), prefix, {
+            listProcessExecutables: () => { throw new Error("Cannot inspect running processes"); },
+        });
+        expect(readlinkSync(currentSymlinkPath(prefix))).toBe("releases/vera-one");
+        expect(errors.mock.calls.some((call) => String(call[0]).includes("Cannot inspect running processes"))).toBe(true);
+    } finally {
+        errors.mockRestore();
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("activation collects an old release after switching links", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-activate-collect-"));
+    try {
+        const old = releaseDirectory("vera-old", prefix);
+        mkdirSync(old, { recursive: true });
+        utimesSync(old, 1, 1);
+        for (const name of ["vera-one", "vera-two", "vera-three"]) {
+            writeDummyRelease(prefix, name);
+        }
+        activateRelease(releaseDirectory("vera-three", prefix), prefix);
+        expect(readlinkSync(currentSymlinkPath(prefix))).toBe("releases/vera-three");
+        expect(existsSync(old)).toBe(false);
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }
