@@ -54,6 +54,8 @@ import {
     type ForceStopOutcome,
     type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
+import { runHostReset as runResidentHostReset, type ResetSystem } from "../../src/host/reset.ts";
+import { realResetSystem } from "../../src/host/reset-system.ts";
 import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { forceStopPool, ForcePoolStartupInProgressError } from "../../src/host/pool/force-stop-pool.ts";
 import { HostStartupInProgressError } from "../../src/host/startup-claim.ts";
@@ -282,6 +284,16 @@ export interface CliDependencies {
     readonly openConfigure?: () => Promise<void>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
+    readonly hostResetInteractive?: boolean;
+    readonly hostReset?: (
+        options: { readonly assumeYes: boolean },
+        environment: {
+            readonly system: ResetSystem;
+            readonly confirm: (question: string) => Promise<boolean>;
+            readonly output: (text: string) => void;
+            readonly errorOutput: (text: string) => void;
+        },
+    ) => Promise<number>;
     readonly superviseHost?: (
         action: "on" | "off" | "status",
     ) => SupervisionReport;
@@ -1012,6 +1024,25 @@ export async function runCli(
             }
             throw error;
         }
+    }
+
+    if (
+        args[0] === "host"
+        && args[1] === "reset"
+        && args.slice(2).every((flag) => flag === "--yes" || flag === "-y")
+    ) {
+        const resetAssumeYes = assumeYes || args.length > 2;
+        const interactive = dependencies.hostResetInteractive ?? (process.stdin.isTTY && process.stdout.isTTY);
+        if (!resetAssumeYes && !interactive) {
+            errorOutput.write("vera host reset asks before it stops anything. Run it in a terminal, or pass --yes.\n");
+            return 1;
+        }
+        return (dependencies.hostReset ?? runResidentHostReset)({ assumeYes: resetAssumeYes }, {
+            system: realResetSystem(),
+            confirm: confirmHostReset,
+            output: (text) => output.write(text),
+            errorOutput: (text) => errorOutput.write(text),
+        });
     }
 
     if (
@@ -1840,6 +1871,17 @@ async function runRollbackCommand(
             `vera rollback: ${error instanceof Error ? error.message : String(error)}\n`,
         );
         return 1;
+    }
+}
+
+async function confirmHostReset(question: string): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = (await prompt.question(question)).trim().toLowerCase();
+        return answer === "y" || answer === "yes";
+    } finally {
+        prompt.close();
     }
 }
 

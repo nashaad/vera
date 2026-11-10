@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const START_TIME_TOLERANCE_MS = 10_000;
+export const START_TIME_TOLERANCE_MS = 10_000;
 
 export function processIsAlive(pid: number): boolean {
     try {
