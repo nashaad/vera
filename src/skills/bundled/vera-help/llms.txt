@@ -31,7 +31,7 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=22]
+## Start, development, and upgrades [lines=23]
 Run `vera` for the installed daily Vera using `~/.vera`.
 To install without a checkout or Bun, run the GitHub release's `install.sh`, which downloads the file for your platform and puts `vera` in `~/.local/bin`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host and the recorded TUI client, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
@@ -49,7 +49,7 @@ Restarting the TUI does not run edited checkout code. Neither does Reconnect hos
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.
 Run `vera update` from an installed Vera to install the newest release; `vera update --check` reports whether a newer release exists.
-Run `vera rollback` from a terminal outside Vera; from inside a Vera session it refuses rather than stop the session's own host. `bun run install:local` inside a Vera session returns at once, and the new build takes over when the running turns end.
+Inside a Vera session, `vera rollback` to a release that supports the handoff returns at once like an update; for an older release, run it from a terminal outside Vera. `bun run install:local` inside a Vera session returns at once, and the new build takes over when the running turns end.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
@@ -212,7 +212,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=27]
+## Diagnostics and recovery [lines=28]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
