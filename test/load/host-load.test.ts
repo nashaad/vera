@@ -121,6 +121,13 @@ test("result rows label the attach path and count observed destinations", async 
     const scenario = { sessions: 2, clients: 1, duration: 1, extensions: "none" as const, seed: 1, small: true };
     const footprint = { start: { bytes: null, path: "" }, end: { bytes: null, path: "" } };
     try {
+        await Bun.write(join(root, "provider.ndjson"), [
+            { at: 900, type: "request", markerLost: true },
+            { at: 1_100, type: "request", markerLost: true },
+            { at: 1_200, type: "tokens", markerLost: true },
+            { at: 1_300, type: "request" },
+            { at: 2_100, type: "request", markerLost: true },
+        ].map((row) => JSON.stringify(row)).join("\n") + "\n");
         await write([
             { at: 1_100, type: "attach_path", id: "a", via: "routed", connection: 1 },
             { at: 1_200, type: "attach_path", id: "a", via: "direct", connection: 2 },
@@ -128,7 +135,10 @@ test("result rows label the attach path and count observed destinations", async 
         ]);
         const routed = collectResult(root, scenario, 1_000, 2_000, "test", footprint, []);
         expect(routed.attachments).toEqual({ path: "routed", direct: 1, routed: 1, unknown: 0 });
+        expect(routed.rates).toMatchObject({ modelRequests: 2, markerLostRequests: 1 });
         expect(table([routed])).toContain("| pool | routed | 1 | 1 | 0 |");
+        const [headings, , values] = table([routed]).trim().split("\n");
+        expect(values!.split("|")[headings!.split("|").indexOf(" Marker lost ")]).toBe(" 1 ");
         await write([
             { at: 1_100, type: "attach_path", id: "a", via: "routed", connection: 1 },
             { at: 1_200, type: "attach_path", id: "b", via: "routed", connection: 2 },
