@@ -281,7 +281,9 @@ test("a development host from another build is stopped before launch; one from t
     const worktree = linkedWorktree("stale-host");
     const sourceHome = dailyHome(root);
     const temporaryRoot = join(root, "instances");
-    const leftover = Bun.spawn(["sleep", "60"]);
+    const leftover = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], {
+        env: { ...process.env, VERA_HOME: candidateHomePath(worktree, temporaryRoot) },
+    });
     try {
         await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
         const home = candidateHomePath(worktree, temporaryRoot);
@@ -301,7 +303,7 @@ test("a development host from another build is stopped before launch; one from t
         expect(existsSync(lockPath)).toBe(true);
 
         writeFileSync(lockPath, lock(leftover.pid, "vera-old-build"));
-        await runDevTui([], worktree, {
+        const result = await runDevTui([], worktree, {
             sourceHome, temporaryRoot,
             stderr: { write: (text: string) => errors += text },
             spawnTui: async () => {
@@ -309,6 +311,7 @@ test("a development host from another build is stopped before launch; one from t
                 return 0;
             },
         });
+        expect({ result, errors }).toMatchObject({ result: 0 });
         expect(errors).toContain(`Stopping development host PID ${leftover.pid} from build vera-old-build`);
         expect(await leftover.exited).not.toBe(0);
     } finally {

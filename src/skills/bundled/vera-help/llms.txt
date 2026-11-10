@@ -34,7 +34,7 @@ Manual: `docs/how-vera-works.md`.
 ## Start, development, and upgrades [lines=21]
 Run `vera` for the installed daily Vera using `~/.vera`.
 To install without a checkout or Bun, run the GitHub release's `install.sh`, which downloads the file for your platform and puts `vera` in `~/.local/bin`.
-Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
+Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host and the recorded TUI client, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
 By default, the host runs conversations in separate session processes; set `host.workers` to `0` in Home config to use a single-process host.
 Unless `host.workers` is `0`, the host replaces a failed session process and an interrupted prompt can be sent again.
 Unless `host.workers` is `0`, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.

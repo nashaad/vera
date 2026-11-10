@@ -11,10 +11,11 @@ export const WORKER_SIGKILL_GRACE_MS = 1_000;
 export async function stopRecordedWorkers(
     home: string,
     onStopped?: (pid: number) => void,
+    kill?: (pid: number, signal: NodeJS.Signals) => void,
 ): Promise<readonly number[]> {
     const records = await readRecordedWorkers(home);
     const outcomes = await Promise.allSettled(records.map(async (record) => {
-        const stopped = await stopVerifiedWorker(record);
+        const stopped = await stopVerifiedWorker(record, kill);
         if (stopped) onStopped?.(record.pid);
         return { pid: record.pid, stopped };
     }));
@@ -28,8 +29,9 @@ export async function stopWorkerProcess(record: WorkerStopIdentity): Promise<voi
     await stopVerifiedWorker(record);
 }
 
-async function stopVerifiedWorker(record: WorkerStopIdentity): Promise<boolean> {
+async function stopVerifiedWorker(record: WorkerStopIdentity, kill?: (pid: number, signal: NodeJS.Signals) => void): Promise<boolean> {
     const outcome = await forceStopHostProcess(record, {
+        kill,
         sigtermGraceMs: WORKER_SIGTERM_GRACE_MS,
         sigkillGraceMs: WORKER_SIGKILL_GRACE_MS,
         pollIntervalMs: 25,
