@@ -157,6 +157,11 @@ export async function scrollUntilPaneShows(session: TestSession, text: string): 
     throw new Error(`${text} never came on screen`);
 }
 
+export async function wheelUp(session: TestSession): Promise<void> {
+    await session.sendMouseWheel("up", 20, 5);
+    await session.settle(30);
+}
+
 export async function settleFor(session: TestSession, ms: number): Promise<void> {
     const until = Date.now() + ms;
     while (Date.now() < until) await session.settle(50);

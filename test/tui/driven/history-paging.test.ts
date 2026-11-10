@@ -19,6 +19,7 @@ import {
     settleUntil,
     switchToNextConversation,
     TAIL_LENGTH,
+    wheelUp,
 } from "../../support/paged-conversation.ts";
 
 function devHome(prefix: string): string {
@@ -120,6 +121,41 @@ function entryRow(pane: string, tail: number): number | undefined {
     );
     return index === -1 ? undefined : index;
 }
+
+test("wheel scrolling loads multiple older history pages", async () => {
+    const home = devHome("tui-paging-wheel-");
+    const paged = conversation({
+        agentId: "paging-test",
+        tail: "TAIL",
+        older: "OLDER",
+        reply: "older",
+        pages: 3,
+    });
+    const session = await startTuiTestSession({
+        home,
+        width: 120,
+        height: 40,
+        dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
+    });
+    try {
+        await session.waitForVisiblePane("TAIL59");
+        await session.settle(60);
+        for (let step = 0; step < 200 && paged.requested.length === 0; step += 1) {
+            await wheelUp(session);
+        }
+        expect(paged.requested).toEqual(["tail-0"]);
+        await settleFor(session, 300);
+        expect(paged.requested).toEqual(["tail-0"]);
+        for (let step = 0; step < 200 && !session.captureVisiblePane().includes("OLDER0"); step += 1) {
+            await wheelUp(session);
+        }
+        expect(paged.requested).toEqual(["tail-0", "older-before-1", "older-before-2"]);
+        expect(session.captureVisiblePane()).toContain("OLDER0");
+    } finally {
+        paged.release();
+        await session.close();
+    }
+}, 30_000);
 
 test("Ctrl+D keeps its movement when a page arrives", async () => {
     const paged = await startPagedSession(60);

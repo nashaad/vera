@@ -1550,6 +1550,10 @@ export async function startTui(
     rt.transcript.onMouseScroll = (event) => {
         if (!event.modifiers.shift && (event.scroll?.direction === "up" || event.scroll?.direction === "down")) {
             rt.transcriptResizeAnchor = undefined;
+            if (event.scroll.direction === "up") {
+                rt.earlierHistoryNeedsScroll = false;
+                rt.renderer.requestRender();
+            }
             if (event.scroll.direction === "down") clearTranscriptAnchorPadding(rt);
             trackTranscriptScroll(rt, event.scroll.direction);
         }
