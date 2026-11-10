@@ -72,6 +72,8 @@ export interface TuiTestSessionOptions {
     readonly width?: number;
     readonly height?: number;
     readonly waitTimeoutMs?: number;
+    /** Default true: a stand-in `OPENROUTER_API_KEY` counts as a connected provider. */
+    readonly providerKey?: boolean;
     readonly dependencies: (
         renderer: Awaited<ReturnType<typeof createTestRenderer>>["renderer"],
     ) => TuiDependencies | Promise<TuiDependencies>;
@@ -150,7 +152,7 @@ export async function startTuiTestSession(
         /(?:_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN)$/.test(name),
     );
     for (const [name] of providerCredentials) delete process.env[name];
-    process.env.OPENROUTER_API_KEY = "test-key";
+    if (options.providerKey !== false) process.env.OPENROUTER_API_KEY = "test-key";
     let setup: Awaited<ReturnType<typeof createTestRenderer>> | undefined;
     let exited = false;
     let started = false;

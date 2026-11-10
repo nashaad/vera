@@ -165,6 +165,7 @@ test("a machine with no connection leads to the provider list", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-"));
     const session = await startTuiTestSession({
         home,
+        providerKey: false,
         dependencies: () => homeDependencies(home, true, 0, false),
     });
 
@@ -188,6 +189,7 @@ test("provider form text fields keep a caret that the arrows move", async () => 
     const home = mkdtempSync(join(tmpdir(), "vera-tui-provider-caret-"));
     const session = await startTuiTestSession({
         home,
+        providerKey: false,
         dependencies: () => homeDependencies(home, true, 0, false),
     });
 
@@ -218,6 +220,7 @@ test("new conversation with no provider opens provider configuration", async () 
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-"));
     const session = await startTuiTestSession({
         home,
+        providerKey: false,
         dependencies: () => homeDependencies(home, true, 0, false),
     });
 
