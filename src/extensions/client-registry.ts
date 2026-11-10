@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import { extensionStorage } from "./storage.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
@@ -79,9 +80,9 @@ import {
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
-const INSPECT_REPORT_SDK_PATH = fileURLToPath(
+const INSPECT_REPORT_SDK_PATH = runtimePath(fileURLToPath(
     new URL("../sdk/inspect-report.ts", import.meta.url),
-);
+), "src/sdk/inspect-report.ts");
 
 const CLIENT_COMMAND_CAPABILITY = "client.commands.register";
 const CLIENT_KEYBINDING_CAPABILITY = "client.keybindings.register";

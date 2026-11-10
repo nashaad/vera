@@ -1,3 +1,4 @@
+import { runtimePath } from "../../src/release/runtime-path.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,7 +49,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
 ] as const;
 
 // Resolves to the repo's docs/ in a checkout and to the bundled docs/ in a release.
-export const DOCS_DIR = fileURLToPath(new URL("../../docs/", import.meta.url));
+export const DOCS_DIR = runtimePath(fileURLToPath(new URL("../../docs/", import.meta.url)), "docs");
 
 const OPTIONS: readonly [string, string][] = [
     ["-h, --help", "Show this help, or one command's help after the command"],

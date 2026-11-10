@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import type { VeraExtensionConfig } from "../config.ts";
 import { EXTENSION_MANIFEST_FILENAME, loadExtensionManifest } from "./manifest.ts";
 
-export const CORE_EXTENSIONS_DIRECTORY = fileURLToPath(new URL("../core-extensions", import.meta.url));
-export const SHIPPED_EXTENSIONS_DIRECTORY = fileURLToPath(new URL("../../extensions", import.meta.url));
+export const CORE_EXTENSIONS_DIRECTORY = runtimePath(fileURLToPath(new URL("../core-extensions", import.meta.url)), "src/core-extensions");
+export const SHIPPED_EXTENSIONS_DIRECTORY = runtimePath(fileURLToPath(new URL("../../extensions", import.meta.url)), "extensions");
 
 export interface IncludedExtension {
     // Undefined when the manifest does not load; the registry reports that failure.

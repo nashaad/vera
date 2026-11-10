@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import { importSessionThroughHost } from "../../src/host/session-import-client.ts";
 import { installRelease } from "../../src/release/install.ts";
+import { activateRelease } from "../../src/release/activate.ts";
 import { defaultEnsureHost } from "../../src/release/upgrade.ts";
 import {
     cloneRelease,
@@ -36,6 +38,18 @@ test("an install waits for the running turn, then moves current and the host", a
     previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = env.home;
     const build2 = "vera-e2e-update";
+    const extension = join(env.workspace, "extension");
+    const marker = join(env.workspace, "extension-activated");
+    mkdirSync(extension);
+    writeFileSync(join(extension, "vera.extension.json"), JSON.stringify({
+        id: "test.bundled", version: "1.0.0", sdk: "1", entrypoint: "extension.ts", capabilities: ["hooks.session_start"],
+    }));
+    writeFileSync(join(extension, "extension.ts"),
+        `import { writeFileSync } from "node:fs"; export function activate() { writeFileSync(${JSON.stringify(marker)}, "active"); }`);
+    const configPath = join(env.home, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.extensions = [{ path: extension, enabled: true, config: {} }];
+    writeFileSync(configPath, JSON.stringify(config));
 
     await defaultEnsureHost(env.build1Root, { operation: "install" });
     await waitUntil(() => readHostLock(env.home)?.build_id === env.build1, 15_000, "build 1 lock");
@@ -43,6 +57,10 @@ test("an install waits for the running turn, then moves current and the host", a
 
     const socketPath = join(env.home, "runtime", "host.sock");
     const agent = await createAgentThroughHost(socketPath, env.workspace, "auto");
+    await waitUntil(() => existsSync(marker), 10_000, "disk extension activation");
+    const importPath = join(env.workspace, "unknown.jsonl");
+    writeFileSync(importPath, '{"hello":"crow"}\n');
+    expect(await importSessionThroughHost(socketPath, importPath)).toEqual({ status: "rejected", reason: "unrecognized" });
     const client = await attachReconnectingAgent({
         socketPath: () => socketPath,
         agentId: agent.id,
@@ -76,4 +94,56 @@ test("an install waits for the running turn, then moves current and the host", a
     const lock = readHostLock(env.home);
     expect(lock?.build_id).toBe(build2);
     expect(processAlive(lock!.pid)).toBe(true);
+}, 120_000);
+
+test("handoff moves from a source release to a bundle and back", async () => {
+    fixture = await createFixture();
+    const env = fixture;
+    previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = env.home;
+    const sourceId = "vera-e2e-source";
+    const sourceRoot = cloneRelease(env.build1Root, env.prefix, sourceId);
+    const entries: ReadonlyArray<readonly [string, string]> = [
+        ["bundle/clients/cli/main.js", "clients/cli/main.ts"],
+        ["bundle/clients/host/main.js", "clients/host/main.ts"],
+        ["bundle/clients/host/session-worker.js", "clients/host/session-worker.ts"],
+        ["bundle/src/host/worker/entry.js", "src/host/worker/entry.ts"],
+        ["bundle/src/annex/main.js", "src/annex/main.ts"],
+        ["bundle/src/host/worker-supervisor.js", "src/host/worker-supervisor.ts"],
+    ];
+    for (const name of ["vera", "host", "session-worker", "worker", "vera-annex", "vera-supervisor"]) {
+        const path = join(sourceRoot, name);
+        let wrapper = readFileSync(path, "utf8");
+        for (const [bundled, source] of entries) wrapper = wrapper.replaceAll(bundled, source);
+        writeFileSync(path, wrapper);
+    }
+    rmSync(join(sourceRoot, "bundle"), { recursive: true, force: true });
+    activateRelease(sourceRoot, env.prefix);
+    await defaultEnsureHost(sourceRoot, { operation: "install" });
+    await waitUntil(() => readHostLock(env.home)?.build_id === sourceId, 15_000, "source host lock");
+    const sourcePid = readHostLock(env.home)!.pid;
+    await createAgentThroughHost(join(env.home, "runtime", "host.sock"), env.workspace, "auto");
+    const hostLog = join(env.home, "runtime", "logs", "host.jsonl");
+    await waitUntil(() => existsSync(hostLog) && readFileSync(hostLog, "utf8").includes("host_startup_complete"), 10_000, "source host startup");
+    const bundledId = "vera-e2e-bundled";
+    const bundledRoot = cloneRelease(env.build1Root, env.prefix, bundledId);
+    const bundledManifest = JSON.parse(readFileSync(join(bundledRoot, "manifest.json"), "utf8"));
+    const forward = await installRelease({
+        prefix: env.prefix,
+        pack: async () => ({ releaseRoot: bundledRoot, manifest: bundledManifest }),
+        report: () => {},
+    });
+    expect(forward).toMatchObject({ kind: "updated" });
+    await waitUntil(() => !processAlive(sourcePid), 10_000, "source host exit");
+    expect(readHostLock(env.home)?.build_id).toBe(bundledId);
+    const bundledPid = readHostLock(env.home)!.pid;
+    const sourceManifest = JSON.parse(readFileSync(join(sourceRoot, "manifest.json"), "utf8"));
+    const backward = await installRelease({
+        prefix: env.prefix,
+        pack: async () => ({ releaseRoot: sourceRoot, manifest: sourceManifest }),
+        report: () => {},
+    });
+    expect(backward).toMatchObject({ kind: "updated" });
+    await waitUntil(() => !processAlive(bundledPid), 10_000, "bundled host exit");
+    expect(readHostLock(env.home)?.build_id).toBe(sourceId);
 }, 120_000);

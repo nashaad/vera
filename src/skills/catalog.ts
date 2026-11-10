@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import {
     readdir,
     realpath,
@@ -44,7 +45,7 @@ export interface LoadSkillCatalogOptions {
 }
 
 export function bundledSkillDirectory(): string {
-    return join(import.meta.dir, "bundled");
+    return runtimePath(join(import.meta.dir, "bundled"), "src/skills/bundled");
 }
 
 export function defaultUserSkillDirectory(): string {

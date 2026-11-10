@@ -36,25 +36,25 @@ export function writeSelfContainedWrappers(releaseRoot: string): void {
     const bun = `"$here/${RELEASE_BUN_NAME}"`;
     writeLauncher(join(releaseRoot, RELEASE_CLI_NAME), {
         bun: `"$release/bun"`,
-        entry: `"$release/clients/cli/main.ts"`,
+        entry: `"$release/bundle/clients/cli/main.js"`,
         relocatable: true,
     });
-    writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), bun, `"$here/clients/host/main.ts"`);
+    writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), bun, `"$here/bundle/clients/host/main.js"`);
     writeWrapper(
         join(releaseRoot, RELEASE_WORKER_NAME),
         bun,
-        `"$here/src/host/worker/entry.ts"`,
+        `"$here/bundle/src/host/worker/entry.js"`,
     );
-    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, `"$here/clients/host/session-worker.ts"`);
+    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, `"$here/bundle/clients/host/session-worker.js"`);
     writeWrapper(
         join(releaseRoot, RELEASE_ANNEX_NAME),
         bun,
-        `"$here/src/annex/main.ts"`,
+        `"$here/bundle/src/annex/main.js"`,
     );
     writeWrapper(
         join(releaseRoot, RELEASE_SUPERVISOR_NAME),
         bun,
-        `"$here/src/host/worker-supervisor.ts"`,
+        `"$here/bundle/src/host/worker-supervisor.js"`,
     );
 }
 

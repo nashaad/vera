@@ -1,3 +1,4 @@
+import { runtimePath } from "./runtime-path.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { releaseBuildId } from "./build-id.ts";
 import { thisProcessBuildId } from "./stamp.ts";
 
-const CODE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const CODE_ROOT = runtimePath(fileURLToPath(new URL("../..", import.meta.url)), ".");
 const UNSTAMPED_BUILD_ID = "unstamped";
 
 let resolved: string | undefined;

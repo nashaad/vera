@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 /**
  * Best-effort settings overlay: how to talk to a few well-known local models
  * when live listing is mute. Compiles into CatalogModel levels. Not a
@@ -18,9 +19,9 @@ import {
 
 export const SETTINGS_OVERLAY_SCHEMA_VERSION = 1;
 
-const SHIPPED_OVERLAY_PATH = fileURLToPath(
+const SHIPPED_OVERLAY_PATH = runtimePath(fileURLToPath(
     new URL("../../config/settings-overlay.json", import.meta.url),
-);
+), "config/settings-overlay.json");
 
 export type OverlayDialect = "ollama" | "llama.cpp-openai";
 export type OverlayRequestLayer =

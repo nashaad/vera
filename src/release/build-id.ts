@@ -1,9 +1,10 @@
+import { runtimePath } from "./runtime-path.ts";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_CWD = fileURLToPath(new URL("../..", import.meta.url));
+const DEFAULT_CWD = runtimePath(fileURLToPath(new URL("../..", import.meta.url)), ".");
 const DIRTY_DIGEST_LENGTH = 12;
 
 export interface ReleaseSourceIdentity {

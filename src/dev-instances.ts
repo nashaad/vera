@@ -1,3 +1,4 @@
+import { runtimePath } from "./release/runtime-path.ts";
 import { createHash } from "node:crypto";
 import {
     existsSync,
@@ -73,7 +74,7 @@ export function homeIsDefault(home: string, userHome = homedir()): boolean {
 
 /** This file sits in src/, so the tree being run is its parent. */
 export function runningTreeRoot(): string {
-    return fileURLToPath(new URL("..", import.meta.url));
+    return runtimePath(fileURLToPath(new URL("..", import.meta.url)), ".");
 }
 
 export function registerDevInstance(options: {

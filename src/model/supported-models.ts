@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -47,9 +48,9 @@ export interface SupportedModelsCatalog {
     readonly verified_models: readonly VerifiedModel[];
 }
 
-const CATALOG_PATH = fileURLToPath(
+const CATALOG_PATH = runtimePath(fileURLToPath(
     new URL("../../config/supported-models.json", import.meta.url),
-);
+), "config/supported-models.json");
 
 export function loadSupportedModelsCatalog(
     path = CATALOG_PATH,
