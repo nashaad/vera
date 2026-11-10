@@ -33,8 +33,5 @@ jobs:
       - name: Install development dependencies
         run: bun install --frozen-lockfile
 
-      - name: Linux repro diagnostics
-        run: bun dev/linux-repro.ts
-
-      - name: Run the failing store test
-        run: bun test test/store/session-store.test.ts -t "streamed open indexes UTF-8"
+      - name: Run tests tagged @core and the locked journeys
+        run: bun run test:core
