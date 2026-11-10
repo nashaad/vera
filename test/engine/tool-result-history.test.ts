@@ -84,7 +84,7 @@ test("pending and committed messages can cross the aging gate differently", asyn
     }
 });
 
-test("cached assembly matches fresh assembly as spills and history change", async () => {
+test("@core cached assembly matches fresh assembly as spills and history change", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-tool-cache-"));
     try {
         const sources = [

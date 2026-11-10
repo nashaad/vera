@@ -11,7 +11,7 @@ import {
 } from "../../src/engine/project-instructions.ts";
 import { assembleSystemPrompt } from "../../src/engine/assemble.ts";
 
-test("cached imports match a cold parse and follow file and symlink changes", async () => {
+test("@core cached imports match a cold parse and follow file and symlink changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-project-cache-"));
     const lexer = spyOn(Lexer.prototype, "lex");
     const time = new Date("2020-01-01T00:00:00.000Z");

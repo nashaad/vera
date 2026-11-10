@@ -34,7 +34,7 @@ interface Run {
 
 const run = runSession();
 
-test("model requests match the recorded requests before and after a compaction and a rewind", async () => {
+test("@core model requests match the recorded requests before and after a compaction and a rewind", async () => {
     const { sent } = await run;
     expect(sent.length).toBe(4);
     const workspace = temporaryDirectories[0]!;
@@ -46,7 +46,7 @@ test("model requests match the recorded requests before and after a compaction a
     expect(normalized).toMatchSnapshot();
 }, 30_000);
 
-test("the history checkpoint after a compaction carries only the live context", async () => {
+test("@core the history checkpoint after a compaction carries only the live context", async () => {
     const { histories } = await run;
     const afterCompaction = histories.findLast((texts) => texts.some((text) => text.includes("third")))!;
     expect(afterCompaction.some((text) => text.includes("first"))).toBe(false);
