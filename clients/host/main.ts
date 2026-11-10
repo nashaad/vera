@@ -39,7 +39,8 @@ export async function runHostEntrypoint(): Promise<void> {
         throw error;
     }
 
-    const pool = config.host?.workers !== 0;
+    // --single-process is the launcher's fallback when the pooled host cannot start.
+    const pool = config.host?.workers !== 0 && !process.argv.includes("--single-process");
     const skipStartupDiscovery = process.argv.includes("--no-discovery");
     if (skipStartupDiscovery && !processIsDevelopmentInstance()) {
         throw new Error("--no-discovery requires a development instance");

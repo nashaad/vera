@@ -1,4 +1,4 @@
-import { BOOT_FAILURE_LIMIT, countsAsBootFailure, HostBootLoopError, recentBootFailures, recordBootFailure } from "./boot-failures.ts";
+import { BOOT_FAILURE_LIMIT, clearBootFailures, countsAsBootFailure, HostBootLoopError, recentBootFailures, recordBootFailure } from "./boot-failures.ts";
 
 export { clearBootFailures, countsAsBootFailure, HostBootLoopError, recentBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./boot-failures.ts";
 
@@ -25,9 +25,21 @@ import {
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
 import {
     childReleaseRoot,
+    currentReleaseBuildId,
+    packedReleaseRoot,
     RELEASE_HOST_NAME,
     releaseBinaryPath,
+    releaseDirectory,
+    rollbackReleaseBuildId,
+    runningInstallPrefix,
 } from "../../src/release/layout.ts";
+import { activateRelease } from "../../src/release/activate.ts";
+import { releaseProblem } from "../../src/release/handoff.ts";
+import { bootResidentHost, renderBootBox, type BootInspection, type HostMode } from "../../src/host/boot.ts";
+import { discoverResetProcesses } from "../../src/host/reset-discovery.ts";
+import { runHostReset } from "../../src/host/reset.ts";
+import { realResetSystem } from "../../src/host/reset-system.ts";
+import { processIsAlive } from "../../src/host/process-identity.ts";
 
 export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
@@ -71,13 +83,92 @@ export async function findOrStartResidentHost(
     if (dispatched !== undefined) {
         process.exit(dispatched);
     }
-    const host = await ensureResidentHost({
-        ...options,
-        lockfile,
-        startHost: () => spawnDetachedResidentHost(pool),
+    let releaseRoot: string | undefined;
+    const host = await bootResidentHost({
+        hostPublished: async () => (await lockfile.read()) !== undefined,
+        inspect: () => inspectHome(),
+        recover: () => recoverHome(),
+        start: (mode) => ensureResidentHost({
+            ...options,
+            lockfile,
+            startHost: () => spawnDetachedResidentHost(pool, mode, releaseRoot),
+        }),
+        rollback: async () => {
+            const target = rollbackTarget();
+            if (target === undefined) return undefined;
+            activateRelease(target.root, target.prefix);
+            releaseRoot = target.root;
+            return target.buildId;
+        },
+        clearBootFailures,
+        confirm: (question) => confirmOnTerminal(question),
+        render: (checks) => { process.stderr.write(renderBootBox(checks)); },
     });
     remember(host);
     return host;
+}
+
+async function inspectHome(): Promise<BootInspection> {
+    const discovery = await discoverResetProcesses(realResetSystem());
+    const hostAnswers = discovery.hostAnswer !== undefined;
+    const lock: BootInspection["lock"] = discovery.lock.state === "absent" ? "absent"
+        : discovery.lock.state === "valid" ? (processIsAlive(discovery.lock.record.pid) ? "live" : "stale")
+        : "damaged";
+    const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
+    const problem = activeReleaseProblem();
+    return {
+        hostAnswers,
+        lock,
+        orphans,
+        unproven: discovery.unproven.length,
+        ...(problem === undefined ? {} : { releaseProblem: problem }),
+        bootLoop: recentBootFailures(Date.now()).length >= BOOT_FAILURE_LIMIT,
+    };
+}
+
+// Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
+async function recoverHome(): Promise<{ ok: boolean; lines: string[] }> {
+    const lines: string[] = [];
+    const code = await runHostReset({ assumeYes: true }, {
+        system: realResetSystem(),
+        confirm: async () => true,
+        output: (text) => { lines.push(...text.split("\n").filter((line) => line.trim().length > 0)); },
+        errorOutput: (text) => { lines.push(...text.split("\n").filter((line) => line.trim().length > 0)); },
+    });
+    const summary = lines.filter((line) => /^(Backup|Stopped|Removed|Nothing to reset|PID|Could not)/.test(line));
+    return { ok: code === 0, lines: summary };
+}
+
+function activeReleaseProblem(): string | undefined {
+    const prefix = runningInstallPrefix();
+    if (prefix === undefined) return undefined;
+    const buildId = currentReleaseBuildId(prefix);
+    if (buildId === undefined) return "No release is active.";
+    return releaseProblem(packedReleaseRoot(prefix), buildId);
+}
+
+function rollbackTarget(): { prefix: string; root: string; buildId: string } | undefined {
+    const prefix = runningInstallPrefix();
+    if (prefix === undefined) return undefined;
+    const buildId = rollbackReleaseBuildId(prefix);
+    if (buildId === undefined || buildId === currentReleaseBuildId(prefix)) return undefined;
+    const root = releaseDirectory(buildId, prefix);
+    if (releaseProblem(root, buildId) !== undefined) return undefined;
+    return { prefix, root, buildId };
+}
+
+async function confirmOnTerminal(question: string): Promise<boolean> {
+    // Without a terminal nobody can answer, and Vera must still start.
+    if (!process.stdin.isTTY || !process.stderr.isTTY) return true;
+    process.stderr.write(question);
+    const answer = await new Promise<string>((resolve) => {
+        process.stdin.resume();
+        process.stdin.once("data", (chunk) => {
+            process.stdin.pause();
+            resolve(String(chunk).trim().toLowerCase());
+        });
+    });
+    return answer === "" || answer === "y" || answer === "yes";
 }
 
 export function residentHostEntrypoint(): string {
@@ -87,14 +178,16 @@ export function residentHostEntrypoint(): string {
 export function residentHostSpawnSpec(
     releaseRoot: string | undefined = childReleaseRoot(),
     pool = false,
+    mode: HostMode = "default",
 ): { readonly command: string; readonly args: readonly string[] } {
+    const flags = mode === "single" ? ["--single-process"] : pool ? ["--pool"] : [];
     if (releaseRoot !== undefined) {
         const packed = releaseBinaryPath(RELEASE_HOST_NAME, releaseRoot);
         if (existsSync(packed)) {
-            return { command: packed, args: pool ? ["--pool"] : [] };
+            return { command: packed, args: flags };
         }
     }
-    return { command: process.execPath, args: [residentHostEntrypoint(), ...(pool ? ["--pool"] : [])] };
+    return { command: process.execPath, args: [residentHostEntrypoint(), ...flags] };
 }
 
 export function worktreeRuntimeNotice(
@@ -122,13 +215,13 @@ function insideLinkedWorktree(cwd: string): boolean {
     }
 }
 
-function spawnDetachedResidentHost(pool = false): Promise<void> {
+function spawnDetachedResidentHost(pool = false, mode: HostMode = "default", releaseRoot?: string): Promise<void> {
     const failures = recentBootFailures(Date.now());
     if (failures.length >= BOOT_FAILURE_LIMIT) {
         return Promise.reject(new HostBootLoopError(failures.length));
     }
     const spawnedAt = Date.now();
-    const spec = residentHostSpawnSpec(undefined, pool);
+    const spec = residentHostSpawnSpec(releaseRoot ?? childReleaseRoot(), pool, mode);
     const child = spawn(spec.command, [...spec.args], {
         argv0: "vera-host",
         detached: true,

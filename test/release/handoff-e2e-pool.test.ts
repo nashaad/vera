@@ -52,6 +52,7 @@ socketAndLoopbackTest("a packed pool upgrades after a turn and leaves no old pro
         const manifest = JSON.parse(readFileSync(join(build2Root, "manifest.json"), "utf8"));
         const reports: string[] = [];
         const install = installRelease({
+            hotHandOff: true,
             prefix: env.prefix,
             pack: async () => ({ releaseRoot: build2Root, manifest }),
             report: (line) => reports.push(line),

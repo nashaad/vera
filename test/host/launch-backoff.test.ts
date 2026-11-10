@@ -46,20 +46,6 @@ const noHostLockfile = {
     },
 };
 
-test("two recent boot deaths stop the respawn and name host stop", async () => {
-    const root = useTemporaryRuntime();
-    writeFileSync(
-        join(root, "host-boot-failures.json"),
-        `${JSON.stringify([Date.now() - 1_000, Date.now() - 500])}\n`,
-    );
-    const attempt = findOrStartResidentHost({
-        lockfile: noHostLockfile,
-        startupTimeoutMs: 200,
-    });
-    await expect(attempt).rejects.toBeInstanceOf(HostBootLoopError);
-    await expect(attempt).rejects.toThrow("vera host stop --force");
-});
-
 test("boot deaths outside the window do not count against the limit", () => {
     const root = useTemporaryRuntime();
     const now = Date.now();
