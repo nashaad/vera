@@ -27,6 +27,17 @@ const MODEL_ASSIGNMENTS: readonly VeraExtensionModelAssignment[] = [
     "extra",
 ];
 
+// The slot exists but nothing in it is reachable, so no request was sent.
+export class ModelAssignmentUnavailableError extends Error {
+    readonly assignment: VeraExtensionModelAssignment;
+
+    constructor(assignment: VeraExtensionModelAssignment) {
+        super(`No reachable model is assigned to ${assignment}`);
+        this.name = "ModelAssignmentUnavailableError";
+        this.assignment = assignment;
+    }
+}
+
 export interface ExtensionOneshotCall {
     readonly assignment: VeraExtensionModelAssignment;
     readonly systemPrompt: string;
@@ -219,7 +230,11 @@ export function notifyTurnFinished(
     payload: TurnFinishedHookPayload,
     onFailure: (extensionId: string, message: string) => void,
 ): void {
-    notifyObservers(hooks, payload, onFailure);
+    notifyObservers(hooks, payload, (extensionId, message, error) => {
+        // A slot with no reachable model is the documented no-op, not a failure.
+        if (error instanceof ModelAssignmentUnavailableError) return;
+        onFailure(extensionId, message);
+    });
 }
 
 /** Fire and forget: a slow or failing hook never holds up the session. */
@@ -229,7 +244,7 @@ export function notifyObservers<Payload>(
         readonly run: (payload: Payload) => void | Promise<void>;
     }[],
     payload: Payload,
-    onFailure: (extensionId: string, message: string) => void,
+    onFailure: (extensionId: string, message: string, error: unknown) => void,
 ): void {
     for (const hook of hooks) {
         void Promise.resolve()
@@ -239,6 +254,7 @@ export function notifyObservers<Payload>(
                     onFailure(
                         hook.extensionId,
                         error instanceof Error ? error.message : String(error),
+                        error,
                     );
                 } catch {
                     // A broken logger must not surface as an unhandled rejection.

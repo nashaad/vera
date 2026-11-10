@@ -5,7 +5,10 @@ import {
 } from "../config/model-assignments.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import { availableModels, contextWindowForModel, type ModelWindowEntry } from "../engine/model-settings.ts";
-import type { ExtensionHostServices } from "../extensions/host-services.ts";
+import {
+    ModelAssignmentUnavailableError,
+    type ExtensionHostServices,
+} from "../extensions/host-services.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import { oneshotModelMessage } from "./agent-registry/helpers.ts";
@@ -40,9 +43,7 @@ export function createExtensionHostServices(
             );
             // Never fall back to a session's model: an extension did not pick it.
             if (binding.models.length === 0) {
-                throw new Error(
-                    `No reachable model is assigned to ${call.assignment}`,
-                );
+                throw new ModelAssignmentUnavailableError(call.assignment);
             }
             const windows = options.availableModels();
             const complete = createRoutedCompletionService(

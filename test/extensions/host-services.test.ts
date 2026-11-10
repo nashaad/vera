@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    ModelAssignmentUnavailableError,
     notifyObservers,
     notifyTurnFinished,
     type ExtensionHostServices,
@@ -92,6 +93,20 @@ test("a failing turn-finished hook is reported and does not stop the others", as
     ], payload, (id, message) => failures.push(`${id}: ${message}`));
     await waitFor(() => failures.length === 2 && seen.length === 1);
     expect(failures.sort()).toEqual(["broken: kraken", "rejects: squall"]);
+});
+
+test("a turn-finished hook with no reachable model is not reported", async () => {
+    const failures: string[] = [];
+    const seen: string[] = [];
+    notifyTurnFinished([
+        {
+            extensionId: "titles",
+            run: () => { throw new ModelAssignmentUnavailableError("snappy"); },
+        },
+        { extensionId: "fine", run: (event) => { seen.push(event.sessionId); } },
+    ], payload, (id, message) => failures.push(`${id}: ${message}`));
+    await waitFor(() => seen.length === 1);
+    expect(failures).toEqual([]);
 });
 
 test("each turn-finished hook gets its own copy of the payload", async () => {

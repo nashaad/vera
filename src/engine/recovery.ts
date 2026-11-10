@@ -6,6 +6,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelReasoningEffort,
     type ModelRequest,
     type ModelStream,
     type ModelStreamEvent,
@@ -101,9 +102,18 @@ export type WaitForModelRetry = (
     signal?: AbortSignal,
 ) => Promise<void>;
 
+export interface ModelRetrySelection {
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly fallback?: ModelFallbackPolicy;
+    readonly messages?: ModelRequest["messages"];
+}
+
 export interface ModelRecoveryOptions {
     readonly policy?: ModelRetryPolicy;
     readonly fallback?: ModelFallbackPolicy;
+    readonly refresh?: () => Promise<ModelRetrySelection | undefined>;
     readonly wait?: WaitForModelRetry;
     readonly random?: () => number;
     readonly idleTimeoutMs?: number;
@@ -154,6 +164,7 @@ export async function requestModelWithRecovery(
     const wait = options.wait ?? waitForModelRetry;
     const random = options.random ?? Math.random;
     let activeRequest = request;
+    let fallbackPolicy = options.fallback;
     let requestAttempt = 0;
     let retryAttempt = 0;
     let consecutiveOverloadFailures = 0;
@@ -161,6 +172,25 @@ export async function requestModelWithRecovery(
     const refusedEfforts = new Set<string>();
 
     while (true) {
+        if (requestAttempt > 0 && options.refresh !== undefined) {
+            const refreshed = await options.refresh();
+            if (refreshed !== undefined) {
+                activeRequest = {
+                    ...activeRequest,
+                    provider: refreshed.provider,
+                    model: refreshed.model,
+                    reasoningEffort: refreshed.reasoningEffort,
+                    ...(refreshed.messages === undefined
+                        ? {}
+                        : { messages: refreshed.messages }),
+                };
+                fallbackPolicy = refreshed.fallback;
+                fallbackSelected = false;
+                refusedEfforts.clear();
+                consecutiveOverloadFailures = 0;
+                retryAttempt = 0;
+            }
+        }
         const attempt = new AbortController();
         const stream = adapter.stream({
             ...activeRequest,
@@ -224,15 +254,15 @@ export async function requestModelWithRecovery(
                     if (
                         !contentStarted
                         && !fallbackSelected
-                        && options.fallback !== undefined
-                        && options.fallback.model !== activeRequest.model
+                        && fallbackPolicy !== undefined
+                        && fallbackPolicy.model !== activeRequest.model
                         && failure.resolution === "retry"
                         && consecutiveOverloadFailures
-                            >= options.fallback.afterFailures
+                            >= fallbackPolicy.afterFailures
                     ) {
                         fallback = {
                             fromModel: activeRequest.model,
-                            toModel: options.fallback.model,
+                            toModel: fallbackPolicy.model,
                             afterFailures: consecutiveOverloadFailures,
                             failure,
                         };

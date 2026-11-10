@@ -209,6 +209,106 @@ test("engine recovery retries a transient pre-content failure", async () => {
     expect(delays).toEqual([500]);
 });
 
+test("a selection changed during a request reaches the retry", async () => {
+    const requests: ModelRequest[] = [];
+    const scripted = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return scripted.stream(request);
+        },
+    };
+    let refreshCalls = 0;
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        {
+            provider: "alpha",
+            model: "model-a",
+            reasoningEffort: "low",
+            messages: [],
+        },
+        {
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            wait: async () => {},
+            refresh: async () => {
+                refreshCalls += 1;
+                return refreshCalls === 1
+                    ? {
+                        provider: "beta",
+                        model: "model-b",
+                        reasoningEffort: "high" as const,
+                    }
+                    : undefined;
+            },
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(refreshCalls).toBe(1);
+    expect(requests[0]).toMatchObject({
+        provider: "alpha",
+        model: "model-a",
+        reasoningEffort: "low",
+    });
+    expect(requests[1]).toMatchObject({
+        provider: "beta",
+        model: "model-b",
+        reasoningEffort: "high",
+    });
+});
+
+test("a refreshed selection brings its own fallback", async () => {
+    const requests: ModelRequest[] = [];
+    const scripted = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+        (stream) => fail(stream, overloadFailure),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return scripted.stream(request);
+        },
+    };
+    const fallbacks: ModelFallbackSelected[] = [];
+    let refreshCalls = 0;
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { provider: "alpha", model: "model-a", messages: [] },
+        {
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: (fallback) => fallbacks.push(fallback),
+            wait: async () => {},
+            refresh: async () => {
+                refreshCalls += 1;
+                return refreshCalls === 1
+                    ? {
+                        provider: "beta",
+                        model: "model-b",
+                        fallback: { model: "model-c", afterFailures: 1 },
+                    }
+                    : undefined;
+            },
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(fallbacks.map((fallback) => fallback.toModel)).toEqual(["model-c"]);
+    expect(requests.map((request) => request.model)).toEqual([
+        "model-a",
+        "model-b",
+        "model-c",
+    ]);
+});
+
 test("engine recovery stops after its retry budget", async () => {
     const adapter = scriptedAdapter([
         (stream) => fail(stream, transientFailure),
