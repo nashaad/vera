@@ -104,7 +104,7 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
             `${formatVeraVersion(readStampedRelease(join(prefix, "share", "vera", "current")))}\n`,
         );
         expect(readFileSync(join(prefix, "share", "vera", "current", RELEASE_CLI_NAME), "utf8"))
-            .toContain("$release/clients/cli/main.ts");
+            .toContain("$release/bundle/clients/cli/main.js");
     } finally {
         rmSync(prefix, { recursive: true, force: true });
         rmSync(userHome, { recursive: true, force: true });

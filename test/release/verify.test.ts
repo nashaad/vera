@@ -155,3 +155,14 @@ test("verifyPackedRelease refuses a missing session worker entry", () => {
         rmSync(prefix, { recursive: true, force: true });
     }
 });
+
+test("a bundled release must include its bundled entry points", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-verify-bundle-"));
+    try {
+        const root = writeCompleteRelease(prefix, "vera-no-bundle-entry");
+        mkdirSync(join(root, "bundle"));
+        expect(() => verifyPackedRelease(root, prefix)).toThrow(/missing bundle\/clients\/cli\/main.js/);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});

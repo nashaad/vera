@@ -79,6 +79,7 @@ export function cloneRelease(fromRoot: string, prefix: string, toId: string, opt
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     if (options.brokenHost === true) {
         writeFileSync(join(to, "clients", "host", "main.ts"), "process.exit(3);\n");
+        writeFileSync(join(to, "bundle", "clients", "host", "main.js"), "process.exit(3);\n");
     }
     readStampedRelease(to);
     return to;

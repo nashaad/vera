@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 
 import { fileURLToPath } from "node:url";
 
@@ -18,9 +19,9 @@ import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const FEED_FRESHNESS_MS = 4 * 24 * 60 * 60 * 1_000;
 
-const SHIPPED_FEED_PATH = fileURLToPath(
+const SHIPPED_FEED_PATH = runtimePath(fileURLToPath(
     new URL("../../config/model-feed.json", import.meta.url),
-);
+), "config/model-feed.json");
 
 export type ModelFeedSource = "fetched" | "shipped" | "none";
 

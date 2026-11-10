@@ -5,6 +5,7 @@ import {
     mkdtempSync,
     readlinkSync,
     realpathSync,
+    renameSync,
     rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,6 +44,8 @@ test("installRelease packs a runnable tree and points current at it", async () =
         expect(existsSync(join(installed.releaseRoot, RELEASE_HOST_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_WORKER_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_ANNEX_NAME))).toBe(true);
+        expect(existsSync(join(installed.releaseRoot, "bundle", "clients", "host", "main.js"))).toBe(true);
+        expect(existsSync(join(installed.releaseRoot, "bundle", "clients", "host", "session-worker.js"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "src"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "clients"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "extensions"))).toBe(true);
@@ -66,6 +69,27 @@ test("installRelease packs a runnable tree and points current at it", async () =
         expect(version.stdout.toString()).toBe(
             `${formatVeraVersion(readStampedRelease(installed.releaseRoot))}\n`,
         );
+        const definitions = join(installed.releaseRoot, "src", "providers", "definitions");
+        const hidden = `${definitions}.hidden`;
+        renameSync(definitions, hidden);
+        try {
+            const missing = Bun.spawnSync([installed.launcher, "--version"], {
+                cwd: tmpdir(),
+                env: { HOME: prefix, PATH: [dirname(installed.launcher), "/usr/bin", "/bin"].join(":") },
+                stdout: "pipe", stderr: "pipe",
+            });
+            expect(missing.exitCode).not.toBe(0);
+            expect(missing.stderr.toString()).toContain("definitions");
+        } finally {
+            renameSync(hidden, definitions);
+        }
+        const help = Bun.spawnSync([installed.launcher, "--help"], {
+            cwd: tmpdir(),
+            env: { HOME: prefix, PATH: [dirname(installed.launcher), "/usr/bin", "/bin"].join(":") },
+            stdout: "pipe", stderr: "pipe",
+        });
+        expect(help.exitCode).toBe(0);
+        expect(help.stdout.toString()).toContain(join(realpathSync(installed.releaseRoot), "docs", "index.md"));
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }

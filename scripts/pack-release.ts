@@ -309,7 +309,7 @@ export async function packRunnableRelease(
             force: options.force ?? true,
             sourceRoot: join(sourceRoot, "clients", "annex"),
         });
-        assembleRunnableRelease(staging, sourceRoot);
+        await assembleRunnableRelease(staging, sourceRoot);
         await stampRelease(staging, staged.manifest);
         return staged.manifest;
     });

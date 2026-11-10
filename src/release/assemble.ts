@@ -1,6 +1,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { bundleRelease } from "./bundle.ts";
 import { packedAnnexRoot, RELEASE_BUN_NAME } from "./layout.ts";
 import { writeSelfContainedWrappers } from "./wrappers.ts";
 
@@ -16,11 +17,11 @@ const RUNTIME_ENTRIES = [
     "bunfig.toml",
 ] as const;
 
-export function assembleRunnableRelease(
+export async function assembleRunnableRelease(
     releaseRoot: string,
     sourceRoot: string,
     bunPath: string = process.execPath,
-): void {
+): Promise<void> {
     if (!existsSync(packedAnnexRoot(releaseRoot))) {
         throw new Error(
             `Packed annex assets missing at ${packedAnnexRoot(releaseRoot)}`,
@@ -46,6 +47,7 @@ export function assembleRunnableRelease(
     const bunDest = join(releaseRoot, RELEASE_BUN_NAME);
     cpSync(bunSource, bunDest);
     chmodSync(bunDest, 0o755);
+    await bundleRelease(releaseRoot, sourceRoot);
     writeSelfContainedWrappers(releaseRoot);
 }
 

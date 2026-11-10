@@ -1,3 +1,4 @@
+import { runtimePath } from "../../src/release/runtime-path.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -18,9 +19,9 @@ interface LinkRegistry {
     readonly links: readonly LinkRule[];
 }
 
-const LINK_REGISTRY_PATH = fileURLToPath(
+const LINK_REGISTRY_PATH = runtimePath(fileURLToPath(
     new URL("../../config/link-schemes.json", import.meta.url),
-);
+), "config/link-schemes.json");
 
 const LINK_RULES = loadLinkRules();
 

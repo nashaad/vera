@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -24,7 +25,7 @@ export interface SourceRejected {
 
 export type SourceParse = SourceParsed | SourceRejected;
 
-const CHILD_ENTRY = fileURLToPath(new URL("./session-import-child.ts", import.meta.url));
+const CHILD_ENTRY = runtimePath(fileURLToPath(new URL("./session-import-child.ts", import.meta.url)), "bundle/src/host/session-import-child.js");
 const STDERR_TAIL_CHARS = 2000;
 
 // Line by line: a source file can be hundreds of megabytes.

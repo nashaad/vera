@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -146,4 +146,14 @@ export function verifyPackedRelease(
     requireRegularFile(releaseRoot, join("clients", "host", "session-worker.ts"));
     requireRegularFile(releaseRoot, join("src", "annex", "main.ts"));
     requireRegularFile(releaseRoot, join("docs", "index.md"));
+    if (existsSync(join(releaseRoot, "bundle"))) {
+        for (const entry of [
+            "clients/cli/main.js", "clients/host/main.js", "clients/host/session-worker.js",
+            "clients/tui/flight-watchdog.js", "src/annex/main.js", "src/host/session-import-child.js",
+            "src/host/worker/adapter.js", "src/host/worker/entry.js", "src/host/worker-supervisor.js",
+            "tree-sitter.wasm",
+        ]) {
+            requireRegularFile(releaseRoot, join("bundle", entry));
+        }
+    }
 }

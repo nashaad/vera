@@ -62,31 +62,31 @@ export type VeraProcessKind =
     | "test_fixture";
 
 export function classifyVeraProcess(command: string): VeraProcessKind | undefined {
-    if (/(?:^|\s)(?:\S*\/)?clients\/host\/main\.ts(?:\s|$)/.test(command)) {
+    if (/(?:^|\s)(?:\S*\/)?(?:clients\/host\/main\.ts|bundle\/clients\/host\/main\.js)(?:\s|$)/.test(command)) {
         return "host";
     }
-    if (/(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
+    if (/(?:^|\s)(?:\S*\/)?(?:clients\/tui\/flight-watchdog\.ts|bundle\/clients\/tui\/flight-watchdog\.js)(?:\s|$)/.test(
         command,
     )) {
         return "watchdog";
     }
     if (
         /(?:^|\s)\S*\/\.bun\/bin\/vera(?:\s|$)/.test(command)
-        || /(?:^|\s)(?:\S*\/)?clients\/(?:cli|tui)\/main\.ts(?:\s|$)/.test(
+        || /(?:^|\s)(?:\S*\/)?(?:clients\/(?:cli|tui)\/main\.ts|bundle\/clients\/cli\/main\.js)(?:\s|$)/.test(
             command,
         )
     ) {
         return "client";
     }
-    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
+    if (/(?:^|\s)(?:\S*\/)?(?:src\/host\/worker-supervisor\.ts|bundle\/src\/host\/worker-supervisor\.js)(?:\s|$)/.test(
         command,
     )) {
         return "supervisor";
     }
-    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)) {
+    if (/(?:^|\s)(?:\S*\/)?(?:src\/host\/worker\/entry\.ts|bundle\/src\/host\/worker\/entry\.js)(?:\s|$)/.test(command)) {
         return "worker";
     }
-    if (/(?:^|\s)(?:\S*\/)?clients\/host\/session-worker\.ts(?:\s|$)/.test(command)) {
+    if (/(?:^|\s)(?:\S*\/)?(?:clients\/host\/session-worker\.ts|bundle\/clients\/host\/session-worker\.js)(?:\s|$)/.test(command)) {
         return "worker";
     }
     if (

@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,9 +20,9 @@ export interface WebDevJoinRef {
     readonly model: string;
 }
 
-const ALIASES_PATH = fileURLToPath(
+const ALIASES_PATH = runtimePath(fileURLToPath(
     new URL("../../config/webdev-arena-aliases.json", import.meta.url),
-);
+), "config/webdev-arena-aliases.json");
 
 let shipped: WebDevArenaAliases | undefined;
 

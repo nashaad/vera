@@ -1,3 +1,4 @@
+import { runtimePath } from "./runtime-path.ts";
 import type { CliRenderer, TerminalColors } from "@opentui/core";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -238,9 +239,9 @@ interface BuiltInTuiThemes {
     readonly problems: readonly string[];
 }
 
-const BUILT_IN_TUI_THEMES_PATH = fileURLToPath(
+const BUILT_IN_TUI_THEMES_PATH = runtimePath(fileURLToPath(
     new URL("../../config/tui-themes.json", import.meta.url),
-);
+), "config/tui-themes.json");
 
 /** An unreadable or invalid file yields Orng alone plus a problem, never a throw. */
 export function loadBuiltInTuiThemes(path = BUILT_IN_TUI_THEMES_PATH): BuiltInTuiThemes {

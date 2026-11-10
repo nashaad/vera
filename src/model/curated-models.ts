@@ -1,3 +1,4 @@
+import { runtimePath } from "../release/runtime-path.ts";
 import { createFileReadCache } from "../store/read-cache.ts";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -73,9 +74,9 @@ const cachedCuratedList = createFileReadCache((path): CuratedCache | undefined =
 });
 
 /** The list shipped with the build, which answers until a fetch lands. */
-const CURATED_SEED_PATH = fileURLToPath(
+const CURATED_SEED_PATH = runtimePath(fileURLToPath(
     new URL("../../config/curated-models.json", import.meta.url),
-);
+), "config/curated-models.json");
 
 export function curatedSeed(path = CURATED_SEED_PATH): readonly CuratedModel[] {
     return cachedSeed(path);
