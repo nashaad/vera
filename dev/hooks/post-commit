@@ -1,0 +1,7 @@
+#!/bin/sh
+# Refresh the agent guidance backup after each commit.
+
+hook_dir=$(dirname "$0")
+[ -f "$hook_dir/lib/agent-backup.sh" ] || exit 0
+. "$hook_dir/lib/agent-backup.sh"
+exit 0
