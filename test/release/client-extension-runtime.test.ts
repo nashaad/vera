@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +31,9 @@ test("installed client extensions share the renderer runtime across workspaces a
         });
         expect(build.success, build.logs.map(String).join("; ")).toBe(true);
         const bundledProbe = join(installed.releaseRoot, "bundle", "test", "release", "fixtures", "render-client-diff.js");
+        // Plain Bun inside the release stands in for vera-bin, so execPath-relative lookups resolve there.
+        copyFileSync(process.execPath, join(installed.releaseRoot, "bun"));
+        chmodSync(join(installed.releaseRoot, "bun"), 0o755);
         for (const entry of [probe, bundledProbe]) for (const cwd of [sourceRoot, workspace]) {
             const child = Bun.spawn([join(installed.releaseRoot, "bun"), entry, workspace], {
                 cwd, env: { ...process.env, VERA_HOME: join(scratch, "home") },

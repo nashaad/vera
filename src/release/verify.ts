@@ -5,7 +5,6 @@ import { join } from "node:path";
 import {
     packedAnnexRoot,
     RELEASE_ANNEX_NAME,
-    RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
     RELEASE_SESSION_WORKER_NAME,
@@ -30,7 +29,6 @@ const RELEASE_WRAPPERS = [
     RELEASE_SESSION_WORKER_NAME,
     RELEASE_ANNEX_NAME,
     RELEASE_SUPERVISOR_NAME,
-    RELEASE_BUN_NAME,
 ] as const;
 
 const RUNTIME_ENTRIES = [

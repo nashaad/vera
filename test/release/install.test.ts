@@ -14,7 +14,6 @@ import { dirname, join, resolve } from "node:path";
 import { installRelease } from "../../scripts/pack-release.ts";
 import {
     RELEASE_ANNEX_NAME,
-    RELEASE_BUN_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
     RELEASE_WORKER_NAME,
@@ -39,7 +38,7 @@ test("installRelease packs a runnable tree and points current at it", async () =
         expect(realpathSync(installed.current)).toBe(
             realpathSync(installed.releaseRoot),
         );
-        expect(existsSync(join(installed.releaseRoot, RELEASE_BUN_NAME))).toBe(true);
+        expect(existsSync(join(installed.releaseRoot, "bun"))).toBe(false);
         expect(existsSync(join(installed.releaseRoot, RELEASE_CLI_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_HOST_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_WORKER_NAME))).toBe(true);

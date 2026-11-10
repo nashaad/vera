@@ -1,8 +1,8 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, realpathSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { bundleRelease } from "./bundle.ts";
-import { packedAnnexRoot, RELEASE_BUN_NAME } from "./layout.ts";
+import { packedAnnexRoot } from "./layout.ts";
 import { writeSelfContainedWrappers } from "./wrappers.ts";
 
 const RUNTIME_ENTRIES = [
@@ -20,7 +20,6 @@ const RUNTIME_ENTRIES = [
 export async function assembleRunnableRelease(
     releaseRoot: string,
     sourceRoot: string,
-    bunPath: string = process.execPath,
 ): Promise<void> {
     if (!existsSync(packedAnnexRoot(releaseRoot))) {
         throw new Error(
@@ -56,10 +55,6 @@ export async function assembleRunnableRelease(
     writeFileSync(join(sdkPackage, "package.json"), JSON.stringify({ name: "vera", type: "module", main: "index.ts" }));
     writeFileSync(join(sdkPackage, "index.ts"), 'export * from "../../index.ts";\n');
     symlinkSync("../../src/sdk", join(sdkPackage, "sdk"));
-    const bunSource = realpathSync(bunPath);
-    const bunDest = join(releaseRoot, RELEASE_BUN_NAME);
-    cpSync(bunSource, bunDest);
-    chmodSync(bunDest, 0o755);
     await bundleRelease(releaseRoot, sourceRoot);
     writeSelfContainedWrappers(releaseRoot);
 }
