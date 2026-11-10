@@ -2,7 +2,7 @@ import { readdir, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { defaultHostSocketPath, readHostLockRecordFile } from "../lockfile.ts";
-import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
+import { checkRecordIdentity, processIsAlive, type RecordIdentity } from "../process-identity.ts";
 
 export interface WorkerStopIdentity {
     readonly pid: number;
@@ -52,13 +52,23 @@ export async function readRecordedWorkers(home: string): Promise<readonly Record
     return records;
 }
 
+export type RecordedWorkerState = RecordIdentity | "stopped";
+
+export function recordedWorkerState(record: WorkerStopIdentity): RecordedWorkerState {
+    if (!processIsAlive(record.pid)) return "stopped";
+    const identity = checkRecordIdentity(record);
+    // ps cannot read a process that exits after the liveness check.
+    return identity === "unknown" && !processIsAlive(record.pid) ? "stopped" : identity;
+}
+
+export function assertWorkerStopped(record: WorkerStopIdentity): void {
+    const state = recordedWorkerState(record);
+    if (state === "match") throw new Error(`Session process PID ${record.pid} is still running.`);
+    if (state === "unknown") throw new Error(`Could not confirm session process PID ${record.pid} stopped.`);
+}
+
 export async function assertRecordedWorkersStopped(home: string): Promise<void> {
-    for (const record of await readRecordedWorkers(home)) {
-        if (!processIsAlive(record.pid)) continue;
-        const identity = checkRecordIdentity(record);
-        if (identity === "match") throw new Error(`Session process PID ${record.pid} is still running.`);
-        if (identity === "unknown") throw new Error(`Could not confirm session process PID ${record.pid} stopped.`);
-    }
+    for (const record of await readRecordedWorkers(home)) assertWorkerStopped(record);
 }
 
 export async function removeStoppedPoolLock(

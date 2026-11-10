@@ -8,6 +8,7 @@ import { forceStopHostProcess } from "../force-stop.ts";
 import { requestHostIdentity, type HostIdentity } from "../protocol.ts";
 import type { WorkerHello } from "./worker-control.ts";
 import type { WorkerSocket } from "./worker-sockets.ts";
+import { recordedWorkerState } from "./worker-records.ts";
 
 export interface WorkerRecord {
     readonly id: string;
@@ -164,13 +165,15 @@ export async function settleWorkerRecords(
                 identity = await requestHostIdentity(record.socket_path);
             }
             if (identity === undefined) {
-                if (processIsAlive(record.pid)) {
-                    if (checkRecordIdentity(record) !== "match") throw new Error(`Could not verify session process PID ${record.pid}`);
+                const state = recordedWorkerState(record);
+                if (state !== "stopped") {
+                    if (state !== "match") throw new Error(`Could not verify session process PID ${record.pid}`);
                     try { process.kill(record.pid, "SIGKILL"); }
                     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
                     const until = performance.now() + 3_000;
                     while (processIsAlive(record.pid) && checkRecordIdentity(record) === "match" && performance.now() < until) await Bun.sleep(20);
-                    if (processIsAlive(record.pid) && checkRecordIdentity(record) !== "mismatch") {
+                    const after = recordedWorkerState(record);
+                    if (after === "match" || after === "unknown") {
                         throw new Error(`Could not stop session process PID ${record.pid}`);
                     }
                 }
