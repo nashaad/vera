@@ -6,6 +6,8 @@ import {
     describeGrantPredicate,
     tuiApprovalBody,
     tuiApprovalBodyText,
+    tuiApprovalPath,
+    tuiEditHunkLines,
     TUI_APPROVAL_BODY_LINES,
 } from "../../clients/tui/approval-body.ts";
 import {
@@ -202,6 +204,44 @@ test("a long call is capped until it is expanded", () => {
     expect(expanded.hidden).toBe(0);
     expect(expanded.lines.length)
         .toBe(capped.lines.length - 1 + capped.hidden);
+});
+
+test("repeated edit approvals preserve complete and collapsed hunks after input changes", () => {
+    const path = `${process.cwd()}/chart.txt`;
+    const hunk = {
+        old_string: Array.from({ length: 1500 }, (_, index) => `old ${index}`).join("\n"),
+        new_string: Array.from({ length: 1500 }, (_, index) => `new ${index}`).join("\n"),
+    };
+    const update = approval("edit", { path, edits: [hunk] });
+    const check = () => {
+        const all = [
+            { text: tuiApprovalPath(path), tone: "path" as const },
+            ...tuiEditHunkLines(hunk.old_string, hunk.new_string),
+        ];
+        const hidden = Math.max(0, all.length - TUI_APPROVAL_BODY_LINES);
+        expect(tuiApprovalBody(update, true)).toEqual({ lines: all, hidden: 0 });
+        expect(tuiApprovalBody(update, false)).toEqual(hidden === 0
+            ? { lines: all, hidden: 0 }
+            : {
+                lines: [
+                    ...all.slice(0, TUI_APPROVAL_BODY_LINES),
+                    { text: `… ${hidden} more lines · Ctrl+R expand`, tone: "muted" },
+                ],
+                hidden,
+            });
+    };
+    check();
+    check();
+    const first = tuiApprovalBody(update, true);
+    (first.lines[1] as { text: string }).text = "changed by a caller";
+    check();
+    hunk.old_string = "a\n--deck\nc\n";
+    check();
+    hunk.new_string = "a\n++sail\nc\n";
+    check();
+    const replacement = approval("edit", { path, edits: [{ old_string: "old", new_string: "new" }] });
+    expect(tuiApprovalBody(replacement, true).lines.slice(1))
+        .toEqual([...tuiEditHunkLines("old", "new")]);
 });
 
 test("ctrl+r expands the capped call in place", async () => {
