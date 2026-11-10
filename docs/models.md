@@ -296,6 +296,47 @@ back: `read`, `write`, both, or neither. `affinity_header` names a header
 that carries the conversation's id, for a gateway that pins a conversation to
 one server by it.
 
+### When the cache keeps missing
+
+The included `vera.cache` extension warns once per conversation when the
+provider keeps billing at full price input it had already cached:
+
+```text
+Prompt cache keeps missing: the last 20 calls to deepseek-flash re-read 1.4m tokens it had already cached (31% of their input).
+```
+
+It reads the cached input each reply reports and compares each call with the
+one before it on the same model. A re-read is the part of a call's input,
+up to the size of the previous call's input, that was not served from the
+cache. A call is left out when it comes five minutes or more after the
+previous one, when its input is less than 70% of the previous call's (as
+after a compaction), or when the provider has never reported a cache hit.
+The notice is for you only; it is not sent to the model.
+
+By default it looks at the last 20 calls and warns when their re-reads are
+at least 25% of their input and at least 250,000 tokens. To change that, find
+`vera.cache` in `/customize` under Extensions, note its absolute path, and
+add an explicit entry to the home's `config.json`:
+
+```json
+{
+    "extensions": [{
+        "path": "/absolute/path/to/extensions/cache",
+        "enabled": true,
+        "config": {
+            "window_calls": 20,
+            "min_share": 0.25,
+            "min_tokens": 250000
+        }
+    }]
+}
+```
+
+`window_calls` and `min_tokens` are whole numbers of 0 or more; `min_share` is
+a number from 0 to 1. Set any of them to `0` to turn the warning off, or run
+`/extension disable vera.cache`. A value out of range prevents the extension
+from activating.
+
 ## Keyboard reference
 
 The footer shows the action for the focused control. Typing or pasting from
