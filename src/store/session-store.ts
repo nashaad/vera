@@ -544,15 +544,20 @@ export class SessionStore {
     }
 
     entries(): readonly SessionMessageEntry[] {
-        return this.projection.messageEntries.slice();
+        return this.projection.messageEntries.map((entry) => ({ ...entry }));
     }
 
     activeEntries(): readonly SessionMessageEntry[] {
-        return activeBranchEntries(this.projection.messageEntries, this.projection.leafId);
+        // Entry copies protect branch indexes while preserving shared message identity.
+        return this.activeBranch().map((entry) => ({ ...entry }));
+    }
+
+    private activeBranch(): readonly SessionMessageEntry[] {
+        return this.projection.activeMessageEntries;
     }
 
     messages(): readonly ModelMessage[] {
-        return this.activeEntries().map((entry) => entry.message);
+        return this.activeBranch().map((entry) => entry.message);
     }
 
     queuedPrompts(): readonly SessionQueuedPromptEntry[] {
@@ -633,11 +638,11 @@ export class SessionStore {
     }
 
     activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {
-        return messageStamps(this.activeEntries());
+        return messageStamps(this.activeBranch());
     }
 
     deliveredMessages(): ReadonlyMap<ModelMessage, SessionDeliveryEntry> {
-        return deliveredMessages(this.activeEntries(), this.projection.deliveryEntries);
+        return deliveredMessages(this.activeBranch(), this.projection.deliveryEntries);
     }
 
     activeHeadId(): string | null {
@@ -645,15 +650,8 @@ export class SessionStore {
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
-        const activeEntries = this.activeEntries();
-        const activeMessageIds = new Set(
-            activeEntries.map((entry) => entry.id),
-        );
-        const deliveredOnActiveBranch = new Set(
-            activeEntries.flatMap((entry) =>
-                entry.deliveryId === undefined ? [] : [entry.deliveryId]
-            ),
-        );
+        const activeMessageIds = this.projection.activeMessagePositions;
+        const deliveredOnActiveBranch = this.projection.activeDeliveryIds;
         return this.projection.deliveryEntries.filter(
             (delivery) => {
                 const legacyMessageId = this.projection.legacyDeliveryMessageIds.get(
@@ -672,7 +670,7 @@ export class SessionStore {
     }
 
     hasUnansweredDeliveryTurn(): boolean {
-        return hasOpenDeliveryTurn(this.activeEntries(), this.projection.harnessMessageEntries);
+        return hasOpenDeliveryTurn(this.activeBranch(), this.projection.harnessMessageEntries);
     }
 
     modelSettings(): ModelTurnSettings | undefined {
@@ -823,7 +821,7 @@ export class SessionStore {
 
     repairCrashedTurn(options?: { readonly workerExited?: boolean }): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
-            const active = this.activeEntries();
+            const active = this.activeBranch().slice();
             if (this.projection.agentFailure !== undefined) return false;
             const turnOpen = this.projection.openTurnStartId !== undefined
                 && turnOpenAtTail(active, this.projection.harnessMessageEntries);
@@ -920,7 +918,7 @@ export class SessionStore {
             const startId = this.projection.openTurnStartId;
             if (startId === undefined || this.projection.agentFailure !== undefined) return false;
             this.requireActive();
-            const active = this.activeEntries();
+            const active = this.activeBranch().slice();
             const start = active.findIndex((entry) => entry.id === startId);
             if (start < 0) return false;
             const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
@@ -1009,7 +1007,7 @@ export class SessionStore {
     ): Promise<SessionHarnessMessageEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            const leaf = this.activeEntries().at(-1);
+            const leaf = this.activeBranch().at(-1);
             const afterMessageId = leaf?.message.role === "tool_result"
                 && visibleHeadId !== undefined && leaf.id !== visibleHeadId
                 ? visibleHeadId
@@ -1028,7 +1026,7 @@ export class SessionStore {
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] {
-        const active = this.activeEntries();
+        const active = this.activeBranch();
         return projectHarnessMessages(this.projection.harnessMessageEntries, active);
     }
 
@@ -1169,7 +1167,7 @@ export class SessionStore {
     }
 
     latestCompaction(): SessionCompactionEntry | undefined {
-        const active = this.activeEntries();
+        const active = this.activeBranch();
         return this.projection.compactionEntries.findLast(
             (entry) => compactionApplies(entry, active),
         );
@@ -1190,7 +1188,7 @@ export class SessionStore {
     }
 
     latestContextMeasurement(): ContextMeasurement | undefined {
-        const active = new Set(this.activeEntries().map((entry) => entry.id));
+        const active = this.projection.activeMessagePositions;
         const entries = this.projection.contextMeasurementEntries;
         for (let index = entries.length - 1; index >= 0; index -= 1) {
             const entry = entries[index]!;
@@ -1218,7 +1216,7 @@ export class SessionStore {
             ? []
             : [{ message: identity }];
         const compaction = this.latestCompaction();
-        const active = this.activeEntries();
+        const active = this.activeBranch();
         if (compaction === undefined) {
             return [...identityEntries, ...active];
         }
@@ -1306,7 +1304,7 @@ export class SessionStore {
             ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
             message: snapshot,
         };
-        if (this.projection.messageEntries.some((candidate) => candidate.id === entry.id)) {
+        if (this.projection.knownMessageIds.has(entry.id)) {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
@@ -1315,9 +1313,7 @@ export class SessionStore {
             : entry;
         await this.appendRecord(record);
 
-        this.projection.messageEntries.push(entry);
-        this.projection.knownMessageIds.add(entry.id);
-        this.projection.leafId = entry.id;
+        appendActiveMessage(this.projection, entry);
         applyTurnMessage(this.projection, entry, turnStart === true);
         if (turnStart === true) this.projection.unsentPrompts = [];
         if (unsentPrompts !== undefined) {
@@ -1542,9 +1538,7 @@ export class SessionStore {
         attachment: SessionImageAttachmentMetadata,
     ): Promise<SessionImageAttachmentMetadata> {
         const stored = attachment;
-        const existing = this.projection.attachmentEntries.find(
-            (entry) => entry.attachment.id === stored.id,
-        );
+        const existing = this.projection.attachmentsById.get(stored.id);
         if (existing !== undefined) {
             if (!sameAttachmentContent(existing.attachment, stored)) {
                 throw new Error(`Attachment ${stored.id} conflicts with stored metadata`);
@@ -1566,15 +1560,13 @@ export class SessionStore {
             ) {
                 throw error;
             }
-            this.projection.attachmentEntries.push({
+            addAttachmentEntry(this.projection, {
                 ...entry,
                 attachment: durable,
             });
-            this.projection.knownAttachmentIds.add(durable.id);
             return { ...durable };
         }
-        this.projection.attachmentEntries.push(entry);
-        this.projection.knownAttachmentIds.add(entry.attachment.id);
+        addAttachmentEntry(this.projection, entry);
         return { ...stored };
     }
 
@@ -1621,7 +1613,7 @@ export class SessionStore {
             type: "compaction",
             id: this.createId(),
             timestamp: this.now().toISOString(),
-            ...validateCompaction(request, this.activeEntries()),
+            ...validateCompaction(request, this.activeBranch()),
         };
         await this.appendRecord(entry);
         this.projection.compactionEntries.push(entry);
@@ -1635,7 +1627,7 @@ export class SessionStore {
             requestedUserMessageId,
             "rewind user-message ID",
         );
-        const boundary = this.activeEntries().find(
+        const boundary = this.activeBranch().find(
             (entry) => entry.id === userMessageId,
         );
         if (
@@ -1658,7 +1650,7 @@ export class SessionStore {
             headId: boundary.parentId,
         };
         await this.appendRecord(entry);
-        this.projection.leafId = entry.headId;
+        rewindActiveBranch(this.projection, entry.headId);
         this.projection.openTurnStartId = undefined;
         retainContextMeasurements(this.projection);
         return entry;
@@ -1991,10 +1983,7 @@ export async function readSessionTurnState(
 ): Promise<SessionTurnState> {
     const source = await readFile(path, "utf8");
     const loaded = parseSessionFile(path, completeSessionSource(path, source));
-    const active = activeBranchEntries(
-        loaded.state.messageEntries,
-        loaded.state.leafId,
-    );
+    const active = loaded.state.activeMessageEntries;
     return {
         sessionId: loaded.header.id,
         turnOpen: loaded.state.agentFailure === undefined
@@ -2060,10 +2049,7 @@ export async function readSessionSnapshot(
 ): Promise<ReadonlySessionSnapshot> {
     const source = await readFile(path, "utf8");
     const loaded = parseSessionFile(path, completeSessionSource(path, source));
-    const active = activeBranchEntries(
-        loaded.state.messageEntries,
-        loaded.state.leafId,
-    );
+    const active = loaded.state.activeMessageEntries;
     return {
         header: loaded.header,
         messages: active.map((entry) => entry.message),
@@ -2144,6 +2130,11 @@ function completeSessionSource(path: string, source: string): string {
 
 export interface SessionProjectionState {
     readonly messageEntries: SessionMessageEntry[];
+    // Message appends and rewinds update these indexes, including replica and repair appends.
+    // Compaction and harness records do not change the active branch.
+    readonly activeMessageEntries: SessionMessageEntry[];
+    readonly activeMessagePositions: Map<string, number>;
+    readonly activeDeliveryIds: Set<string>;
     readonly queuedPrompts: Map<string, SessionQueuedPromptEntry>;
     readonly knownQueuedPromptIds: Set<string>;
     unsentPrompts: readonly UnsentPrompt[];
@@ -2160,6 +2151,8 @@ export interface SessionProjectionState {
     readonly permissionGrantRevocationEntries:
         SessionPermissionGrantRevocationEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
+    // Attachments are append-only, including when an uncertain write is recovered.
+    readonly attachmentsById: Map<string, SessionAttachmentEntry>;
     readonly compactionEntries: SessionCompactionEntry[];
     readonly askEntries: SessionAskEntry[];
     readonly contextMeasurementEntries: SessionContextMeasurementEntry[];
@@ -2181,6 +2174,9 @@ export interface SessionProjectionState {
 export function createSessionProjectionState(): SessionProjectionState {
     return {
         messageEntries: [],
+        activeMessageEntries: [],
+        activeMessagePositions: new Map(),
+        activeDeliveryIds: new Set(),
         queuedPrompts: new Map(),
         knownQueuedPromptIds: new Set(),
         unsentPrompts: [],
@@ -2196,6 +2192,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         permissionGrantEntries: [],
         permissionGrantRevocationEntries: [],
         attachmentEntries: [],
+        attachmentsById: new Map(),
         compactionEntries: [],
         askEntries: [],
         contextMeasurementEntries: [],
@@ -2218,6 +2215,9 @@ function copyProjectionState(
 ): SessionProjectionState {
     return {
         messageEntries: [...state.messageEntries],
+        activeMessageEntries: [...state.activeMessageEntries],
+        activeMessagePositions: new Map(state.activeMessagePositions),
+        activeDeliveryIds: new Set(state.activeDeliveryIds),
         queuedPrompts: new Map(state.queuedPrompts),
         knownQueuedPromptIds: new Set(state.knownQueuedPromptIds),
         unsentPrompts: state.unsentPrompts,
@@ -2235,6 +2235,7 @@ function copyProjectionState(
             ...state.permissionGrantRevocationEntries,
         ],
         attachmentEntries: [...state.attachmentEntries],
+        attachmentsById: new Map(state.attachmentsById),
         compactionEntries: [...state.compactionEntries],
         askEntries: [...state.askEntries],
         contextMeasurementEntries: [...state.contextMeasurementEntries],
@@ -2251,6 +2252,32 @@ function copyProjectionState(
     };
 }
 
+function appendActiveMessage(state: SessionProjectionState, entry: SessionMessageEntry): void {
+    const stored = { ...entry };
+    state.messageEntries.push(stored);
+    state.knownMessageIds.add(stored.id);
+    state.activeMessagePositions.set(stored.id, state.activeMessageEntries.length);
+    state.activeMessageEntries.push(stored);
+    if (stored.deliveryId !== undefined) state.activeDeliveryIds.add(stored.deliveryId);
+    state.leafId = stored.id;
+}
+
+function rewindActiveBranch(state: SessionProjectionState, headId: string | null): void {
+    while (state.activeMessageEntries.length > 0 && state.activeMessageEntries.at(-1)?.id !== headId) {
+        const removed = state.activeMessageEntries.pop()!;
+        state.activeMessagePositions.delete(removed.id);
+        if (removed.deliveryId !== undefined) state.activeDeliveryIds.delete(removed.deliveryId);
+    }
+    state.leafId = headId;
+}
+
+function addAttachmentEntry(state: SessionProjectionState, entry: SessionAttachmentEntry): void {
+    const stored = { ...entry, attachment: { ...entry.attachment } };
+    state.attachmentEntries.push(stored);
+    state.attachmentsById.set(stored.attachment.id, stored);
+    state.knownAttachmentIds.add(stored.attachment.id);
+}
+
 export function ingestSessionRecord(
     path: string,
     lineNumber: number,
@@ -2258,7 +2285,6 @@ export function ingestSessionRecord(
     state: SessionProjectionState,
 ): void {
     const {
-        messageEntries,
         deliveryEntries,
         deliveryReceipts,
         legacyDeliveryMessageIds,
@@ -2270,7 +2296,6 @@ export function ingestSessionRecord(
         identityEntries,
         permissionGrantEntries,
         permissionGrantRevocationEntries,
-        attachmentEntries,
         compactionEntries,
         askEntries,
         knownMessageIds,
@@ -2343,12 +2368,7 @@ export function ingestSessionRecord(
                     `line ${lineNumber} has a non-internal delivery message`,
                 );
             }
-            if (
-                activeBranchEntries(messageEntries, state.leafId).some(
-                    (candidate) =>
-                        candidate.deliveryId === entry.deliveryId,
-                )
-            ) {
+            if (state.activeDeliveryIds.has(entry.deliveryId)) {
                 throw invalidSession(
                     path,
                     `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
@@ -2362,9 +2382,7 @@ export function ingestSessionRecord(
             }
             state.queuedPrompts.delete(entry.queuedPromptId);
         }
-        knownMessageIds.add(entry.id);
-        messageEntries.push(entry);
-        state.leafId = entry.id;
+        appendActiveMessage(state, entry);
         applyTurnMessage(state, entry, value.type === "turn_start");
         if (value.type === "turn_start") state.unsentPrompts = [];
         if (entry.unsentPrompts !== undefined) {
@@ -2420,9 +2438,7 @@ export function ingestSessionRecord(
             );
         }
         deliveryReceipts.add(receipt.deliveryId);
-        const activeHead = state.leafId === null
-            ? undefined
-            : messageEntries.find((entry) => entry.id === state.leafId);
+        const activeHead = state.activeMessageEntries.at(-1);
         if (
             activeHead !== undefined
             && activeHead.deliveryId === undefined
@@ -2505,9 +2521,7 @@ export function ingestSessionRecord(
     if (value.type === "attachment") {
         const entry = parseAttachmentEntry(path, lineNumber, value);
         if (knownAttachmentIds.has(entry.attachment.id)) {
-            const existing = attachmentEntries.find(
-                (candidate) => candidate.attachment.id === entry.attachment.id,
-            );
+            const existing = state.attachmentsById.get(entry.attachment.id);
             if (
                 existing !== undefined
                 && sameAttachmentContent(existing.attachment, entry.attachment)
@@ -2519,8 +2533,7 @@ export function ingestSessionRecord(
                 `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
             );
         }
-        knownAttachmentIds.add(entry.attachment.id);
-        attachmentEntries.push(entry);
+        addAttachmentEntry(state, entry);
         return;
     }
     if (value.type === "agent_failure") {
@@ -2536,10 +2549,8 @@ export function ingestSessionRecord(
                 `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
             );
         }
-        const boundary: SessionMessageEntry | undefined =
-            activeBranchEntries(messageEntries, state.leafId).find(
-                (entry) => entry.id === rewind.userMessageId,
-            );
+        const position = state.activeMessagePositions.get(rewind.userMessageId);
+        const boundary = position === undefined ? undefined : state.activeMessageEntries[position];
         if (
             boundary === undefined
             || boundary.message.role !== "user"
@@ -2556,7 +2567,7 @@ export function ingestSessionRecord(
                 `line ${lineNumber} has the wrong rewind target`,
             );
         }
-        state.leafId = rewind.headId;
+        rewindActiveBranch(state, rewind.headId);
         state.openTurnStartId = undefined;
         retainContextMeasurements(state);
         return;
@@ -2927,10 +2938,8 @@ function reachableContextMeasurementIndexes(
     state: SessionProjectionState,
     afterMessageIds: readonly (string | null)[],
 ): Set<number> {
-    const active = activeBranchEntries(state.messageEntries, state.leafId);
-    const positionById = new Map(
-        active.map((entry, index) => [entry.id, index] as const),
-    );
+    const active = state.activeMessageEntries;
+    const positionById = state.activeMessagePositions;
     const points = new Set<number>([-1]);
     if (active.length > 0) points.add(active.length - 1);
     for (let index = 0; index < active.length; index += 1) {
@@ -2957,17 +2966,12 @@ function reachableContextMeasurementIndexes(
         if (position !== undefined) latestAt.set(position, index);
     }
 
-    const positions = [...latestAt.keys()].sort((left, right) => left - right);
-    const sortedPoints = [...points].sort((left, right) => left - right);
     const kept = new Set<number>();
     let running = latestNull;
-    let cursor = 0;
-    for (const point of sortedPoints) {
-        while (cursor < positions.length && positions[cursor]! <= point) {
-            running = Math.max(running, latestAt.get(positions[cursor]!)!);
-            cursor += 1;
-        }
-        if (running >= 0) kept.add(running);
+    for (let position = -1; position < active.length; position += 1) {
+        const latest = latestAt.get(position);
+        if (latest !== undefined) running = Math.max(running, latest);
+        if (points.has(position) && running >= 0) kept.add(running);
     }
     return kept;
 }
@@ -3874,24 +3878,6 @@ function parseRewindEntry(
         previousHeadId: value.previousHeadId,
         headId: value.headId,
     };
-}
-
-function activeBranchEntries(
-    entries: readonly SessionMessageEntry[],
-    leafId: string | null,
-): readonly SessionMessageEntry[] {
-    const byId = new Map(entries.map((entry) => [entry.id, entry]));
-    const branch: SessionMessageEntry[] = [];
-    let currentId = leafId;
-    while (currentId !== null) {
-        const entry = byId.get(currentId);
-        if (entry === undefined) {
-            throw new Error(`Session entry ${currentId} is missing`);
-        }
-        branch.push(entry);
-        currentId = entry.parentId;
-    }
-    return branch.reverse();
 }
 
 function parseRemovedFileCheckpointEntry(

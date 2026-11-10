@@ -200,6 +200,20 @@ test("a close that fails after a durable write does not fail the append", async 
     expect(store.appendedLineCount()).toBe(3);
 });
 
+test("an attachment recovered after an uncertain write remains indexed", async () => {
+    const { path, store } = await createStore([{ syncFailsAfterWrite: true, truncateFails: true }]);
+    const sha256 = "a".repeat(64);
+    const attachment = {
+        id: `${sha256}.png`, name: "map.png", mediaType: "image/png" as const,
+        bytes: 10, width: 2, height: 2, sha256,
+    };
+
+    expect(await store.appendAttachment(attachment)).toEqual(attachment);
+    expect(await store.appendAttachment(attachment)).toEqual(attachment);
+    expect(store.attachmentRecords()).toEqual([attachment]);
+    expect((await SessionStore.open(path)).attachmentRecords()).toEqual([attachment]);
+});
+
 test("a rollback never cuts bytes another writer appended after ours", async () => {
     const foreignLine = JSON.stringify({
         type: "session_name",
