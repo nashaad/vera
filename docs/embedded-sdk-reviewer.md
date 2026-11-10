@@ -126,7 +126,11 @@ for (const finding of result.output.findings) {
 
 - `text`, including visible text from intermediate tool turns;
 - the provider and model that ran;
-- usage when the provider reports it;
+- this run's usage when the provider reports it, even when the run continues
+  a named session;
+- `tools`, the tools the agent ran in the order they started, each with its
+  call id, name, arguments, output, error flag and duration (output, error
+  flag and duration are absent when the run stopped before the tool finished);
 - routing substitutions;
 - a typed error for failed or aborted runs.
 

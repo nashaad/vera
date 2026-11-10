@@ -941,6 +941,58 @@ test("agent tools resolve relative paths against the workspace", async () => {
     }
 });
 
+test("a run result lists the tools the agent ran", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-tool-list-");
+    writeFileSync(join(workspace, "map.txt"), "X marks the crow's nest\n");
+    const parallelReads: AssistantMessage = {
+        role: "assistant",
+        content: [
+            { type: "tool_call", id: "call-map", name: "read", input: { path: "map.txt" } },
+            { type: "tool_call", id: "call-missing", name: "read", input: { path: "missing.txt" } },
+        ],
+        source: { provider: "faux", api: "test", model: "reviewer" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const vera = await scriptedVera([parallelReads, answer("found it")], [], { workspace });
+    try {
+        const result = await vera.agent(defineAgent({
+            name: "map-reader",
+            instructions: "Read the treasure map.",
+            tools: ["read"],
+        })).run("read the map");
+
+        expect(result.tools.map((call) => ({
+            id: call.id,
+            name: call.name,
+            args: call.args,
+            isError: call.isError,
+        }))).toEqual([
+            { id: "call-map", name: "read", args: { path: "map.txt" }, isError: false },
+            { id: "call-missing", name: "read", args: { path: "missing.txt" }, isError: true },
+        ]);
+        expect(result.tools[0]?.output).toContain("X marks the crow's nest");
+        expect(result.tools[0]?.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a continued session reports only this run's usage", async () => {
+    const vera = await scriptedVera([answer("first"), answer("second")]);
+    try {
+        const agent = vera.agent(basicDefinition());
+        const first = await agent.run("Count the gulls", { session: "deck" });
+        const second = await agent.run("Count them again", { session: "deck" });
+
+        expect(first.usage?.rows[0]).toMatchObject({ calls: 1, totalTokens: 5 });
+        expect(second.usage?.rows[0]).toMatchObject({ calls: 1, totalTokens: 5 });
+    } finally {
+        await vera.close();
+    }
+});
+
 test("vera.tool runs one tool without calling the model", async () => {
     const workspace = temporaryWorkspace("vera-sdk-tool-");
     writeFileSync(join(workspace, "note.txt"), "tool text\n");
