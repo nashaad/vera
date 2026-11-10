@@ -6,14 +6,14 @@ test("vera --version does not dispatch to a retained client", async () => {
     let dispatched = 0;
     let output = "";
     expect(await runCli(["--version"], {
-        version: "vera 0.0.4 (vera-c)",
+        version: "vera 0.1.0-alpha.1 (vera-c)",
         dispatchToHostRelease: async () => {
             dispatched += 1;
             return 0;
         },
         stdout: { write: (text) => output += text },
     })).toBe(0);
-    expect(output).toBe("vera 0.0.4 (vera-c)\n");
+    expect(output).toBe("vera 0.1.0-alpha.1 (vera-c)\n");
     expect(dispatched).toBe(0);
 });
 
