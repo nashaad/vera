@@ -34,13 +34,15 @@ removing a favorite does not clear a default assignment.
 3. Use Up/Down to highlight a model, then press Enter.
 4. If the model offers reasoning effort levels, choose one to finish.
 
-The list opens on your current model, your favorites, and the models you used
-recently in this conversation. Ctrl+G swaps it for every connected model,
-grouped by provider, and back. Typing searches favorites. Ctrl+G during that
-search keeps what you typed and searches every connected model. The current
-model and recent models are included only when they are favorites. With no
-favorites, typing searches every connected model. Ctrl+F adds or removes the
-highlighted favorite.
+When favorites exist, the picker opens on its saved scope, or Favorites by
+default. With no favorites, it opens on All connected even if Favorites was
+saved. In Favorites, the list starts with your current model, favorites, and
+models used recently in this conversation; All connected is grouped by
+provider. Click the header's scope chip or press Ctrl+G or Shift+Ctrl+G to
+switch scopes. Search follows the selected scope and keeps its query when you
+switch. The current model and recent models are included only when they are
+favorites. With no favorites, typing searches every connected model. Ctrl+F
+adds or removes the highlighted favorite.
 
 Switch model has no filters, sort, scores, prices, or details panel. Those are
 in `/models`.
@@ -107,9 +109,10 @@ Open Favorites from `/models`, highlight a model, and press Enter to add or
 remove it. Ctrl+S does the same on a highlighted model anywhere in the model
 page, and Ctrl+F does it in Switch model.
 
-Adding a provider saves no favorites. Until you add one, Switch model lists
-nothing at rest: type a name to search every connected model, or press Ctrl+G
-to list them all. Once you have a favorite, typing searches only favorites.
+Adding a provider saves no favorites. Until you add one, Switch model opens on
+All connected. Click its header scope chip or press Ctrl+G to switch to
+Favorites; typing searches every connected model while no favorites exist.
+Once you have a favorite, the saved scope is restored when Switch model opens.
 Recommended in `/models` shows Vera's curated picks for the connected
 providers.
 
@@ -350,16 +353,17 @@ any picker control moves into Search.
 | Ctrl+R | | Rename the highlighted model. |
 | Ctrl+Y | | Verify the highlighted model. |
 | Ctrl+K | | Open actions for the highlighted model. |
-| Ctrl+G | Swap Favorites and All connected, including during a search. | Move to the next scope: Favorites, Recommended, All connected. |
+| Ctrl+G | Switch between Favorites and All connected, including during a search. | Move to the next scope: Favorites, Recommended, All connected. |
 | Ctrl+D / Ctrl+U | Move half a page down / up. | Move half a page down / up. |
 | Space in the list | | Fold or unfold a provider group. |
 | Ctrl+A outside Search | | Show or hide extra variants. |
 | Tab / Shift+Tab | | Move between controls. |
 
-Switch model has no controls to move between: type to search, Up/Down to move,
-Enter to switch. In the model page's Search, Left/Right move the caret and
-Space enters a space. Arrows that have no action in the current control move
-focus to another control.
+In Switch model, click the header scope chip or use Ctrl+G to change scope;
+type to search, use Up/Down to move, and press Enter on a model to switch. In
+the model page's Search, Left/Right move the caret and Space enters a space.
+Arrows that have no action in the current control move focus to another
+control.
 
 Ctrl+K on a model opens actions for that model only: add or remove the
 favorite, verify it, and request options where the provider has them. The
@@ -386,5 +390,6 @@ reports each one. No TUI restart is needed.
 
 The older `vera shortlist` spelling remains an alias for `vera library`.
 
-The model page's collection, view, and sort persist under `model_picker` in
-the home's `tui.json`.
+The model picker's scope, view, and sort persist under `model_picker` in the
+home's `tui.json`. When favorites exist, Switch model opens on the saved scope;
+without favorites, it opens on All connected.

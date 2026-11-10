@@ -10,12 +10,12 @@ import {
     onSwitcherBrowseRow,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
+    toggleTuiModelSwitcherScope,
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
     switcherRowProvider,
     switcherScope,
-    switcherHeader,
     switcherScopeLabel,
     switcherStop,
     switcherUnlistedHint,
@@ -34,6 +34,11 @@ const rows: readonly TuiModelSwitcherRow[] = [
 const started = (context = {}) => startTuiModelSwitcher(rows, context);
 
 describe("model switcher ordering", () => {
+    test("a saved scope is restored when favorites exist", () => {
+        expect(startTuiModelSwitcher(rows, { scope: "favorites" }).scope).toBe("favorites");
+        expect(startTuiModelSwitcher(rows, { scope: "all" }).scope).toBe("all");
+    });
+
     test("the current model leads, then favorites, then recents", () => {
         const state = started({
             current: "openai/gpt-5.6-mini",
@@ -99,7 +104,6 @@ describe("model switcher search", () => {
         expect(typed("gpt").rows.map((row) => row.label)).toEqual(["GPT-5.6"]);
         expect(typed("qwen").rows).toEqual([]);
         expect(switcherScopeLabel(typed("gpt"))).toBe("Search favorites");
-        expect(switcherHeader(typed("gpt"), 80)).toBe("Switch model · Search favorites");
     });
 
     test("typing reaches a model from any provider", () => {
@@ -309,12 +313,6 @@ describe("model switcher scope", () => {
         expect(switcherScopeLabel(resting())).toBe("Favorites");
     });
 
-    test("the header shows both scopes with the current one filled", () => {
-        expect(switcherHeader(resting(), 80)).toBe("Switch model · ● Favorites  ○ All connected");
-        expect(switcherHeader(scoped(resting()), 80)).toBe("Switch model · ○ Favorites  ● All connected");
-        expect(switcherHeader(resting(), 30)).toBe("Switch model · Favorites");
-    });
-
     test("nothing is left over once the list holds everything", () => {
         expect(resting().hidden).toBeGreaterThan(0);
         expect(scoped(resting()).hidden).toBe(0);
@@ -342,6 +340,87 @@ describe("model switcher scope", () => {
 });
 
 describe("model switcher card", () => {
+    test("the scope dropdown toggles by mouse and fits the padded header", async () => {
+        const setup = await createTestRenderer({ width: 120, height: 36 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        let state = started();
+        view.onScope = () => {
+            state = toggleTuiModelSwitcherScope(state);
+            view.update(state);
+        };
+        view.update(state);
+        try {
+            await setup.renderOnce();
+            const lines = setup.captureCharFrame().split("\n");
+            const y = lines.findIndex((line) => line.includes("Switch model"));
+            const header = lines[y] ?? "";
+            const x = header.indexOf("Favorites");
+            expect(x).toBeGreaterThan(10);
+            expect(header).toContain("Ctrl+G scope");
+            expect(header.indexOf("esc") + 3).toBeLessThanOrEqual(96);
+            expect(lines[y - 1]?.trim()).toBe("");
+            expect(lines[y + 1]).toContain("─");
+            expect(lines[y + 2]).toContain("Your model, your favorites");
+            expect(lines[y + 3]?.trim()).toBe("");
+            expect(lines[y + 4]?.trim()).toBe("");
+            expect(lines[y + 5]).toContain("Search models");
+
+            await setup.mockMouse.click(x + 2, y);
+            await setup.flush();
+            expect(switcherScope(state)).toBe("all");
+            expect(setup.captureCharFrame()).toContain("All connected");
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
+    test("search scope names fit beside the title and scope hint", async () => {
+        const setup = await createTestRenderer({ width: 120, height: 36 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            const favorites = searchedTuiModelSwitcher(started(), "gpt");
+            view.update(favorites);
+            await setup.renderOnce();
+            let lines = setup.captureCharFrame().split("\n");
+            let y = lines.findIndex((line) => line.includes("Switch model"));
+            expect(lines[y]).toContain("Search favorites");
+            expect(lines[y]).toContain("Ctrl+G scope");
+            expect(lines[y]!.indexOf("esc") + 3).toBeLessThanOrEqual(96);
+
+            const all = handleTuiModelSwitcherKey(favorites, {
+                name: "g",
+                ctrl: true,
+            }).state!;
+            view.update(all);
+            await setup.renderOnce();
+            lines = setup.captureCharFrame().split("\n");
+            y = lines.findIndex((line) => line.includes("Switch model"));
+            expect(lines[y]).toContain("Search all connected models");
+            expect(lines[y]).toContain("Ctrl+G scope");
+            expect(lines[y]!.indexOf("esc") + 3).toBeLessThanOrEqual(96);
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
+    test("Ctrl+G reports the selected scope", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        let scope: string | undefined;
+        view.onScopeChange = (next) => { scope = next; };
+        try {
+            const transition = view.handleEditorKey(started(), { name: "g", ctrl: true });
+            expect(transition.handled).toBe(true);
+            expect(scope).toBe("all");
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
     test("the card keeps its place when ctrl+g fills the list", async () => {
         const setup = await createTestRenderer({ width: 100, height: 40 });
         const view = createTuiModelSwitcherView(setup.renderer);
@@ -386,25 +465,24 @@ describe("model switcher with no favorites", () => {
         { provider: "openai", model: "gpt-5.6", label: "GPT-5.6" },
     ];
 
-    test("the list stays empty and says how to fill it", () => {
+    test("saved Favorites falls back to every connected model", () => {
         const state = startTuiModelSwitcher(none, {
             current: "openai/gpt-5.6",
             recents: ["anthropic/claude-opus-5"],
+            scope: "favorites",
         });
-        expect(state.rows).toEqual([]);
-        expect(switcherEmptyMessage(state)).toBe(
-            "Your favorite models land here."
-                + " Ctrl+K to go get some, or type a name if you know one.",
-        );
-        expect(switcherFooterText(state)).toBe("type search · ⏎ browse · esc close");
+        expect(state.scope).toBe("all");
+        expect(state.rows.map((row) => row.label)).toEqual(["GPT-5.6", "Claude Opus 5"]);
     });
 
-    test("typing still finds every model", () => {
-        const state = searchedTuiModelSwitcher(startTuiModelSwitcher(none), "opus");
+    test("typing searches every connected model", () => {
+        const state = searchedTuiModelSwitcher(
+            startTuiModelSwitcher(none, { scope: "favorites" }),
+            "opus",
+        );
         expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5"]);
-        expect(switcherScope(state)).toBe("favorites");
+        expect(switcherScope(state)).toBe("all");
         expect(switcherScopeLabel(state)).toBe("Search all connected models");
-        expect(switcherHeader(state, 80)).toBe("Switch model · Search all connected models");
     });
 });
 
@@ -527,16 +605,14 @@ describe("model switcher favoriting", () => {
         expect(enter.selection?.label).toBe("Claude Opus 5");
     });
 
-    test("a non-favorite query narrows once favorites arrive", () => {
+    test("an All-scope query stays broad once favorites arrive", () => {
         const empty = startTuiModelSwitcher([], {});
         const typed = searchedTuiModelSwitcher(empty, "mini");
         expect(switcherScopeLabel(typed)).toBe("Search all connected models");
         const next = refreshedTuiModelSwitcher(typed, rows, []);
         expect(next.query).toBe("mini");
-        expect(next.rows).toEqual([]);
-        expect(switcherScopeLabel(next)).toBe("Search favorites");
-        expect(switcherEmptyMessage(next))
-            .toBe("No favorites match. Ctrl+G searches all connected models.");
+        expect(next.rows.map((row) => row.label)).toEqual(["GPT-5.6 mini"]);
+        expect(switcherScopeLabel(next)).toBe("Search all connected models");
     });
 
     test("the footer names the action the highlighted row would take", () => {

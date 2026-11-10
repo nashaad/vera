@@ -19,6 +19,7 @@ import {
     centeredDialogSurface,
     createDialogSearchNode,
     dialogActionRow,
+    dialogChipNode,
     dialogFooterNode,
     dialogHeaderNode,
     dialogOptionRows,
@@ -113,13 +114,20 @@ export function startTuiModelSwitcher(
         readonly current?: string;
         readonly recents?: readonly string[];
         readonly notice?: string;
+        readonly scope?: TuiModelSwitcherScope;
     } = {},
 ): TuiModelSwitcherState {
     const recents = context.recents ?? [];
-    const ordered = orderedRows(allRows, recents, "", context.current, "favorites");
+    const hasFavorites = allRows.some((row) => row.favorite === true);
+    const requestedScope = context.scope ?? "favorites";
+    const scope = requestedScope === "favorites" && !hasFavorites
+        ? "all"
+        : requestedScope;
+    const ordered = orderedRows(allRows, recents, "", context.current, scope);
     return {
         allRows,
         recents,
+        scope,
         ...(context.current === undefined ? {} : { current: context.current }),
         ...(context.notice === undefined ? {} : { notice: context.notice }),
         ...ordered,
@@ -194,10 +202,9 @@ export const MODEL_SWITCHER_SHORTLIST = 20;
 export const MODEL_SWITCHER_MATCHES = 20;
 
 /**
- * At rest the switcher answers "which model now?" with a handful: the current
- * model, your favorites, then what you used last. With no favorites it lists
- * nothing and says how to get some. Search follows the scope, and with no
- * favorites it covers the catalog.
+ * At rest the switcher lists the current model, favorites, and recents when
+ * favorites exist. With none, it opens on every connected model. Search follows
+ * the selected scope.
  */
 function orderedRows(
     allRows: readonly TuiModelSwitcherRow[],
@@ -327,7 +334,7 @@ export function handleTuiModelSwitcherKey(
     }
     // Ctrl+G means the same here as on the Browse page: change what the list holds.
     if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
-        return { state: scopedSwitcher(state), handled: true };
+        return { state: toggleTuiModelSwitcherScope(state), handled: true };
     }
     if (key.ctrl === true && key.name === "u") return moved(state, -PAGE_ROWS);
     if (key.ctrl === true && key.name === "d") return moved(state, PAGE_ROWS);
@@ -372,8 +379,10 @@ export function switcherScope(state: TuiModelSwitcherState): TuiModelSwitcherSco
     return state.scope ?? "favorites";
 }
 
-/** Ctrl+G swaps the short list for every connected model, and back. */
-function scopedSwitcher(state: TuiModelSwitcherState): TuiModelSwitcherState {
+/** Rebuilds the list in the other scope. */
+export function toggleTuiModelSwitcherScope(
+    state: TuiModelSwitcherState,
+): TuiModelSwitcherState {
     const scope: TuiModelSwitcherScope = switcherScope(state) === "all"
         ? "favorites"
         : "all";
@@ -456,6 +465,8 @@ export interface TuiModelSwitcherView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
+    onScope?: () => void;
+    onScopeChange?: (scope: TuiModelSwitcherScope) => void;
     focus(): void;
     handleEditorKey(
         state: TuiModelSwitcherState,
@@ -514,6 +525,11 @@ export function createTuiModelSwitcherView(
             search.editor.focus();
         },
         handleEditorKey(state, key): TuiModelSwitcherTransition {
+            if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
+                const next = toggleTuiModelSwitcherScope(state);
+                view.onScopeChange?.(switcherScope(next));
+                return { state: next, handled: true };
+            }
             if (
                 key.ctrl === true || key.meta === true
                 || key.name === "escape" || key.name === "up"
@@ -549,11 +565,39 @@ export function createTuiModelSwitcherView(
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
 
-            const hint = "Ctrl+G scope · esc";
+            const scopeLabel = state.query.trim().length > 0
+                ? switcherScopeLabel(state)
+                : switcherScope(state) === "all"
+                ? "All connected"
+                : "Favorites";
+            const scopeChip = dialogChipNode(renderer, scopeLabel, false, true);
+            scopeChip.id = "model-switcher-scope";
+            scopeChip.onMouseDown = (event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                renderer.clearSelection();
+                view.onScope?.();
+            };
+            const headerActions = new BoxRenderable(renderer, {
+                width: "auto",
+                height: 1,
+                flexDirection: "row",
+                flexShrink: 0,
+            });
+            headerActions.add(scopeChip);
+            headerActions.add(new TextRenderable(renderer, {
+                content: "Ctrl+G scope · esc",
+                fg: TUI_MUTED,
+                height: 1,
+                marginLeft: 2,
+                flexShrink: 0,
+            }));
             const header = dialogHeaderNode(
                 renderer,
-                switcherHeader(state, switcherContentWidth(renderer) - Bun.stringWidth(hint) - 2),
-                hint,
+                "Switch model",
+                "",
+                headerActions,
             );
             updateDialogSearchNode(
                 search,
@@ -820,15 +864,6 @@ export function switcherScopeLabel(state: TuiModelSwitcherState): string {
             : "Search all connected models";
     }
     return switcherScope(state) === "all" ? "All connected models" : "Favorites";
-}
-
-/** Both scopes with the current one filled, like More models; narrow cards name only the current one. */
-export function switcherHeader(state: TuiModelSwitcherState, width: number): string {
-    if (state.query.trim().length !== 0) return `Switch model · ${switcherScopeLabel(state)}`;
-    const current = switcherScope(state);
-    const scopes: readonly [TuiModelSwitcherScope, string][] = [["favorites", "Favorites"], ["all", "All connected"]];
-    const indicator = `Switch model · ${scopes.map(([scope, label]) => `${scope === current ? "●" : "○"} ${label}`).join("  ")}`;
-    return Bun.stringWidth(indicator) <= width ? indicator : `Switch model · ${switcherScopeLabel(state)}`;
 }
 
 /** A search that reached its limit says where the rest of the matches are. */
