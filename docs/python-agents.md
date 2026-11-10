@@ -90,6 +90,23 @@ Pass the same `session` name to successive `run()` calls on an instance to
 continue a conversation. Without a session name, each call starts fresh.
 The optional `timeout` argument sets the request timeout in seconds.
 
+## Read a named session's history
+
+Read pages from newest to oldest. Entries within each page are oldest first.
+The session belongs to this `Vera` instance and remains available until it closes.
+
+```python
+from vera.agent import Agent
+from vera.instance import Vera
+
+with Vera.create(workspace="/path/to/ship") as vera:
+    crow = Agent(name="lookout", instructions="Watch the horizon.", tools=[])
+    vera.run(crow, "Chart the island.", session="voyage")
+    for page in vera.history("voyage"):
+        for entry in page:
+            print(entry)
+```
+
 ## Shape a turn
 
 `run()` takes two optional functions. `prepare_turn` runs before the first

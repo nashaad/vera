@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
     existsSync,
     mkdirSync,
@@ -24,6 +24,8 @@ import {
 import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from
     "../../src/engine/prompt-contributions.ts";
 import { openSessionForRecovery, SessionStore } from "../../src/store/session-store.ts";
+import { historyPageFromStore } from "../../src/host/history-page.ts";
+import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -877,6 +879,108 @@ test("a named session carries the conversation into the next run", async () => {
     await expect(
         vera.agent(basicDefinition()).run("again", { session: "sales" }),
     ).rejects.toThrow("closed");
+});
+
+test("history pages match host pages and release the read-only store", async () => {
+    const before = instanceDirectories();
+    const vera = await scriptedVera([answer("ahoy")]);
+    try {
+        await vera.agent(basicDefinition()).run("Set sail", { session: "voyage" });
+        const directory = instanceDirectories().find((name) => !before.includes(name));
+        if (directory === undefined) throw new Error("missing instance directory");
+        const path = join(tmpdir(), directory, "sessions", "voyage.jsonl");
+        const header = JSON.parse(readFileSync(path, "utf8").split("\n")[0]!);
+        const records: object[] = [header];
+        for (let number = 0; number < 600; number += 1) {
+            records.push({
+                type: "message", id: `entry-${number}`,
+                parentId: number === 0 ? null : `entry-${number - 1}`,
+                timestamp: "2026-11-04T12:00:00.000Z",
+                message: { role: "user", content: [{ type: "text", text: `crow ${number}` }] },
+            });
+        }
+        writeFileSync(path, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+        const original = readFileSync(path, "utf8");
+        const store = await SessionStore.openReadOnly(path);
+        const expected: (readonly TranscriptEntry[])[] = [];
+        try {
+            let cursor: string | undefined;
+            do {
+                const page = await historyPageFromStore(store, cursor);
+                if (page.kind !== "page") throw new Error(page.kind);
+                expected.push(page.entries);
+                cursor = page.page.olderBefore;
+            } while (cursor !== undefined);
+        } finally {
+            await store.closeReadOnly();
+        }
+        const pages: (readonly TranscriptEntry[])[] = [];
+        for await (const page of vera.history("voyage")) pages.push(page);
+        expect(pages).toEqual(expected);
+        expect(pages.length).toBeGreaterThanOrEqual(3);
+        expect(pages.slice().reverse().flat().map((entry) => entry.id))
+            .toEqual(Array.from({ length: 600 }, (_, number) => `entry-${number}#0`));
+        expect(readFileSync(path, "utf8")).toBe(original);
+        const close = spyOn(SessionStore.prototype, "closeReadOnly");
+        try {
+            for await (const page of vera.history("voyage")) {
+                expect(page).toEqual(expected[0]!);
+                break;
+            }
+            expect(close).toHaveBeenCalledTimes(1);
+        } finally {
+            close.mockRestore();
+        }
+        const interrupted = vera.history("voyage");
+        expect((await interrupted.next()).value).toEqual(expected[0]!);
+        await vera.close();
+        await expect(interrupted.next()).rejects.toThrow("closed");
+    } finally {
+        await vera.close();
+    }
+});
+
+test("history validates names and closed instances", async () => {
+    const vera = await scriptedVera([answer("unused")]);
+    await expect(vera.history("missing").next()).rejects.toThrow("missing");
+    await expect(vera.history("../escape").next()).rejects.toThrow("Session name");
+    await vera.close();
+    await expect(vera.history("missing").next()).rejects.toThrow("closed");
+});
+
+test("reading history does not claim a session during a turn", async () => {
+    const vera = await Vera.create({
+        config: baseConfig(),
+        createAdapter: () => new FauxAdapter([answer("ahoy")], { chunkSize: 1, delayMs: 20 }),
+    });
+    try {
+        const agent = vera.agent(basicDefinition());
+        await agent.run("first", { session: "voyage" });
+        let entered!: () => void;
+        let release!: () => void;
+        const active = new Promise<void>((resolve) => { entered = resolve; });
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const running = agent.run("second", {
+            session: "voyage",
+            prepareTurn: async () => {
+                entered();
+                await gate;
+                return { power: "observe" };
+            },
+        });
+        await active;
+        try {
+            for await (const page of vera.history("voyage")) {
+                expect(page.length).toBeGreaterThan(0);
+                break;
+            }
+        } finally {
+            release();
+        }
+        expect((await running).outcome).toBe("completed");
+    } finally {
+        await vera.close();
+    }
 });
 
 test("runs without a session name do not share a conversation", async () => {

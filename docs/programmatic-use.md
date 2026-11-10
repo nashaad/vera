@@ -41,6 +41,23 @@ Replace `provider/model` with a model ID from `vera library list`.
 Both also work without print mode. The selected startup mode is saved with
 the conversation and restored on resume.
 
+## Read a named session's history
+
+Read pages from newest to oldest. Entries within each page are oldest first.
+The session belongs to this `Vera` instance and remains available until it closes.
+
+```ts
+import { Vera } from "vera";
+
+const vera = await Vera.create();
+const crow = vera.agent({ name: "lookout", instructions: "Watch the horizon.", tools: [] });
+await crow.run("Chart the island.", { session: "voyage" });
+for await (const page of vera.history("voyage")) {
+    for (const entry of page) console.log(entry);
+}
+await vera.close();
+```
+
 ## Exchange JSON messages
 
 `vera stdio` connects to the resident host and exchanges one JSON object per

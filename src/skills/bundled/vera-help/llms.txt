@@ -105,7 +105,7 @@ When a Codex model is selected, the terminal shows the account's subscription pe
 `/settings` then Footer layout lets you place the items under the composer in a grid of numbered slots and hide them; items in higher slots give way first when space runs short, a move that would leave an item out on a standard terminal is refused, and the layout saves to the home's `tui.json`. Manual: `docs/footer.md`.
 Manual: `docs/models.md`.
 
-## Conversations and background work [lines=23]
+## Conversations and background work [lines=24]
 `/resume` and `Ctrl+E` open the same searchable picker. Live work sits under `NEEDS YOU`, `ACTIVE`, and `IDLE`; parked files sit under `RECENT`. Space peeks at the highlighted conversation without switching; Escape closes the preview. Enter asks how to leave the one on screen: Stop & switch, or Switch, keep running. From Home, a saved-file view, or an empty conversation with no turn running, Enter switches directly. Slash commands typed at Home do not start a conversation. `/clear` (or `/new`), palette New conversation, and `Ctrl+N` from a live session ask Close this conversation or Keep running; New conversation also accepts `1` to close or `2` to keep running, acting immediately; `/clear stop` and `/clear keep` choose without asking. Keep running stays idle for ten minutes, then the host closes the worker. Home and file-view `Ctrl+N` start immediately.
 `/import` opens a picker of Claude Code and Codex sessions read from `~/.claude/projects` and `~/.codex/sessions` (or `$CLAUDE_CONFIG_DIR` and `$CODEX_HOME`), newest first, 200 at most, starting with this folder; Ctrl+G toggles all folders, rows already imported say `imported`, and Codex subagent sessions are left out. `vera import` prints the same list (`--all` for every folder). `/import <path>` or `vera import <path>` copies one session file into Vera as a new, resumable conversation, with no model call. Typed text is kept; tool calls become `[tool] <name> <argument>` lines and tool output is cut to 20 lines or 2 KB; thinking, subagents and compaction summaries are dropped. Lists mark it `[imported · Claude Code]` or `[imported · Codex]`. Importing an unchanged file again returns the same conversation.
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
@@ -118,6 +118,7 @@ After a restart or crash, the home screen lists the sessions whose turns were cu
 After a crash, the transcript marks the cut turn and unfinished tool calls have an unknown effect.
 After a crash, unanswered and queued prompts return unsent to the composer or its history.
 If a client falls behind, Vera can skip an intermediate transcript refresh and show the newer history.
+A program can read a named session's history page by page, newest first (`docs/programmatic-use.md`).
 Every client receives the latest page of a conversation when it attaches and asks for older pages as it needs them; a client that falls far behind is disconnected and reattaches. Manual: `docs/programmatic-use.md`.
 Finished tool results saved before a crash remain in the transcript.
 While Vera works or compacts, Escape stops it and leaves any draft in the composer; when idle, Escape clears a draft.

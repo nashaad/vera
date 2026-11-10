@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterator
 import dataclasses
 import json
 import os
@@ -256,6 +257,33 @@ class Vera:
             raise RuntimeError(f"Vera bun child sent an unexpected reply: {reply}")
         return str(reply["transcript" if transcript else "text"])
 
+    def history(self, session: str) -> Iterator[list[dict[str, object]]]:
+        if not isinstance(session, str) or _SESSION_NAME.fullmatch(session) is None:
+            raise ValueError(
+                "Vera.history session must be letters, digits, - or _, up to 64 characters"
+            )
+        before: str | None = None
+        while True:
+            request: dict[str, object] = {"type": "history", "session": session}
+            if before is not None:
+                request["before"] = before
+            reply = self._request(request, None)
+            entries = reply.get("entries")
+            cursor = reply.get("before")
+            if (
+                reply.get("type") != "history_page"
+                or "before" not in reply
+                or not isinstance(entries, list)
+                or not all(isinstance(entry, dict) for entry in entries)
+                or (cursor is not None and (not isinstance(cursor, str) or not cursor))
+            ):
+                raise RuntimeError(f"Vera bun child sent an unexpected reply: {reply}")
+            yield entries
+            if cursor is None:
+                return
+            before = cursor
+            del entries, reply, cursor
+
     def tool(self, name: str, input: dict[str, object] | None = None) -> str:
         """Runs one tool under this instance's posture and returns its output.
 
@@ -314,6 +342,8 @@ class Vera:
         if reentry_error is not None:
             raise reentry_error
         if reply.get("type") == "error":
+            if reply.get("kind") == "session_not_found":
+                raise LookupError(str(reply.get("message")))
             raise RuntimeError(f"Vera bun child failed: {reply.get('message')}")
         return reply
 
