@@ -7,6 +7,7 @@ import { registerExtensionTuiCommands, registerSkillTuiCommands } from "../comma
 import { updateTuiHelpCommands } from "../help.ts";
 import { anyOverlayOpen, describeModelPatch, focusActiveSurface, modelPatchSubject, renderCommandSuggestions, renderState, reportConnectionError, showStatusNotice } from "../main.ts";
 import { focusedAgentClient } from "../main/agents-dials.ts";
+import { invocationIsStale } from "./extension-invocation.ts";
 import { adoptFallbackSessionTitle, coreHelpCommands, registeredPaletteEntries } from "../main/chrome.ts";
 import { startTuiExtensionPicker, type TuiExtensionPickerAction } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, beginTuiTurn, queueTuiPrompt } from "../state.ts";
@@ -40,7 +41,7 @@ export function requestExtensionModelSettingsUpdate(rt: TuiRuntime,
         return Promise.reject(signal.reason);
     }
     const requestId = randomUUID();
-    const target = rt.extensionAgentTarget.getStore() ?? focusedAgentClient(rt);
+    const target = rt.extensionAgentTarget.getStore()?.target ?? focusedAgentClient(rt);
     return new Promise((resolve, reject) => {
         const onAbort = (): void => {
             rt.pendingExtensionSettings.delete(requestId);
@@ -191,6 +192,9 @@ export function requestExtensionPicker(rt: TuiRuntime,
 ): Promise<VeraClientPickerResult> {
     if (signal.aborted) {
         return Promise.reject(signal.reason);
+    }
+    if (invocationIsStale(rt)) {
+        return Promise.resolve({ outcome: "cancelled" });
     }
     if (rt.pendingExtensionPicker !== undefined || anyOverlayOpen(rt)) {
         return Promise.reject(

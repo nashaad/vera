@@ -242,6 +242,7 @@ test("harness messages replay outside model history", async () => {
     }]);
     expect(reopened.projectedHarnessMessages()).toEqual([{
         afterMessage: 1,
+        id: "harness:0",
         text: "Model changed.",
         tone: "soft",
     }]);
@@ -271,6 +272,7 @@ test("a harness marker after synchronized context follows the next user message"
     });
     expect(store.projectedHarnessMessages()).toEqual([{
         afterMessage: 2,
+        id: "harness:0",
         text: "Caught up.",
         tone: "soft",
     }]);

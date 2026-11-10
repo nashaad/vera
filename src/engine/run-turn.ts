@@ -589,7 +589,7 @@ export async function runHeadlessLoop(
                 ? null
                 : store.activeMessageStamps().get(last)?.id;
             await store.appendHarnessMessage(text, tone, afterMessageId);
-            protocol.checkpoint(messages);
+            protocol.checkpoint(messages, store.activeMessageStamps());
         },
         appendContext: async (contextMessages, harnessMessage) => {
             for (const message of contextMessages) {
@@ -601,7 +601,7 @@ export async function runHeadlessLoop(
                 harnessMessage.text,
                 harnessMessage.tone,
             );
-            protocol.checkpoint(messages);
+            protocol.checkpoint(messages, store.activeMessageStamps());
         },
         compactNow: async (turnActive, signal) => {
             await compactOnRequest?.(turnActive, signal);

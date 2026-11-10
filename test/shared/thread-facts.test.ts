@@ -53,6 +53,24 @@ test("a checkpoint becomes stored facts with ids, write times and turn length", 
     ]);
 });
 
+test("a checkpoint that carries loaded older entries keeps them ahead of the tail", () => {
+    const loaded = applyThreadUpdate(EMPTY_THREAD_FACTS, {
+        type: "history",
+        seq: 1,
+        entries: [
+            { kind: "assistant", text: "older answer", id: "m0#0", recordedAt: 500 },
+            { kind: "user", text: "latest question", id: "m1#0", recordedAt: 1_000 },
+        ],
+    }, 2_000);
+    const facts = applyThreadUpdate(loaded, { type: "user_prompt", content: "next", seq: 2 }, 3_000);
+
+    expect(threadFactEntries(facts)).toEqual([
+        { kind: "assistant", text: "older answer", id: "m0#0", at: 500 },
+        { kind: "user", text: "latest question", id: "m1#0", at: 1_000 },
+        { kind: "user", text: "next", at: 3_000 },
+    ]);
+});
+
 test("a live step that sends only newlines adds no assistant fact", () => {
     const blank = apply(EMPTY_THREAD_FACTS, [
         { type: "user_prompt", content: "dig", seq: 1 },

@@ -13,9 +13,10 @@ import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipCont
 import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
 import { setTextContent } from "../text-content.ts";
 import { resumeTuiTranscriptFollow, tuiTranscriptAtBottom } from "../transcript-scroll.ts";
-import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
+import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntriesEquivalent, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
 import type { TuiRuntime, TuiTranscriptSourceAnchor } from "./runtime.ts";
 import { BoxRenderable, MarkdownRenderable, TextBufferRenderable, TextRenderable, TextTableRenderable, type Renderable } from "@opentui/core";
+import { USER_ENTRY_CHROME_COLUMNS, USER_ENTRY_CHROME_ROWS, tuiUserEntryAttachments, tuiUserEntryText } from "../user-entry.ts";
 
 export function tipContext(rt: TuiRuntime, inModelPicker: boolean): TuiTipContext {
     const pooled = rt.state.modelSettings?.pooled ?? [];
@@ -135,6 +136,7 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
             - 1,
     );
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
+    if (entry.kind === "user") return margin + userEntryRows(rt, entry);
     if (entry.kind !== "thinking") {
         const known = estimatedRowsMemo.get(entry);
         if (known !== undefined && known.width === width && known.margin === margin) {
@@ -174,6 +176,39 @@ export function estimatedTranscriptRows(rt: TuiRuntime,
         rows += transcriptEntryRows(rt, entries, index);
     }
     return rows;
+}
+
+// node.screenY and node.height are written by render, so they lag any change
+// made since the last frame. Yoga is current once calculateLayout() has run.
+export function ensureTranscriptLayout(rt: TuiRuntime): void {
+    if (rt.renderer.root.getLayoutNode().isDirty()) rt.renderer.root.calculateLayout();
+}
+
+/** Top edge of the node's box in content coordinates, margin included. */
+export function transcriptNodeTop(rt: TuiRuntime, node: Renderable): number {
+    let top = 0;
+    let at: Renderable | null = node;
+    while (at !== null && at !== rt.transcript.content) {
+        top += at.getLayoutNode().getComputedLayout().top;
+        at = at.parent;
+    }
+    return top;
+}
+
+export function transcriptNodeHeight(node: Renderable): number {
+    return node.getLayoutNode().getComputedLayout().height;
+}
+
+// Mirrors createTuiUserEntry: padding around the text lines, then one chip row
+// per attachment, with a gap row above the chips when text is present.
+function userEntryRows(rt: TuiRuntime, entry: TuiTranscriptEntry): number {
+    const attachments = tuiUserEntryAttachments(entry).length;
+    const text = tuiUserEntryText(entry);
+    if (text.length === 0) return USER_ENTRY_CHROME_ROWS + Math.max(1, attachments);
+    const width = Math.max(8, mainTranscriptWidth(rt) - USER_ENTRY_CHROME_COLUMNS);
+    return USER_ENTRY_CHROME_ROWS
+        + transcriptEstimatedRows(rt, text, width)
+        + (attachments > 0 ? 1 + attachments : 0);
 }
 
 export function animateLiveToolHeaders(rt: TuiRuntime, frame: number): void {
@@ -306,7 +341,7 @@ export function addTranscriptEntryNode(rt: TuiRuntime,
 
 export function updateTranscriptSpacers(rt: TuiRuntime, 
     entries: readonly TuiTranscriptEntry[],
-): void {
+): number {
     const above = estimatedTranscriptRows(rt, entries, 0, rt.materializedEntryStart);
     const below = estimatedTranscriptRows(rt, 
         entries,
@@ -317,10 +352,12 @@ export function updateTranscriptSpacers(rt: TuiRuntime,
     rt.transcriptWindowTopSpacer.visible = above > 0;
     rt.transcriptWindowBottomSpacer.height = below;
     rt.transcriptWindowBottomSpacer.visible = below > 0;
+    return above;
 }
 
 export function topmostVisibleTranscriptEntry(rt: TuiRuntime): number | undefined {
-    const top = rt.transcript.viewport.screenY;
+    ensureTranscriptLayout(rt);
+    const top = rt.transcript.scrollTop;
     for (
         let index = rt.materializedEntryStart;
         index < rt.materializedEntryEnd;
@@ -328,13 +365,22 @@ export function topmostVisibleTranscriptEntry(rt: TuiRuntime): number | undefine
     ) {
         const node = rt.entryNodes[index];
         if (node === undefined || !node.visible) continue;
-        if (node.screenY + node.height > top) return index;
+        if (transcriptNodeTop(rt, node) + transcriptNodeHeight(node) > top) return index;
+    }
+    return undefined;
+}
+
+function topmostRenderedTranscriptEntry(rt: TuiRuntime): number | undefined {
+    const top = rt.transcript.viewport.screenY;
+    for (let index = rt.materializedEntryStart; index < rt.materializedEntryEnd; index += 1) {
+        const node = rt.entryNodes[index];
+        if (node !== undefined && node.visible && node.screenY + node.height > top) return index;
     }
     return undefined;
 }
 
 // screenY is refreshed only by a render pass, so after calculateLayout the computed layout is the fresh source.
-function transcriptNodeOffset(rt: TuiRuntime, node: Renderable): number {
+export function transcriptNodeOffset(rt: TuiRuntime, node: Renderable): number {
     let top = 0;
     for (let at: Renderable | null = node; at !== null; at = at.parent) {
         if (at === rt.transcript.content) return top - rt.transcript.scrollTop;
@@ -433,6 +479,7 @@ export function applyTranscriptScrollAnchor(rt: TuiRuntime): void {
     rt.pendingTranscriptScrollAnchor = undefined;
     const node = rt.entryNodes[anchor.index];
     if (node === undefined) return;
+    ensureTranscriptLayout(rt);
     const { width, height } = node.getLayoutNode().getComputedLayout();
     if (width !== anchor.width && anchor.source !== undefined && !anchor.source.node.isDestroyed) {
         const row = transcriptSourceRow(anchor.source);
@@ -475,7 +522,7 @@ export function clearTranscriptAnchorPadding(rt: TuiRuntime): void {
 
 export function captureTranscriptScrollAnchor(rt: TuiRuntime): void {
     rt.pendingTranscriptScrollAnchor = undefined;
-    const index = topmostVisibleTranscriptEntry(rt);
+    const index = topmostRenderedTranscriptEntry(rt);
     if (index === undefined) return;
     const node = rt.entryNodes[index];
     if (node === undefined) return;
@@ -533,9 +580,27 @@ export function renderTranscriptEntries(rt: TuiRuntime,
     if (rt.transcriptResizeAnchor !== undefined && rt.transcriptResizeAnchor.entries !== entries) {
         rt.transcriptResizeAnchor = undefined;
     }
+    const previousTop = topmostVisibleTranscriptEntry(rt);
+    const wasAtBottom = transcriptFollowsBottom(rt);
+    let reseedAnchorIndex: number | undefined;
     if (rt.pendingTranscriptReseed) {
         rt.pendingTranscriptReseed = false;
         reseedTranscriptNodes(rt, entries);
+        const anchor = rt.pendingHistoryAnchor;
+        if (anchor !== undefined && anchor.placed !== true) {
+            const index = entries.findIndex((entry) =>
+                entry.kind !== "diff" && entry.entryId === anchor.entryId
+            );
+            if (index !== -1) reseedAnchorIndex = index;
+        }
+    }
+    if (
+        reseedAnchorIndex === undefined
+        && !wasAtBottom
+        && previousTop !== undefined
+        && rt.entryNodes.length === 0
+    ) {
+        reseedAnchorIndex = Math.min(previousTop, entries.length - 1);
     }
     trimTranscriptWindow(rt, entries.length);
 
@@ -553,9 +618,31 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         rt.materializedEntryEnd = initial.start;
     }
 
+    // The reseed cleared every node. Materialize the window around the anchor
+    // now, before this render can paint an empty transcript.
+    let reseedAnchorStart: number | undefined;
+    if (reseedAnchorIndex !== undefined && rt.entryNodes.length === 0) {
+        const start = Math.max(
+            0,
+            Math.min(
+                reseedAnchorIndex - Math.floor(TUI_TRANSCRIPT_INITIAL_WINDOW / 2),
+                entries.length - TUI_TRANSCRIPT_INITIAL_WINDOW,
+            ),
+        );
+        rt.materializedEntryStart = start;
+        rt.materializedEntryEnd = start;
+        reseedAnchorStart = start;
+    }
+
     let materializeTo = transcriptFollowsBottom(rt)
         ? entries.length
         : Math.min(rt.materializedEntryEnd, entries.length);
+    if (reseedAnchorStart !== undefined) {
+        materializeTo = Math.min(
+            entries.length,
+            reseedAnchorStart + TUI_TRANSCRIPT_INITIAL_WINDOW,
+        );
+    }
 
     // Nodes exist only inside the materialized window, so the scan stops there.
     let changedKindAt = -1;
@@ -741,7 +828,7 @@ export function setTranscriptWindow(rt: TuiRuntime,
     entries: readonly TuiTranscriptEntry[],
     start: number,
     end: number,
-): void {
+): number {
     for (let index = rt.materializedEntryStart; index < rt.materializedEntryEnd; index += 1) {
         measureTranscriptEntryNode(rt, index);
         destroyTranscriptEntryNode(rt, index);
@@ -755,8 +842,9 @@ export function setTranscriptWindow(rt: TuiRuntime,
         );
     }
     rt.materializedEntryEnd = end;
-    updateTranscriptSpacers(rt, entries);
+    const above = updateTranscriptSpacers(rt, entries);
     rt.pendingTranscriptScrollAnchor = undefined;
+    return above;
 }
 
 export function snapTranscriptWindowToTail(rt: TuiRuntime, 
@@ -788,6 +876,119 @@ export function setTranscriptWindowAround(rt: TuiRuntime,
     );
 }
 
+export function transcriptEntryOffsetTop(rt: TuiRuntime,
+    entries: readonly TuiTranscriptEntry[],
+    index: number,
+): number {
+    ensureTranscriptLayout(rt);
+    const node = rt.entryNodes[index];
+    if (node !== undefined) return transcriptNodeTop(rt, node);
+    return estimatedTranscriptRows(rt, entries, 0, index);
+}
+
+export function shiftTranscriptWindowForPrepend(rt: TuiRuntime,
+    previousEntries: readonly TuiTranscriptEntry[],
+    delta: number,
+): boolean {
+    if (delta <= 0) return false;
+    const entries = rt.state.entries;
+    const start = rt.materializedEntryStart;
+    const end = rt.materializedEntryEnd;
+    if (end <= start || end + delta > entries.length) return false;
+    // Measured from the entries before the prepend. The spacer read-back is
+    // stale until layout, so it cannot serve as the previous height.
+    const previousSpacer = estimatedTranscriptRows(rt, previousEntries, 0, start);
+    let first = start;
+    while (first < end) {
+        const node = rt.entryNodes[first];
+        if (node === undefined) {
+            first += 1;
+            continue;
+        }
+        const source = rt.entryNodeSources.get(node);
+        if (tuiTranscriptEntriesEquivalent(source, entries[first + delta])) break;
+        first += 1;
+    }
+    for (let index = first; index < end; index += 1) {
+        const node = rt.entryNodes[index];
+        if (node === undefined) continue;
+        const source = rt.entryNodeSources.get(node);
+        if (!tuiTranscriptEntriesEquivalent(source, entries[index + delta])) {
+            return false;
+        }
+    }
+    if (first >= end) return false;
+    let droppedRows = 0;
+    for (let index = start; index < first; index += 1) {
+        droppedRows += transcriptEntryRows(rt, previousEntries, index);
+    }
+    for (let index = start; index < first; index += 1) {
+        destroyTranscriptEntryNode(rt, index);
+    }
+    shiftTranscriptEntrySlots(rt, first, end, delta);
+    // A pending anchor refers to pre-shift slot indices; applying it now
+    // would scroll to whichever entry took that slot.
+    rt.pendingTranscriptScrollAnchor = undefined;
+    rt.materializedEntryStart = first + delta;
+    rt.materializedEntryEnd = end + delta;
+    const spacerDelta = updateTranscriptSpacers(rt, entries) - previousSpacer;
+    // The pre-prepend scrollSize would clamp this move into a blank gap.
+    rt.transcript.verticalScrollBar.scrollSize = estimatedTranscriptRows(
+        rt,
+        entries,
+        0,
+        entries.length,
+    );
+    const target = rt.transcript.scrollTop + spacerDelta - droppedRows;
+    rt.transcript.scrollTo(target);
+    return true;
+}
+
+let transcriptMovingNodeId = 0;
+
+export function shiftTranscriptEntrySlots(rt: TuiRuntime,
+    from: number,
+    to: number,
+    delta: number,
+): void {
+    if (delta === 0) return;
+    const moved: {
+        index: number;
+        node: TextRenderable | MarkdownRenderable | BoxRenderable;
+        kind: TuiTranscriptEntry["kind"];
+        rows: number | undefined;
+    }[] = [];
+    for (let index = from; index < to; index += 1) {
+        const node = rt.entryNodes[index];
+        const kind = rt.entryNodeKinds[index];
+        if (node === undefined || kind === undefined) continue;
+        moved.push({
+            index,
+            node,
+            kind,
+            rows: rt.measuredEntryRows[index],
+        });
+        delete rt.entryNodes[index];
+        delete rt.entryNodeKinds[index];
+        delete rt.measuredEntryRows[index];
+        rt.reasoningRowCaches?.delete(index);
+    }
+    // A direct rename overwrites the parent map entry of the node that still
+    // owns the target id, and every later insert then loses its anchor.
+    for (const slot of moved) {
+        slot.node.id = `entry-move-${++transcriptMovingNodeId}`;
+    }
+    for (const slot of moved) {
+        const target = slot.index + delta;
+        slot.node.id = `entry-${target}`;
+        rt.entryNodes[target] = slot.node;
+        rt.entryNodeKinds[target] = slot.kind;
+        if (slot.rows === undefined) delete rt.measuredEntryRows[target];
+        else rt.measuredEntryRows[target] = slot.rows;
+        rt.reasoningRowCaches?.delete(target);
+    }
+}
+
 export function settleTranscriptScrollState(rt: TuiRuntime): void {
     const restore = rt.pendingTranscriptScrollRestore;
     if (restore !== undefined) {
@@ -801,6 +1002,36 @@ export function settleTranscriptScrollState(rt: TuiRuntime): void {
         else rt.transcript.scrollTo(restore.scrollTop);
     }
     applyTranscriptScrollAnchor(rt);
+}
+
+// A press can move the view above the window by more than the materialize
+// buffer. FRAME never extends the window that far, so this runs before paint.
+export function reanchorTranscriptWindowAboveView(rt: TuiRuntime): boolean {
+    const entries = rt.state.entries;
+    if (entries.length === 0 || rt.materializedEntryStart === 0) return false;
+    ensureTranscriptLayout(rt);
+    const spacerHeight = transcriptNodeHeight(rt.transcriptWindowTopSpacer);
+    if (spacerHeight <= 0) return false;
+    const viewport = Math.max(1, rt.transcript.viewport.height);
+    const buffer = viewport * TUI_TRANSCRIPT_MATERIALIZE_BUFFER;
+    const windowEdge = transcriptNodeTop(rt, rt.transcriptWindowTopSpacer)
+        + spacerHeight;
+    const top = rt.transcript.scrollTop;
+    if (top + viewport + buffer >= windowEdge) return false;
+    let index = 0;
+    let rowsAbove = 0;
+    for (; index < rt.materializedEntryStart; index += 1) {
+        const rows = transcriptEntryRows(rt, entries, index);
+        if (rowsAbove + rows > top) break;
+        rowsAbove += rows;
+    }
+    setTranscriptWindowAround(rt, entries, index);
+    ensureTranscriptLayout(rt);
+    const node = rt.entryNodes[index];
+    if (node !== undefined && node.visible) {
+        rt.transcript.scrollTo(transcriptNodeTop(rt, node) + top - rowsAbove);
+    }
+    return true;
 }
 
 export function maybeMaterializeEarlierTranscriptEntries(rt: TuiRuntime): boolean {

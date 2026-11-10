@@ -1863,6 +1863,7 @@ test("a branch synchronizes completed source turns before its next request", asy
             { kind: "user", text: "S2" },
             {
                 kind: "harness",
+                id: "harness:0",
                 text: "Caught up with 2 new turns from the primary conversation.",
                 tone: "soft",
             },
@@ -2992,7 +2993,7 @@ test("a resumed registry marks an interrupted delivery without retrying it", asy
         expect(await attachment.receive()).toMatchObject({
             type: "history",
             entries: expect.arrayContaining([
-                { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
+                { kind: "harness", id: "harness:0", text: "Vera crashed before this turn finished.", tone: "soft" },
             ]),
         });
         expect((await SessionStore.open(sessionPath)).hasUnansweredDeliveryTurn())

@@ -8,14 +8,16 @@ import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationCon
 import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { markSearchLanding } from "../main/chrome.ts";
+import { maybeRequestEarlierHistory } from "../main/history-paging.ts";
 import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
-import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip, transcriptFollowsBottom } from "../main/transcript-nodes.ts";
+import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, ensureTranscriptLayout, renderTranscriptEntries, setTranscriptWindowAround, shiftTranscriptEntrySlots, shiftTranscriptWindowForPrepend, takeTip, transcriptFollowsBottom, transcriptNodeTop } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptReusablePrefix, tuiTranscriptReusableTail } from "../transcript-window.ts";
+import { transcriptEntryHasId } from "../transcript-entry-id.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
 import { subagentTitle } from "../subagent-title.ts";
@@ -505,9 +507,38 @@ export function renderState(rt: TuiRuntime): void {
     const entries = withImportRows(rt.state.entries, imported);
     if (entries !== rt.state.entries) rt.state = { ...rt.state, entries };
     renderTranscriptEntries(rt, rt.state.entries);
+    applyPendingHistoryAnchor(rt);
 
     showSearchTarget(rt);
     renderStatus(rt);
+}
+
+function applyPendingHistoryAnchor(rt: TuiRuntime): void {
+    const anchor = rt.pendingHistoryAnchor;
+    if (anchor === undefined || anchor.placed === true) return;
+    const index = rt.state.entries.findIndex((entry) =>
+        entry.kind !== "diff" && entry.entryId === anchor.entryId
+    );
+    if (index === -1) {
+        rt.pendingHistoryAnchor = undefined;
+        return;
+    }
+    // A page load reseeds the transcript, which schedules a scroll restore.
+    // The entry-id anchor replaces that restore for this frame.
+    rt.pendingTranscriptScrollRestore = undefined;
+    // The window reaches above the anchor, so the rows the view shows above it
+    // are materialized in this frame.
+    setTranscriptWindowAround(rt, rt.state.entries, index);
+    // The anchor's box top is read from the fresh layout, which includes its own margin.
+    ensureTranscriptLayout(rt);
+    const node = rt.entryNodes[index];
+    if (node === undefined || !node.visible) {
+        // The entry was folded after capture, so its layout top is not a position.
+        rt.pendingHistoryAnchor = undefined;
+        return;
+    }
+    rt.transcript.scrollTo(transcriptNodeTop(rt, node) - anchor.offset);
+    anchor.placed = true;
 }
 
 export function showSearchTarget(rt: TuiRuntime): void {
@@ -515,11 +546,38 @@ export function showSearchTarget(rt: TuiRuntime): void {
     if (target === undefined || rt.client.agentId !== target.sessionId) {
         return;
     }
-    const index = rt.state.entries.findIndex((entry) =>
-        entry.kind !== "diff"
-        && transcriptMessageId(entry.entryId) === target.entryId
+    let index = target.exactEntryId === undefined ? -1 : rt.state.entries.findIndex((entry) =>
+        transcriptEntryHasId(entry, target.exactEntryId!)
     );
+    if (index === -1 && target.exactEntryId !== undefined
+        && rt.state.historyWindow?.entries.some((entry) => entry.id === target.exactEntryId) !== true) {
+        rt.pendingSearchTarget = undefined;
+        target.onRevealed?.(false);
+        return;
+    }
     if (index === -1) {
+        index = rt.state.entries.findIndex((entry) => transcriptMessageId(entry.entryId) === target.entryId);
+    }
+    const selected = rt.state.entries[index];
+    let hiddenTool = false;
+    if (target.onRevealed !== undefined && selected?.kind === "tool" && selected.hidden === true) {
+        hiddenTool = true;
+        index = rt.state.entries.findLastIndex((entry, candidate) => candidate < index && entry.kind === "tool_header");
+    }
+    if (index === -1) {
+        if (target.onRevealed !== undefined) {
+            rt.pendingSearchTarget = undefined;
+            target.onRevealed(false);
+            return;
+        }
+        if (rt.state.earlierHistory === "too_large") {
+            rt.pendingSearchTarget = undefined;
+            return;
+        }
+        if (rt.state.historyWindow?.hasEarlier === true) {
+            maybeRequestEarlierHistory(rt, { force: true });
+            return;
+        }
         if (rt.state.entries.length > 0) rt.pendingSearchTarget = undefined;
         return;
     }
@@ -530,16 +588,18 @@ export function showSearchTarget(rt: TuiRuntime): void {
     }
     if (rt.measuredEntryRows[index] === undefined) return;
     rt.pendingSearchTarget = undefined;
-    rt.searchLanding = {
+    rt.searchLanding = hiddenTool ? undefined : {
         sessionId: target.sessionId,
         entryId: target.entryId,
+        ...(target.exactEntryId === undefined ? {} : { exactEntryId: target.exactEntryId }),
     };
     const landed = rt.state.entries[index];
-    if (landed !== undefined) markSearchLanding(rt, landed, node);
+    if (landed !== undefined && !hiddenTool) markSearchLanding(rt, landed, node);
     rt.transcriptResizeAnchor = undefined;
     rt.transcript.scrollTo(
         rt.transcript.scrollTop + node.screenY - rt.transcript.viewport.screenY,
     );
+    target.onRevealed?.(true);
 }
 
 export function drawWorkspaceSidebar(rt: TuiRuntime): void {
@@ -611,42 +671,6 @@ export function anyOverlayOpen(rt: TuiRuntime): boolean {
         || rt.sessionCloseConfirm
         || rt.providerForgetCandidate !== undefined
         || rt.jumpMenu !== undefined;
-}
-
-export function shiftTranscriptEntrySlots(rt: TuiRuntime, 
-    from: number,
-    to: number,
-    delta: number,
-): void {
-    if (delta === 0) return;
-    const moved: {
-        node: TextRenderable | MarkdownRenderable | BoxRenderable;
-        kind: TuiTranscriptEntry["kind"];
-        rows: number | undefined;
-    }[] = [];
-    for (let index = from; index < to; index += 1) {
-        const node = rt.entryNodes[index];
-        const kind = rt.entryNodeKinds[index];
-        if (node === undefined || kind === undefined) continue;
-        moved.push({
-            node,
-            kind,
-            rows: rt.measuredEntryRows[index],
-        });
-        delete rt.entryNodes[index];
-        delete rt.entryNodeKinds[index];
-        delete rt.measuredEntryRows[index];
-        rt.reasoningRowCaches?.delete(index);
-    }
-    moved.forEach((slot, offset) => {
-        const target = from + delta + offset;
-        slot.node.id = `entry-${target}`;
-        rt.entryNodes[target] = slot.node;
-        rt.entryNodeKinds[target] = slot.kind;
-        if (slot.rows === undefined) delete rt.measuredEntryRows[target];
-        else rt.measuredEntryRows[target] = slot.rows;
-        rt.reasoningRowCaches?.delete(target);
-    });
 }
 
 export function reseedTranscriptNodes(rt: TuiRuntime, 

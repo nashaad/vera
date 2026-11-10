@@ -18,6 +18,7 @@ import {
 import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
 } from "../../src/host/capabilities.ts";
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
@@ -1163,6 +1164,94 @@ socketTest(
 );
 
 socketTest(
+    "a deliberate release rejects a waiting history page with AbortError",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await releasingHost(socketPath);
+        const client = await attachAgent({
+            socketPath,
+            agentId: "agent-1",
+            requestedCapabilities: [
+                HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+                HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            ],
+        });
+        try {
+            const page = client.requestHistoryPage("older-1").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            expect(await client.release?.("stop_if_last")).toEqual({
+                outcome: "stopped",
+                remainingInteractiveClients: 0,
+                sessionRetained: true,
+            });
+            const failure = await page;
+            expect(failure).toBeInstanceOf(Error);
+            expect((failure as Error).name).toBe("AbortError");
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+socketTest(
+    "detaching rejects a waiting history page with AbortError",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await releasingHost(socketPath);
+        const client = await attachAgent({
+            socketPath,
+            agentId: "agent-1",
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        });
+        try {
+            const page = client.requestHistoryPage("older-1").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            await client.detach();
+            expect((await page as Error).name).toBe("AbortError");
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+for (const action of ["detach", "release"] as const) {
+    socketTest(`${action} rejects a waiting page before the host replies`, async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const acknowledgement = Promise.withResolvers<void>();
+        const server = await releasingHost(socketPath, acknowledgement.promise);
+        const client = await attachAgent({
+            socketPath,
+            agentId: "agent-1",
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE],
+        });
+        let leaving: Promise<unknown> | undefined;
+        try {
+            const page = client.requestHistoryPage("older-1").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            leaving = action === "detach" ? client.detach() : client.release!("stop_if_last");
+            const failure = await Promise.race([page, Bun.sleep(1_000).then(() => undefined)]);
+            expect((failure as Error | undefined)?.name).toBe("AbortError");
+        } finally {
+            acknowledgement.resolve();
+            await leaving?.catch(() => undefined);
+            client.close();
+            await closeServer(server);
+        }
+    });
+}
+
+socketTest(
     "a skipped unknown update does not move lastSequence past buffered known updates",
     async () => {
         const directory = temporaryDirectory();
@@ -1228,6 +1317,54 @@ socketTest(
         }
     },
 );
+async function releasingHost(
+    socketPath: string,
+    acknowledgement: Promise<void> = Promise.resolve(),
+): Promise<ReturnType<typeof createServer>> {
+    const server = createServer((socket) => {
+        let buffered = "";
+        socket.on("data", (chunk: Buffer) => {
+            buffered += chunk.toString("utf8");
+            let newline = buffered.indexOf("\n");
+            while (newline !== -1) {
+                const command = JSON.parse(buffered.slice(0, newline)) as {
+                    type?: unknown;
+                    requested_capabilities?: readonly string[];
+                };
+                buffered = buffered.slice(newline + 1);
+                if (command.type === "attach") {
+                    socket.write(`${JSON.stringify({
+                        type: "attached",
+                        agent_id: "agent-1",
+                        workspace: "/work/one",
+                        background_agents: NO_BACKGROUND_AGENTS,
+                        capabilities: [
+                            HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+                            HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+                        ].filter((capability) => command.requested_capabilities?.includes(capability) === true),
+                    })}\n`);
+                } else if (command.type === "release_attachment") {
+                    const reply = `${JSON.stringify({
+                        type: "attachment_released",
+                        agent_id: "agent-1",
+                        outcome: "stopped",
+                        remaining_interactive_clients: 0,
+                        session_retained: true,
+                    })}\n`;
+                    void acknowledgement.then(() => socket.write(reply));
+                } else if (command.type === "detach") {
+                    void acknowledgement.then(() => socket.write(`${JSON.stringify({ type: "detached" })}\n`));
+                }
+                newline = buffered.indexOf("\n");
+            }
+        });
+    });
+    await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, resolve);
+    });
+    return server;
+}
 
 function temporaryDirectory(): string {
     const directory = mkdtempSync(join("/private/tmp", "vera-attached-client-"));

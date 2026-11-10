@@ -21,6 +21,8 @@ import { refreshProviderPicker } from "./model-pickers.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
 import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
+import { historyUserPrompts, historyWindowFirstUserText } from "../../shared/history-window.ts";
+import { cancelExtensionReveal, failExtensionReveal } from "./extension-reveal.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -595,9 +597,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 }
             }
             if (update.type === "history") {
-                const userPrompts = update.entries.flatMap((entry) => entry.kind === "user"
-                    ? [{ text: entry.text, attachmentIds: entry.attachments?.map((attachment) => attachment.id) }]
-                    : []);
+                const userPrompts = rt.state.knownUserPrompts ?? historyUserPrompts(update.entries);
                 const unsent = update.unsentPrompts?.map((prompt) => ({
                     text: prompt.content,
                     ...(prompt.attachmentIds === undefined ? {} : { attachmentIds: prompt.attachmentIds }),
@@ -610,8 +610,11 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     }
                 }
                 rt.composer.loadSubmittedPrompts(userPrompts);
-                if (userPrompts[0] !== undefined) {
-                    adoptFallbackSessionTitle(rt, userPrompts[0].text);
+                const firstText = rt.state.historyWindow === undefined
+                    ? userPrompts[0]?.text
+                    : historyWindowFirstUserText(rt.state.historyWindow);
+                if (firstText !== undefined) {
+                    adoptFallbackSessionTitle(rt, firstText);
                 }
                 rt.pendingTranscriptReseed = true;
                 rt.transcriptSeeded = true;
@@ -693,6 +696,16 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
         }
     } catch (error) {
         if (generation === rt.clientGeneration) {
+            const pending = rt.pendingExtensionReveal;
+            if (pending !== undefined) {
+                if (rt.sessionSwitchPending || (error instanceof Error
+                    && (error.message === "Agent attachment is detached"
+                        || error.message === "Agent attachment is released"))) {
+                    cancelExtensionReveal(rt);
+                } else {
+                    failExtensionReveal(rt, pending, error);
+                }
+            }
             failPendingSkillInvocations(rt);
             rejectPendingExtensionSettingsFor(rt, rt.client, error);
             reportConnectionError(

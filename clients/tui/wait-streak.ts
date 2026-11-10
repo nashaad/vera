@@ -2,6 +2,7 @@ import type {
     TuiTextTranscriptEntry,
     TuiTranscriptEntry,
 } from "./state.ts";
+import { withTranscriptEntryAlias } from "./transcript-entry-id.ts";
 
 // Folds consecutive `process` reads of one background process into a single
 // Waiting/Waited row group.
@@ -78,6 +79,7 @@ export function withWaitPoll(
     processId: string,
     command: string,
     live: boolean,
+    entryId?: string,
 ): TuiTranscriptEntry[] {
     const previousIndex = entries.findLastIndex((entry) => !isSkippable(entry));
     const previous = entries[previousIndex];
@@ -86,7 +88,12 @@ export function withWaitPoll(
         && previous.kind === "tool"
         && previous.waitProcessId === processId
     ) {
-        if (!live || previous.result !== true) return [...entries];
+        if (!live || previous.result !== true) {
+            const callIndex = waitCallIndex(entries, processId);
+            return entries.map((entry, index) => index === callIndex && entry.kind === "tool"
+                ? withTranscriptEntryAlias(entry, entryId)
+                : entry);
+        }
         const callIndex = waitCallIndex(entries, processId);
         const headerIndex = callIndex === -1
             ? -1
@@ -128,6 +135,7 @@ export function withWaitPoll(
         prefix: CALL_PREFIX,
         text: command,
         waitProcessId: processId,
+        ...(entryId === undefined ? {} : { entryId }),
     };
     return [...entries, headerEntry, callEntry];
 }
@@ -138,6 +146,7 @@ export function withWaitResult(
     entries: readonly TuiTranscriptEntry[],
     processId: string | undefined,
     resultText: string | undefined,
+    entryId?: string,
 ): TuiTranscriptEntry[] | undefined {
     const callIndex = waitCallIndex(entries, processId);
     if (callIndex === -1) return undefined;
@@ -186,11 +195,11 @@ export function withWaitResult(
             };
         }
         if (index === resultIndex && entry.kind === "tool") {
-            return {
+            return withTranscriptEntryAlias({
                 ...entry,
                 header: WAIT_SETTLED_HEADER,
                 text: resultText ?? entry.text,
-            };
+            }, entryId);
         }
         return entry;
     });
@@ -202,6 +211,7 @@ export function withWaitResult(
             prefix: CALL_PREFIX,
             text: resultText,
             waitProcessId,
+            ...(entryId === undefined ? {} : { entryId }),
         });
     }
     return next;

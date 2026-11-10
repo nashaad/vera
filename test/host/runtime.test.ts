@@ -1288,7 +1288,7 @@ socketTest(
                         text: "stored prompt",
                         recordedAt: expect.any(Number),
                     },
-                    { kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
+                    { id: "harness:0", kind: "harness", text: "Vera crashed before this turn finished.", tone: "soft" },
                 ],
                 unsentPrompts: [{ content: "stored prompt" }],
                 usage: { rows: [] },

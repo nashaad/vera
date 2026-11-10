@@ -511,6 +511,19 @@ export class TuiComposer extends TextareaRenderable {
         this.onHistorySelection?.(prompt.attachmentIds ?? []);
     }
 
+    prependSubmittedTexts(texts: readonly string[]): void {
+        this.prependSubmittedPrompts(texts.map((text) => ({ text })));
+    }
+
+    prependSubmittedPrompts(prompts: readonly ComposerHistoryPrompt[]): void {
+        const recoveredKeys = new Set(this.recoveredPrompts.map(historyPromptKey));
+        const older = prompts.filter((prompt) => (prompt.text.length > 0 || (prompt.attachmentIds?.length ?? 0) > 0)
+            && !recoveredKeys.has(historyPromptKey(prompt)));
+        if (older.length === 0) return;
+        this.submittedTexts = [...older.map((prompt) => structuredClone(prompt)), ...this.submittedTexts];
+        this.submittedTextIndex = undefined;
+    }
+
     setComposerText(text: string): void {
         this.collapsedPastes = [];
         this.collapsedPasteExtmarks.clear();

@@ -17,6 +17,7 @@ test("a single upward line leaves follow until scrolling down", async () => {
     setup.renderer.root.add(transcript);
     const rt = {
         transcript,
+        state: { entries: [] },
         transcriptAnchorPadding: 0,
         experimentalTuiHost: { hasModal: () => false },
         sidebar: { isFocused: () => false },
