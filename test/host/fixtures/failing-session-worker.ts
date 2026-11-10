@@ -6,4 +6,5 @@ spyOn(SessionStore.prototype, "appendContextMeasurement").mockImplementation(asy
     throw new Error("Injected pool context failure");
 });
 
-await import("../../../clients/host/session-worker.ts");
+const { runSessionWorkerEntrypoint } = await import("../../../clients/host/session-worker.ts");
+await runSessionWorkerEntrypoint();
