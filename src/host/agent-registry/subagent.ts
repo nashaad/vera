@@ -917,10 +917,7 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
                 ) {
                     const parentEntry = reg.agents.get(parent.id);
                     const child = reg.agents.get(childId);
-                    const task = child?.store.messages()
-                        .find((message) => message.role === "user")
-                        ?.content.filter((block) => block.type === "text")
-                        .map((block) => block.text).join("\n") ?? "Background task";
+                    const task = await firstUserTask(child?.store) ?? "Background task";
                     const decision = reg.subagentSessions !== undefined
                         ? await reg.subagentSessions.childApproval(parent.id, update, childId, task)
                         : parentEntry === undefined ? "deny" : await reg.relayChildToolApproval(parentEntry, update, childId, task);
@@ -950,19 +947,13 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
                 }
             }
             const childStore = reg.agents.get(childId)?.store;
-            const finalMessage = childStore?.messages().findLast(
-                (message) => message.role === "assistant",
-            );
-            const summary = finalMessage?.content
-                .filter((block) => block.type === "text")
-                .map((block) => block.text)
-                .join("\n")
-                .trim();
+            const summary = await lastAssistantText(childStore);
             if (summary !== undefined && summary.length > 0) {
                 content = summary;
             } else {
                 failed = true;
             }
+
         } catch {
             failed = true;
         } finally {
@@ -1031,6 +1022,28 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
             parentAgent.triggerDeliveryTurn();
         }
     }
+
+async function firstUserTask(store: SessionStore | undefined): Promise<string | undefined> {
+    const head = store?.activeHeadId();
+    if (store === undefined || head === null || head === undefined) return undefined;
+    for await (const entry of store.walkMessageBranch(head)) {
+        if (entry.message.role === "user") {
+            return entry.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+        }
+    }
+    return undefined;
+}
+
+async function lastAssistantText(store: SessionStore | undefined): Promise<string | undefined> {
+    const head = store?.activeHeadId();
+    if (store === undefined || head === null || head === undefined) return undefined;
+    for await (const entry of store.walkMessageAncestors(head)) {
+        if (entry.message.role === "assistant") {
+            return entry.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n").trim();
+        }
+    }
+    return undefined;
+}
 
 export async function relayChildToolApproval(_reg: AgentRegistry, parent: RegisteredAgentEntry, update: ToolApprovalUiRequestUpdate, sourceAgentId: string, sourceTask: string, signal?: AbortSignal): Promise<"allow_once" | "deny"> {
         const result = await parent.inbound?.requestToolApproval(

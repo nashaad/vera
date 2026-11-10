@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { entryIsLive, importedSessionSummary, type RegisteredAgentEntry, type RegisteredAgentSummary } from "./support.ts";
-import { firstPromptEntry, listedTitle } from "./session-title.ts";
+import { storeListedTitle } from "./session-title.ts";
 
 interface CachedSummary {
     readonly inputs: readonly unknown[];
@@ -34,9 +34,8 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
         && inputs.every((value, index) => value === cached.inputs[index])) {
         return cached.summary;
     }
-    const activeEntries = entry.store.activeEntries();
-    const firstUserEntry = firstPromptEntry(activeEntries);
-    const title = listedTitle(entry.store.name(), firstUserEntry);
+    const firstUser = entry.store.firstUserFacts();
+    const title = storeListedTitle(entry.store);
     const summary: RegisteredAgentSummary = {
         id: entry.agent.id,
         name: entry.identity?.name,
@@ -55,7 +54,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
                     : { supervisor_pid: entry.worker.supervisor.pid }),
             }),
         ...(title === undefined ? {} : { title }),
-        has_user_content: firstUserEntry !== undefined,
+        has_user_content: firstUser !== undefined,
         ...(entry.store.header.origin === undefined
             ? {}
             : { forked_from: entry.store.header.origin.sessionId }),
@@ -64,7 +63,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
             ? {}
             : { parent_id: entry.parentId }),
         updated_at: entry.store.agentFailure()?.timestamp
-            ?? activeEntries.at(-1)?.timestamp
+            ?? entry.store.latestMessageTimestamp()
             ?? entry.store.header.timestamp,
         ...(size === undefined ? {} : { size_bytes: size }),
     };

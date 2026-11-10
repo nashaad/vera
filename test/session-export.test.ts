@@ -1,14 +1,80 @@
 import { expect, test } from "bun:test";
-import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     exportSession,
     renderSessionMarkdown,
+    type SessionExport,
 } from "../src/session-export.ts";
-import { SessionStore } from "../src/store/session-store.ts";
+import { readSessionSnapshot, SessionStore } from "../src/store/session-store.ts";
+import { projectTranscript } from "../src/engine/protocol.ts";
+import { walkSessionTranscript } from "../src/session-transcript.ts";
 import { emptyUsage, type AssistantMessage } from "../src/model/types.ts";
+
+test("streamed exports match the full projection byte for byte", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-export-stream-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "session", cwd: root });
+        await store.appendMessage(user("first"));
+        await store.appendMessage({ role: "user", internal: true, content: [{ type: "text", text: "hidden" }] });
+        await store.appendHarnessMessage("delayed", "soft");
+        const second = await store.appendMessage(user("second"));
+        const reply = await store.appendMessage(assistant("reply"));
+        const abandoned = await store.appendMessage(user("abandoned"));
+        await store.appendMessage(assistant("abandoned reply"));
+        await store.rewindBefore(abandoned.id);
+        await store.appendCompaction({ boundaryMessageId: second.id, firstRetainedMessageId: reply.id,
+            projection: [user("summary")], measured: { inputTokens: 10, estimated: true } });
+        await store.appendAgentFailure("failure", "stopped");
+        await appendFile(path, '{"type":"partial"');
+        const before = await readFile(path);
+        const snapshot = await readSessionSnapshot(path);
+        const expected: SessionExport = {
+            format_version: 4,
+            session: { id: snapshot.header.id, started_at: snapshot.header.timestamp, workspace: snapshot.header.cwd },
+            transcript: projectTranscript(snapshot.messages, undefined, snapshot.messageStamps,
+                snapshot.harnessMessages, snapshot.deliveredMessages).filter((entry) => entry.kind !== "reasoning"),
+            agent_failure: { id: "failure", occurred_at: snapshot.agentFailure!.timestamp, detail: "stopped" },
+        };
+        expect(await exportSession(path, "json")).toBe(`${JSON.stringify(expected, null, 2)}\n`);
+        expect(await exportSession(path, "markdown")).toBe(renderSessionMarkdown(expected));
+        expect(await readFile(path)).toEqual(before);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("read-only indexed readers keep the scanned file if its path is replaced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-export-replaced-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "session", cwd: root });
+        const message = await store.appendMessage(user("original"));
+        await store.appendHarnessMessage("original notice", "soft");
+        const snapshot = await SessionStore.openReadOnly(path);
+        try {
+            await rename(path, `${path}.old`);
+            const replacement = await SessionStore.create(path, { sessionId: "replacement", cwd: root });
+            await replacement.appendMessage(user("different"));
+            await expect(snapshot.appendName("no write")).rejects.toThrow("cannot write records");
+            expect(await snapshot.readMessageEntry(message.id)).toEqual(message);
+            const entries = [];
+            for await (const entry of snapshot.walkMessageBranch(message.id)) entries.push(entry);
+            expect(entries).toEqual([message]);
+            const transcript = [];
+            for await (const entry of walkSessionTranscript(snapshot, message.id, snapshot.appendedLineCount())) transcript.push(entry);
+            expect(transcript.map((entry) => entry.kind)).toEqual(["user", "harness"]);
+            expect(transcript.at(-1)).toMatchObject({ kind: "harness", text: "original notice" });
+        } finally {
+            await snapshot.closeReadOnly();
+        }
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 test("session export is read-only and follows the active conversation branch", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-session-export-"));

@@ -1,3 +1,4 @@
+import { collectSessionEntries } from "../support/session-entries.ts";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -398,7 +399,7 @@ test("rewind redelivers an abandoned completion once on the new branch", async (
             ),
         ).toHaveLength(1);
         expect(
-            reopened.entries().filter(
+            (await collectSessionEntries(reopened)).filter(
                 (entry) => entry.deliveryId === "delivery-1",
             ),
         ).toHaveLength(2);

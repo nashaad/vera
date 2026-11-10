@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { recoverCrashedTurns } from "../../src/host/restart-scan.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { readSessionSeed } from "../../src/host/agent-registry/helpers.ts";
+import { WorkerSessionStore } from "../../src/host/worker/session.ts";
 import { resumeOrFind, withSessionReservation, type RestoringSessions } from "../../src/host/session-host/storage.ts";
 import { appendRestartRecord, listRestartRecords } from "../../src/store/restart-records.ts";
 import { CRASHED_TOOL_RESULT, CRASH_CUT_MESSAGE, SessionStore, readSessionTurnState } from "../../src/store/session-store.ts";
@@ -130,10 +131,11 @@ test("a turn waiting on a tool result is open too", async () => {
     });
     expect((await readSessionTurnState(repaired.path)).turnOpen).toBe(false);
     const seed = await readSessionSeed(repaired.path);
-    expect(seed.records.find((record) => record.text === CRASH_CUT_MESSAGE)).toMatchObject({
-        type: "harness_message", tone: "soft",
-    });
-    expect(JSON.stringify(seed.records)).not.toContain("crashCut");
+    const worker = WorkerSessionStore.seed(repaired.path, seed.header);
+    worker.applyCommittedLines(seed.lineCount);
+    expect(worker.appliedThrough()).toBe(seed.lineCount);
+    expect(worker.projectedHarnessMessages().find((entry) => entry.text === CRASH_CUT_MESSAGE)).toMatchObject({ tone: "soft" });
+    expect(JSON.stringify(worker.projectedHarnessMessages())).not.toContain("crashCut");
 });
 
 test("an existing ledger entry does not prevent an interrupted repair", async () => {

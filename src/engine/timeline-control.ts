@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { SessionMessageEntry } from "../store/session-store.ts";
+import type { SessionMessageEntry, SessionStore } from "../store/session-store.ts";
 import {
     rewindConversationBefore,
     type ConversationRewindState,
@@ -89,10 +89,10 @@ export class TimelineController {
             this.send(ownerId, {
                 type: "timeline",
                 requestId: command.requestId,
-                boundaries: timelineBoundaries(
-                    this.options.state.store.activeEntries(),
+                boundaries: await this.options.state.store.exclusively(() => timelineBoundaries(
+                    this.options.state.store,
                     sessionAttachmentName(this.options.state.store),
-                ),
+                )),
             });
             return;
         }
@@ -103,7 +103,7 @@ export class TimelineController {
         }
         if (command.type === "preview_timeline_action") {
             try {
-                this.preview(ownerId, command.requestId, command.boundaryId);
+                await this.preview(ownerId, command.requestId, command.boundaryId);
             } catch {
                 this.reject(
                     ownerId,
@@ -129,51 +129,44 @@ export class TimelineController {
         }
     }
 
-    private preview(
+    private async preview(
         ownerId: string,
         requestId: string,
         boundaryId: string,
-    ): void {
-        const activeEntries = this.options.state.store.activeEntries();
-        const boundaryIndex = activeEntries.findIndex(
-            (entry) => isExternalUserBoundary(entry, boundaryId),
-        );
-        const expectedHeadId = this.options.state.store.activeHeadId();
-        if (boundaryIndex === -1 || expectedHeadId === null) {
-            this.reject(
-                ownerId,
-                requestId,
-                "preview_timeline_action",
-                "boundary_missing",
-            );
-            return;
-        }
-        const boundaryEntry = activeEntries[boundaryIndex]!;
-        const planId = this.createPlanId();
-        if (planId.length === 0 || this.usedPlanIds.has(planId)) {
-            throw new Error("Timeline plan IDs must be unique and non-empty");
-        }
-        const plan: TimelineActionPlan = {
-            planId,
-            expectedHeadId,
-            boundary: toTimelineBoundary(
-                boundaryEntry,
-                boundaryIndex,
-                sessionAttachmentName(this.options.state.store),
-            ),
-            keptMessageCount: boundaryIndex,
-            setAsideMessageCount: activeEntries.length - boundaryIndex,
-        };
-        this.usedPlanIds.add(planId);
-        this.plans.set(planId, {
-            ownerId,
-            boundaryId,
-            expectedHeadId,
-        });
-        this.send(ownerId, {
-            type: "timeline_action_preview",
-            requestId,
-            plan,
+    ): Promise<void> {
+        const store = this.options.state.store;
+        await store.exclusively(async () => {
+            const headId = store.activeHeadId();
+            let boundaryEntry: SessionMessageEntry | undefined;
+            let boundaryIndex = -1;
+            let count = 0;
+            if (headId !== null) {
+                for await (const entry of store.walkMessageBranch(headId)) {
+                    if (isExternalUserBoundary(entry, boundaryId)) {
+                        boundaryEntry = entry;
+                        boundaryIndex = count;
+                    }
+                    count += 1;
+                }
+            }
+            if (boundaryEntry === undefined || headId === null) {
+                this.reject(ownerId, requestId, "preview_timeline_action", "boundary_missing");
+                return;
+            }
+            const planId = this.createPlanId();
+            if (planId.length === 0 || this.usedPlanIds.has(planId)) {
+                throw new Error("Timeline plan IDs must be unique and non-empty");
+            }
+            const plan: TimelineActionPlan = {
+                planId,
+                expectedHeadId: headId,
+                boundary: toTimelineBoundary(boundaryEntry, boundaryIndex, sessionAttachmentName(store)),
+                keptMessageCount: boundaryIndex,
+                setAsideMessageCount: count - boundaryIndex,
+            };
+            this.usedPlanIds.add(planId);
+            this.plans.set(planId, { ownerId, boundaryId, expectedHeadId: headId });
+            this.send(ownerId, { type: "timeline_action_preview", requestId, plan });
         });
     }
 
@@ -211,16 +204,20 @@ export class TimelineController {
             );
             return;
         }
-        const boundaryExists = this.options.state.store.activeEntries().some(
-            (entry) => isExternalUserBoundary(entry, plan.boundaryId),
-        );
+        const boundaryExists = await this.options.state.store.exclusively(async () => {
+            if (this.options.state.store.activeHeadId() !== plan.expectedHeadId) return false;
+            for await (const entry of this.options.state.store.walkMessageAncestors(plan.expectedHeadId)) {
+                if (isExternalUserBoundary(entry, plan.boundaryId)) return true;
+            }
+            return false;
+        });
         if (!boundaryExists) {
             this.plans.delete(planId);
             this.reject(
                 ownerId,
                 requestId,
                 "apply_timeline_action",
-                "boundary_missing",
+                this.options.state.store.activeHeadId() === plan.expectedHeadId ? "boundary_missing" : "session_changed",
             );
             return;
         }
@@ -271,15 +268,19 @@ export class TimelineController {
     }
 }
 
-function timelineBoundaries(
-    activeEntries: readonly SessionMessageEntry[],
+async function timelineBoundaries(
+    store: SessionStore,
     attachmentName: AttachmentNameLookup,
-): TimelineBoundary[] {
-    return activeEntries.flatMap((entry, position) =>
-        isExternalUserBoundary(entry, entry.id)
-            ? [toTimelineBoundary(entry, position, attachmentName)]
-            : []
-    );
+): Promise<TimelineBoundary[]> {
+    const headId = store.activeHeadId();
+    if (headId === null) return [];
+    const boundaries: TimelineBoundary[] = [];
+    let position = 0;
+    for await (const entry of store.walkMessageBranch(headId)) {
+        if (isExternalUserBoundary(entry, entry.id)) boundaries.push(toTimelineBoundary(entry, position, attachmentName));
+        position += 1;
+    }
+    return boundaries;
 }
 
 function toTimelineBoundary(

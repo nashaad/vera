@@ -109,6 +109,7 @@ import {
 import { projectModelRequest, type ModelRequestSnapshot } from "./model-request.ts";
 import { formatScratchTodo, readScratchTodo } from "./scratch-state.ts";
 import { createToolResultSpill } from "./tool-result-spill.ts";
+import { dropMessagesBehindLiveContext } from "./live-context.ts";
 import {
     toolResultCeilingBytes,
     type ToolResultSpill,
@@ -266,6 +267,7 @@ export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    readonly readReviewTranscript?: () => Promise<readonly ModelMessage[]>;
     turnStartPending?: boolean;
     // Asked before each model request and each tool call; a reason ends the turn.
     readonly haltCheck?: TurnHaltCheck;
@@ -396,11 +398,8 @@ function latestCompactionContext(
     ) {
         return undefined;
     }
-    if (store.activeEntries().some((entry) =>
-        entry.timestamp > compaction.timestamp
-        && entry.message.role === "assistant"
-        && entry.message.usage.inputTokens > 0
-    )) {
+    const latestInput = store.latestMeasuredAssistantTimestamp();
+    if (latestInput !== undefined && latestInput > compaction.timestamp) {
         return undefined;
     }
     return {
@@ -546,7 +545,7 @@ export async function runHeadlessLoop(
                 );
             return budgetContextWindow(declared, settings?.contextLimit);
         },
-        () => store.usageMessages(),
+        () => store.usageSummary(),
         () => store.deliveredMessages(),
         () => store.unsentPrompts(),
     );
@@ -803,6 +802,7 @@ export async function runHeadlessLoop(
         readAnnouncedCompaction: () => boundary.readState().compaction,
         inbound,
         afterCompacted: async () => {
+            dropMessagesBehindLiveContext(messages, store);
             const contextAdded = await restoreContextAfterCompaction(state);
             if (contextAdded) {
                 protocol.checkpoint(messages, store.activeMessageStamps());
@@ -830,6 +830,13 @@ export async function runHeadlessLoop(
         sessionId,
         messages,
         store,
+        readReviewTranscript: async () => {
+            const head = store.activeHeadId();
+            if (head === null) return [];
+            const transcript: ModelMessage[] = [];
+            for await (const entry of store.walkMessageBranch(head)) transcript.push(entry.message);
+            return transcript;
+        },
         modelContext: compaction.modelContext,
         historyLineage: compaction.historyLineage,
         contextWatch: compaction.contextWatch,
@@ -937,6 +944,7 @@ export async function runHeadlessLoop(
         while (true) {
             const checkpointMessages = [...state.messages];
             await runTurn(adapter, model, state, reasoningEffort);
+            dropMessagesBehindLiveContext(state.messages, store);
             if (
                 state.messages.length !== checkpointMessages.length
                 || state.messages.some((message, index) =>
@@ -2792,7 +2800,9 @@ async function executePreparedTool(
                         workspace: state.toolRuntime.workspace,
                         reason: permission.reason,
                         pathFacts,
-                        transcript: state.messages,
+                        transcript: state.readReviewTranscript === undefined
+                            ? state.messages
+                            : await state.readReviewTranscript(),
                     },
                     signal,
                 );

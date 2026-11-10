@@ -85,7 +85,7 @@ export interface InboundRouterHostHooks {
         readonly settings: ModelTurnSettings;
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
-    }[];
+    }[] | Promise<readonly { readonly settings: ModelTurnSettings; readonly origin: SessionSettingOrigin; readonly timestamp: string }[]>;
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;

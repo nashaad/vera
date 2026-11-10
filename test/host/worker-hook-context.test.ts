@@ -52,7 +52,7 @@ test("a worker loop stores pre-turn context the host's hooks return", async () =
         session: {
             path,
             header: JSON.parse(readFileSync(path, "utf8").split("\n")[0] as string) as Record<string, unknown>,
-            records: [],
+            lineCount: 1,
         },
         model: "test",
         adapter: {
@@ -131,7 +131,7 @@ test("a worker loop continues a turn once when the host's turn_ending hook asks"
         session: {
             path,
             header: JSON.parse(readFileSync(path, "utf8").split("\n")[0] as string) as Record<string, unknown>,
-            records: [],
+            lineCount: 1,
         },
         model: "test",
         adapter: {
@@ -194,7 +194,7 @@ test("a waiting subagent in a worker runs the host's hooks and reports back", as
         session: {
             path,
             header: JSON.parse(readFileSync(path, "utf8").split("\n")[0] as string) as Record<string, unknown>,
-            records: [],
+            lineCount: 1,
         },
         model: "test",
         adapter: {

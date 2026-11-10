@@ -30,6 +30,7 @@ import {
 import { SessionStore } from "../../src/store/session-store.ts";
 import { assertToolCallsPaired } from "../../src/model/tool-pairing.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import { collectSessionBranch } from "../support/session-entries.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -108,7 +109,7 @@ test("compacting replaces the span and leaves the transcript whole", async () =>
     expect(result.outcome).toBe("compacted");
     // The transcript is what clients render, so it keeps every message; only
     // what the model is sent changes.
-    expect(store.messages()).toEqual(messages);
+    expect((await collectSessionBranch(store)).map((entry) => entry.message)).toEqual([...messages]);
     const context = store.modelContext();
     expect(context.length).toBeLessThan(messages.length);
     expect(context[0]).toEqual(summary());
@@ -376,7 +377,7 @@ test("the strategy cannot reach past its answer to change the transcript", async
         measurement(8_000),
         new AbortController().signal,
     );
-    expect(store.messages()).toEqual(transcript);
+    expect((await collectSessionBranch(store)).map((entry) => entry.message)).toEqual([...transcript]);
 });
 
 test("a turn too big for the budget falls back to keeping one turn", async () => {
@@ -693,7 +694,9 @@ test("a compacted intra-turn seam reads back from the store it was written to",
         expect(reopened.modelContext()).toEqual(store.modelContext());
         expect(reopened.modelContext()[0]).toEqual(summary("anchored"));
         // The transcript is untouched whatever the boundary did to the context.
-        expect(reopened.messages()).toEqual(store.messages());
+        const history = [];
+        for await (const entry of reopened.walkMessageBranch(reopened.activeHeadId()!)) history.push(entry.message);
+        expect(history).toEqual((await collectSessionBranch(store)).map((entry) => entry.message));
         assertToolCallsPaired(reopened.modelContext(), "The reopened context");
     });
 

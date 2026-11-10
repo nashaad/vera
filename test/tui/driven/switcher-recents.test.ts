@@ -15,6 +15,7 @@ test("the switcher lists persisted recents once the history reply lands", async 
         await store.appendModelSettings({ provider: "demo", model });
     }
     const reopened = await SessionStore.open(store.path);
+    const history = await reopened.readModelSettingsHistory();
     const entry = (model: string) => ({
         provider: "demo", model, label: model, levels: [], available: true, verified: false,
     });
@@ -31,7 +32,7 @@ test("the switcher lists persisted recents once the history reply lands", async 
                     commands.push(command);
                     if (command.type === "get_session_model_settings_history") {
                         replies.push(() => push({ type: "session_model_settings_history", requestId: command.requestId,
-                            entries: reopened.modelSettingsHistory().map((entry) => ({ ...entry, origin: entry.origin ?? "user" })), seq: 50 }));
+                            entries: history.map((entry) => ({ ...entry, origin: entry.origin ?? "user" })), seq: 50 }));
                     }
                 },
             }),

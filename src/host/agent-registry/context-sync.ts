@@ -1,6 +1,7 @@
 import { AttachmentStore } from "../../attachments/store.ts";
 import type { ModelMessage } from "../../model/types.ts";
 import type { SessionImageAttachmentMetadata } from "../../store/session-store.ts";
+import { completedBranchDelta } from "../../store/session-branch.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
 export interface BranchSyncInfo {
@@ -52,15 +53,10 @@ export async function branchSyncDelta(reg: AgentRegistry, id: string, cursor: st
     const source = reg.agents.get(id);
     if (source === undefined) return { status: "not_found" };
     if (source.agent.closed || source.agent.failed || source.agent.status !== "idle") return { status: "busy" };
-    const active = source.store.activeEntries();
-    const lastCompletedIndex = active.findLastIndex((entry) => entry.message.role === "assistant");
-    if (lastCompletedIndex < 0) return { status: "unchanged" };
-    const completed = active.slice(0, lastCompletedIndex + 1);
-    const cursorIndex = cursor === null ? -1 : completed.findIndex((entry) => entry.id === cursor);
-    if (cursor !== null && cursorIndex < 0) return { status: "stale_cursor" };
-    const additions = completed.slice(cursorIndex + 1);
-    const turns = additions.filter((entry) => entry.message.role === "user" && entry.message.internal !== true).length;
-    if (additions.length === 0 || turns === 0) return { status: "unchanged" };
+    const delta = await completedBranchDelta(source.store, cursor);
+    if (delta.status !== "ready") return delta;
+    const additions = delta.entries;
+    const turns = delta.turns;
     const messages = additions.map((entry) => entry.message);
     const ids = new Set(messages.flatMap((message) => message.role === "user"
         ? message.content.flatMap((part) => part.type === "image_attachment" ? [part.attachmentId] : [])

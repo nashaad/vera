@@ -90,7 +90,7 @@ test("a cut delivery does not make a later empty wake start a worker turn", asyn
         expect(reopened.hasUnansweredDeliveryTurn()).toBe(false);
         const seed = await readSessionSeed(path);
         const worker = WorkerSessionStore.seed(path, seed.header);
-        seed.records.forEach((record, index) => worker.applyHostRecord(index + 2, record));
+        worker.applyCommittedLines(seed.lineCount);
         expect(worker.projectedHarnessMessages()).toEqual(reopened.projectedHarnessMessages());
         deck.triggerDeliveryTurn();
         expect(await becomes(() => deck.idleForReplacement())).toBe(true);

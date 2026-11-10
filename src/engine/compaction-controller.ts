@@ -365,7 +365,7 @@ export function createCompactionController(
             const compactionId = store.latestCompaction()?.id;
             return {
                 ...(compactionId === undefined ? {} : { compactionId }),
-                messageIds: store.activeEntries().map((entry) => entry.id),
+                messageIds: store.liveMessageEntries().map((entry) => entry.id),
             };
         },
         compact,

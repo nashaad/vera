@@ -1,3 +1,4 @@
+import { collectSessionBranch, collectSessionEntries } from "../support/session-entries.ts";
 import { afterEach, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -195,7 +196,7 @@ test("large session replay matches the previous branch and delivery scans", asyn
     }
 
     for (const actual of [store, replica]) {
-        expect(actual.entries()).toEqual(reference.entries);
+        expect(await collectSessionEntries(actual)).toEqual(reference.entries);
         expect(actual.activeEntries()).toEqual(expected);
         expect(actual.activeHeadId()).toBe(reference.headId);
         expect(actual.pendingDeliveries()).toEqual(oldPending(reference));
@@ -231,7 +232,8 @@ test("large measurement replay retains the previous results at every rewind poin
         const kept = oldRetainedMeasurements(store.activeEntries(), afterIds);
         const expected = afterIds.flatMap((_id, index) => kept.has(index) ? [index + 1] : []);
         const actual = (store as unknown as { projection: { contextMeasurementEntries: Array<{ measurement: { tokens: number } }> } }).projection.contextMeasurementEntries;
-        expect(actual.map((entry) => entry.measurement.tokens)).toEqual(expected);
+        expect(actual.length).toBeLessThanOrEqual(1);
+        expect(store.latestContextMeasurement()?.tokens).toEqual(expected.at(-1));
         expect((await SessionStore.open(path)).latestContextMeasurement()).toEqual(store.latestContextMeasurement());
     };
     await check();
@@ -247,9 +249,14 @@ test("branch reads track durable append, foreign records, compaction, rewind, br
     let id = 0;
     const store = await SessionStore.create(path, { sessionId: "crow", cwd: "/work", now: () => new Date(timestamp), createId: () => `id${++id}` });
     const check = async (): Promise<void> => {
-        const expected = oldActive(store.entries(), store.activeHeadId());
-        expect(store.activeEntries()).toEqual(expected);
-        expect((await SessionStore.open(path)).activeEntries()).toEqual(expected);
+        const expected = oldActive((await collectSessionEntries(store)), store.activeHeadId());
+        expect(await collectSessionBranch(store)).toEqual(expected);
+        const reopened = await SessionStore.open(path);
+        const actual = [];
+        if (reopened.activeHeadId() !== null) {
+            for await (const entry of reopened.walkMessageBranch(reopened.activeHeadId()!)) actual.push(entry);
+        }
+        expect(actual).toEqual(expected);
     };
     const first = await store.appendMessage(user("first"));
     const firstAnswer = await store.appendMessage(assistant("answer"));
@@ -274,8 +281,14 @@ test("branch reads track durable append, foreign records, compaction, rewind, br
     expect(await store.repairCrashedTurn()).toBe(true);
     await check();
     const branch = await createSessionBranch({ source: store, destinationPath: join(directory, "branch.jsonl"), sessionId: "branch", position: "at" });
-    expect(branch.store.messages()).toEqual(store.messages());
-    expect((await SessionStore.open(branch.store.path)).messages()).toEqual(store.messages());
+    const sourceMessages = (await collectSessionBranch(store)).map((entry) => entry.message);
+    expect((await collectSessionBranch(branch.store)).map((entry) => entry.message)).toEqual(sourceMessages);
+    const reopenedBranch = await SessionStore.open(branch.store.path);
+    const branchMessages = [];
+    if (reopenedBranch.activeHeadId() !== null) {
+        for await (const entry of reopenedBranch.walkMessageBranch(reopenedBranch.activeHeadId()!)) branchMessages.push(entry.message);
+    }
+    expect(branchMessages).toEqual(sourceMessages);
     await store.rewindBefore(replacement.id);
     await check();
     await store.rewindBefore(first.id);
@@ -322,8 +335,10 @@ test("worker-owned and host-ingested branch changes keep the same active entries
     await worker.appendMessage(user("worker"));
     expect(worker.activeEntries()).toEqual(store.activeEntries());
     const hostEntry = await store.appendMessage(user("host"));
+    expect((await collectSessionEntries(worker)).map((entry) => entry.id)).not.toContain(hostEntry.id);
     worker.applyHostRecord(store.appendedLineCount(), hostEntry as unknown as Record<string, unknown>);
     expect(worker.activeEntries()).toEqual(store.activeEntries());
+    expect(await collectSessionEntries(worker)).toEqual(await collectSessionEntries(store));
     const rewind = await store.rewindBefore(hostEntry.id);
     worker.applyHostRecord(store.appendedLineCount(), rewind as unknown as Record<string, unknown>);
     expect(worker.activeEntries()).toEqual(store.activeEntries());
@@ -358,14 +373,14 @@ test("mutating returned entries and replica input cannot corrupt the active bran
     });
     const appended = await store.appendMessage(user("first"));
     const active = store.activeEntries() as SessionMessageEntry[];
-    const entries = store.entries() as SessionMessageEntry[];
+    const entries = (await collectSessionEntries(store)) as SessionMessageEntry[];
     (active[0] as { id: string }).id = "changed-active";
     (entries[0] as { parentId: string | null }).parentId = "changed-parent";
     (appended as { id: string }).id = "changed-append";
     observed!.id = "changed-observed";
     active.push(active[0]!);
     expect(store.activeEntries().map((entry) => [entry.id, entry.parentId])).toEqual([["first", null]]);
-    expect(store.entries().map((entry) => [entry.id, entry.parentId])).toEqual([["first", null]]);
+    expect((await collectSessionEntries(store)).map((entry) => [entry.id, entry.parentId])).toEqual([["first", null]]);
     expect((await SessionStore.open(path)).activeEntries()).toEqual(store.activeEntries());
 
     const replica = SessionReplica.seed(path, header());

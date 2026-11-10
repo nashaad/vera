@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { SessionIdentity } from "../../sdk/extensions.ts";
 import { storedStartupProfile } from "../../startup-profile.ts";
-import { copySessionMessageAttachments, createSessionBranch } from "../../store/session-branch.ts";
+import { completedBranchDelta, copySessionMessageAttachments, createSessionBranch } from "../../store/session-branch.ts";
 import { SessionStore, defaultSessionPath, openSessionForRecovery, readSessionHeader } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publishBranchAttachments, removePublishedBranchAttachments, type PublishedBranchAttachments } from "./helpers.ts";
@@ -785,31 +785,13 @@ export async function syncBranchContext(reg: AgentRegistry, targetId: string): P
         ) {
             return { status: "busy", turns: 0 };
         }
-        const active = source.store.activeEntries();
-        const lastCompletedIndex = active.findLastIndex((entry) =>
-            entry.message.role === "assistant"
-        );
-        if (lastCompletedIndex < 0) {
-            return { status: "unchanged", turns: 0 };
-        }
-        const completed = active.slice(0, lastCompletedIndex + 1);
         const cursor = target.syncedSourceEntryId
             ?? target.store.header.origin?.entryId
             ?? null;
-        const cursorIndex = cursor === null
-            ? -1
-            : completed.findIndex((entry) => entry.id === cursor);
-        if (cursor !== null && cursorIndex < 0) {
-            return { status: "stale_cursor", turns: 0 };
-        }
-        const additions = completed.slice(cursorIndex + 1);
-        const turns = additions.filter((entry) =>
-            entry.message.role === "user"
-            && entry.message.internal !== true
-        ).length;
-        if (additions.length === 0 || turns === 0) {
-            return { status: "unchanged", turns: 0 };
-        }
+        const delta = await completedBranchDelta(source.store, cursor);
+        if (delta.status !== "ready") return { status: delta.status, turns: 0 };
+        const additions = delta.entries;
+        const turns = delta.turns;
         await copySessionMessageAttachments(
             source.store,
             target.store,

@@ -292,7 +292,7 @@ export interface InboundCommandRouterOptions {
         readonly settings: ModelTurnSettings;
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
-    }[];
+    }[] | Promise<readonly { readonly settings: ModelTurnSettings; readonly origin: SessionSettingOrigin; readonly timestamp: string }[]>;
     readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
@@ -1458,7 +1458,7 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "get_session_model_settings_history") {
-                    this.sendSessionModelSettingsHistory(command.requestId);
+                    await this.sendSessionModelSettingsHistory(command.requestId);
                     continue;
                 }
 
@@ -1957,11 +1957,11 @@ export class InboundCommandRouter {
         await this.listAgents(requestId);
     }
 
-    private sendSessionModelSettingsHistory(requestId: string): void {
+    private async sendSessionModelSettingsHistory(requestId: string): Promise<void> {
         this.events.emit({
             type: "session_model_settings_history",
             requestId,
-            entries: this.options.readSessionModelSettingsHistory?.() ?? [],
+            entries: await this.options.readSessionModelSettingsHistory?.() ?? [],
         });
     }
 

@@ -105,7 +105,7 @@ async function startAgent(
             header: JSON.parse(
                 readFileSync(path, "utf8").split("\n")[0] as string,
             ) as Record<string, unknown>,
-            records: [],
+            lineCount: 1,
         },
         model: "test",
         adapter: { module: ADAPTER, options: { script } },

@@ -573,7 +573,7 @@ export function participantLabel(entry: RegisteredAgentEntry): string {
 
 export function entryUpdatedAt(entry: RegisteredAgentEntry): string {
     return entry.store.agentFailure()?.timestamp
-        ?? entry.store.activeEntries().at(-1)?.timestamp
+        ?? entry.store.latestMessageTimestamp()
         ?? entry.store.header.timestamp;
 }
 

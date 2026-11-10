@@ -7,6 +7,7 @@ import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { projectTranscript } from "../../src/engine/protocol.ts";
 import { historyPageFromEntries, historyPageFromStore } from "../../src/host/history-page.ts";
+import { walkSessionTranscript } from "../../src/session-transcript.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -67,14 +68,14 @@ test("a rewound cursor pages its own chain and reports the active head", async (
     await store.appendMessage(userMessage("replacement"));
 
     expect(store.activeHeadId()).toBe("message-5");
-    expect(store.pageSourceTo("message-4")?.messages.map((message) =>
+    const abandoned = [];
+    for await (const entry of store.walkMessageBranch("message-4")) abandoned.push(entry.message);
+    expect(abandoned.map((message) =>
         message.content[0]?.type === "text" ? message.content[0].text : ""
     )).toEqual(["one", "two", "three", "four"]);
-    expect(store.pageSourceTo("message-4")?.headId).toBe("message-5");
-    expect(store.pageSourceTo("message-5")?.messages).toHaveLength(3);
-    expect(store.pageSourceTo("missing")).toBeUndefined();
+    expect(await store.readMessageEntry("missing")).toBeUndefined();
 
-    const page = historyPageFromStore(store, "message-3#0");
+    const page = await historyPageFromStore(store, "message-3#0");
     if (page.kind !== "page") throw new Error("expected a page");
     expect(page.entries.map((entry) => entry.id)).toEqual([
         "message-1#0",
@@ -87,7 +88,7 @@ test("a rewound cursor pages its own chain and reports the active head", async (
         tailId: "message-2#0",
     });
 
-    expect(historyPageFromStore(store, "missing#0")).toEqual({
+    expect(await historyPageFromStore(store, "missing#0")).toEqual({
         kind: "cursor_not_found",
     });
 });
@@ -113,7 +114,7 @@ test("a reopened store returns reasoning in its host history page", async () => 
     });
     await store.appendMessage(userMessage("continue"));
     const reopened = await SessionStore.open(path);
-    const page = historyPageFromStore(reopened, "user-two#0");
+    const page = await historyPageFromStore(reopened, "user-two#0");
     if (page.kind !== "page") throw new Error("expected a page");
     expect(page.entries.map(({ kind }) => kind)).toEqual(["user", "reasoning", "assistant"]);
     expect(page.entries[1]).toMatchObject({ kind: "reasoning", id: "reply-one#r0", text: "follow the stars" });
@@ -155,10 +156,152 @@ test("a reopened store pages through a split turn without dropping its prefix", 
     while (page.page.hasMore) {
         const before = page.page.olderBefore;
         if (before === undefined) throw new Error("missing page cursor");
-        page = historyPageFromStore(reopened, before);
+        page = await historyPageFromStore(reopened, before);
         if (page.kind !== "page") throw new Error(`expected a page, got ${page.kind}`);
         pages.unshift(page.entries);
     }
     expect(pages.length).toBeGreaterThan(1);
     expect(pages.flat().map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
 }, 30_000);
+
+test("indexed pages match the full transcript without reading the whole chain", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "many.jsonl");
+    const created = await SessionStore.create(path, { sessionId: "many", cwd: directory });
+    const records: object[] = [created.header];
+    for (let number = 0; number < 1200; number += 1) {
+        const message = number % 47 === 0 ? userMessage(`turn ${number}`) : assistantMessage(`reply ${number}`);
+        records.push({ type: "message", id: `entry-${number}`, parentId: number === 0 ? null : `entry-${number - 1}`,
+            timestamp: "2026-11-04T12:00:00.000Z", message });
+    }
+    await Bun.write(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+    const store = await SessionStore.open(path);
+    const full = projectTranscript(store.messages(), undefined, store.activeMessageStamps());
+    const original = store.walkMessageAncestors.bind(store);
+    let reads = 0;
+    store.walkMessageAncestors = async function* (id) {
+        for await (const entry of original(id)) {
+            reads += 1;
+            yield entry;
+        }
+    };
+    for (const number of [1199, 998, 700, 321, 1]) {
+        reads = 0;
+        const cursor = `entry-${number}#0`;
+        const end = full.findLastIndex((entry) => entry.id?.startsWith(`entry-${number}#`)) + 1;
+        const expected = historyPageFromEntries(full.slice(0, end), cursor, { headId: store.activeHeadId()! });
+        expect(await historyPageFromStore(store, cursor)).toEqual(expected);
+        if (number === 1199) expect(reads).toBeLessThan(600);
+    }
+});
+
+test("indexed pages preserve harness placement and abandoned branches", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "harness.jsonl");
+    const created = await SessionStore.create(path, { sessionId: "harness", cwd: directory });
+    const timestamp = "2026-11-04T12:00:00.000Z";
+    const records: object[] = [created.header, { type: "harness_message", timestamp, afterMessageId: null, text: "initial", tone: "soft" }];
+    for (let number = 0; number < 600; number += 1) {
+        const message: ModelMessage = number % 40 === 0 ? userMessage(`turn ${number}`)
+            : number % 17 === 0 ? { role: "user", internal: true, content: [{ type: "text", text: "hidden" }] }
+            : assistantMessage(`reply ${number}`);
+        records.push({ type: "message", id: `entry-${number}`, parentId: number === 0 ? null : `entry-${number - 1}`, timestamp, message });
+        if (number % 17 === 0 || number % 31 === 0) {
+            records.push({ type: "harness_message", timestamp, afterMessageId: `entry-${number}`,
+                text: `notice ${number}`, tone: "soft", ...(number % 62 === 0 ? { crashCut: true } : {}) });
+        }
+    }
+    records.push({ type: "rewind", timestamp, userMessageId: "entry-560", previousHeadId: "entry-599", headId: "entry-559" });
+    records.push({ type: "message", id: "replacement", parentId: "entry-559", timestamp, message: userMessage("replacement") });
+    await Bun.write(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+    const store = await SessionStore.open(path);
+    const full = projectTranscript(store.messages(), undefined, store.activeMessageStamps(), store.projectedHarnessMessages(), store.deliveredMessages());
+    const streamed = [];
+    for await (const entry of walkSessionTranscript(store, store.activeHeadId(), store.appendedLineCount())) streamed.push(entry);
+    expect(streamed).toEqual([...full]);
+    const original = store.walkMessageAncestors.bind(store);
+    let reads = 0;
+    store.walkMessageAncestors = async function* (id) {
+        for await (const entry of original(id)) { reads += 1; yield entry; }
+    };
+    for (const id of ["replacement", "entry-559", "entry-480", "entry-321", "entry-1"]) {
+        reads = 0;
+        const cursor = `${id}#0`;
+        const last = full.findLastIndex((entry) => entry.id?.startsWith(`${id}#`));
+        let end = last + 1;
+        while (end < full.length && full[end]!.id?.startsWith("harness:")) end += 1;
+        const expected = historyPageFromEntries(full.slice(0, end), cursor, { headId: "replacement" });
+        expect(await historyPageFromStore(store, cursor)).toEqual(expected);
+        if (id === "replacement") expect(reads).toBeLessThan(500);
+    }
+    const abandoned = await historyPageFromStore(store, "entry-599#0");
+    const rewindAt = records.findIndex((record) => Reflect.get(record, "type") === "rewind");
+    const abandonedPath = join(directory, "abandoned.jsonl");
+    await Bun.write(abandonedPath, `${records.slice(0, rewindAt).map((record) => JSON.stringify(record)).join("\n")}\n`);
+    const abandonedStore = await SessionStore.open(abandonedPath);
+    const abandonedFull = projectTranscript(abandonedStore.messages(), undefined, abandonedStore.activeMessageStamps(),
+        abandonedStore.projectedHarnessMessages(), abandonedStore.deliveredMessages());
+    expect(abandoned).toEqual(historyPageFromEntries(abandonedFull, "entry-599#0", { headId: "replacement" }));
+    if (abandoned.kind === "page") {
+        expect(abandoned.page.headId).toBe("replacement");
+        expect(abandoned.entries.some((entry) => entry.id === "entry-598#0")).toBe(true);
+    }
+});
+
+test("indexed pages preserve turn grouping at the byte limit", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "byte-pages.jsonl");
+    const created = await SessionStore.create(path, { sessionId: "bytes", cwd: directory });
+    const timestamp = "2026-11-04T12:00:00.000Z";
+    const records: object[] = [created.header];
+    for (let number = 0; number < 420; number += 1) {
+        const message: ModelMessage = number % 53 === 0 ? userMessage(`turn ${number}`)
+            : number % 13 === 0 ? { role: "user", internal: true, content: [{ type: "text", text: "internal" }] }
+            : { role: "assistant", source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "stop", content: [
+                { type: "thinking", text: `reason ${number}`, signature: "opaque" },
+                { type: "text", text: "x".repeat((number % 7 + 1) * 3000) },
+            ] };
+        records.push({ type: "message", id: `entry-${number}`, parentId: number === 0 ? null : `entry-${number - 1}`, timestamp, message });
+        if (number % 37 === 0) records.push({ type: "harness_message", timestamp, afterMessageId: `entry-${number}`, text: `notice ${number}`, tone: "soft" });
+    }
+    await Bun.write(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+    const store = await SessionStore.open(path);
+    const full = projectTranscript(store.messages(), undefined, store.activeMessageStamps(), store.projectedHarnessMessages());
+    for (const number of [419, 398, 370, 301, 250, 190, 107, 54, 1]) {
+        const id = `entry-${number}`;
+        const cursor = `${id}#0`;
+        const last = full.findLastIndex((entry) => entry.id?.startsWith(`${id}#`));
+        let end = last + 1;
+        while (end < full.length && full[end]!.id?.startsWith("harness:")) end += 1;
+        const expected = historyPageFromEntries(full.slice(0, end), cursor, { headId: "entry-419" });
+        expect(await historyPageFromStore(store, cursor)).toEqual(expected);
+    }
+});
+
+test("indexed pages render attachment names and deliveries from disk", async () => {
+    const directory = temporaryDirectory();
+    const store = await SessionStore.create(join(directory, "decorations.jsonl"), {
+        sessionId: "decorations", cwd: directory, createId: scripted("user", "delivered", "reply", "cursor"),
+    });
+    const sha256 = "a".repeat(64);
+    const attachmentId = `${sha256}.png`;
+    await store.appendAttachment({ id: attachmentId, name: "map.png", mediaType: "image/png", bytes: 123, width: 10, height: 20, sha256 });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "look" }, { type: "image_attachment", attachmentId }] });
+    await store.recordDelivery({ id: "delivery", sourceAgentId: "source", content: "report" });
+    await store.appendDeliveryMessage("delivery", { role: "user", internal: true, content: [{ type: "text", text: "report" }] });
+    await store.appendMessage(assistantMessage("done"));
+    await store.appendMessage(userMessage("next"));
+    const reopened = await SessionStore.open(store.path);
+    const full = projectTranscript(reopened.messages(), (id) => id === attachmentId ? "map.png" : undefined,
+        reopened.activeMessageStamps(), reopened.projectedHarnessMessages(), reopened.deliveredMessages());
+    const streamed = [];
+    for await (const entry of walkSessionTranscript(reopened, reopened.activeHeadId(), reopened.appendedLineCount())) streamed.push(entry);
+    expect(streamed).toEqual([...full]);
+    const expected = historyPageFromEntries(full, "cursor#0", { headId: "cursor" });
+    expect(await historyPageFromStore(reopened, "cursor#0")).toEqual(expected);
+    const limit = reopened.appendedLineCount();
+    await reopened.appendHarnessMessage("later", "soft");
+    const snapshot = [];
+    for await (const entry of walkSessionTranscript(reopened, "cursor", limit)) snapshot.push(entry);
+    expect(snapshot).toEqual([...full]);
+});

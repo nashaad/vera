@@ -5,6 +5,10 @@ import {
     parseHeaderRecord,
     SessionStore,
 } from "../../store/session-store.ts";
+import { closeSync, openSync, readSync } from "node:fs";
+import { scanSessionRecordLocations } from "../../store/session-index-scan.ts";
+import { sessionRecordForWire } from "../../store/session-record-projection.ts";
+import type { SessionRecordIndex } from "../../store/session-record-index.ts";
 
 export type AppendRecordThroughHost = (
     record: Record<string, unknown>,
@@ -15,6 +19,7 @@ export class WorkerSessionStore extends SessionStore {
     private readonly deferred = new Map<number, Record<string, unknown>>();
     private ownAppendsInFlight = 0;
     private divergence: Error | undefined;
+    private readIndex: { readonly index: SessionRecordIndex; readonly limit: number } | undefined;
     private onDiverged: (error: Error) => void = () => {};
     private hostAnswersDelivery = false;
     private send: AppendRecordThroughHost = () => {
@@ -33,6 +38,27 @@ export class WorkerSessionStore extends SessionStore {
         );
     }
 
+    /** Applies lines 2..lineCount from the file, one record at a time; the host fixed lineCount while no append could run. */
+    applyCommittedLines(lineCount: number): void {
+        if (lineCount <= 1) return;
+        let read: number;
+        try {
+            read = visitNonEmptyLines(this.path, lineCount, (lineNumber, bytes) => {
+                if (lineNumber === 1) return;
+                const record = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+                this.applyHostRecord(lineNumber, sessionRecordForWire(record));
+            });
+        } catch (error) {
+            if (this.divergence !== undefined) throw this.divergence;
+            throw this.diverge(error instanceof Error ? error : new Error(String(error)));
+        }
+        if (read < lineCount) {
+            throw this.diverge(new Error(
+                `Session replica ${this.path} expected ${lineCount} committed lines but the file has ${read}`,
+            ));
+        }
+    }
+
     setAppender(send: AppendRecordThroughHost): void {
         this.send = send;
     }
@@ -43,6 +69,19 @@ export class WorkerSessionStore extends SessionStore {
     }
 
     appliedThrough(): number {
+        return this.lastLineNumber;
+    }
+
+    protected override async recordReadIndex(): Promise<{ readonly index: SessionRecordIndex; readonly limit: number }> {
+        const limit = this.lastLineNumber;
+        if (this.readIndex?.limit === limit) return this.readIndex;
+        const index = await scanSessionRecordLocations(this.path, limit);
+        if (index.length < limit) throw new Error(`Session replica ${this.path} is missing applied records`);
+        this.readIndex = { index, limit };
+        return this.readIndex;
+    }
+
+    protected override recordScanLimit(): number {
         return this.lastLineNumber;
     }
 
@@ -168,6 +207,45 @@ export class WorkerSessionStore extends SessionStore {
             this.lastLineNumber = next;
         }
     }
+}
+
+const SEED_CHUNK_BYTES = 1024 * 1024;
+
+// Synchronous so no host notification is handled before the committed prefix is applied.
+function visitNonEmptyLines(
+    path: string,
+    maxLines: number,
+    visit: (lineNumber: number, bytes: Buffer) => void,
+): number {
+    const fd = openSync(path, "r");
+    const chunk = Buffer.allocUnsafe(SEED_CHUNK_BYTES);
+    let carry: Buffer[] = [];
+    let lines = 0;
+    let position = 0;
+    try {
+        while (lines < maxLines) {
+            const bytesRead = readSync(fd, chunk, 0, chunk.length, position);
+            if (bytesRead === 0) break;
+            position += bytesRead;
+            const view = chunk.subarray(0, bytesRead);
+            let start = 0;
+            while (lines < maxLines) {
+                const end = view.indexOf(10, start);
+                if (end < 0) break;
+                const piece = view.subarray(start, end);
+                const bytes = carry.length === 0 ? piece : Buffer.concat([...carry, piece]);
+                carry = [];
+                start = end + 1;
+                if (bytes.length === 0) continue;
+                lines += 1;
+                visit(lines, bytes);
+            }
+            if (start < bytesRead && lines < maxLines) carry.push(Buffer.from(view.subarray(start)));
+        }
+    } finally {
+        closeSync(fd);
+    }
+    return lines;
 }
 
 /** Marks a line the worker wrote, which must not be folded in twice. */

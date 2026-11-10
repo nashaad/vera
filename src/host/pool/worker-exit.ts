@@ -9,7 +9,8 @@ export function prepareWorkerExit(store: SessionStore): void {
         if (message.role === "assistant" && message.stopReason !== "tool_use") {
             if (recorded !== undefined) return recorded;
             if (await store.repairCrashedTurn({ workerExited: true })) {
-                const entry = store.activeEntries().at(-1);
+                const headId = store.activeHeadId();
+                const entry = headId === null ? undefined : await store.readMessageEntry(headId);
                 if (entry?.message.role === "assistant" && entry.message.errorMessage === WORKER_EXIT_TURN_MESSAGE) {
                     recorded = entry;
                     return entry;

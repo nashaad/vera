@@ -186,7 +186,7 @@ test("successful compaction reruns hooks before continuing and failed compaction
     let failSummary = false;
     const handle = await startWorker({
         store,
-        session: { path, header: JSON.parse(readFileSync(path, "utf8").split("\n")[0]!), records: [] },
+        session: { path, header: JSON.parse(readFileSync(path, "utf8").split("\n")[0]!), lineCount: 1 },
         model: "test", adapter: { module: adapterModule, options: { requestPath: join(root, "requests.jsonl") } },
         data: { approvalMode: "ask" },
         services: {

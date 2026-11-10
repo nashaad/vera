@@ -400,14 +400,14 @@ export async function applySessionModelSettings(reg: AgentRegistry, id: string, 
         };
     }
 
-export function sessionModelSettingsHistory(reg: AgentRegistry, id: string): readonly {
+export async function sessionModelSettingsHistory(reg: AgentRegistry, id: string): Promise<readonly {
         readonly settings: ModelTurnSettings;
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
-    }[] {
+    }[]> {
         const entry = reg.agents.get(id);
         if (entry === undefined) return [];
-        return entry.store.modelSettingsHistory().map((record) => ({
+        return (await entry.store.readModelSettingsHistory()).map((record) => ({
             settings: record.settings,
             origin: record.origin ?? "user",
             timestamp: record.timestamp,

@@ -1,3 +1,6 @@
+import { addSessionModelUsage, summarizeSessionModelUsage, type SessionModelUsage } from "../model/session-usage.ts";
+export { summarizeSessionModelUsage } from "../model/session-usage.ts";
+export type { SessionModelUsage, SessionModelUsageRow } from "../model/session-usage.ts";
 import type { HookContextPhase, TurnTiming } from "../model/types.ts";
 import type {
     ConfigurationRequiredUiRequest,
@@ -15,7 +18,6 @@ import type {
     ModelMessage,
     ModelReasoningEffort,
     ModelSubstitution,
-    ModelUsage,
     ToolPresentation,
 } from "../model/types.ts";
 import type {
@@ -627,18 +629,6 @@ export interface PromptWithdrawnUpdate {
     readonly content: string;
     readonly attachmentIds?: readonly string[];
     readonly seq: number;
-}
-
-export interface SessionModelUsageRow extends ModelUsage {
-    readonly provider: string;
-    readonly model: string;
-    readonly calls: number;
-    readonly durationMs: number;
-    readonly callsWithoutCost: number;
-}
-
-export interface SessionModelUsage {
-    readonly rows: readonly SessionModelUsageRow[];
 }
 
 /**
@@ -1805,12 +1795,18 @@ export function createProtocolEncoder(
         provider: string,
         model: string,
     ) => number | undefined = () => undefined,
-    usageMessages?: () => readonly ModelMessage[],
+    usageMessages?: () => readonly ModelMessage[] | SessionModelUsage,
     deliveries?: () => DeliveryLookup,
     unsentPrompts?: () => readonly UnsentPrompt[],
 ): ProtocolEncoder {
     let seq = 0;
     let sessionUsage: SessionModelUsage = { rows: [] };
+    const readUsage = (fallback: readonly ModelMessage[]): SessionModelUsage => {
+        const value = usageMessages?.() ?? fallback;
+        return Array.isArray(value)
+            ? summarizeSessionModelUsage(value)
+            : value as SessionModelUsage;
+    };
     let measuredCapacity: number | undefined;
     let measuredContext: ContextMeasurement | undefined;
     let measuredModel: string | undefined;
@@ -2322,7 +2318,7 @@ export function createProtocolEncoder(
         if (event.type === "turn_finished") {
             sessionUsage = usageMessages === undefined
                 ? addSessionModelUsage(sessionUsage, event.message)
-                : summarizeSessionModelUsage(usageMessages());
+                : readUsage([]);
             // The provider counted the request the engine had only estimated,
             // so the turn ends on the authoritative number rather than leaving
             // the estimate standing as the last word. The window is the one
@@ -2447,7 +2443,7 @@ export function createProtocolEncoder(
             if (recipe !== undefined) {
                 measuredContext = context;
             }
-            sessionUsage = summarizeSessionModelUsage(usageMessages?.() ?? messages);
+            sessionUsage = readUsage(messages);
             const unsent = unsentPrompts?.() ?? [];
             sender.send({
                 type: "history",
@@ -2473,57 +2469,6 @@ export function createProtocolEncoder(
             replayedRequestFloor = undefined;
         },
     });
-}
-
-export function summarizeSessionModelUsage(
-    messages: readonly ModelMessage[],
-): SessionModelUsage {
-    return messages.reduce(
-        (usage, message) => message.role === "assistant"
-            ? addSessionModelUsage(usage, message)
-            : usage,
-        { rows: [] } as SessionModelUsage,
-    );
-}
-
-function addSessionModelUsage(
-    usage: SessionModelUsage,
-    message: AssistantMessage,
-): SessionModelUsage {
-    const key = `${message.source.provider}\0${message.source.model}`;
-    const rows = [...usage.rows];
-    const index = rows.findIndex((row) =>
-        `${row.provider}\0${row.model}` === key
-    );
-    const prior = rows[index];
-    const next: SessionModelUsageRow = {
-        provider: message.source.provider,
-        model: message.source.model,
-        calls: (prior?.calls ?? 0) + 1,
-        durationMs: (prior?.durationMs ?? 0) + (message.durationMs ?? 0),
-        inputTokens: (prior?.inputTokens ?? 0) + message.usage.inputTokens,
-        outputTokens: (prior?.outputTokens ?? 0) + message.usage.outputTokens,
-        cachedInputTokens: (prior?.cachedInputTokens ?? 0)
-            + message.usage.cachedInputTokens,
-        ...(prior?.cacheWriteInputTokens === undefined
-                && message.usage.cacheWriteInputTokens === undefined
-            ? {}
-            : {
-                cacheWriteInputTokens: (prior?.cacheWriteInputTokens ?? 0)
-                    + (message.usage.cacheWriteInputTokens ?? 0),
-            }),
-        reasoningTokens: (prior?.reasoningTokens ?? 0)
-            + message.usage.reasoningTokens,
-        totalTokens: (prior?.totalTokens ?? 0) + message.usage.totalTokens,
-        ...(message.usage.cost === undefined && prior?.cost === undefined
-            ? {}
-            : { cost: (prior?.cost ?? 0) + (message.usage.cost ?? 0) }),
-        callsWithoutCost: (prior?.callsWithoutCost ?? 0)
-            + (message.usage.cost === undefined ? 1 : 0),
-    };
-    if (index < 0) rows.push(next);
-    else rows[index] = next;
-    return { rows };
 }
 
 /**

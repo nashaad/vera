@@ -1,14 +1,14 @@
 import {
     formatHookContext,
     formatModelSubstitution,
-    projectTranscript,
     type TranscriptEntry,
 } from "./engine/protocol.ts";
 import {
     importToolLabel,
     type SessionImportTool,
 } from "./store/session-import-provenance.ts";
-import { readSessionSnapshot } from "./store/session-store.ts";
+import { SessionStore } from "./store/session-store.ts";
+import { projectIndexedMessage, walkSessionTranscript } from "./session-transcript.ts";
 
 export type SessionExportFormat = "markdown" | "json";
 
@@ -41,14 +41,13 @@ export async function exportSession(
     sessionPath: string,
     format: SessionExportFormat = "markdown",
 ): Promise<string> {
-    const snapshot = await readSessionSnapshot(sessionPath);
-    const imported = snapshot.header.importedFrom;
-    const exported: SessionExport = {
-        format_version: 4,
-        session: {
-            id: snapshot.header.id,
-            started_at: snapshot.header.timestamp,
-            workspace: snapshot.header.cwd,
+    const store = await SessionStore.openReadOnly(sessionPath);
+    try {
+        const imported = store.header.importedFrom;
+        const session: SessionExport["session"] = {
+            id: store.header.id,
+            started_at: store.header.timestamp,
+            workspace: store.header.cwd,
             ...(imported === undefined ? {} : {
                 imported_from: {
                     tool: imported.tool,
@@ -59,39 +58,80 @@ export async function exportSession(
                     last_message_id: imported.lastMessageId,
                 },
             }),
-        },
-        transcript: projectTranscript(
-            snapshot.messages,
-            undefined,
-            snapshot.messageStamps,
-            snapshot.harnessMessages,
-            snapshot.deliveredMessages,
-        ).filter(isExportedEntry),
-        ...(snapshot.agentFailure === undefined
-            ? {}
-            : {
-                agent_failure: {
-                    id: snapshot.agentFailure.id,
-                    occurred_at: snapshot.agentFailure.timestamp,
-                    detail: snapshot.agentFailure.detail,
-                },
-            }),
-    };
-    return format === "json"
-        ? `${JSON.stringify(exported, null, 2)}\n`
-        : renderSessionMarkdown(exported);
+        };
+        const failure = store.agentFailure();
+        const agentFailure: SessionExport["agent_failure"] = failure === undefined ? undefined : {
+            id: failure.id, occurred_at: failure.timestamp, detail: failure.detail,
+        };
+        const headId = store.activeHeadId();
+        const limit = store.appendedLineCount();
+        if (format === "json") {
+            const prefix = JSON.stringify({ format_version: 4, session }, null, 2);
+            const chunks = [prefix.slice(0, -2), ',\n  "transcript": ['];
+            let count = 0;
+            for await (const entry of walkSessionTranscript(store, headId, limit, false)) {
+                if (!isExportedEntry(entry)) continue;
+                chunks.push(count++ === 0 ? "\n" : ",\n");
+                chunks.push(JSON.stringify(entry, null, 2).replace(/^/gm, "    "));
+            }
+            chunks.push(count === 0 ? "]" : "\n  ]");
+            if (agentFailure !== undefined) {
+                chunks.push(',\n  "agent_failure": ', JSON.stringify(agentFailure, null, 2).replaceAll("\n", "\n  "));
+            }
+            chunks.push("\n}\n");
+            return chunks.join("");
+        }
+        const lines = markdownHeader(session);
+        const boundary = session.imported_from?.last_message_id;
+        let lastImportedId: string | undefined;
+        if (boundary !== undefined && headId !== null) {
+            for await (const message of store.walkMessageAncestors(headId)) {
+                if (message.id !== boundary && !message.id.startsWith(`${boundary}#`)) continue;
+                if ((await projectIndexedMessage(store, message, false)).some((entry) =>
+                    isExportedEntry(entry) && entry.id?.startsWith(`${boundary}#`) === true
+                )) {
+                    lastImportedId = message.id;
+                    break;
+                }
+            }
+        }
+        let importedThroughBoundary = lastImportedId !== undefined;
+        let sawBoundary = false;
+        for await (const entry of walkSessionTranscript(store, headId, limit, false)) {
+            if (!isExportedEntry(entry)) continue;
+            const hash = entry.id?.lastIndexOf("#") ?? -1;
+            const isBoundary = hash > 0 && entry.id?.slice(0, hash) === lastImportedId;
+            if (sawBoundary && !isBoundary) importedThroughBoundary = false;
+            appendMarkdownEntry(lines, entry, importedThroughBoundary ? session.imported_from : undefined);
+            if (isBoundary) sawBoundary = true;
+        }
+        appendMarkdownFailure(lines, agentFailure);
+        return `${lines.join("\n")}\n`;
+    } finally {
+        await store.closeReadOnly();
+    }
 }
 
 export function renderSessionMarkdown(exported: SessionExport): string {
     const transcript = exported.transcript.filter(isExportedEntry);
+    const lines = markdownHeader(exported.session);
+    const importedThrough = lastImportedEntry({ ...exported, transcript });
+    for (const [index, entry] of transcript.entries()) {
+        appendMarkdownEntry(lines, entry, index <= importedThrough ? exported.session.imported_from : undefined);
+    }
+    appendMarkdownFailure(lines, exported.agent_failure);
+    return `${lines.join("\n")}\n`;
+}
+
+function markdownHeader(session: SessionExport["session"]): string[] {
     const lines = [
         "# Vera conversation",
         "",
-        `- Session: ${inlineCode(exported.session.id)}`,
-        `- Workspace: ${inlineCode(exported.session.workspace)}`,
-        `- Started: ${inlineCode(exported.session.started_at)}`,
+        `- Session: ${inlineCode(session.id)}`,
+        `- Workspace: ${inlineCode(session.workspace)}`,
+        `- Started: ${inlineCode(session.started_at)}`,
     ];
-    const imported = exported.session.imported_from;
+    const imported = session.imported_from;
     if (imported !== undefined) {
         lines.push(
             `- Imported from: ${importToolLabel(imported.tool)} session`
@@ -99,67 +139,68 @@ export function renderSessionMarkdown(exported: SessionExport): string {
                 + ` ${imported.message_count} messages`,
         );
     }
+    return lines;
+}
 
-    const importedThrough = lastImportedEntry({ ...exported, transcript });
-    for (const [index, entry] of transcript.entries()) {
-        const heading = index <= importedThrough
-                && imported !== undefined
-                && (entry.kind === "assistant" || entry.kind === "empty")
-            ? `## ${importToolLabel(imported.tool)}`
-            : transcriptHeading(entry);
-        lines.push("", heading, "");
-        if (entry.kind === "tool") {
-            lines.push(indentJson(entry.args));
-        } else if (entry.kind === "tool_result") {
-            lines.push(quoteMarkdown(
-                entry.output.length === 0 ? "(no output)" : entry.output,
-            ));
-        } else if (entry.kind === "error") {
-            lines.push(quoteMarkdown(
-                entry.outcome === "aborted"
-                    ? "Interrupted"
-                    : entry.detail ?? "Model request failed",
-            ));
-        } else if (entry.kind === "empty") {
-            lines.push(quoteMarkdown("No response"));
-        } else if (entry.kind === "delivery") {
-            lines.push(quoteMarkdown(entry.content));
-        } else if (entry.kind === "presentation") {
-            if (entry.presentation.kind === "unified_diff") {
-                const fence = markdownFence(entry.presentation.patch);
-                lines.push(
-                    `File: ${inlineCode(entry.presentation.path)}`,
-                    "",
-                    `${fence}diff`,
-                    entry.presentation.patch.trimEnd(),
-                    fence,
-                );
-            } else if (entry.presentation.kind === "checklist") {
-                if (entry.presentation.title !== undefined) {
-                    lines.push(`**${entry.presentation.title}**`, "");
-                }
-                for (const item of entry.presentation.items) {
-                    lines.push(`- [${item.done ? "x" : " "}] ${item.text}`);
-                }
-            } else {
-                lines.push(quoteMarkdown(entry.presentation.text));
+function appendMarkdownEntry(lines: string[], entry: ExportedTranscriptEntry, imported: ExportedImportProvenance | undefined): void {
+    const heading = imported !== undefined
+            && (entry.kind === "assistant" || entry.kind === "empty")
+        ? `## ${importToolLabel(imported.tool)}`
+        : transcriptHeading(entry);
+    lines.push("", heading, "");
+    if (entry.kind === "tool") {
+        lines.push(indentJson(entry.args));
+    } else if (entry.kind === "tool_result") {
+        lines.push(quoteMarkdown(
+            entry.output.length === 0 ? "(no output)" : entry.output,
+        ));
+    } else if (entry.kind === "error") {
+        lines.push(quoteMarkdown(
+            entry.outcome === "aborted"
+                ? "Interrupted"
+                : entry.detail ?? "Model request failed",
+        ));
+    } else if (entry.kind === "empty") {
+        lines.push(quoteMarkdown("No response"));
+    } else if (entry.kind === "delivery") {
+        lines.push(quoteMarkdown(entry.content));
+    } else if (entry.kind === "presentation") {
+        if (entry.presentation.kind === "unified_diff") {
+            const fence = markdownFence(entry.presentation.patch);
+            lines.push(
+                `File: ${inlineCode(entry.presentation.path)}`,
+                "",
+                `${fence}diff`,
+                entry.presentation.patch.trimEnd(),
+                fence,
+            );
+        } else if (entry.presentation.kind === "checklist") {
+            if (entry.presentation.title !== undefined) {
+                lines.push(`**${entry.presentation.title}**`, "");
+            }
+            for (const item of entry.presentation.items) {
+                lines.push(`- [${item.done ? "x" : " "}] ${item.text}`);
             }
         } else {
-            lines.push(quoteMarkdown(renderTranscriptText(entry)));
+            lines.push(quoteMarkdown(entry.presentation.text));
         }
+    } else {
+        lines.push(quoteMarkdown(renderTranscriptText(entry)));
     }
-    if (exported.agent_failure !== undefined) {
+}
+
+function appendMarkdownFailure(lines: string[], failure: SessionExport["agent_failure"]): void {
+    if (failure !== undefined) {
         lines.push(
             "",
             "## Resident agent failure",
             "",
-            quoteMarkdown(exported.agent_failure.detail),
+            quoteMarkdown(failure.detail),
             "",
-            `Failure ID: ${inlineCode(exported.agent_failure.id)}`,
-            `Occurred: ${inlineCode(exported.agent_failure.occurred_at)}`,
+            `Failure ID: ${inlineCode(failure.id)}`,
+            `Occurred: ${inlineCode(failure.occurred_at)}`,
         );
     }
-    return `${lines.join("\n")}\n`;
 }
 
 type ExportedTranscriptEntry = Exclude<TranscriptEntry, { kind: "reasoning" }>;

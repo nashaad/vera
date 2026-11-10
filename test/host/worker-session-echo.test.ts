@@ -13,7 +13,7 @@ import { createJsonPipe } from "../../src/host/worker/pipe.ts";
 import { createRemoteHostBoundary } from "../../src/host/worker/remote-boundary.ts";
 import { WorkerSessionStore } from "../../src/host/worker/session.ts";
 import type { WorkerSessionSeed } from "../../src/host/worker/start.ts";
-import type { ModelMessage } from "../../src/model/types.ts";
+import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import { sessionRecordForWire } from "../../src/store/session-record-projection.ts";
 import { readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 
@@ -224,7 +224,7 @@ test("the replica refuses a hole, a repeat, and everything after the first failu
     await host.appendMessage(user("b"));
     await host.appendMessage(user("c"));
     const seed = await readSessionSeed(host.path);
-    const [a, b, c] = seed.records as [
+    const [a, b, c] = committedRecords(host.path) as [
         Record<string, unknown>,
         Record<string, unknown>,
         Record<string, unknown>,
@@ -397,9 +397,81 @@ test("worker seed streams long UTF-8 records in order", async () => {
     const host = await SessionStore.create(join(directory, "seed.jsonl"), {
         sessionId: "seed", cwd: directory,
     });
-    const first = await host.appendMessage(user("x".repeat(65500) + "🦜" + "y".repeat(140000)));
+    const first = await host.appendMessage(user("x".repeat(1024 * 1024 - 3) + "🦜" + "y".repeat(140000)));
     const second = await host.appendMessage(user("second"));
     const seed = await readSessionSeed(host.path);
-    expect(seed.records.map((record) => record.id)).toEqual([first.id, second.id]);
-    expect(seed.records[0]?.message).toEqual(first.message);
+    expect(seed.lineCount).toBe(3);
+    const worker = WorkerSessionStore.seed(host.path, seed.header);
+    worker.applyCommittedLines(seed.lineCount);
+    expect(worker.appliedThrough()).toBe(3);
+    expect(worker.entries().map((entry) => entry.id)).toEqual([first.id, second.id]);
+    expect(worker.entries()[0]?.message).toEqual(first.message);
 });
+
+test("a seed whose committed lines are missing from the file diverges", async () => {
+    const directory = workspace();
+    const host = await SessionStore.create(join(directory, "short.jsonl"), {
+        sessionId: "short", cwd: directory,
+    });
+    await host.appendMessage(user("only"));
+    const seed = await readSessionSeed(host.path);
+    const worker = WorkerSessionStore.seed(host.path, seed.header);
+    const diverged: Error[] = [];
+    worker.watchDivergence((error) => diverged.push(error));
+    expect(() => worker.applyCommittedLines(seed.lineCount + 1)).toThrow(/expected 3 committed lines but the file has 2/);
+    expect(diverged).toHaveLength(1);
+    expect(() => worker.applyHostRecord(4, {})).toThrow(/expected 3 committed lines/);
+});
+
+test("a worker seeded after a compaction and an abandoned branch keeps the host's context", async () => {
+    const joined = await link(async (host, connect) => {
+        await host.appendMessage(user("first"), { turnStart: true });
+        const firstAnswer = await host.appendMessage(answer("first answer"));
+        const abandoned = await host.appendMessage(user("abandoned"), { turnStart: true });
+        await host.appendMessage(answer("abandoned answer"));
+        await host.appendCompaction({ boundaryMessageId: firstAnswer.id, firstRetainedMessageId: abandoned.id,
+            projection: [answer("old summary")], measured: { inputTokens: 20, estimated: true } });
+        await host.rewindBefore(abandoned.id);
+        const active = await host.appendMessage(user("replacement"), { turnStart: true });
+        await host.appendMessage(answer("new answer"));
+        await host.appendCompaction({ boundaryMessageId: firstAnswer.id, firstRetainedMessageId: active.id,
+            projection: [answer("new summary")], measured: { inputTokens: 20, estimated: true } });
+        const before = host.appendMessage(user("written before the seed"), { turnStart: true });
+        const seeded = host.exclusively(async () => {
+            const linked = connect(await readSessionSeed(host.path));
+            host.watchRecords(linked.pushRecord);
+            return linked;
+        });
+        const after = host.appendMessage(answer("written while the seed is read"));
+        await Promise.all([before, after]);
+        const linked = await seeded;
+        await waitFor(() => linked.worker.appliedThrough() === host.appendedLineCount());
+        return linked;
+    });
+
+    expect(joined.diverged).toEqual([]);
+    expect(joined.worker.appliedThrough()).toBe(joined.host.appendedLineCount());
+    expect(joined.worker.modelContext()).toEqual(joined.host.modelContext());
+    expect(texts(joined.worker.modelContext())).not.toContain("abandoned");
+    await joined.worker.appendMessage(answer("worker answer"));
+    await joined.host.appendMessage(user("host follow-up"), { turnStart: true });
+    await waitFor(() => joined.worker.appliedThrough() === joined.host.appendedLineCount());
+    expect(joined.diverged).toEqual([]);
+    expect(joined.worker.modelContext()).toEqual(joined.host.modelContext());
+    expect(joined.worker.modelContext()).toEqual((await SessionStore.open(joined.host.path)).modelContext());
+});
+
+function answer(text: string): ModelMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}
+
+function committedRecords(path: string): Record<string, unknown>[] {
+    return readFileSync(path, "utf8").split("\n").filter((line) => line.length > 0).slice(1)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+}

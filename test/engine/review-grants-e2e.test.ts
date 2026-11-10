@@ -10,10 +10,12 @@ import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import {
     emptyUsage,
     type AssistantMessage,
+    type ModelMessage,
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { collectSessionBranch } from "../support/session-entries.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -29,6 +31,20 @@ test("a classifier allow on an extension operation covers the rest of the sessio
         join(workspace, "session.jsonl"),
         { sessionId: "crow-lookout", cwd: workspace },
     );
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "earlier work" }] });
+    const boundary = await store.appendMessage({
+        role: "assistant", content: [{ type: "text", text: "earlier reply" }],
+        source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "stop",
+    });
+    const abandoned = await store.appendMessage({ role: "user", content: [{ type: "text", text: "abandoned work" }] });
+    await store.rewindBefore(abandoned.id);
+    const retained = await store.appendMessage({ role: "user", content: [{ type: "text", text: "retained work" }] });
+    await store.appendCompaction({
+        boundaryMessageId: boundary.id, firstRetainedMessageId: retained.id,
+        projection: [{ role: "user", internal: true, content: [{ type: "text", text: "summary" }] }],
+        measured: { inputTokens: 1, estimated: true },
+    });
+    const previousMessages = (await collectSessionBranch(store)).map((entry) => entry.message);
     const ran: string[] = [];
     const lookout: RegisteredTool = {
         definition: {
@@ -48,8 +64,10 @@ test("a classifier allow on an extension operation covers the rest of the sessio
         },
     };
     const reviewed: string[] = [];
+    let reviewedTranscript: readonly ModelMessage[] = [];
     const review: ReviewToolCall = async (request) => {
         reviewed.push(request.toolCall.name);
+        reviewedTranscript = request.transcript ?? [];
         return {
             decision: "allow",
             reason: "Looking is harmless.",
@@ -90,6 +108,8 @@ test("a classifier allow on an extension operation covers the rest of the sessio
 
     expect(updates.some((update) => update.type === "ui_request")).toBe(false);
     expect(reviewed).toEqual(["crow_lookout"]);
+    expect(reviewedTranscript.slice(0, previousMessages.length)).toEqual([...previousMessages]);
+    expect(JSON.stringify(reviewedTranscript)).not.toContain("abandoned work");
     expect(ran).toEqual(["horizon", "https://treasure.example/map", "horizon"]);
     const reopened = await SessionStore.open(store.path);
     expect(reopened.permissionGrants().map((grant) => grant.when)).toEqual([

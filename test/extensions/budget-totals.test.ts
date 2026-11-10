@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import { collectSessionUsage } from "../support/session-entries.ts";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -144,7 +145,7 @@ test("both readers total what session usage counts, including side questions", a
             usage: { ...emptyUsage(), cost: 0.75 } });
         await store.appendAskBilling({ provider: "fixture", model: "fixture", usage: emptyUsage() });
 
-        const usage = store.usageMessages();
+        const usage = await collectSessionUsage(store);
         const reported = usage.reduce((sum, message) => sum + (message.usage.cost ?? 0), 0);
         expect(reported).toBe(1.625);
         expect(usage.filter((message) => message.usage.cost === undefined)).toHaveLength(2);

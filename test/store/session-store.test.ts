@@ -13,13 +13,15 @@ import { join } from "node:path";
 import {
     SESSION_FORMAT_VERSION,
     readSessionIndexMetadata,
+    readIndexedLiveContext,
     SessionStore,
 } from "../../src/store/session-store.ts";
 import type { PermissionGrant } from "../../src/engine/permission-grants.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
-import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
-import { projectTranscript } from "../../src/engine/protocol.ts";
+import { collectSessionBranch, collectSessionEntries, collectSessionUsage } from "../support/session-entries.ts";
+import type { SessionCompactionEntry, SessionImageAttachmentMetadata, SessionMessageEntry } from "../../src/store/session-store.ts";
+import { projectTranscript, summarizeSessionModelUsage } from "../../src/engine/protocol.ts";
 import { scanSessionLines, SESSION_SCAN_CHUNK_BYTES } from "../../src/store/session-lines.ts";
 
 const temporaryDirectories: string[] = [];
@@ -108,6 +110,44 @@ test("session store creates a header and reloads one message chain", async () =>
     const reopened = await SessionStore.open(path);
     expect(reopened.header.id).toBe("session-1");
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
+});
+
+test("first user facts and latest timestamp follow the active branch", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "facts.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "facts", cwd: directory, createId: values("internal", "first", "second", "replacement"),
+        now: dates("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", "2026-01-01T00:00:02.000Z",
+            "2026-01-01T00:00:03.000Z", "2026-01-01T00:00:04.000Z", "2026-01-01T00:00:05.000Z"),
+    });
+    await store.appendMessage({ role: "user", internal: true, content: [{ type: "text", text: "hidden" }] });
+    await store.appendMessage(userMessage("  first\n prompt  "));
+    await store.appendMessage(userMessage("second"));
+    expect(store.firstUserFacts()).toEqual({ title: "first prompt" });
+    expect(store.turnCount()).toBe(2);
+    expect(store.latestMessageTimestamp()).toBe("2026-01-01T00:00:03.000Z");
+    await store.rewindBefore("first");
+    expect(store.firstUserFacts()).toBeUndefined();
+    expect(store.turnCount()).toBe(0);
+    expect(store.latestMessageTimestamp()).toBe("2026-01-01T00:00:01.000Z");
+    await store.appendMessage(userMessage("  next  prompt  "));
+    expect(store.firstUserFacts()).toEqual({ title: "next prompt" });
+    expect(store.turnCount()).toBe(1);
+    const reopened = await SessionStore.open(path);
+    expect(reopened.firstUserFacts()).toEqual(store.firstUserFacts());
+    expect(reopened.latestMessageTimestamp()).toBe(store.latestMessageTimestamp());
+    expect(reopened.turnCount()).toBe(store.turnCount());
+});
+
+test("the first-user title keeps the same whitespace and truncation as the session list", async () => {
+    const directory = temporaryDirectory();
+    for (const [index, parts] of [[" ".repeat(1024), "a".repeat(79) + "   b"], ["  a  ", "", " b  "]].entries()) {
+        const store = await SessionStore.create(join(directory, `title-${index}.jsonl`), { sessionId: `title-${index}`, cwd: directory });
+        await store.appendMessage({ role: "user", content: parts.map((text) => ({ type: "text" as const, text })) });
+        const expected = parts.join(" ").replaceAll(/\s+/g, " ").trim().slice(0, 80);
+        expect(store.firstUserFacts()?.title).toBe(expected);
+        expect((await SessionStore.open(store.path)).firstUserFacts()?.title).toBe(expected);
+    }
 });
 
 test("session store reloads checklist and scratch diff presentations", async () => {
@@ -417,7 +457,7 @@ test("session store ignores removed file checkpoint records", async () => {
     const reopened = await SessionStore.open(path);
 
     expect(reopened.messages()).toEqual([user, assistant]);
-    expect(reopened.entries()).toHaveLength(2);
+    expect((await collectSessionEntries(reopened))).toHaveLength(2);
 });
 
 test("session store rejects malformed removed checkpoint records", async () => {
@@ -471,7 +511,7 @@ test("session store serializes concurrent appends into one chain", async () => {
         store.appendMessage(second),
     ]);
 
-    expect(store.entries().map((entry) => entry.parentId)).toEqual([
+    expect((await collectSessionEntries(store)).map((entry) => entry.parentId)).toEqual([
         null,
         "message-1",
     ]);
@@ -535,7 +575,7 @@ test("conversation rewind keeps the physical tail and survives restart", async (
         "message-2",
     ]);
     expect(store.messages()).toEqual([firstUser, firstAssistant]);
-    expect(store.entries()).toHaveLength(4);
+    expect((await collectSessionEntries(store))).toHaveLength(4);
     expect(readLines(path).map((line) => line.type)).toEqual([
         "session",
         "message",
@@ -567,7 +607,7 @@ test("conversation rewind keeps the physical tail and survives restart", async (
         firstAssistant,
         replacementUser,
     ]);
-    expect(reopened.entries().map((entry) => entry.id)).toEqual([
+    expect((await collectSessionEntries(reopened)).map((entry) => entry.id)).toEqual([
         "message-1",
         "message-2",
         "message-3",
@@ -585,7 +625,7 @@ test("conversation rewind keeps the physical tail and survives restart", async (
     const rewoundAgain = await SessionStore.open(path);
     expect(rewoundAgain.activeHeadId()).toBeNull();
     expect(rewoundAgain.messages()).toEqual([]);
-    expect(rewoundAgain.entries()).toHaveLength(5);
+    expect(await collectSessionEntries(rewoundAgain)).toHaveLength(5);
 });
 
 test("session store rejects a rewind record from an inactive head", async () => {
@@ -1573,7 +1613,7 @@ test("rewind requeues only a delivery abandoned with its message", async () => {
     expect(reopened.activeEntries().map((entry) => entry.id)).toEqual([
         "message-6",
     ]);
-    expect(reopened.entries()).toHaveLength(6);
+    expect((await collectSessionEntries(reopened))).toHaveLength(6);
 });
 
 test("session store still reads legacy delivery receipts", async () => {
@@ -2034,10 +2074,158 @@ test("a compaction replaces the model context without touching the transcript", 
 
     // The originals are what the user said, so they stay exactly as recorded;
     // only what the model is sent changes.
-    expect(store.messages()).toEqual([first, firstAnswer, second, secondAnswer]);
+    expect((await collectSessionBranch(store)).map((entry) => entry.message)).toEqual([first, firstAnswer, second, secondAnswer]);
     expect(store.modelContext()).toEqual([summary, second, secondAnswer]);
-    expect((await SessionStore.open(path)).modelContext())
-        .toEqual([summary, second, secondAnswer]);
+    expect(await store.readApplicableCompaction()).toEqual(store.latestCompaction());
+    const reopened = await SessionStore.open(path);
+    expect(reopened.modelContext()).toEqual([summary, second, secondAnswer]);
+    expect(await reopened.readApplicableCompaction()).toEqual(reopened.latestCompaction());
+    await reopened.rewindBefore("message-3");
+    expect(await reopened.readApplicableCompaction()).toEqual(reopened.latestCompaction());
+});
+
+test("indexed live context follows compaction and an abandoned branch", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "live-context.jsonl");
+    const store = await countedStore(path, directory);
+    const first = await store.appendMessage(userMessage("first"));
+    const firstAnswer = await store.appendMessage(assistantMessage("first answer"));
+    const abandoned = await store.appendMessage(userMessage("abandoned"));
+    const abandonedAnswer = await store.appendMessage(assistantMessage("abandoned answer"));
+    await store.appendCompaction({ boundaryMessageId: firstAnswer.id, firstRetainedMessageId: abandoned.id,
+        projection: [assistantMessage("old summary")], measured: { inputTokens: 20, estimated: true } });
+    await store.rewindBefore(abandoned.id);
+    const active = await store.appendMessage(userMessage("replacement"));
+    const newAnswer = await store.appendMessage(assistantMessage("new answer"));
+    await store.appendCompaction({ boundaryMessageId: firstAnswer.id, firstRetainedMessageId: active.id,
+        projection: [assistantMessage("new summary")], measured: { inputTokens: 20, estimated: true } });
+
+    const live = await readIndexedLiveContext(path);
+    expect(live.headId).toBe(store.activeHeadId());
+    expect(live.compaction).toEqual(store.latestCompaction());
+    expect([...live.compaction!.projection, ...live.entries.map((entry) => entry.message)]).toEqual([...store.modelContext()]);
+    expect(live.entries.map((entry) => entry.id)).toEqual([active.id, newAnswer.id]);
+    expect(live.tail.map((entry) => entry.id)).toEqual((await collectSessionBranch(store)).map((entry) => entry.id));
+    expect(live.tail.at(-1)).toBe(live.entries.at(-1));
+    expect((await store.readMessageEntry(abandoned.id))?.message).toEqual(userMessage("abandoned"));
+    const reopened = await SessionStore.open(path);
+    const resident = Reflect.get(reopened, "projection") as {
+        activeMessageEntries: SessionMessageEntry[];
+        compactionEntries: SessionCompactionEntry[];
+        contextMeasurementEntries: unknown[];
+    };
+    expect(resident.activeMessageEntries.map((entry) => entry.id)).toEqual([active.id, newAnswer.id]);
+    expect(resident.compactionEntries).toEqual([live.compaction!]);
+    expect(resident.contextMeasurementEntries.length).toBeLessThanOrEqual(1);
+    for (const entry of [first, firstAnswer, abandoned, abandonedAnswer, active, newAnswer]) {
+        expect(await reopened.readMessageEntry(entry.id)).toEqual(entry);
+    }
+    const extra = await reopened.appendMessage(userMessage("after open"));
+    await reopened.appendCompaction({ boundaryMessageId: newAnswer.id, firstRetainedMessageId: extra.id,
+        projection: [assistantMessage("latest summary")], measured: { inputTokens: 12, estimated: true } });
+    expect(reopened.liveMessageEntries().map((entry) => entry.id)).toEqual([extra.id]);
+    expect(reopened.modelContext()).toEqual([assistantMessage("latest summary"), extra.message]);
+    await reopened.rewindBefore(extra.id);
+    expect(reopened.modelContext()).toEqual([assistantMessage("new summary"), active.message, newAnswer.message]);
+});
+
+test("indexed live context reads current settings and identity by offset", async () => {
+    const directory = temporaryDirectory();
+    const store = await countedStore(join(directory, "live-facts.jsonl"), directory);
+    await store.appendName("first name");
+    await store.appendName("current name");
+    await store.appendModelSettings({ provider: "faux", model: "old" });
+    await store.appendModelSettings({ provider: "faux", model: "current" });
+    await store.appendApprovalMode("ask");
+    await store.appendIdentity({ name: "calm-wren:0001", key: "calm-wren:0001" });
+    const live = await readIndexedLiveContext(store.path);
+    expect(live.name?.name).toBe(store.name());
+    expect(live.settings?.settings).toEqual(store.modelSettings());
+    expect(live.permissions?.mode).toBe(store.approvalMode());
+    expect(live.identity).toEqual(store.identity());
+    expect(live.entries).toEqual([]);
+});
+
+test("indexed usage counts abandoned replies, compactions and asks in the existing order", async () => {
+    const directory = temporaryDirectory();
+    const store = await countedStore(join(directory, "usage.jsonl"), directory);
+    const reply = (text: string, cost?: number): ModelMessage => ({
+        role: "assistant", content: [{ type: "text", text }], source: { provider: "faux", api: "scripted", model: "test" },
+        usage: { ...emptyUsage(), inputTokens: 10, totalTokens: 10,
+            ...(cost === undefined ? {} : { cost, cacheWriteInputTokens: 5 }) }, stopReason: "stop",
+    });
+    await store.appendMessage(userMessage("first"));
+    const firstAnswer = await store.appendMessage(reply("first answer"));
+    const abandoned = await store.appendMessage(userMessage("abandoned"));
+    await store.appendMessage(reply("abandoned answer", 0.2));
+    await store.appendCompaction({ boundaryMessageId: firstAnswer.id, firstRetainedMessageId: abandoned.id,
+        projection: [assistantMessage("summary".repeat(12_000))], measured: { inputTokens: 20, estimated: true },
+        billed: { provider: "faux", model: "test", usage: { ...emptyUsage(), cost: 0.3 } } });
+    await store.rewindBefore(abandoned.id);
+    await store.appendMessage(userMessage("replacement"));
+    await store.appendMessage(reply("new answer", 0.4));
+    await store.appendAskBilling({ provider: "faux", model: "test", usage: { ...emptyUsage(), cost: 0.5 } });
+    const actual = (await readIndexedLiveContext(store.path)).usage;
+    const expected = summarizeSessionModelUsage(await collectSessionUsage(store));
+    expect(actual).toEqual(expected);
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+    expect(JSON.stringify(store.usageSummary())).toBe(JSON.stringify(expected));
+    expect(JSON.stringify((await SessionStore.open(store.path)).usageSummary())).toBe(JSON.stringify(expected));
+    const mutable = store.usageSummary().rows[0] as { calls: number };
+    mutable.calls = -1;
+    expect(JSON.stringify(store.usageSummary())).toBe(JSON.stringify(expected));
+});
+
+test("the measured assistant timestamp follows the active branch even if the clock moves backwards", async () => {
+    const directory = temporaryDirectory();
+    const dates = ["2026-01-01", "2026-01-02", "2030-01-01", "2026-01-03", "2027-01-01", "2026-01-04", "2026-01-05"];
+    const store = await SessionStore.create(join(directory, "timestamps.jsonl"), {
+        sessionId: "timestamps", cwd: directory, now: () => new Date(dates.shift()!),
+    });
+    const first = await store.appendMessage(userMessage("first"));
+    const future = assistantMessage("future");
+    if (future.role !== "assistant") throw new Error("Expected an assistant message");
+    await store.appendMessage({ ...future, usage: { ...emptyUsage(), inputTokens: 1 } });
+    const second = await store.appendMessage(userMessage("second"));
+    const earlier = assistantMessage("earlier");
+    if (earlier.role !== "assistant") throw new Error("Expected an assistant message");
+    await store.appendMessage({ ...earlier, usage: { ...emptyUsage(), inputTokens: 1 } });
+    expect(store.latestMeasuredAssistantTimestamp()).toBe("2030-01-01T00:00:00.000Z");
+    expect((await SessionStore.open(store.path)).latestMeasuredAssistantTimestamp()).toBe("2030-01-01T00:00:00.000Z");
+    expect((await readIndexedLiveContext(store.path)).latestMeasuredAssistantTimestamp).toBe("2030-01-01T00:00:00.000Z");
+    await store.rewindBefore(second.id);
+    expect(store.latestMeasuredAssistantTimestamp()).toBe("2030-01-01T00:00:00.000Z");
+    expect((await readIndexedLiveContext(store.path)).latestMeasuredAssistantTimestamp).toBe("2030-01-01T00:00:00.000Z");
+    await store.rewindBefore(first.id);
+    expect(store.latestMeasuredAssistantTimestamp()).toBeUndefined();
+    expect((await readIndexedLiveContext(store.path)).latestMeasuredAssistantTimestamp).toBeUndefined();
+});
+
+test("a new tool result restores the earlier applicable compaction", async () => {
+    const directory = temporaryDirectory();
+    const store = await countedStore(join(directory, "compaction-successor.jsonl"), directory);
+    const first = await store.appendMessage(userMessage("first"));
+    const answer = await store.appendMessage(assistantMessage("answer"));
+    await store.appendCompaction({ boundaryMessageId: first.id, firstRetainedMessageId: answer.id,
+        projection: [assistantMessage("first summary")], measured: { inputTokens: 1, estimated: true } });
+    await store.appendCompaction({ boundaryMessageId: answer.id, firstRetainedMessageId: null,
+        projection: [assistantMessage("second summary")], measured: { inputTokens: 1, estimated: true } });
+    const result: ModelMessage = { role: "tool_result", toolCallId: "call", toolName: "read",
+        content: [{ type: "text", text: "result" }], isError: false };
+    await store.appendMessage(result);
+    expect(store.modelContext()).toEqual([assistantMessage("first summary"), answer.message, result]);
+    expect((await SessionStore.open(store.path)).modelContext()).toEqual([...store.modelContext()]);
+});
+
+test("the resident entry accessor keeps the active head after compaction", async () => {
+    const directory = temporaryDirectory();
+    const store = await countedStore(join(directory, "resident-head.jsonl"), directory);
+    const first = await store.appendMessage(userMessage("first"));
+    const last = await store.appendMessage(assistantMessage("last"));
+    await store.appendCompaction({ boundaryMessageId: last.id, firstRetainedMessageId: null,
+        projection: [assistantMessage("summary")], measured: { inputTokens: 20, estimated: true } });
+    expect(store.entries().map((entry) => entry.id)).toEqual([last.id]);
+    expect((await collectSessionEntries(store)).map((entry) => entry.id)).toEqual([first.id, last.id]);
 });
 
 test("session identity remains in model context after compaction", async () => {
@@ -2267,6 +2455,7 @@ test("a compaction record cannot cross a model-context barrier", async () => {
         projection: [assistantMessage("inherited summary")],
         measured: { inputTokens: 20, estimated: true },
     });
+    expect(await store.readApplicableCompaction()).toEqual(store.latestCompaction());
     expect(store.modelContext().map((message) => message.content.flatMap(
         (content) => content.type === "text" ? [content.text] : [],
     ).join("\n")))
@@ -2864,6 +3053,17 @@ test("streamed open indexes UTF-8, long lines, rewinds and later appends by byte
     const after = await reopened.appendMessage(userMessage("after 🦜"));
     expect((await reopened.readIndexedMessage(next.id))?.message).toEqual(userMessage("before rewind"));
     expect((await reopened.readIndexedMessage(after.id))?.message).toEqual(userMessage("after 🦜"));
+    const abandoned = [];
+    for await (const entry of reopened.walkMessageAncestors(next.id)) abandoned.push(entry);
+    expect(abandoned.map((entry) => entry.message)).toEqual([userMessage("before rewind"), userMessage(text)]);
+    const active = [];
+    for await (const entry of reopened.walkMessageAncestors(after.id)) active.push(entry);
+    expect(active.map((entry) => entry.message)).toEqual([userMessage("after 🦜"), userMessage(text)]);
+    expect(await reopened.readMessageEntry(next.id)).toEqual(abandoned[0]);
+    expect(await reopened.readMessageEntry("missing")).toBeUndefined();
+    const forward = [];
+    for await (const entry of reopened.walkMessageBranch(next.id)) forward.push(entry);
+    expect(forward).toEqual(abandoned.toReversed());
     const again = await SessionStore.open(path);
     expect((await again.readIndexedMessage(after.id))?.message).toEqual(userMessage("after 🦜"));
     expect(again.recordIndexStats().records).toBe(5);

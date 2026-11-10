@@ -465,11 +465,11 @@ export class AgentRegistry {
         return registrySettings.applySessionModelSettings(this, id, patch);
     }
 
-    sessionModelSettingsHistory(id: string): readonly {
+    sessionModelSettingsHistory(id: string): Promise<readonly {
         readonly settings: ModelTurnSettings;
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
-    }[] {
+    }[]> {
         return registrySettings.sessionModelSettingsHistory(this, id);
     }
 

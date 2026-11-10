@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { collectSessionUsage } from "../support/session-entries.ts";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -300,7 +301,7 @@ test("an ask that gets a tool call back rejects and runs nothing", async () => {
         const reopened = await SessionStore.open(voyage.sessionPath);
         expect(reopened.messages()).toEqual(messagesBefore);
         expect(await Bun.file(join(voyage.workspace, "mutiny")).exists()).toBe(false);
-        expect(reopened.usageMessages().filter((message) => message.source.api === "ask"))
+        expect((await collectSessionUsage(reopened)).filter((message) => message.source.api === "ask"))
             .toHaveLength(1);
     } finally {
         await voyage.close();

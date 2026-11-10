@@ -2,10 +2,7 @@ import { rm } from "node:fs/promises";
 
 import { AttachmentStore } from "../attachments/store.ts";
 import type { ModelMessage, UserMessage } from "../model/types.ts";
-import {
-    SessionStore,
-    type SessionMessageEntry,
-} from "./session-store.ts";
+import { SessionStore, type SessionMessageEntry } from "./session-store.ts";
 
 export interface CreateSessionBranchOptions {
     readonly source: SessionStore;
@@ -21,14 +18,44 @@ export interface CreatedSessionBranch {
     readonly prompt?: UserMessage;
 }
 
+export type CompletedBranchDelta =
+    | { readonly status: "unchanged" | "stale_cursor" }
+    | { readonly status: "ready"; readonly entries: readonly SessionMessageEntry[]; readonly turns: number };
+
+export async function completedBranchDelta(
+    source: SessionStore,
+    cursor: string | null,
+): Promise<CompletedBranchDelta> {
+    const headId = source.activeHeadId();
+    if (headId === null) return { status: "unchanged" };
+    const additions: SessionMessageEntry[] = [];
+    let completed = false;
+    let found = cursor === null;
+    for await (const entry of source.walkMessageAncestors(headId)) {
+        if (!completed && entry.message.role !== "assistant") continue;
+        completed = true;
+        if (entry.id === cursor) {
+            found = true;
+            break;
+        }
+        additions.push(entry);
+    }
+    if (!completed) return { status: "unchanged" };
+    if (!found) return { status: "stale_cursor" };
+    const turns = additions.filter((entry) => entry.message.role === "user" && entry.message.internal !== true).length;
+    if (additions.length === 0 || turns === 0) return { status: "unchanged" };
+    additions.reverse();
+    return { status: "ready", entries: additions, turns };
+}
+
 export async function createSessionBranch(
     options: CreateSessionBranchOptions,
 ): Promise<CreatedSessionBranch> {
-    const active = options.source.activeEntries();
-    const selection = selectBranch(active, options.position, options.entryId);
+    const headId = options.source.activeHeadId();
+    const promptEntry = await selectPrompt(options.source, headId, options.position, options.entryId);
     const originEntryId = options.position === "before"
-        ? selection.promptEntry?.id ?? null
-        : options.source.activeHeadId();
+        ? promptEntry?.id ?? null
+        : headId;
     const destination = await SessionStore.create(options.destinationPath, {
         sessionId: options.sessionId,
         cwd: options.source.header.cwd,
@@ -58,28 +85,23 @@ export async function createSessionBranch(
         if (selected !== undefined) {
             await destination.appendSelectedAgent(selected.name, selected.snapshot);
         }
-        await copySessionMessageAttachments(
-            options.source,
-            destination,
-            [
-                ...selection.entries.map((entry) => entry.message),
-                ...(selection.promptEntry === undefined
-                    ? []
-                    : [selection.promptEntry.message]),
-            ],
-        );
-        for (const entry of selection.entries) {
-            await destination.appendMessage(options.hideInheritedMessages === true
-                ? { ...entry.message, internal: true } as ModelMessage
-                : entry.message);
+        const copied = new Set<string>();
+        if (headId !== null) {
+            for await (const entry of options.source.walkMessageBranch(headId)) {
+                await copySessionMessageAttachments(options.source, destination, [entry.message], copied);
+                if (entry.id === promptEntry?.id) break;
+                await destination.appendMessage(options.hideInheritedMessages === true
+                    ? { ...entry.message, internal: true } as ModelMessage
+                    : entry.message);
+            }
         }
         return {
             store: destination,
-            ...(selection.promptEntry === undefined
+            ...(promptEntry === undefined
                 ? {}
                 : {
                     prompt: structuredClone(
-                        selection.promptEntry.message,
+                        promptEntry.message,
                     ) as UserMessage,
                 }),
         };
@@ -93,44 +115,38 @@ export async function createSessionBranch(
     }
 }
 
-function selectBranch(
-    active: readonly SessionMessageEntry[],
+async function selectPrompt(
+    source: SessionStore,
+    headId: string | null,
     position: "before" | "at",
     entryId: string | undefined,
-): {
-    readonly entries: readonly SessionMessageEntry[];
-    readonly promptEntry?: SessionMessageEntry;
-} {
+): Promise<SessionMessageEntry | undefined> {
     if (position === "at") {
         if (entryId !== undefined) {
             throw new Error("Clone does not accept a source entry");
         }
-        return { entries: active };
+        return undefined;
     }
     if (entryId === undefined) {
         throw new Error("Fork requires a source user message");
     }
-    const index = active.findIndex((entry) => entry.id === entryId);
-    const promptEntry = active[index];
-    if (
-        index < 0
-        || promptEntry?.message.role !== "user"
-        || promptEntry.message.internal === true
-    ) {
-        throw new Error("Fork source must be an active user message");
+    if (headId !== null) {
+        for await (const entry of source.walkMessageAncestors(headId)) {
+            if (entry.id !== entryId) continue;
+            if (entry.message.role === "user" && entry.message.internal !== true) return entry;
+            break;
+        }
     }
-    return {
-        entries: active.slice(0, index),
-        promptEntry,
-    };
+    throw new Error("Fork source must be an active user message");
 }
 
 export async function copySessionMessageAttachments(
     source: SessionStore,
     destination: SessionStore,
     messages: readonly ModelMessage[],
+    copied = new Set<string>(),
 ): Promise<void> {
-    const ids = new Set(messages.flatMap(messageAttachmentIds));
+    const ids = new Set(messages.flatMap(messageAttachmentIds).filter((id) => !copied.has(id)));
     if (ids.size === 0) return;
     const metadata = new Map(
         source.attachmentRecords().map((attachment) => [
@@ -152,6 +168,7 @@ export async function copySessionMessageAttachments(
             attachment.name,
         );
         await destination.appendAttachment(stored);
+        copied.add(id);
     }
 }
 

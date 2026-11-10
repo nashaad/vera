@@ -46,6 +46,8 @@ test("rewind drops the status ctx share before the next send", async () => {
         session.sendText("/rewind");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Rewind: select a point");
+        // The rows arrive after the title; Enter while loading is ignored.
+        await session.waitForVisiblePane("⏎ actions");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Rewind conversation");
         session.sendText("1");

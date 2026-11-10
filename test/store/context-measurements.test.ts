@@ -7,7 +7,7 @@ import type { ContextMeasurement } from "../../src/engine/context-measurement.ts
 import { buildContextReport } from "../../src/core-extensions/context/context-report.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import { readIndexedLiveContext, SessionStore } from "../../src/store/session-store.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -42,6 +42,7 @@ test("a reloaded session keeps the latest measurement at every rewind point", as
     expect(reopened.latestContextMeasurement()?.tokens).toBe(310);
     const onBranch = reopened.latestContextMeasurement();
     const initialReport = contextReport(onBranch);
+    expect((await readIndexedLiveContext(path)).measurement).toEqual(onBranch);
 
     const resumed = await SessionStore.open(path);
     expect(resumed.latestContextMeasurement()).toEqual(onBranch);
@@ -49,6 +50,7 @@ test("a reloaded session keeps the latest measurement at every rewind point", as
 
     await resumed.rewindBefore(third.id);
     expect(resumed.latestContextMeasurement()?.tokens).toBe(210);
+    expect((await readIndexedLiveContext(path)).measurement).toEqual(resumed.latestContextMeasurement());
     const thirdReport = contextReport(resumed.latestContextMeasurement());
     const resumedAfterThird = await SessionStore.open(path);
     expect(resumedAfterThird.latestContextMeasurement()).toEqual(
@@ -58,6 +60,7 @@ test("a reloaded session keeps the latest measurement at every rewind point", as
 
     await resumedAfterThird.rewindBefore(second.id);
     expect(resumedAfterThird.latestContextMeasurement()?.tokens).toBe(110);
+    expect((await readIndexedLiveContext(path)).measurement).toEqual(resumedAfterThird.latestContextMeasurement());
     const secondReport = contextReport(resumedAfterThird.latestContextMeasurement());
     const resumedAfterSecond = await SessionStore.open(path);
     expect(resumedAfterSecond.latestContextMeasurement()).toEqual(
@@ -67,6 +70,7 @@ test("a reloaded session keeps the latest measurement at every rewind point", as
 
     await resumedAfterSecond.rewindBefore(first.id);
     expect(resumedAfterSecond.latestContextMeasurement()).toBeUndefined();
+    expect((await readIndexedLiveContext(path)).measurement).toBeUndefined();
     expect(contextReport(resumedAfterSecond.latestContextMeasurement())).toEqual(
         contextReport(undefined),
     );

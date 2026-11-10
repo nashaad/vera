@@ -19,10 +19,11 @@ export interface WorkerAdapterSpec {
     readonly options?: unknown;
 }
 
+// The child reads lines 2..lineCount from the shared file; later lines arrive as session.record.
 export interface WorkerSessionSeed {
     readonly path: string;
     readonly header: Record<string, unknown>;
-    readonly records: readonly Record<string, unknown>[];
+    readonly lineCount: number;
 }
 
 import type { VeraExtensionConfig } from "../../config.ts";

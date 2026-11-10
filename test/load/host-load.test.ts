@@ -85,8 +85,18 @@ test("factory uses readable sessions, billed compactions and stash sidecars", as
         for (const row of manifest.sessions) {
             const store = await SessionStore.open(join(root, "factory", "home", "runtime", "sessions", `${row.id}.jsonl`));
             expect(store.header.id).toBe(row.id);
-            expect(store.messages().some((message) => message.role === "tool_result")).toBe(true);
-            expect(store.usageMessages().some((message) => message.usage.cost! > 0)).toBe(true);
+            let hasToolResult = false;
+            const head = store.activeHeadId();
+            if (head !== null) {
+                for await (const entry of store.walkMessageBranch(head)) {
+                    if (entry.message.role === "tool_result") {
+                        hasToolResult = true;
+                        break;
+                    }
+                }
+            }
+            expect(hasToolResult).toBe(true);
+            expect(store.usageSummary().rows.some((row) => row.cost! > 0)).toBe(true);
             expect(Math.abs(row.bytes - row.targetBytes)).toBeLessThan(10_000);
         }
         expect(summarizeStash(join(root, "factory", "home", "runtime", "stash"))?.sessions).toBe(8);

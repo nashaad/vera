@@ -80,7 +80,7 @@ test("a run-state change builds the affected summary once across clients", async
         const clients: AttachedAgentClient[] = [];
         for (let index = 0; index < 4; index += 1) clients.push(await f.connect(parent.agent.id));
         f.registry.workFacts();
-        const spies = [parent, child, idle].map((entry) => spyOn(entry.store, "activeEntries"));
+        const spies = [parent, child, idle].map((entry) => spyOn(entry.store, "latestMessageTimestamp"));
         try {
             child.agent.engine.send({ type: "status", state: "working", seq: 1 });
             expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 1, 0]);
@@ -207,7 +207,7 @@ test("unchanged failed sessions reuse their summary", async () => {
         await entry.store.appendAgentFailure("crow-failure", "The crow lost its connection");
         entry.failure = new Error("The crow lost its connection");
         f.registry.list();
-        const spy = spyOn(entry.store, "activeEntries");
+        const spy = spyOn(entry.store, "firstUserFacts");
         try {
             const summary = f.registry.list()[0];
             expect(f.registry.list()[0]).toBe(summary);

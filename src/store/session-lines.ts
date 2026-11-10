@@ -14,11 +14,37 @@ export async function scanSessionLines(
     visit: (line: SessionLine) => void,
     includeTail = false,
     source?: FileHandle,
+    maxLines?: number,
+): Promise<{ readonly completeBytes: number; readonly totalBytes: number }> {
+    return scanSessionBytes(path, (offset, length, bytes) => {
+        visit({ offset, length, bytes, get text() { return bytes.toString("utf8"); } });
+    }, includeTail, source, maxLines);
+}
+
+export async function scanSessionBytes(
+    path: string,
+    visit: (offset: number, length: number, bytes: Buffer) => void,
+    includeTail = false,
+    source?: FileHandle,
+    maxLines?: number,
+): Promise<{ readonly completeBytes: number; readonly totalBytes: number }> {
+    return scanSessionRanges(path, (offset, length, bytes, start, end) => {
+        visit(offset, length, start === 0 && end === bytes.length ? bytes : bytes.subarray(start, end));
+    }, includeTail, source, maxLines);
+}
+
+export async function scanSessionRanges(
+    path: string,
+    visit: (offset: number, length: number, bytes: Buffer, start: number, end: number) => void,
+    includeTail = false,
+    source?: FileHandle,
+    maxLines?: number,
 ): Promise<{ readonly completeBytes: number; readonly totalBytes: number }> {
     const file = source ?? await open(path, "r");
     const chunk = Buffer.allocUnsafe(SESSION_SCAN_CHUNK_BYTES);
     let offset = 0;
     let position = 0;
+    let lines = 0;
     try {
         while (true) {
             const chunkStart = position;
@@ -30,17 +56,23 @@ export async function scanSessionLines(
                 const end = chunk.indexOf(10, start);
                 if (end < 0 || end >= bytesRead) break;
                 const length = chunkStart + end - offset + 1;
-                const bytes = offset < chunkStart
-                    ? await readBytes(file, offset, length - 1)
-                    : chunk.subarray(start, end);
-                visit({ offset, length, bytes, get text() { return bytes.toString("utf8"); } });
+                if (offset < chunkStart) {
+                    const bytes = await readBytes(file, offset, length - 1);
+                    visit(offset, length, bytes, 0, bytes.length);
+                } else {
+                    visit(offset, length, chunk, start, end);
+                }
                 offset += length;
+                lines += 1;
+                if (maxLines !== undefined && lines >= maxLines) {
+                    return { completeBytes: offset, totalBytes: offset };
+                }
                 start = end + 1;
             }
         }
         if (includeTail && position > offset) {
             const bytes = await readBytes(file, offset, position - offset);
-            visit({ offset, length: bytes.length, bytes, get text() { return bytes.toString("utf8"); } });
+            visit(offset, bytes.length, bytes, 0, bytes.length);
         }
         return { completeBytes: offset, totalBytes: position };
     } finally {
@@ -59,8 +91,13 @@ async function readBytes(file: FileHandle, offset: number, length: number): Prom
     return buffer;
 }
 
-export async function readSessionLine(path: string, offset: number, length: number): Promise<string> {
-    const file = await open(path, "r");
+export async function readSessionLine(
+    path: string,
+    offset: number,
+    length: number,
+    source?: FileHandle,
+): Promise<string> {
+    const file = source ?? await open(path, "r");
     try {
         const buffer = Buffer.allocUnsafe(length);
         let read = 0;
@@ -71,6 +108,6 @@ export async function readSessionLine(path: string, offset: number, length: numb
         }
         return buffer.subarray(0, length - 1).toString("utf8");
     } finally {
-        await file.close();
+        if (source === undefined) await file.close();
     }
 }

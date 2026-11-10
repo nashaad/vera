@@ -66,7 +66,7 @@ const scenarios: readonly Scenario[] = [
             const store = await SessionStore.create(path, { sessionId: 's', cwd: ${JSON.stringify(root)} });
             const header = JSON.parse((await Bun.file(path).text()).split('\\n')[0]);
             const script = ${JSON.stringify(`await Bun.write(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`)};
-            const worker = await startWorker({ store, session: { path, header, records: [] }, model: 'test', adapter: { module: 'unused', options: {} }, command: [process.execPath, '-e', script] });
+            const worker = await startWorker({ store, session: { path, header, lineCount: 1 }, model: 'test', adapter: { module: 'unused', options: {} }, command: [process.execPath, '-e', script] });
             for (let n = 0; n < 200 && !await Bun.file(${JSON.stringify(pidPath)}).exists(); n++) await Bun.sleep(10);
             worker.kill();
             await worker.outcome;

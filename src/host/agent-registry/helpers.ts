@@ -19,8 +19,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { AsyncQueue } from "../../engine/async-queue.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { SessionFacts } from "../../store/session-facts.ts";
-import { sessionRecordForWire } from "../../store/session-record-projection.ts";
-import { scanSessionLines } from "../../store/session-lines.ts";
+import { scanSessionBytes } from "../../store/session-lines.ts";
 import type { InstructionRoot } from "../../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type {
@@ -602,14 +601,13 @@ export class WorkerCapReachedError extends Error {
 
 export async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
     let header: Record<string, unknown> | undefined;
-    const records: Record<string, unknown>[] = [];
-    await scanSessionLines(path, ({ text }) => {
-        if (text.length === 0) return;
-        const value = JSON.parse(text) as Record<string, unknown>;
-        if (header === undefined) header = value;
-        else records.push(sessionRecordForWire(value));
-    }, true);
-    return { path, header: header ?? {}, records };
+    let lineCount = 0;
+    await scanSessionBytes(path, (_offset, _length, bytes) => {
+        if (bytes.length === 0) return;
+        if (header === undefined) header = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+        lineCount += 1;
+    });
+    return { path, header: header ?? {}, lineCount: Math.max(1, lineCount) };
 }
 
 export class ReportedWorkerFailure extends Error {}

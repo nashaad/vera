@@ -2,8 +2,8 @@ import type {
     HistoryPageInfo,
     TranscriptEntry,
 } from "../engine/protocol.ts";
-import { projectTranscript } from "../engine/protocol.ts";
 import type { SessionStore } from "../store/session-store.ts";
+import { projectIndexedMessage } from "../session-transcript.ts";
 
 export const HISTORY_PAGE_VERSION = 1;
 export const HISTORY_PAGE_MAX_ENTRIES = 240;
@@ -149,28 +149,94 @@ export function historyPageFromEntries(
 }
 
 /** Builds a page by walking the cursor message's own ancestor chain in the store. */
-export function historyPageFromStore(
+export async function historyPageFromStore(
     store: SessionStore,
     before: string,
-): HistoryPageResult {
+): Promise<HistoryPageResult> {
     const messageId = messageIdOfEntryId(before);
     if (messageId === undefined) {
         return { kind: "cursor_not_found" };
     }
-    const source = store.pageSourceTo(messageId);
-    if (source === undefined) {
-        return { kind: "cursor_not_found" };
+    return store.exclusively(() => indexedPage(store, messageId, before));
+}
+
+interface IndexedPageGroup {
+    readonly record: number;
+    readonly entries: readonly TranscriptEntry[];
+}
+
+async function indexedPage(
+    store: SessionStore,
+    messageId: string,
+    before: string,
+): Promise<HistoryPageResult> {
+    if (await store.readMessageEntry(messageId) === undefined) return { kind: "cursor_not_found" };
+    const headId = store.activeHeadId() ?? undefined;
+    const groups: IndexedPageGroup[] = [];
+    let count = 0;
+    let bytes = 1;
+    let oldest = Infinity;
+    let first = true;
+    let complete = false;
+    let scanned = 0;
+    for await (const message of store.walkMessageAncestors(messageId)) {
+        scanned += 1;
+        const record = await store.messageRecordNumber(message.id);
+        if (record === undefined) throw new Error(`Session message ${message.id} is unavailable`);
+        oldest = record;
+        complete = message.parentId === null;
+        const entries = await projectIndexedMessage(store, message);
+        if (first) {
+            first = false;
+            if (!entries.some((entry) => entry.id === before)) return { kind: "cursor_not_found" };
+        }
+        if (entries.length > 0) {
+            groups.push({ record, entries });
+            count += entries.length;
+            for (const entry of entries) bytes += entryByteLength(entry) + 1;
+        }
+        if (!complete && count <= HISTORY_PAGE_MAX_ENTRIES && bytes <= HISTORY_PAGE_MAX_BYTES && scanned % 32 !== 0) continue;
+        const candidate = await decorateIndexedPage(store, messageId, groups, oldest, complete);
+        const result = historyPageFromEntries(candidate, before, { ...(headId === undefined ? {} : { headId }) });
+        if (complete || result.kind !== "page") return result;
+        if (!result.page.hasMore || result.entries.length === 0) continue;
+        const start = candidate.indexOf(result.entries[0]!);
+        const firstUser = candidate.findIndex((entry) => entry.kind === "user");
+        if (firstUser >= 0 && firstUser <= start) return result;
+        const end = firstUser < 0 ? candidate.length : firstUser;
+        let prefixBytes = 1;
+        for (let index = 0; index < end; index += 1) prefixBytes += entryByteLength(candidate[index]!) + 1;
+        if (end > HISTORY_PAGE_MAX_ENTRIES || prefixBytes > HISTORY_PAGE_MAX_BYTES) return result;
     }
-    const entries = projectTranscript(
-        source.messages,
-        source.attachmentName,
-        source.messageStamps,
-        source.harnessMessages,
-        source.deliveredMessages,
-    );
-    return historyPageFromEntries(entries, before, {
-        ...(source.headId === undefined ? {} : { headId: source.headId }),
-    });
+    return { kind: "cursor_not_found" };
+}
+
+async function decorateIndexedPage(
+    store: SessionStore,
+    headId: string,
+    groups: readonly IndexedPageGroup[],
+    oldest: number,
+    complete: boolean,
+): Promise<TranscriptEntry[]> {
+    const byRecord = new Map<number, { entries: readonly TranscriptEntry[]; harness: { ordinal: number; entry: TranscriptEntry }[] }>();
+    for (const group of groups) byRecord.set(group.record, { entries: group.entries, harness: [] });
+    for await (const { ordinal, entry } of store.walkHarnessMessages()) {
+        const record = await store.harnessPosition(headId, entry);
+        if (record === undefined || (record === -1 ? !complete : record < oldest)) continue;
+        let group = byRecord.get(record);
+        if (group === undefined) {
+            group = { entries: [], harness: [] };
+            byRecord.set(record, group);
+        }
+        group.harness.push({ ordinal, entry: { kind: "harness", id: `harness:${ordinal}`, text: entry.text, tone: entry.tone } });
+    }
+    const result: TranscriptEntry[] = [];
+    for (const [, group] of [...byRecord].sort(([left], [right]) => left - right)) {
+        for (const entry of group.entries) result.push(entry);
+        group.harness.sort((left, right) => left.ordinal - right.ordinal);
+        for (const harness of group.harness) result.push(harness.entry);
+    }
+    return result;
 }
 
 function messageGroupStart(

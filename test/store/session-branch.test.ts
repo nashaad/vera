@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { AttachmentStore } from "../../src/attachments/store.ts";
 import { emptyUsage } from "../../src/model/types.ts";
-import { createSessionBranch } from "../../src/store/session-branch.ts";
+import { completedBranchDelta, createSessionBranch } from "../../src/store/session-branch.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
 test("fork copies history before one prompt and resets execution authority", async () => {
@@ -114,6 +114,34 @@ test("clone copies the active branch and referenced attachment bytes", async () 
     expect(await new AttachmentStore(branch.store.path).readImage(copied))
         .toEqual(bytes);
     expect(await readFile(sourcePath, "utf8")).toContain("\"id\":\"source\"");
+});
+
+test("branch sync reads completed messages after its cursor and rejects abandoned cursors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-sync-store-"));
+    const store = await SessionStore.create(join(root, "source.jsonl"), {
+        sessionId: "source", cwd: root, createId: values("u1", "a1", "u2", "a2", "u3", "u4", "a4"),
+    });
+    const user = (text: string) => ({ role: "user" as const, content: [{ type: "text" as const, text }] });
+    const answer = (text: string) => ({
+        role: "assistant" as const, content: [{ type: "text" as const, text }],
+        source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "stop" as const,
+    });
+    await store.appendMessage(user("one"));
+    await store.appendMessage(answer("first"));
+    await store.appendMessage(user("two"));
+    await store.appendMessage(answer("second"));
+    const trailing = await store.appendMessage(user("unfinished"));
+    const delta = await completedBranchDelta(store, "a1");
+    expect(delta.status).toBe("ready");
+    if (delta.status === "ready") {
+        expect(delta.entries.map((entry) => entry.id)).toEqual(["u2", "a2"]);
+        expect(delta.turns).toBe(1);
+    }
+    expect(await completedBranchDelta(store, trailing.id)).toEqual({ status: "stale_cursor" });
+    await store.rewindBefore("u2");
+    await store.appendMessage(user("replacement"));
+    await store.appendMessage(answer("new answer"));
+    expect(await completedBranchDelta(store, "a2")).toEqual({ status: "stale_cursor" });
 });
 
 function values(...items: string[]): () => string {

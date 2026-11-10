@@ -32,7 +32,6 @@ import {
     isConfigurationRequiredUiRequestUpdate,
     isToolApprovalUiRequestUpdate,
     isUserQuestionUiRequestUpdate,
-    summarizeSessionModelUsage,
     type UiRequestUpdate,
 } from "../engine/protocol.ts";
 import { EngineEventBus, type EngineEvent } from "../engine/events.ts";
@@ -476,7 +475,7 @@ async function runResolvedTurn<Output>(
             sessionId: id,
             cwd: resolved.workspace,
         });
-    const usageBefore = summarizeSessionModelUsage(sessionStore.usageMessages());
+    const usageBefore = sessionStore.usageSummary();
     const toolCalls = new ToolCallRecord();
     const bus = events ?? new EngineEventBus();
     const stopRecording = bus.subscribe((event) => toolCalls.observe(event));

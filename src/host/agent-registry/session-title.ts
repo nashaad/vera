@@ -32,8 +32,5 @@ export function listedTitle(
 // Skips reading the branch when the session has a name.
 export function storeListedTitle(store: SessionStore): string | undefined {
     const name = store.name();
-    return listedTitle(
-        name,
-        name === undefined ? firstPromptEntry(store.activeEntries()) : undefined,
-    );
+    return name === undefined ? store.firstUserFacts()?.title : name.slice(0, LISTED_TITLE_LENGTH);
 }

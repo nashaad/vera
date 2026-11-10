@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { projectTranscript } from "../../src/engine/protocol.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import { walkSessionTranscript } from "../../src/session-transcript.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
 const temporaryDirectories: string[] = [];
@@ -106,10 +107,11 @@ test("compaction leaves transcript IDs alone", async () => {
         userMessage("second request"),
         assistantMessage("second answer"),
     ]);
-    const before = identities(store);
+    const before = await branchIdentities(store);
+    expect(before).toEqual(identities(store));
 
     // Compaction rewrites what the model is sent, which is a different channel
-    // from the transcript clients render.
+    // from the transcript clients render. The store keeps only the live branch in memory.
     await store.appendCompaction({
         boundaryMessageId: "message-2",
         firstRetainedMessageId: "message-3",
@@ -117,7 +119,7 @@ test("compaction leaves transcript IDs alone", async () => {
         measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
     });
 
-    expect(identities(store)).toEqual(before);
+    expect(await branchIdentities(store)).toEqual(before);
 });
 
 test("a rewind keeps the IDs of the messages it leaves standing", async () => {
@@ -162,6 +164,14 @@ function identities(store: SessionStore): [string | undefined, string][] {
         undefined,
         store.activeMessageStamps(),
     ).map((entry) => [entry.id, entry.kind]);
+}
+
+async function branchIdentities(store: SessionStore): Promise<[string | undefined, string][]> {
+    const identities: [string | undefined, string][] = [];
+    for await (const entry of walkSessionTranscript(store, store.activeHeadId(), store.appendedLineCount(), false)) {
+        identities.push([entry.id, entry.kind]);
+    }
+    return identities;
 }
 
 async function storeWith(

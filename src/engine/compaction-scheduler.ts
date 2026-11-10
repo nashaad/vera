@@ -230,12 +230,11 @@ export async function compactSession(
         return { outcome: "not_needed" };
     }
     const store = options.store;
-    const active = store.activeEntries();
     const previous = store.latestCompaction();
+    const prefix = previous === undefined ? [] : await carriedPrefix(store, previous.boundaryMessageId);
+    const active = [...prefix, ...store.liveMessageEntries()];
     const previousProjection = previous?.projection ?? [];
-    const previousBoundary = previous === undefined
-        ? -1
-        : active.findIndex((entry) => entry.id === previous.boundaryMessageId);
+    const previousBoundary = prefix.length - 1;
 
     const modelContext = options.modelContext ?? [
         ...previousProjection,
@@ -306,6 +305,21 @@ export async function compactSession(
         retryable = outcome.result;
     }
     return retryable ?? { outcome: "cancelled" };
+}
+
+async function carriedPrefix(store: SessionStore, boundaryId: string): Promise<SessionMessageEntry[]> {
+    let answer: SessionMessageEntry | undefined;
+    for await (const entry of store.walkMessageAncestors(boundaryId)) {
+        const message = entry.message;
+        if (answer === undefined && message.role === "assistant" && message.stopReason === "stop") {
+            answer = { ...entry, message: { ...message, content: [] } };
+        }
+        if (message.role === "user" && message.internal !== true
+            && message.compactionBarrier !== true && message.contextSource === undefined) {
+            return answer === undefined ? [entry] : [entry, answer];
+        }
+    }
+    return [];
 }
 
 interface PlanInput {

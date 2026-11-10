@@ -1,5 +1,6 @@
+import { collectSessionEntries } from "../support/session-entries.ts";
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +10,7 @@ import {
     type SessionImageAttachmentMetadata,
 } from "../../src/store/session-store.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import { walkSessionTranscript } from "../../src/session-transcript.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -26,14 +28,28 @@ test("a replica answers every read as a store opened at the same record", async 
 
     const replica = SessionReplica.seed(path, lines[0] as Record<string, unknown>);
     expect(replica.path).toBe(path);
-    expect(reads(replica)).toEqual(reads(await openPrefix(directory, lines, 1)));
+    expect(await reads(replica)).toEqual(await reads(await openPrefix(directory, lines, 1)));
+    expect(await replica.readRecord(1)).toBeUndefined();
+    const initialRecords: unknown[] = [];
+    for await (const { record } of replica.walkRecords()) initialRecords.push(record);
+    expect(initialRecords).toEqual(lines.slice(0, 1));
 
     for (let index = 1; index < lines.length; index += 1) {
         replica.apply(index + 1, lines[index] as Record<string, unknown>);
         expect(replica.appliedThrough()).toBe(index + 1);
         const store = await openPrefix(directory, lines, index + 1);
-        expect(reads(replica)).toEqual(reads(store));
+        expect(await reads(replica)).toEqual(await reads(store));
     }
+    const head = replica.activeHeadId();
+    const ancestors = [];
+    if (head !== null) {
+        for await (const entry of replica.walkMessageAncestors(head)) ancestors.push(entry);
+    }
+    expect(ancestors).toEqual([...replica.activeEntries()].reverse());
+    expect(await replica.readApplicableCompaction()).toEqual(replica.latestCompaction());
+    const records: unknown[] = [];
+    for await (const { record } of replica.walkRecords()) records.push(record);
+    expect(records).toEqual(lines);
 });
 
 test("a replica refuses every write", async () => {
@@ -61,6 +77,23 @@ test("a replica refuses every write", async () => {
     await Promise.resolve();
     expect(readFileSync(path, "utf8")).toBe(before);
     expect(replica.messages().length).toBe(1);
+});
+
+test("indexed replica reads stop at the last applied record", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "sessions", "session.jsonl");
+    await writeRichSession(path);
+    const lines = readLines(path);
+    appendFileSync(path, '{"broken":}\n');
+    const replica = SessionReplica.seed(path, lines[0] as Record<string, unknown>);
+    replica.apply(2, lines[1] as Record<string, unknown>);
+    const records: unknown[] = [];
+    for await (const { record } of replica.walkRecords()) records.push(record);
+    expect(records).toEqual(lines.slice(0, 2));
+    expect(await replica.readRecord(2)).toBeUndefined();
+    const ancestors = [];
+    for await (const entry of replica.walkMessageAncestors(replica.activeHeadId()!)) ancestors.push(entry);
+    expect(ancestors).toEqual([...replica.activeEntries()].reverse());
 });
 
 test("a replica rejects a record the file would reject, with the same message", async () => {
@@ -105,19 +138,24 @@ test("a replica seeded with something other than a header is refused", () => {
 });
 
 /** Every read the store answers, in one comparable shape. */
-function reads(store: SessionStore): Record<string, unknown> {
+async function reads(store: SessionStore): Promise<Record<string, unknown>> {
+    const active = [];
+    const head = store.activeHeadId();
+    if (head !== null) for await (const entry of store.walkMessageBranch(head)) active.push(entry);
+    const transcript = [];
+    for await (const entry of walkSessionTranscript(store, head, Infinity)) transcript.push(entry);
     return {
         header: store.header,
-        entries: store.entries(),
-        activeEntries: store.activeEntries(),
-        messages: store.messages(),
-        activeMessageIds: [...store.activeMessageStamps().values()].map((stamp) => stamp.id),
+        entries: (await collectSessionEntries(store)),
+        activeEntries: active,
+        messages: active.map((entry) => entry.message),
+        activeMessageIds: active.map((entry) => entry.id),
         activeHeadId: store.activeHeadId(),
         pendingDeliveries: store.pendingDeliveries(),
         hasUnansweredDeliveryTurn: store.hasUnansweredDeliveryTurn(),
         modelSettings: store.modelSettings(),
         modelSettingsOrigin: store.modelSettingsOrigin(),
-        modelSettingsHistory: store.modelSettingsHistory(),
+        modelSettingsHistory: await store.readModelSettingsHistory(),
         selectedAgent: store.selectedAgent(),
         approvalMode: store.approvalMode(),
         approvalModeOrigin: store.approvalModeOrigin(),
@@ -125,7 +163,7 @@ function reads(store: SessionStore): Record<string, unknown> {
         permissionGrants: store.permissionGrants(),
         attachmentRecords: store.attachmentRecords(),
         agentFailure: store.agentFailure(),
-        projectedHarnessMessages: store.projectedHarnessMessages(),
+        transcript,
         latestCompaction: store.latestCompaction(),
         unprojectedModelContext: store.unprojectedModelContext(),
         modelContext: store.modelContext(),

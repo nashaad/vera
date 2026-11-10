@@ -80,9 +80,7 @@ export function createRemoteHostBoundary(
     );
     if (capabilities.hasPendingDeliveryTurn) store.useHostDeliveryState();
     store.watchDivergence(options.onReplicaDiverged);
-    for (const [index, record] of options.session.records.entries()) {
-        store.applyHostRecord(index + 2, record);
-    }
+    store.applyCommittedLines(options.session.lineCount);
     store.setAppender(async (record) => {
         const reply = await pipe.request({
             method: "session.append",

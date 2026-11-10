@@ -25,7 +25,14 @@ import {
     replaceContextMeasurementDelta,
 } from "../../src/store/context-measurement-record.ts";
 import { SessionReplica } from "../../src/store/session-replica.ts";
-import { SessionStore } from "../../src/store/session-store.ts";
+import {
+    createSessionProjectionState,
+    ingestSessionRecord,
+    parseHeaderRecord,
+    readIndexedLiveContext,
+    SessionStore,
+} from "../../src/store/session-store.ts";
+import { SessionRecordIndex } from "../../src/store/session-record-index.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -39,6 +46,108 @@ interface Captured {
     readonly afterMessageId: string | null;
     readonly measurement: ContextMeasurement;
 }
+
+class FullReplayStore extends SessionStore {
+    static fromFile(path: string): FullReplayStore {
+        const lines = readFileSync(path, "utf8").trimEnd().split("\n");
+        const headerRecord = JSON.parse(lines[0]!) as Record<string, unknown>;
+        const index = new SessionRecordIndex();
+        const state = createSessionProjectionState(index);
+        let offset = 0;
+        for (const [position, line] of lines.entries()) {
+            const record = JSON.parse(line) as Record<string, unknown>;
+            const length = Buffer.byteLength(line) + 1;
+            if (position > 0) ingestSessionRecord(path, position + 1, record, state);
+            index.append(offset, length, record);
+            offset += length;
+        }
+        return new FullReplayStore(path, parseHeaderRecord(path, headerRecord), state, {
+            now: () => new Date("2026-01-01T00:00:00.000Z"),
+        }, lines.length, index);
+    }
+}
+
+test("indexed reopen writes the same measurement recipe as full replay after a rewind", async () => {
+    const directory = temporaryDirectory();
+    const originalPath = join(directory, "original.jsonl");
+    const indexedPath = join(directory, "indexed.jsonl");
+    const fullPath = join(directory, "full.jsonl");
+    const store = await SessionStore.create(originalPath, { sessionId: "recipe", cwd: directory, createId: counter() });
+    await store.appendMessage(user("retained"));
+    await store.appendContextMeasurement(growingMeasurement(2));
+    const abandoned = await store.appendMessage(user("abandoned"));
+    await store.appendContextMeasurement(growingMeasurement(5));
+    await store.rewindBefore(abandoned.id);
+    const source = readFileSync(originalPath, "utf8");
+    writeFileSync(indexedPath, source);
+    writeFileSync(fullPath, source);
+    const indexed = await SessionStore.open(indexedPath, { now: () => new Date("2026-01-01T00:00:00.000Z") });
+    const full = FullReplayStore.fromFile(fullPath);
+    await indexed.appendContextMeasurement(growingMeasurement(8));
+    await full.appendContextMeasurement(growingMeasurement(8));
+    const indexedLine = readFileSync(indexedPath, "utf8").trimEnd().split("\n").at(-1)!;
+    const fullLine = readFileSync(fullPath, "utf8").trimEnd().split("\n").at(-1)!;
+    expect(JSON.parse(indexedLine).contextRecipe.keyframe).toBe(false);
+    expect(indexedLine).toBe(fullLine);
+});
+
+test("indexed reopen accepts a foreign measurement delta and retains its recipe state", async () => {
+    const directory = temporaryDirectory();
+    const ownerPath = join(directory, "owner.jsonl");
+    const workerPath = join(directory, "worker.jsonl");
+    const store = await SessionStore.create(ownerPath, { sessionId: "foreign-recipe", cwd: directory, createId: counter() });
+    await store.appendMessage(user("prompt"));
+    await store.appendContextMeasurement(growingMeasurement(3));
+    writeFileSync(workerPath, readFileSync(ownerPath));
+    const owner = await SessionStore.open(ownerPath);
+    const worker = await SessionStore.open(workerPath);
+    await worker.appendContextMeasurement(growingMeasurement(7));
+    const delta = JSON.parse(readFileSync(workerPath, "utf8").trimEnd().split("\n").at(-1)!) as Record<string, unknown>;
+    expect((delta.contextRecipe as { keyframe: boolean }).keyframe).toBe(false);
+    await owner.appendForeignRecord(delta);
+    const reopened = await SessionStore.open(ownerPath);
+    expect(owner.latestContextMeasurement()).toEqual(reopened.latestContextMeasurement());
+    type RecipeProjection = {
+        contextMeasurementBase: readonly ContextProjectionComponent[] | undefined;
+        contextMeasurementLastRecordCompact: boolean;
+        contextMeasurementsSinceKeyframe: number;
+    };
+    const recipeState = (subject: SessionStore): RecipeProjection => {
+        const state = (subject as unknown as { projection: RecipeProjection }).projection;
+        return {
+            contextMeasurementBase: state.contextMeasurementBase,
+            contextMeasurementLastRecordCompact: state.contextMeasurementLastRecordCompact,
+            contextMeasurementsSinceKeyframe: state.contextMeasurementsSinceKeyframe,
+        };
+    };
+    expect(recipeState(owner)).toEqual(recipeState(reopened));
+    expect((await readIndexedLiveContext(ownerPath)).measurementRecipeState)
+        .toEqual((await readIndexedLiveContext(workerPath)).measurementRecipeState);
+});
+
+test("indexed reopen preserves the keyframe interval across the next append", async () => {
+    const directory = temporaryDirectory();
+    const sourcePath = join(directory, "source.jsonl");
+    const indexedPath = join(directory, "indexed-interval.jsonl");
+    const fullPath = join(directory, "full-interval.jsonl");
+    const store = await SessionStore.create(sourcePath, { sessionId: "interval", cwd: directory });
+    await store.appendMessage(user("prompt"));
+    for (let index = 0; index <= 128; index += 1) {
+        await store.appendContextMeasurement(growingMeasurement(index % 8));
+    }
+    const source = readFileSync(sourcePath);
+    writeFileSync(indexedPath, source);
+    writeFileSync(fullPath, source);
+    const now = () => new Date("2026-01-01T00:00:00.000Z");
+    const indexed = await SessionStore.open(indexedPath, { now });
+    const full = FullReplayStore.fromFile(fullPath);
+    await indexed.appendContextMeasurement(growingMeasurement(9));
+    await full.appendContextMeasurement(growingMeasurement(9));
+    const indexedLine = readFileSync(indexedPath, "utf8").trimEnd().split("\n").at(-1)!;
+    const fullLine = readFileSync(fullPath, "utf8").trimEnd().split("\n").at(-1)!;
+    expect(JSON.parse(indexedLine).contextRecipe.keyframe).toBe(true);
+    expect(indexedLine).toBe(fullLine);
+});
 
 test("replacing retained deltas preserves updates, truncations, and appends", () => {
     const component = (position: number, tokens: number): ContextProjectionComponent => ({
@@ -156,6 +265,7 @@ test("a reverted component keeps the prior retained value", async () => {
         .toEqual(before.projection?.components);
     expect((await SessionStore.open(path)).latestContextMeasurement())
         .toEqual(store.latestContextMeasurement());
+    expect((await readIndexedLiveContext(path)).measurement).toEqual(store.latestContextMeasurement());
 });
 
 test("compact records give the same measurement and /context at every rewind point", async () => {
@@ -348,6 +458,7 @@ test("a full record before compact records still loads", async () => {
 
     const mixed = await SessionStore.open(mixedPath);
     const compactStore = await SessionStore.open(compactPath);
+    expect((await readIndexedLiveContext(mixedPath)).measurement).toEqual(mixed.latestContextMeasurement());
     expect(mixed.latestContextMeasurement()).toEqual(
         compactStore.latestContextMeasurement(),
     );

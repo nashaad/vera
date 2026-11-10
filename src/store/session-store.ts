@@ -7,12 +7,19 @@ import {
 } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import { scanSessionLines, readSessionLine, SESSION_SCAN_CHUNK_BYTES } from "./session-lines.ts";
-import { SessionRecordIndex } from "./session-record-index.ts";
+import { SessionRecordIndex, type SessionCompactionAnchor } from "./session-record-index.ts";
+import { scanSessionIndex } from "./session-index-scan.ts";
+import { contextMeasurementHeader } from "./session-record-header.ts";
+import { measurementComponentsCanonical } from "./session-measurement-fields.ts";
+import { addSessionModelUsage, SessionUsageAccumulator, type SessionModelUsage } from "../model/session-usage.ts";
+import { billedUsageFields } from "./session-usage-fields.ts";
+import { sessionJsonFields } from "./session-json-fields.ts";
 import {
     chmod,
     mkdir,
     open,
     rm,
+    type FileHandle,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -383,20 +390,6 @@ export interface MessageStamp {
     readonly recordedAt: number;
 }
 
-export interface SessionPageSource {
-    readonly messages: readonly ModelMessage[];
-    readonly messageStamps: ReadonlyMap<ModelMessage, MessageStamp>;
-    readonly deliveredMessages: ReadonlyMap<ModelMessage, SessionDeliveryEntry>;
-    readonly harnessMessages: readonly {
-        readonly afterMessage: number;
-        readonly id: string;
-        readonly text: string;
-        readonly tone: "primary" | "soft" | "error";
-    }[];
-    readonly attachmentName: (id: string) => string | undefined;
-    readonly headId?: string;
-}
-
 export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
@@ -427,6 +420,298 @@ interface ParsedSessionFile {
     readonly index: SessionRecordIndex;
 }
 
+interface IndexedMeasurementRecipeState {
+    readonly measurement?: ContextMeasurement;
+    readonly base?: readonly ContextProjectionComponent[];
+    readonly lastRecordCompact: boolean;
+    readonly sinceKeyframe: number;
+}
+
+export interface SessionTurnText {
+    readonly prompt: readonly string[];
+    readonly reply: readonly string[];
+}
+
+export interface IndexedLiveContext {
+    readonly header: SessionHeader;
+    readonly headId: string | null;
+    readonly compaction?: SessionCompactionEntry;
+    readonly compactionNumber?: number;
+    readonly entries: readonly SessionMessageEntry[];
+    readonly tail: readonly SessionMessageEntry[];
+    readonly index: SessionRecordIndex;
+    readonly lineCount: number;
+    readonly usage: SessionModelUsage;
+    readonly replyUsage: SessionModelUsage;
+    readonly canonicalMeasurements: boolean;
+    readonly measurementRecipeState: IndexedMeasurementRecipeState;
+    readonly queuedPrompts: readonly SessionQueuedPromptEntry[];
+    readonly unsentPrompts: readonly UnsentPrompt[];
+    readonly turnCount: number;
+    readonly firstUser?: { readonly id: string; readonly title?: string };
+    readonly latestMessageTimestamp?: string;
+    readonly latestMeasuredAssistantTimestamp?: string;
+    readonly name?: SessionNameEntry;
+    readonly settings?: SessionModelSettingsEntry;
+    readonly permissions?: SessionPermissionsEntry;
+    readonly identity?: SessionIdentityEntry;
+    readonly selectedAgent?: SessionSelectedAgentEntry;
+    readonly measurement?: ContextMeasurement;
+    readonly agentFailure?: SessionAgentFailureEntry;
+    readonly openTurnStartId?: string;
+    readonly activeDeliveryIds: readonly string[];
+}
+
+const INDEXED_HISTORY_TAIL_BYTES = 128 * 1024;
+const INDEXED_HARNESS_TAIL_BYTES = 128 * 1024;
+
+function billedAssistant(billed: SessionCompactionBilled, api: "compaction" | "ask"): AssistantMessage {
+    return { role: "assistant", content: [], stopReason: "stop",
+        source: { provider: billed.provider, model: billed.model, api }, usage: billed.usage };
+}
+
+export async function readIndexedLiveContext(path: string, source?: FileHandle, repair = false): Promise<IndexedLiveContext> {
+    const file = source ?? await open(path, "r");
+    try {
+        const scanned = await scanSessionIndex(path, file, repair);
+        const header = parseHeaderRecord(path, scanned.header);
+        const readFact = async <T>(number: number | undefined,
+            parse: (path: string, line: number, value: Record<string, unknown>) => T): Promise<T | undefined> => {
+            if (number === undefined) return undefined;
+            const location = scanned.index.location(number)!;
+            const record = parseJsonObject(path, number + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            return parse(path, number + 1, record);
+        };
+        const name = await readFact(scanned.index.recordOfKind("session_name"), parseSessionNameEntry);
+        const settings = await readFact(scanned.index.recordOfKind("model_settings"), parseModelSettingsEntry);
+        const permissions = await readFact(scanned.index.recordOfKind("permissions"), parsePermissionsEntry);
+        const identity = await readFact(scanned.index.recordOfKind("session_identity", false), parseSessionIdentityEntry);
+        const selected = Math.max(scanned.index.recordOfKind("agent_select") ?? -1, scanned.index.recordOfKind("agent_wear") ?? -1);
+        const selectedAgent = await readFact(selected < 0 ? undefined : selected, parseSelectedAgentEntry);
+        const usage = await readIndexedUsage(path, file, scanned.index, scanned.replyUsage);
+        const queuedPrompts: SessionQueuedPromptEntry[] = [];
+        for (const number of scanned.queuedPromptRecords) {
+            const location = scanned.index.location(number)!;
+            const record = parseJsonObject(path, number + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            if (record.type !== "queued_prompt" || typeof record.id !== "string" || typeof record.timestamp !== "string"
+                || !isUnsentPrompt(record)) throw invalidSession(path, `line ${number + 1} is not a valid queued prompt`);
+            queuedPrompts.push(record as unknown as SessionQueuedPromptEntry);
+        }
+        let unsentPrompts: readonly UnsentPrompt[] = [];
+        if (scanned.unsentPromptRecord !== undefined) {
+            const number = scanned.unsentPromptRecord;
+            const location = scanned.index.location(number)!;
+            const record = parseJsonObject(path, number + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            if (!Array.isArray(record.unsentPrompts) || !record.unsentPrompts.every(isUnsentPrompt)) {
+                throw invalidSession(path, `line ${number + 1} is not a valid ${record.type === "harness_message" ? "harness message" : "message"} entry`);
+            }
+            unsentPrompts = record.unsentPrompts;
+        }
+        const lastMeasurement = scanned.index.recordOfKind("context_measurement");
+        const activeMeasurement = scanned.index.latestMeasurement(scanned.headId);
+        const measurementRecipeState = await readIndexedMeasurementRecipeState(path, file, scanned.index, lastMeasurement);
+        const measurement = scanned.canonicalMeasurements && lastMeasurement === activeMeasurement
+            ? measurementRecipeState.measurement
+            : await readIndexedMeasurement(path, file, scanned.index, scanned.headId, scanned.canonicalMeasurements);
+        const compactionNumber = scanned.index.latestApplicableCompaction(scanned.headId);
+        let compaction: SessionCompactionEntry | undefined;
+        if (compactionNumber !== undefined) {
+            const location = scanned.index.location(compactionNumber)!;
+            const record = parseJsonObject(path, compactionNumber + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            compaction = parseCompactionEntry(path, compactionNumber + 1, record);
+        }
+        const boundary = compactionNumber === undefined ? undefined : scanned.index.compactionBoundary(compactionNumber);
+        const numbers: number[] = [];
+        let current = scanned.headId === null ? undefined : scanned.index.messageRecord(scanned.headId);
+        while (current !== undefined && current !== boundary) {
+            numbers.push(current);
+            current = scanned.index.parent(current);
+        }
+        const entries: SessionMessageEntry[] = [];
+        for (const number of numbers.toReversed()) {
+            const location = scanned.index.location(number)!;
+            const record = parseJsonObject(path, number + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            entries.push(parseMessageEntry(path, number + 1, record));
+        }
+        const liveById = new Map(entries.map((entry) => [entry.id, entry]));
+        const tail: SessionMessageEntry[] = [];
+        for (const number of scanned.index.recentMessages(scanned.headId, INDEXED_HISTORY_TAIL_BYTES)) {
+            const id = scanned.index.messageId(number)!;
+            const live = liveById.get(id);
+            if (live !== undefined) {
+                tail.push(live);
+                continue;
+            }
+            const location = scanned.index.location(number)!;
+            const record = parseJsonObject(path, number + 1,
+                await readSessionLine(path, location.offset, location.length, file));
+            tail.push(parseMessageEntry(path, number + 1, record));
+        }
+        return { header, headId: scanned.headId, index: scanned.index, lineCount: scanned.lineCount, usage,
+            replyUsage: scanned.replyUsage, canonicalMeasurements: scanned.canonicalMeasurements, measurementRecipeState,
+            queuedPrompts, unsentPrompts, activeDeliveryIds: scanned.activeDeliveryIds,
+            turnCount: scanned.turnCount, ...(scanned.firstUser === undefined ? {} : { firstUser: scanned.firstUser }),
+            ...(scanned.latestMessageTimestamp === undefined ? {} : { latestMessageTimestamp: scanned.latestMessageTimestamp }),
+            ...(scanned.latestMeasuredAssistantTimestamp === undefined ? {} : { latestMeasuredAssistantTimestamp: scanned.latestMeasuredAssistantTimestamp }),
+            ...(compaction === undefined ? {} : { compaction, compactionNumber }), entries, tail,
+            ...(name === undefined ? {} : { name }), ...(settings === undefined ? {} : { settings }),
+            ...(permissions === undefined ? {} : { permissions }), ...(identity === undefined ? {} : { identity }),
+            ...(selectedAgent === undefined ? {} : { selectedAgent }), ...(measurement === undefined ? {} : { measurement }),
+            ...(scanned.openTurnStartId === undefined ? {} : { openTurnStartId: scanned.openTurnStartId }),
+            ...(scanned.agentFailure === undefined ? {} : { agentFailure: scanned.agentFailure }) };
+    } finally {
+        if (source === undefined) await file.close();
+    }
+}
+
+async function readCarriedTurnText(
+    path: string,
+    file: FileHandle,
+    index: SessionRecordIndex,
+    boundary: number | undefined,
+    entries: readonly SessionMessageEntry[],
+): Promise<SessionTurnText | undefined> {
+    if (boundary === undefined || entries.some(startsTurnEntry)) return undefined;
+    let start: number | undefined = boundary;
+    while (start !== undefined && !index.startsTurnOrDelivery(start)) start = index.parent(start);
+    if (start === undefined) return undefined;
+    const prompt: string[] = [];
+    const reply: string[] = [];
+    let current: number | undefined = boundary;
+    while (current !== undefined) {
+        if (index.isVisibleTextMessage(current)) {
+            const location = index.location(current)!;
+            const value = parseJsonObject(path, current + 1, await readSessionLine(path, location.offset, location.length, file));
+            const part = sessionTurnTextPart(parseMessageEntry(path, current + 1, value).message);
+            if (part !== undefined) (part.role === "user" ? prompt : reply).push(part.text);
+        }
+        if (current === start) return { prompt: prompt.reverse(), reply: reply.reverse() };
+        current = index.parent(current);
+    }
+    return undefined;
+}
+
+async function readIndexedUsage(
+    path: string,
+    file: Awaited<ReturnType<typeof open>>,
+    index: SessionRecordIndex,
+    initial: SessionModelUsage,
+): Promise<SessionModelUsage> {
+    let usage = initial;
+    let window = Buffer.allocUnsafe(64 * 1024);
+    let windowOffset = -1;
+    let windowLength = 0;
+    for (const kind of ["compaction", "session_ask"] as const) {
+        let number = index.nextRecordOfKind(kind, -1);
+        while (number !== undefined) {
+            const location = index.location(number)!;
+            if (location.offset < windowOffset || location.offset + location.length > windowOffset + windowLength) {
+                if (window.length < location.length) window = Buffer.allocUnsafe(location.length);
+                windowOffset = location.offset;
+                windowLength = 0;
+                while (windowLength < location.length) {
+                    const result = await file.read(window, windowLength, window.length - windowLength, windowOffset + windowLength);
+                    if (result.bytesRead === 0) throw new Error(`Unexpected end of session file ${path}`);
+                    windowLength += result.bytesRead;
+                }
+            }
+            const start = location.offset - windowOffset;
+            const fields = sessionJsonFields(window.subarray(start, start + location.length - 1));
+            const billed = billedUsageFields(fields?.billed, kind === "compaction" ? "compaction" : "ask");
+            if (fields?.billedPresent === true && billed === undefined) {
+                throw invalidSession(path, `line ${number + 1} has invalid billing`);
+            }
+            if (billed !== undefined) usage = addSessionModelUsage(usage, billed);
+            number = index.nextRecordOfKind(kind, number);
+        }
+    }
+    return usage;
+}
+
+async function readIndexedMeasurement(
+    path: string,
+    file: Awaited<ReturnType<typeof open>>,
+    index: SessionRecordIndex,
+    headId: string | null,
+    canonical: boolean,
+): Promise<ContextMeasurement | undefined> {
+    if (canonical) return (await readIndexedMeasurementRecipeState(path, file, index, index.latestMeasurement(headId))).measurement;
+    const retained = index.rewindMeasurements(headId);
+    const state = createSessionProjectionState();
+    let measurement: ContextMeasurement | undefined;
+    let previous: readonly ContextProjectionComponent[] | undefined;
+    let reconstructed: readonly ContextProjectionComponent[] | undefined;
+    let retainedPosition = 0;
+    let number = index.nextRecordOfKind("context_measurement", -1);
+    while (number !== undefined) {
+        const keep = retained[retainedPosition] === number;
+        if (!keep && !index.isCompactMeasurement(number)) {
+            state.contextMeasurementBase = undefined;
+            state.contextMeasurementLastRecordCompact = false;
+            state.contextMeasurementsSinceKeyframe = 0;
+            number = index.nextRecordOfKind("context_measurement", number);
+            continue;
+        }
+        const location = index.location(number)!;
+        const value = parseJsonObject(path, number + 1,
+            await readSessionLine(path, location.offset, location.length, file));
+        const entry = applyContextMeasurementEntry(path, number + 1,
+            parseContextMeasurementEntry(path, number + 1, value), state);
+        if (keep) {
+            const projection = entry.measurement.projection!;
+            const components = projection.components;
+            const recipe = previous === undefined ? contextMeasurementKeyframe(components) : contextMeasurementDelta(previous, components);
+            reconstructed = applyContextMeasurementRecipe(reconstructed, recipe);
+            if (reconstructed === undefined) throw new Error("Retained context measurement lost its components");
+            measurement = { ...entry.measurement, projection: { ...projection, components: reconstructed } };
+            previous = components;
+            retainedPosition += 1;
+        }
+        number = index.nextRecordOfKind("context_measurement", number);
+    }
+    return measurement;
+}
+
+async function readIndexedMeasurementRecipeState(
+    path: string,
+    file: Awaited<ReturnType<typeof open>>,
+    index: SessionRecordIndex,
+    latest: number | undefined,
+): Promise<IndexedMeasurementRecipeState> {
+    if (latest === undefined) return { lastRecordCompact: false, sinceKeyframe: 0 };
+    const records: number[] = [];
+    let current: number | undefined = latest;
+    while (current !== undefined) {
+        records.push(current);
+        const location = index.location(current)!;
+        const value = parseJsonObject(path, current + 1,
+            await readSessionLine(path, location.offset, location.length, file));
+        const parsed = parseContextMeasurementEntry(path, current + 1, value);
+        if (parsed.recipe === undefined || parsed.recipe.keyframe) break;
+        current = index.previousRecordOfKind("context_measurement", current);
+    }
+    const state = createSessionProjectionState();
+    let measurement: ContextMeasurement | undefined;
+    for (const number of records.reverse()) {
+        const location = index.location(number)!;
+        const value = parseJsonObject(path, number + 1,
+            await readSessionLine(path, location.offset, location.length, file));
+        measurement = applyContextMeasurementEntry(path, number + 1,
+            parseContextMeasurementEntry(path, number + 1, value), state).measurement;
+    }
+    return {
+        ...(measurement === undefined ? {} : { measurement }),
+        ...(state.contextMeasurementBase === undefined ? {} : { base: state.contextMeasurementBase }),
+        lastRecordCompact: state.contextMeasurementLastRecordCompact,
+        sinceKeyframe: state.contextMeasurementsSinceKeyframe,
+    };
+}
+
 export class SessionStore {
     readonly path: string;
     readonly header: SessionHeader;
@@ -438,12 +723,14 @@ export class SessionStore {
     private pendingAppend: Promise<void> = Promise.resolve();
     private lineCount: number;
     private recordIndex: SessionRecordIndex;
+    private readSource: FileHandle | undefined;
+    private readonlySnapshot = false;
     private onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
     ) => void;
 
-    protected readonly projection: SessionProjectionState;
+    protected projection: SessionProjectionState;
 
     protected constructor(
         path: string,
@@ -517,10 +804,14 @@ export class SessionStore {
             throw error;
         }
 
+        const index = new SessionRecordIndex();
+        index.append(0, Buffer.byteLength(jsonLine(header)), header as unknown as Record<string, unknown>);
+        const state = createSessionProjectionState(index);
+        state.indexedLive = true;
         return new SessionStore(
             path,
             header,
-            createSessionProjectionState(),
+            state,
             {
                 now,
                 ...(options.createId === undefined
@@ -533,6 +824,8 @@ export class SessionStore {
                     ? {}
                     : { onRecordAppended: options.onRecordAppended }),
             },
+            1,
+            index,
         );
     }
 
@@ -540,7 +833,7 @@ export class SessionStore {
         path: string,
         options: OpenSessionStoreOptions = {},
     ): Promise<SessionStore> {
-        const loaded = await scanSessionFile(path, true);
+        const loaded = await scanIndexedSessionFile(path, true);
         await chmod(path, 0o600);
         return new SessionStore(
             path,
@@ -552,11 +845,210 @@ export class SessionStore {
         );
     }
 
+    static async openReadOnly(path: string): Promise<SessionStore> {
+        const file = await open(path, "r");
+        try {
+            const loaded = await scanIndexedSessionFile(path, false, file);
+            const store = new SessionStore(path, loaded.header, loaded.state, {}, loaded.lineCount, loaded.index);
+            store.readSource = file;
+            store.readonlySnapshot = true;
+            return store;
+        } catch (error) {
+            await file.close();
+            throw error;
+        }
+    }
+
+    async closeReadOnly(): Promise<void> {
+        const file = this.readSource;
+        this.readSource = undefined;
+        if (file !== undefined) await file.close();
+    }
+
     async readIndexedMessage(id: string): Promise<Record<string, unknown> | undefined> {
+        await this.ensureMessageIndexed(id);
         const number = this.recordIndex.messageRecord(id);
         const location = number === undefined ? undefined : this.recordIndex.location(number);
         if (location === undefined) return undefined;
-        return parseJsonObject(this.path, number! + 1, await readSessionLine(this.path, location.offset, location.length));
+        return parseJsonObject(this.path, number! + 1, await readSessionLine(this.path, location.offset, location.length, this.readSource));
+    }
+
+    async readRecord(number: number): Promise<Record<string, unknown> | undefined> {
+        if (!Number.isSafeInteger(number)) return undefined;
+        const { index, limit } = await this.recordReadIndex();
+        if (number < 0 || number >= limit) return undefined;
+        const location = index.location(number);
+        if (location === undefined) return undefined;
+        return parseJsonObject(this.path, number + 1,
+            await readSessionLine(this.path, location.offset, location.length, this.readSource));
+    }
+
+    async *walkRecords(kind?: string): AsyncGenerator<{ readonly number: number; readonly record: Record<string, unknown> }> {
+        const { index, limit } = await this.recordReadIndex();
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            let number: number | undefined = kind === undefined ? 0 : index.nextRecordOfKind(kind, -1);
+            while (number !== undefined && number < limit) {
+                const location = index.location(number)!;
+                const record = parseJsonObject(this.path, number + 1,
+                    await readSessionLine(this.path, location.offset, location.length, file));
+                yield { number, record };
+                number = kind === undefined ? number + 1 : index.nextRecordOfKind(kind, number);
+            }
+        } finally {
+            if (source === undefined) await file.close();
+        }
+    }
+
+    async *walkEntries(): AsyncGenerator<SessionMessageEntry> {
+        const { index, limit } = await this.recordReadIndex();
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            let message = index.nextRecordOfKind("message", -1);
+            let turnStart = index.nextRecordOfKind("turn_start", -1);
+            while (message !== undefined || turnStart !== undefined) {
+                const number = Math.min(message ?? Infinity, turnStart ?? Infinity);
+                if (number >= limit) break;
+                const location = index.location(number)!;
+                const value = parseJsonObject(this.path, number + 1,
+                    await readSessionLine(this.path, location.offset, location.length, file));
+                yield parseMessageEntry(this.path, number + 1, value);
+                if (message === number) message = index.nextRecordOfKind("message", number);
+                if (turnStart === number) turnStart = index.nextRecordOfKind("turn_start", number);
+            }
+        } finally {
+            if (source === undefined) await file.close();
+        }
+    }
+
+    async *walkHarnessMessages(): AsyncGenerator<{ readonly ordinal: number; readonly number: number; readonly entry: SessionHarnessMessageEntry }> {
+        let ordinal = 0;
+        for await (const { number, record } of this.walkRecords("harness_message")) {
+            yield { ordinal, number, entry: parseHarnessMessageEntry(this.path, number + 1, record) };
+            ordinal += 1;
+        }
+    }
+
+    async messageRecordNumber(id: string): Promise<number | undefined> {
+        await this.ensureMessageIndexed(id);
+        return this.recordIndex.messageRecord(id);
+    }
+
+    async harnessPosition(headId: string | null, entry: SessionHarnessMessageEntry): Promise<number | undefined> {
+        if (entry.afterMessageId === null) return -1;
+        if (headId === null) return undefined;
+        await this.ensureMessageIndexed(headId);
+        const anchor = this.recordIndex.messageRecord(entry.afterMessageId);
+        let current = this.recordIndex.messageRecord(headId);
+        let nextUser: number | undefined;
+        while (current !== undefined && current !== anchor) {
+            if (this.recordIndex.isVisibleUser(current)) nextUser = current;
+            current = this.recordIndex.parent(current);
+        }
+        if (anchor === undefined || current === undefined) return undefined;
+        const delayed = this.recordIndex.isInternal(anchor) && entry.crashCut !== true
+            && entry.unsentPrompts === undefined && !(entry.text === CRASH_CUT_MESSAGE && entry.tone === "soft");
+        return delayed ? nextUser : anchor;
+    }
+
+    async readHarnessMessage(number: number): Promise<SessionHarnessMessageEntry | undefined> {
+        const record = await this.readRecord(number);
+        return record === undefined || record.type !== "harness_message"
+            ? undefined : parseHarnessMessageEntry(this.path, number + 1, record);
+    }
+
+    async readDelivery(id: string): Promise<SessionDeliveryEntry | undefined> {
+        for await (const { number, record } of this.walkRecords("delivery")) {
+            if (record.id === id) return parseDeliveryEntry(this.path, number + 1, record);
+        }
+        return undefined;
+    }
+
+    async readAttachmentName(id: string): Promise<string | undefined> {
+        for await (const { number, record } of this.walkRecords("attachment")) {
+            const entry = parseAttachmentEntry(this.path, number + 1, record);
+            if (entry.attachment.id === id) return entry.attachment.name;
+        }
+        return undefined;
+    }
+
+    protected async recordReadIndex(): Promise<{ readonly index: SessionRecordIndex; readonly limit: number }> {
+        return { index: this.recordIndex, limit: this.recordIndex.length };
+    }
+
+    async readMessageEntry(id: string): Promise<SessionMessageEntry | undefined> {
+        await this.ensureMessageIndexed(id);
+        const number = this.recordIndex.messageRecord(id);
+        if (number === undefined) return undefined;
+        const location = this.recordIndex.location(number)!;
+        const value = parseJsonObject(this.path, number + 1,
+            await readSessionLine(this.path, location.offset, location.length, this.readSource));
+        return parseMessageEntry(this.path, number + 1, value);
+    }
+
+    async readApplicableCompaction(): Promise<SessionCompactionEntry | undefined> {
+        if (this.projection.leafId !== null) await this.ensureMessageIndexed(this.projection.leafId);
+        const number = this.recordIndex.latestApplicableCompaction(this.projection.leafId);
+        if (number === undefined) return undefined;
+        const location = this.recordIndex.location(number)!;
+        const value = parseJsonObject(this.path, number + 1,
+            await readSessionLine(this.path, location.offset, location.length, this.readSource));
+        return parseCompactionEntry(this.path, number + 1, value);
+    }
+
+    async *walkMessageAncestors(headId: string): AsyncGenerator<SessionMessageEntry> {
+        await this.ensureMessageIndexed(headId);
+        let number = this.recordIndex.messageRecord(headId);
+        if (number === undefined) throw new Error(`Session message ${headId} is unavailable`);
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            while (number !== undefined) {
+                const location = this.recordIndex.location(number)!;
+                const value = parseJsonObject(this.path, number + 1,
+                    await readSessionLine(this.path, location.offset, location.length, file));
+                yield parseMessageEntry(this.path, number + 1, value);
+                number = this.recordIndex.parent(number);
+            }
+        } finally {
+            if (source === undefined) await file.close();
+        }
+    }
+
+    async *walkMessageBranch(headId: string): AsyncGenerator<SessionMessageEntry> {
+        await this.ensureMessageIndexed(headId);
+        let number = this.recordIndex.messageRecord(headId);
+        if (number === undefined) throw new Error(`Session message ${headId} is unavailable`);
+        const recordCount = this.recordIndex.length;
+        const members = new Uint8Array(Math.ceil(recordCount / 8));
+        while (number !== undefined) {
+            members[number >>> 3]! |= 1 << (number & 7);
+            number = this.recordIndex.parent(number);
+        }
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            for (let record = 0; record < recordCount; record += 1) {
+                if ((members[record >>> 3]! & (1 << (record & 7))) === 0) continue;
+                const location = this.recordIndex.location(record)!;
+                const value = parseJsonObject(this.path, record + 1,
+                    await readSessionLine(this.path, location.offset, location.length, file));
+                yield parseMessageEntry(this.path, record + 1, value);
+            }
+        } finally {
+            if (source === undefined) await file.close();
+        }
+    }
+
+    private async ensureMessageIndexed(id: string): Promise<void> {
+        if (this.recordIndex.messageRecord(id) !== undefined || !this.projection.knownMessageIds.has(id)) return;
+        this.recordIndex = (await scanSessionIndex(this.path, undefined, false, this.recordScanLimit())).index;
+    }
+
+    protected recordScanLimit(): number | undefined {
+        return undefined;
     }
 
     recordIndexStats(): { records: number; columnBytes: number } {
@@ -564,12 +1056,27 @@ export class SessionStore {
     }
 
     entries(): readonly SessionMessageEntry[] {
-        return this.projection.messageEntries.map((entry) => ({ ...entry }));
+        const live = this.liveMessageEntries();
+        const head = this.activeBranch().at(-1) ?? this.projection.historyTail.at(-1);
+        return live.length > 0 || head === undefined ? live : [{ ...head }];
     }
 
     activeEntries(): readonly SessionMessageEntry[] {
         // Entry copies protect branch indexes while preserving shared message identity.
         return this.activeBranch().map((entry) => ({ ...entry }));
+    }
+
+    carriedTurnText(): SessionTurnText | undefined {
+        return this.projection.carriedTurnText;
+    }
+
+    liveMessageEntries(): readonly SessionMessageEntry[] {
+        const active = this.activeBranch();
+        if (this.projection.indexedLive) return active.map((entry) => ({ ...entry }));
+        const compaction = this.latestCompaction();
+        if (compaction === undefined) return active.map((entry) => ({ ...entry }));
+        const boundary = active.findIndex((entry) => entry.id === compaction.boundaryMessageId);
+        return active.slice(boundary + 1).map((entry) => ({ ...entry }));
     }
 
     private activeBranch(): readonly SessionMessageEntry[] {
@@ -588,74 +1095,20 @@ export class SessionStore {
         return structuredClone(this.projection.unsentPrompts);
     }
 
-    usageMessages(): readonly AssistantMessage[] {
-        const replies = this.projection.messageEntries.map((entry) => entry.message)
-            .filter((message): message is AssistantMessage => message.role === "assistant" && message.source.api !== "none");
-        const compactions = this.projection.compactionEntries.flatMap((entry): AssistantMessage[] =>
-            entry.billed === undefined ? [] : [{
-                role: "assistant", content: [], stopReason: "stop",
-                source: { provider: entry.billed.provider, model: entry.billed.model, api: "compaction" },
-                usage: entry.billed.usage,
-            }]);
-        const asks = this.projection.askEntries.map((entry): AssistantMessage => ({
-            role: "assistant", content: [], stopReason: "stop",
-            source: { provider: entry.billed.provider, model: entry.billed.model, api: "ask" },
-            usage: entry.billed.usage,
-        }));
-        return [...replies, ...compactions, ...asks];
+    usageSummary(): SessionModelUsage {
+        if (this.projection.indexedLive) {
+            return { rows: (this.projection.indexedUsage ?? this.projection.replyUsage.result()).rows.map((row) => ({ ...row })) };
+        }
+        let usage: SessionModelUsage = { rows: this.projection.replyUsage.result().rows.map((row) => ({ ...row })) };
+        for (const entry of this.projection.compactionEntries) {
+            if (entry.billed !== undefined && entry.id !== this.projection.loadedCompactionId) {
+                usage = addSessionModelUsage(usage, billedAssistant(entry.billed, "compaction"));
+            }
+        }
+        for (const entry of this.projection.askEntries) usage = addSessionModelUsage(usage, billedAssistant(entry.billed, "ask"));
+        return usage;
     }
 
-    /** The ancestor chain ending at `messageId`, for a page request outside the active branch. */
-    pageSourceTo(messageId: string): SessionPageSource | undefined {
-        const byId = new Map(
-            this.projection.messageEntries.map((entry) => [entry.id, entry]),
-        );
-        const target = byId.get(messageId);
-        if (target === undefined) {
-            return undefined;
-        }
-        const chain: SessionMessageEntry[] = [];
-        const seen = new Set<string>();
-        let current: SessionMessageEntry | undefined = target;
-        while (current !== undefined) {
-            if (seen.has(current.id)) {
-                return undefined;
-            }
-            seen.add(current.id);
-            chain.push(current);
-            if (current.parentId === null) {
-                current = undefined;
-            } else {
-                current = byId.get(current.parentId);
-                if (current === undefined) {
-                    return undefined;
-                }
-            }
-        }
-        chain.reverse();
-        const attachmentNames = new Map(
-            this.projection.attachmentEntries.map((entry) => [
-                entry.attachment.id,
-                entry.attachment.name,
-            ]),
-        );
-        return {
-            messages: chain.map((entry) => entry.message),
-            messageStamps: messageStamps(chain),
-            deliveredMessages: deliveredMessages(
-                chain,
-                this.projection.deliveryEntries,
-            ),
-            harnessMessages: projectHarnessMessages(
-                this.projection.harnessMessageEntries,
-                chain,
-            ),
-            attachmentName: (id) => attachmentNames.get(id),
-            ...(this.projection.leafId === null
-                ? {}
-                : { headId: this.projection.leafId }),
-        };
-    }
 
     activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {
         return messageStamps(this.activeBranch());
@@ -667,6 +1120,23 @@ export class SessionStore {
 
     activeHeadId(): string | null {
         return this.projection.leafId;
+    }
+
+    firstUserFacts(): { readonly title?: string } | undefined {
+        const first = this.projection.firstUser;
+        return first === undefined ? undefined : first.title === undefined ? {} : { title: first.title };
+    }
+
+    latestMessageTimestamp(): string | undefined {
+        return this.projection.latestMessageTimestamp;
+    }
+
+    latestMeasuredAssistantTimestamp(): string | undefined {
+        return this.projection.latestMeasuredAssistantTimestamp;
+    }
+
+    turnCount(): number {
+        return this.projection.turnCount;
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
@@ -681,7 +1151,9 @@ export class SessionStore {
                     delivery.id,
                 ) && (
                     legacyMessageId === undefined
-                    || activeMessageIds.has(legacyMessageId)
+                    || (this.projection.indexedLive
+                        ? this.recordIndex.isAncestor(this.projection.leafId, legacyMessageId)
+                        : activeMessageIds.has(legacyMessageId))
                 );
                 return !legacyReceiptIsActive
                     && !deliveredOnActiveBranch.has(delivery.id);
@@ -690,6 +1162,7 @@ export class SessionStore {
     }
 
     hasUnansweredDeliveryTurn(): boolean {
+        if (this.projection.indexedLive) return this.recordIndex.hasUnansweredDelivery(this.projection.leafId);
         return hasOpenDeliveryTurn(this.activeBranch(), this.projection.harnessMessageEntries);
     }
 
@@ -703,12 +1176,25 @@ export class SessionStore {
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
-    modelSettingsHistory(): readonly SessionModelSettingsEntry[] {
-        return this.projection.modelSettingsEntries.map((entry) => ({
-            ...entry,
-            settings: { ...entry.settings },
-            origin: entry.origin ?? "user",
-        }));
+    async readModelSettingsHistory(): Promise<readonly SessionModelSettingsEntry[]> {
+        const entries: SessionModelSettingsEntry[] = [];
+        const { index, limit } = await this.recordReadIndex();
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            let number = index.nextRecordOfKind("model_settings", -1);
+            while (number !== undefined && number < limit) {
+                const location = index.location(number)!;
+                const value = parseJsonObject(this.path, number + 1,
+                    await readSessionLine(this.path, location.offset, location.length, file));
+                const entry = parseModelSettingsEntry(this.path, number + 1, value);
+                entries.push({ ...entry, settings: { ...entry.settings }, origin: entry.origin ?? "user" });
+                number = index.nextRecordOfKind("model_settings", number);
+            }
+            return entries;
+        } finally {
+            if (source === undefined) await file.close();
+        }
     }
 
     selectedAgent(): SessionSelectedAgentEntry | undefined {
@@ -745,7 +1231,7 @@ export class SessionStore {
             snapshot: structuredClone(snapshot),
         };
         await this.appendRecord(entry);
-        this.projection.selectedAgentEntries.push(entry);
+        this.projection.selectedAgentEntries.splice(0, this.projection.selectedAgentEntries.length, entry);
         return entry;
     }
 
@@ -841,10 +1327,13 @@ export class SessionStore {
 
     repairCrashedTurn(options?: { readonly workerExited?: boolean }): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
-            const active = this.activeBranch().slice();
             if (this.projection.agentFailure !== undefined) return false;
+            const headId = this.projection.leafId;
+            const head = headId === null ? undefined : await this.readMessageEntry(headId);
             const turnOpen = this.projection.openTurnStartId !== undefined
-                && turnOpenAtTail(active, this.projection.harnessMessageEntries);
+                && (this.projection.indexedLive && headId !== null
+                    ? this.recordIndex.leavesTurnOpen(this.recordIndex.messageRecord(headId)!)
+                    : turnOpenAtTail(head === undefined ? [] : [head], this.projection.harnessMessageEntries));
             const queuedPrompts = this.queuedPrompts().map(({ content, attachmentIds }) => ({
                 content,
                 ...(attachmentIds === undefined ? {} : { attachmentIds }),
@@ -852,8 +1341,16 @@ export class SessionStore {
             if (!turnOpen && queuedPrompts.length === 0) return false;
             this.requireActive();
             if (!turnOpen) {
-                const completed = active.findLast((entry) => entry.message.role === "assistant"
-                    && entry.message.internal !== true && entry.message.stopReason !== "tool_use");
+                let completed: SessionMessageEntry | undefined;
+                if (headId !== null) {
+                    for await (const entry of this.walkMessageAncestors(headId)) {
+                        if (entry.message.role === "assistant" && entry.message.internal !== true
+                            && entry.message.stopReason !== "tool_use") {
+                            completed = entry;
+                            break;
+                        }
+                    }
+                }
                 await this.commitHarnessMessage(
                     queuedPrompts.length === 1 ? CRASH_QUEUED_PROMPT_MESSAGE : CRASH_QUEUED_PROMPTS_MESSAGE,
                     "soft",
@@ -864,9 +1361,14 @@ export class SessionStore {
                 );
                 return true;
             }
+            const active = await this.readActiveSuffix(this.projection.openTurnStartId!);
             const startIndex = active.findIndex((entry) => entry.id === this.projection.openTurnStartId);
             const turnEntries = active.slice(Math.max(startIndex, 0));
-            const previousCut = this.projection.harnessMessageEntries.findLast((entry) => entry.crashCut === true);
+            let previousCut = this.projection.harnessMessageEntries.findLast((entry) => entry.crashCut === true);
+            if (this.projection.indexedLive) {
+                previousCut = undefined;
+                for await (const { entry } of this.walkHarnessMessages()) if (entry.crashCut === true) previousCut = entry;
+            }
             const previousCutIndex = previousCut?.afterMessageId === undefined
                 ? -1
                 : active.findIndex((entry) => entry.id === previousCut.afterMessageId);
@@ -914,7 +1416,15 @@ export class SessionStore {
                 });
             }
             if (options?.workerExited === true) {
-                const lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+                let lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+                if (lastAssistant === undefined && headId !== null) {
+                    for await (const entry of this.walkMessageAncestors(headId)) {
+                        if (entry.message.role === "assistant") {
+                            lastAssistant = entry.message;
+                            break;
+                        }
+                    }
+                }
                 const settings = this.modelSettings();
                 await this.commitMessage({
                     role: "assistant", content: [],
@@ -938,7 +1448,8 @@ export class SessionStore {
             const startId = this.projection.openTurnStartId;
             if (startId === undefined || this.projection.agentFailure !== undefined) return false;
             this.requireActive();
-            const active = this.activeBranch().slice();
+            const active = await this.readActiveSuffix(startId);
+            const headId = this.projection.leafId;
             const start = active.findIndex((entry) => entry.id === startId);
             if (start < 0) return false;
             const unanswered = new Map<string, { readonly id: string; readonly name: string }>();
@@ -958,7 +1469,15 @@ export class SessionStore {
                     content: [{ type: "text", text: "Turn aborted" }], isError: true,
                 });
             }
-            const lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+            let lastAssistant = active.findLast((entry) => entry.message.role === "assistant")?.message;
+            if (lastAssistant === undefined && headId !== null) {
+                for await (const entry of this.walkMessageAncestors(headId)) {
+                    if (entry.message.role === "assistant") {
+                        lastAssistant = entry.message;
+                        break;
+                    }
+                }
+            }
             const settings = this.modelSettings();
             await this.commitMessage({
                 role: "assistant", content: [],
@@ -972,6 +1491,17 @@ export class SessionStore {
         });
         this.pendingAppend = result.then(() => undefined, () => undefined);
         return result;
+    }
+
+    private async readActiveSuffix(startId: string): Promise<SessionMessageEntry[]> {
+        if (this.projection.leafId === null) return [];
+        const entries: SessionMessageEntry[] = [];
+        for await (const entry of this.walkMessageAncestors(this.projection.leafId)) {
+            entries.push(entry);
+            if (entry.id === startId) break;
+        }
+        entries.reverse();
+        return entries;
     }
 
     appendDeliveryMessage(
@@ -1025,11 +1555,14 @@ export class SessionStore {
         tone: "primary" | "soft" | "error",
         visibleHeadId?: string | null,
     ): Promise<SessionHarnessMessageEntry> {
-        const result = this.pendingAppend.then(() => {
+        const result = this.pendingAppend.then(async () => {
             this.requireActive();
-            const leaf = this.activeBranch().at(-1);
-            const afterMessageId = leaf?.message.role === "tool_result"
-                && visibleHeadId !== undefined && leaf.id !== visibleHeadId
+            const leafId = this.projection.leafId;
+            if (leafId !== null) await this.ensureMessageIndexed(leafId);
+            const leafRecord = leafId === null ? undefined : this.recordIndex.messageRecord(leafId);
+            if (leafId !== null && leafRecord === undefined) throw new Error(`Session message ${leafId} is unavailable`);
+            const afterMessageId = leafRecord !== undefined && this.recordIndex.isToolResult(leafRecord)
+                && visibleHeadId !== undefined && leafId !== visibleHeadId
                 ? visibleHeadId
                 : undefined;
             return this.commitHarnessMessage(text, tone, { afterMessageId });
@@ -1048,7 +1581,10 @@ export class SessionStore {
         readonly tone: "primary" | "soft" | "error";
     }[] {
         const active = this.activeBranch();
-        return projectHarnessMessages(this.projection.harnessMessageEntries, active);
+        const projected = projectHarnessMessages(this.projection.harnessMessageEntries, active);
+        if (!this.projection.indexedLive) return projected;
+        return projected.map((entry) => ({ ...entry,
+            id: `harness:${this.projection.harnessTailOrdinals[Number(entry.id.slice("harness:".length))]}` }));
     }
 
     appendName(name: string | null): Promise<SessionNameEntry> {
@@ -1177,7 +1713,8 @@ export class SessionStore {
                 billed: snapshot,
             };
             await this.appendRecord(entry);
-            this.projection.askEntries.push(entry);
+            if (this.projection.indexedLive) await this.refreshIndexedUsage();
+            else this.projection.askEntries.push(entry);
             return entry;
         });
         this.pendingAppend = result.then(
@@ -1188,6 +1725,10 @@ export class SessionStore {
     }
 
     latestCompaction(): SessionCompactionEntry | undefined {
+        if (this.projection.indexedLive) {
+            return this.recordIndex.latestApplicableCompaction(this.projection.leafId) === undefined
+                ? undefined : this.projection.compactionEntries.at(-1);
+        }
         const active = this.activeBranch();
         return this.projection.compactionEntries.findLast(
             (entry) => compactionApplies(entry, active),
@@ -1213,7 +1754,9 @@ export class SessionStore {
         const entries = this.projection.contextMeasurementEntries;
         for (let index = entries.length - 1; index >= 0; index -= 1) {
             const entry = entries[index]!;
-            if (entry.afterMessageId !== null && !active.has(entry.afterMessageId)) {
+            if (entry.afterMessageId !== null && !(this.projection.indexedLive
+                ? this.recordIndex.isAncestor(this.projection.leafId, entry.afterMessageId)
+                : active.has(entry.afterMessageId))) {
                 continue;
             }
             return materializeContextMeasurement(entries, index);
@@ -1325,7 +1868,7 @@ export class SessionStore {
             ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
             message: snapshot,
         };
-        if (this.projection.knownMessageIds.has(entry.id)) {
+        if (this.recordIndex.messageRecord(entry.id) !== undefined || this.projection.knownMessageIds.has(entry.id)) {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
@@ -1335,6 +1878,24 @@ export class SessionStore {
         await this.appendRecord(record);
 
         appendActiveMessage(this.projection, entry);
+        if (this.projection.indexedLive && entry.message.role === "assistant" && entry.message.source.api !== "none") {
+            await this.refreshIndexedUsage();
+        }
+        if (this.projection.indexedLive) {
+            const tail = this.projection.historyTail;
+            const length = this.recordIndex.location(this.recordIndex.messageRecord(entry.id)!)!.length;
+            if (length > INDEXED_HISTORY_TAIL_BYTES) {
+                tail.length = 0;
+                this.projection.historyTailBytes = 0;
+            } else {
+                tail.push(this.projection.activeMessageEntries.at(-1)!);
+                this.projection.historyTailBytes += length;
+                while (this.projection.historyTailBytes > INDEXED_HISTORY_TAIL_BYTES) {
+                    const removed = tail.shift()!;
+                    this.projection.historyTailBytes -= this.recordIndex.location(this.recordIndex.messageRecord(removed.id)!)!.length;
+                }
+            }
+        }
         applyTurnMessage(this.projection, entry, turnStart === true);
         if (turnStart === true) this.projection.unsentPrompts = [];
         if (unsentPrompts !== undefined) {
@@ -1342,6 +1903,18 @@ export class SessionStore {
             this.projection.unsentPrompts = structuredClone(unsentPrompts);
         }
         if (queuedPromptId !== undefined) this.projection.queuedPrompts.delete(queuedPromptId);
+        if (this.projection.indexedLive) {
+            const current = this.projection.compactionEntries.at(-1);
+            const mayChange = current === undefined
+                ? this.recordIndex.recordOfKind("compaction") !== undefined
+                : current.firstRetainedMessageId === null && current.boundaryMessageId === entry.parentId
+                    && entry.message.role === "tool_result";
+            if (mayChange && this.recordIndex.latestApplicableCompaction(entry.id) !== this.projection.currentCompactionNumber) {
+                const loaded = await scanIndexedSessionFile(this.path, false, this.readSource);
+                this.projection = loaded.state;
+                this.recordIndex = loaded.index;
+            }
+        }
         return entry;
     }
 
@@ -1391,7 +1964,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.projection.modelSettingsEntries.push(entry);
+        this.projection.modelSettingsEntries.splice(0, this.projection.modelSettingsEntries.length, entry);
         return entry;
     }
 
@@ -1407,6 +1980,7 @@ export class SessionStore {
             afterMessageId: this.projection.leafId,
             measurement,
         };
+        const previous = this.projection.contextMeasurementEntries.at(-1);
         const keyframe = !this.projection.contextMeasurementLastRecordCompact
             || this.projection.contextMeasurementBase === undefined
             || this.projection.contextMeasurementsSinceKeyframe
@@ -1423,13 +1997,41 @@ export class SessionStore {
             measurement: compact.measurement,
             contextRecipe: compact.recipe,
         });
-        this.projection.contextMeasurementEntries.push(entry);
+        if (this.projection.indexedLive) {
+            this.projection.canonicalMeasurements &&= measurementComponentsCanonical(Buffer.from(JSON.stringify({ measurement })), false);
+            let retained = measurement;
+            if (!this.projection.canonicalMeasurements) {
+                let base = previous?.measurement.projection?.components;
+                if (previous?.afterMessageId === entry.afterMessageId) {
+                    const head = this.projection.leafId === null ? undefined : this.recordIndex.messageRecord(this.projection.leafId);
+                    const parent = head === undefined ? undefined : this.recordIndex.parent(head);
+                    if (parent === undefined) base = undefined;
+                    else {
+                        const file = await open(this.path, "r");
+                        try {
+                            base = (await readIndexedMeasurement(this.path, file, this.recordIndex,
+                                this.recordIndex.messageId(parent)!, false))?.projection?.components;
+                        } finally {
+                            await file.close();
+                        }
+                    }
+                }
+                const components = base === undefined ? measurement.projection.components
+                    : applyContextMeasurementRecipe(base, contextMeasurementDelta(base, measurement.projection.components));
+                if (components !== undefined) retained = { ...measurement, projection: { ...measurement.projection, components } };
+            }
+            this.projection.contextMeasurementEntries.splice(0, this.projection.contextMeasurementEntries.length,
+                { ...entry, measurement: retained });
+            this.projection.contextMeasurementLastComponents = retained.projection?.components;
+        } else {
+            this.projection.contextMeasurementEntries.push(entry);
+        }
         this.projection.contextMeasurementBase = measurement.projection.components;
         this.projection.contextMeasurementLastRecordCompact = true;
         this.projection.contextMeasurementsSinceKeyframe = keyframe
             ? 0
             : this.projection.contextMeasurementsSinceKeyframe + 1;
-        retainContextMeasurements(this.projection);
+        if (!this.projection.indexedLive) retainContextMeasurements(this.projection);
         return entry;
     }
 
@@ -1453,13 +2055,71 @@ export class SessionStore {
             ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
         };
         await this.appendRecord(entry);
-        this.projection.harnessMessageEntries.push(entry);
+        if (this.projection.indexedLive) {
+            const length = this.recordIndex.location(this.recordIndex.length - 1)!.length;
+            const ordinal = this.projection.harnessTotal++;
+            this.projection.harnessMessageEntries.push(entry);
+            this.projection.harnessTailLengths.push(length);
+            this.projection.harnessTailOrdinals.push(ordinal);
+            this.trimHarnessTail();
+        } else this.projection.harnessMessageEntries.push(entry);
         if (crashCut === true || unsentPrompts !== undefined) this.projection.openTurnStartId = undefined;
         if (unsentPrompts !== undefined) {
             this.projection.queuedPrompts.clear();
             this.projection.unsentPrompts = structuredClone(unsentPrompts);
         }
         return entry;
+    }
+
+    private trimHarnessTail(): void {
+        const state = this.projection;
+        let budget = INDEXED_HARNESS_TAIL_BYTES;
+        let retainedBytes = 0;
+        for (let index = state.harnessMessageEntries.length - 1; index >= 0; index -= 1) {
+            const entry = state.harnessMessageEntries[index]!;
+            if (entry.afterMessageId !== null && state.activeMessagePositions.has(entry.afterMessageId)) continue;
+            const length = state.harnessTailLengths[index]!;
+            if (length <= budget) {
+                budget -= length;
+                retainedBytes += length;
+                continue;
+            }
+            budget = 0;
+            state.harnessMessageEntries.splice(index, 1);
+            state.harnessTailLengths.splice(index, 1);
+            state.harnessTailOrdinals.splice(index, 1);
+        }
+        state.harnessTailBytes = retainedBytes;
+    }
+
+    private async restoreLiveHarness(): Promise<void> {
+        const state = this.projection;
+        const live = new Set(state.activeMessageEntries.map((entry) => this.recordIndex.messageRecord(entry.id)!));
+        const retained = new Set(state.harnessTailOrdinals);
+        const source = this.readSource;
+        const file = source ?? await open(this.path, "r");
+        try {
+            let number = this.recordIndex.nextRecordOfKind("harness_message", -1);
+            let ordinal = 0;
+            while (number !== undefined) {
+                const anchor = this.recordIndex.harnessAnchor(number);
+                if (anchor !== undefined && live.has(anchor) && !retained.has(ordinal)) {
+                    const location = this.recordIndex.location(number)!;
+                    const value = parseJsonObject(this.path, number + 1,
+                        await readSessionLine(this.path, location.offset, location.length, file));
+                    const entry = parseHarnessMessageEntry(this.path, number + 1, value);
+                    let position = state.harnessTailOrdinals.findIndex((item) => item > ordinal);
+                    if (position < 0) position = state.harnessTailOrdinals.length;
+                    state.harnessMessageEntries.splice(position, 0, entry);
+                    state.harnessTailLengths.splice(position, 0, location.length);
+                    state.harnessTailOrdinals.splice(position, 0, ordinal);
+                }
+                ordinal += 1;
+                number = this.recordIndex.nextRecordOfKind("harness_message", number);
+            }
+        } finally {
+            if (source === undefined) await file.close();
+        }
     }
 
     private async commitApprovalMode(
@@ -1476,7 +2136,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.projection.permissionsEntries.push(entry);
+        this.projection.permissionsEntries.splice(0, this.projection.permissionsEntries.length, entry);
         return entry;
     }
 
@@ -1492,7 +2152,7 @@ export class SessionStore {
             name,
         };
         await this.appendRecord(entry);
-        this.projection.nameEntries.push(entry);
+        this.projection.nameEntries.splice(0, this.projection.nameEntries.length, entry);
         return entry;
     }
 
@@ -1582,6 +2242,7 @@ export class SessionStore {
                 throw error;
             }
             this.recordIndex = durable.index;
+            this.projection.knownMessageIds = new IndexedMessageIds(durable.index);
             addAttachmentEntry(this.projection, {
                 ...entry,
                 attachment: durable.attachment,
@@ -1631,14 +2292,58 @@ export class SessionStore {
                 }
             }
         }
+        if (this.projection.leafId !== null) await this.ensureMessageIndexed(this.projection.leafId);
         const entry: SessionCompactionEntry = {
             type: "compaction",
             id: this.createId(),
             timestamp: this.now().toISOString(),
-            ...validateCompaction(request, this.activeBranch()),
+            ...validateCompaction(request, typeof request.boundaryMessageId === "string"
+                ? this.recordIndex.compactionAnchor(this.projection.leafId, request.boundaryMessageId)
+                : undefined),
         };
         await this.appendRecord(entry);
-        this.projection.compactionEntries.push(entry);
+        if (this.projection.indexedLive) {
+            await this.refreshIndexedUsage();
+            this.projection.loadedCompactionId = entry.id;
+            this.projection.currentCompactionNumber = this.recordIndex.length - 1;
+            this.projection.compactionEntries.splice(0, this.projection.compactionEntries.length, entry);
+            this.projection.askEntries.length = 0;
+            const boundary = this.projection.activeMessagePositions.get(entry.boundaryMessageId);
+            if (boundary !== undefined) {
+                this.projection.carriedTurnText = carryDroppedTurnText(
+                    this.projection.carriedTurnText, this.projection.activeMessageEntries, boundary,
+                );
+                this.projection.activeMessageEntries.splice(0, boundary + 1);
+            }
+            else {
+                const active = await this.readActiveSuffix(entry.boundaryMessageId);
+                const firstLive = this.projection.activeMessageEntries[0]?.id;
+                const firstLivePosition = firstLive === undefined ? active.length : active.findIndex((item) => item.id === firstLive);
+                this.projection.carriedTurnText = removeRestoredTurnText(
+                    this.projection.carriedTurnText, active.slice(1, firstLivePosition),
+                );
+                this.projection.activeMessageEntries.splice(0, this.projection.activeMessageEntries.length, ...active.slice(1));
+            }
+            this.projection.activeMessagePositions.clear();
+            for (const [position, current] of this.projection.activeMessageEntries.entries()) {
+                this.projection.activeMessagePositions.set(current.id, position);
+            }
+            await this.restoreLiveHarness();
+            this.trimHarnessTail();
+            const tail: SessionMessageEntry[] = [];
+            for (const number of this.recordIndex.recentMessages(this.projection.leafId, INDEXED_HISTORY_TAIL_BYTES)) {
+                const id = this.recordIndex.messageId(number)!;
+                const existing = this.projection.activeMessageEntries.find((current) => current.id === id)
+                    ?? this.projection.historyTail.find((current) => current.id === id);
+                const current = existing ?? await this.readMessageEntry(id);
+                if (current !== undefined) tail.push(current);
+            }
+            this.projection.historyTail.splice(0, this.projection.historyTail.length, ...tail);
+            this.projection.historyTailBytes = tail.reduce((total, current) =>
+                total + this.recordIndex.location(this.recordIndex.messageRecord(current.id)!)!.length, 0);
+        } else {
+            this.projection.compactionEntries.push(entry);
+        }
         return entry;
     }
 
@@ -1649,9 +2354,10 @@ export class SessionStore {
             requestedUserMessageId,
             "rewind user-message ID",
         );
-        const boundary = this.activeBranch().find(
-            (entry) => entry.id === userMessageId,
-        );
+        if (this.projection.leafId !== null) await this.ensureMessageIndexed(this.projection.leafId);
+        const boundary = this.recordIndex.isAncestor(this.projection.leafId, userMessageId)
+            ? await this.readMessageEntry(userMessageId)
+            : undefined;
         if (
             boundary === undefined
             || boundary.message.role !== "user"
@@ -1672,6 +2378,12 @@ export class SessionStore {
             headId: boundary.parentId,
         };
         await this.appendRecord(entry);
+        if (this.projection.indexedLive) {
+            const loaded = await scanIndexedSessionFile(this.path, false, this.readSource);
+            this.projection = loaded.state;
+            this.recordIndex = loaded.index;
+            return entry;
+        }
         rewindActiveBranch(this.projection, entry.headId);
         this.projection.openTurnStartId = undefined;
         retainContextMeasurements(this.projection);
@@ -1738,6 +2450,21 @@ export class SessionStore {
         );
     }
 
+    private async refreshIndexedUsage(): Promise<void> {
+        const reply = this.projection.replyUsage.result();
+        if (this.recordIndex.recordOfKind("compaction") === undefined
+            && this.recordIndex.recordOfKind("session_ask") === undefined) {
+            this.projection.indexedUsage = { rows: reply.rows.map((row) => ({ ...row })) };
+            return;
+        }
+        const file = await open(this.path, "r");
+        try {
+            this.projection.indexedUsage = await readIndexedUsage(this.path, file, this.recordIndex, reply);
+        } finally {
+            await file.close();
+        }
+    }
+
     watchRecords(
         listener: (
             lineNumber: number,
@@ -1772,22 +2499,94 @@ export class SessionStore {
                 this.lineCount + 1,
                 jsonLine(record),
             );
-            ingestSessionRecord(
-                this.path,
-                this.lineCount + 1,
-                stored,
-                copyProjectionState(this.projection),
-            );
+            const previous = this.projection;
+            const compactionBoundary = stored.type === "compaction" && typeof stored.boundaryMessageId === "string"
+                ? previous.activeMessagePositions.get(stored.boundaryMessageId) : undefined;
+            const carried = stored.type === "compaction" && compactionBoundary !== undefined
+                ? carryDroppedTurnText(previous.carriedTurnText, previous.activeMessageEntries, compactionBoundary)
+                : undefined;
+            if (this.projection.indexedLive && stored.type === "rewind") {
+                await this.validateIndexedForeignRewind(this.lineCount + 1, stored);
+            } else {
+                ingestSessionRecord(this.path, this.lineCount + 1, stored, copyProjectionState(this.projection));
+            }
             const lineNumber = await this.writeRecordLine(stored);
-            ingestSessionRecord(this.path, lineNumber, stored, this.projection);
+            if (this.projection.indexedLive && !(await this.applyIndexedForeignMessage(lineNumber, stored))) {
+                const loaded = await scanIndexedSessionFile(this.path, false, this.readSource,
+                    stored.type === "compaction" ? { value: carried } : undefined);
+                if (stored.type === "compaction" && loaded.state.currentCompactionNumber !== lineNumber - 1) {
+                    loaded.state.carriedTurnText = previous.carriedTurnText;
+                } else if (stored.type === "compaction" && compactionBoundary === undefined) {
+                    const firstLive = previous.activeMessageEntries[0]?.id;
+                    const entries = loaded.state.activeMessageEntries;
+                    const firstLivePosition = firstLive === undefined ? entries.length : entries.findIndex((item) => item.id === firstLive);
+                    loaded.state.carriedTurnText = removeRestoredTurnText(previous.carriedTurnText,
+                        entries.slice(0, firstLivePosition));
+                }
+                this.projection = loaded.state;
+                this.recordIndex = loaded.index;
+                return lineNumber;
+            }
+            if (!this.projection.indexedLive) ingestSessionRecord(this.path, lineNumber, stored, this.projection, true);
             return lineNumber;
         });
         this.pendingAppend = result.then(() => {}, () => {});
         return result;
     }
 
+    private async validateIndexedForeignRewind(lineNumber: number, value: Record<string, unknown>): Promise<void> {
+        const rewind = parseRewindEntry(this.path, lineNumber, value);
+        if (rewind.previousHeadId !== this.projection.leafId) {
+            throw invalidSession(this.path, `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`);
+        }
+        const boundary = this.recordIndex.isAncestor(this.projection.leafId, rewind.userMessageId)
+            ? await this.readMessageEntry(rewind.userMessageId) : undefined;
+        if (boundary === undefined || boundary.message.role !== "user" || boundary.message.internal === true) {
+            throw invalidSession(this.path, `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`);
+        }
+        if (rewind.headId !== boundary.parentId) {
+            throw invalidSession(this.path, `line ${lineNumber} has the wrong rewind target`);
+        }
+    }
+
+    // Applies a durable foreign message like a local append; false means the caller rescans.
+    private async applyIndexedForeignMessage(lineNumber: number, value: Record<string, unknown>): Promise<boolean> {
+        if (value.type !== "message" && value.type !== "turn_start") return false;
+        ingestSessionRecord(this.path, lineNumber, value, this.projection, true);
+        const entry = this.projection.activeMessageEntries.at(-1)!;
+        if (entry.message.role === "assistant" && entry.message.source.api !== "none") await this.refreshIndexedUsage();
+        this.pushIndexedHistoryTail(entry);
+        return !this.compactionMayChange(entry);
+    }
+
+    private pushIndexedHistoryTail(entry: SessionMessageEntry): void {
+        const tail = this.projection.historyTail;
+        const length = this.recordIndex.location(this.recordIndex.messageRecord(entry.id)!)!.length;
+        if (length > INDEXED_HISTORY_TAIL_BYTES) {
+            tail.length = 0;
+            this.projection.historyTailBytes = 0;
+            return;
+        }
+        tail.push(entry);
+        this.projection.historyTailBytes += length;
+        while (this.projection.historyTailBytes > INDEXED_HISTORY_TAIL_BYTES) {
+            const removed = tail.shift()!;
+            this.projection.historyTailBytes -= this.recordIndex.location(this.recordIndex.messageRecord(removed.id)!)!.length;
+        }
+    }
+
+    private compactionMayChange(entry: SessionMessageEntry): boolean {
+        const current = this.projection.compactionEntries.at(-1);
+        const mayChange = current === undefined
+            ? this.recordIndex.recordOfKind("compaction") !== undefined
+            : current.firstRetainedMessageId === null && current.boundaryMessageId === entry.parentId
+                && entry.message.role === "tool_result";
+        return mayChange && this.recordIndex.latestApplicableCompaction(entry.id) !== this.projection.currentCompactionNumber;
+    }
+
     // Every append runs behind pendingAppend, so this store's own writes cannot race the rollback.
     private async writeRecordLine(record: object): Promise<number> {
+        if (this.readonlySnapshot) throw new Error(`Session snapshot ${this.path} cannot write records`);
         if (this.writeFault !== undefined) {
             throw this.writeFault;
         }
@@ -1947,7 +2746,7 @@ async function readDurableAttachment(
     id: string,
 ): Promise<{ attachment: SessionImageAttachmentMetadata; index: SessionRecordIndex } | undefined> {
     try {
-        const loaded = await scanSessionFile(path, false);
+        const loaded = await scanIndexedSessionFile(path, false);
         const attachment = loaded.state.attachmentEntries.find(
             (entry) => entry.attachment.id === id,
         )?.attachment;
@@ -2005,15 +2804,12 @@ export async function openSessionForRecovery(path: string): Promise<SessionStore
 export async function readSessionTurnState(
     path: string,
 ): Promise<SessionTurnState> {
-    const loaded = await scanSessionFile(path, false);
-    const active = loaded.state.activeMessageEntries;
+    const loaded = await scanSessionIndex(path);
+    const header = parseHeaderRecord(path, loaded.header);
     return {
-        sessionId: loaded.header.id,
-        turnOpen: loaded.state.agentFailure === undefined
-            && loaded.state.openTurnStartId !== undefined
-            && turnOpenAtTail(active, loaded.state.harnessMessageEntries),
-        needsQueueRecovery: loaded.state.agentFailure === undefined
-            && loaded.state.queuedPrompts.size > 0,
+        sessionId: header.id,
+        turnOpen: loaded.turnOpen,
+        needsQueueRecovery: loaded.agentFailure === undefined && loaded.queuedPromptRecords.length > 0,
     };
 }
 
@@ -2126,13 +2922,50 @@ function projectHarnessMessages(
     });
 }
 
+interface KnownMessageIds {
+    has(id: string): boolean;
+    add(id: string): void;
+    copy(): KnownMessageIds;
+}
+
+class IndexedMessageIds implements KnownMessageIds {
+    constructor(private readonly index: SessionRecordIndex) {}
+    has(id: string): boolean { return this.index.messageRecord(id) !== undefined; }
+    add(_id: string): void {}
+    copy(): KnownMessageIds { return new IndexedMessageIds(this.index); }
+}
+
+class ReplicaMessageIds implements KnownMessageIds {
+    private readonly ids: Set<string>;
+    constructor(ids: Iterable<string> = []) { this.ids = new Set(ids); }
+    has(id: string): boolean { return this.ids.has(id); }
+    add(id: string): void { this.ids.add(id); }
+    copy(): KnownMessageIds { return new ReplicaMessageIds(this.ids); }
+}
+
 export interface SessionProjectionState {
-    readonly messageEntries: SessionMessageEntry[];
+    replyUsage: SessionUsageAccumulator;
+    indexedLive: boolean;
+    indexedUsage: SessionModelUsage | undefined;
+    canonicalMeasurements: boolean;
+    currentCompactionNumber: number | undefined;
+    loadedCompactionId: string | undefined;
+    readonly historyTail: SessionMessageEntry[];
+    historyTailBytes: number;
+    harnessTailBytes: number;
+    readonly harnessTailLengths: number[];
+    readonly harnessTailOrdinals: number[];
+    harnessTotal: number;
     // Message appends and rewinds update these indexes, including replica and repair appends.
     // Compaction and harness records do not change the active branch.
     readonly activeMessageEntries: SessionMessageEntry[];
     readonly activeMessagePositions: Map<string, number>;
     readonly activeDeliveryIds: Set<string>;
+    firstUser: { readonly id: string; readonly title?: string } | undefined;
+    latestMessageTimestamp: string | undefined;
+    latestMeasuredAssistantTimestamp: string | undefined;
+    turnCount: number;
+    carriedTurnText: SessionTurnText | undefined;
     readonly queuedPrompts: Map<string, SessionQueuedPromptEntry>;
     readonly knownQueuedPromptIds: Set<string>;
     unsentPrompts: readonly UnsentPrompt[];
@@ -2161,7 +2994,7 @@ export interface SessionProjectionState {
     /** Full components of the last retained entry, used to extend its delta chain. */
     contextMeasurementLastComponents:
         readonly ContextProjectionComponent[] | undefined;
-    readonly knownMessageIds: Set<string>;
+    knownMessageIds: KnownMessageIds;
     readonly knownDeliveryIds: Set<string>;
     readonly knownAttachmentIds: Set<string>;
     agentFailure: SessionAgentFailureEntry | undefined;
@@ -2169,12 +3002,28 @@ export interface SessionProjectionState {
     openTurnStartId: string | undefined;
 }
 
-export function createSessionProjectionState(): SessionProjectionState {
+export function createSessionProjectionState(index?: SessionRecordIndex): SessionProjectionState {
     return {
-        messageEntries: [],
+        replyUsage: new SessionUsageAccumulator(),
+        indexedLive: false,
+        indexedUsage: undefined,
+        canonicalMeasurements: true,
+        currentCompactionNumber: undefined,
+        loadedCompactionId: undefined,
+        historyTail: [],
+        historyTailBytes: 0,
+        harnessTailBytes: 0,
+        harnessTailLengths: [],
+        harnessTailOrdinals: [],
+        harnessTotal: 0,
         activeMessageEntries: [],
         activeMessagePositions: new Map(),
         activeDeliveryIds: new Set(),
+        firstUser: undefined,
+        latestMessageTimestamp: undefined,
+        latestMeasuredAssistantTimestamp: undefined,
+        turnCount: 0,
+        carriedTurnText: undefined,
         queuedPrompts: new Map(),
         knownQueuedPromptIds: new Set(),
         unsentPrompts: [],
@@ -2198,7 +3047,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         contextMeasurementLastRecordCompact: false,
         contextMeasurementsSinceKeyframe: 0,
         contextMeasurementLastComponents: undefined,
-        knownMessageIds: new Set(),
+        knownMessageIds: index === undefined ? new ReplicaMessageIds() : new IndexedMessageIds(index),
         knownDeliveryIds: new Set(),
         knownAttachmentIds: new Set(),
         agentFailure: undefined,
@@ -2212,10 +3061,26 @@ function copyProjectionState(
     state: SessionProjectionState,
 ): SessionProjectionState {
     return {
-        messageEntries: [...state.messageEntries],
+        replyUsage: new SessionUsageAccumulator(state.replyUsage.result()),
+        indexedLive: state.indexedLive,
+        indexedUsage: state.indexedUsage,
+        canonicalMeasurements: state.canonicalMeasurements,
+        currentCompactionNumber: state.currentCompactionNumber,
+        loadedCompactionId: state.loadedCompactionId,
+        historyTail: [...state.historyTail],
+        historyTailBytes: state.historyTailBytes,
+        harnessTailBytes: state.harnessTailBytes,
+        harnessTailLengths: [...state.harnessTailLengths],
+        harnessTailOrdinals: [...state.harnessTailOrdinals],
+        harnessTotal: state.harnessTotal,
         activeMessageEntries: [...state.activeMessageEntries],
         activeMessagePositions: new Map(state.activeMessagePositions),
         activeDeliveryIds: new Set(state.activeDeliveryIds),
+        firstUser: state.firstUser,
+        latestMessageTimestamp: state.latestMessageTimestamp,
+        latestMeasuredAssistantTimestamp: state.latestMeasuredAssistantTimestamp,
+        turnCount: state.turnCount,
+        carriedTurnText: state.carriedTurnText,
         queuedPrompts: new Map(state.queuedPrompts),
         knownQueuedPromptIds: new Set(state.knownQueuedPromptIds),
         unsentPrompts: state.unsentPrompts,
@@ -2241,7 +3106,7 @@ function copyProjectionState(
         contextMeasurementLastRecordCompact: state.contextMeasurementLastRecordCompact,
         contextMeasurementsSinceKeyframe: state.contextMeasurementsSinceKeyframe,
         contextMeasurementLastComponents: state.contextMeasurementLastComponents,
-        knownMessageIds: new Set(state.knownMessageIds),
+        knownMessageIds: state.knownMessageIds.copy(),
         knownDeliveryIds: new Set(state.knownDeliveryIds),
         knownAttachmentIds: new Set(state.knownAttachmentIds),
         agentFailure: state.agentFailure,
@@ -2252,21 +3117,116 @@ function copyProjectionState(
 
 function appendActiveMessage(state: SessionProjectionState, entry: SessionMessageEntry): void {
     const stored = { ...entry };
-    state.messageEntries.push(stored);
+    if (stored.message.role === "assistant" && stored.message.source.api !== "none") state.replyUsage.add(stored.message);
     state.knownMessageIds.add(stored.id);
     state.activeMessagePositions.set(stored.id, state.activeMessageEntries.length);
     state.activeMessageEntries.push(stored);
+    if (state.firstUser === undefined && stored.message.role === "user" && stored.message.internal !== true) {
+        const title = firstUserTitle(stored.message);
+        state.firstUser = { id: stored.id, ...(title === undefined ? {} : { title }) };
+    }
+    state.latestMessageTimestamp = stored.timestamp;
+    if (stored.message.role === "assistant" && stored.message.usage.inputTokens > 0
+        && (state.latestMeasuredAssistantTimestamp === undefined || stored.timestamp > state.latestMeasuredAssistantTimestamp)) {
+        state.latestMeasuredAssistantTimestamp = stored.timestamp;
+    }
+    if (startsSessionTurn(stored.message)) state.turnCount += 1;
+    if (startsTurnEntry(stored)) state.carriedTurnText = undefined;
     if (stored.deliveryId !== undefined) state.activeDeliveryIds.add(stored.deliveryId);
     state.leafId = stored.id;
+}
+
+function firstUserTitle(message: Extract<ModelMessage, { role: "user" }>): string | undefined {
+    let title = "";
+    let pendingSpace = false;
+    let seenText = false;
+    for (const part of message.content) {
+        if (part.type !== "text") continue;
+        if (seenText && title.length > 0) pendingSpace = true;
+        seenText = true;
+        for (let index = 0; index < part.text.length; index += 1) {
+            const character = part.text[index]!;
+            if (/\s/.test(character)) {
+                if (title.length > 0) pendingSpace = true;
+                continue;
+            }
+            if (pendingSpace && title.length < 80) title += " ";
+            pendingSpace = false;
+            if (title.length < 80) title += character;
+            if (title.length === 80) return title;
+        }
+    }
+    return title.length === 0 ? undefined : title;
 }
 
 function rewindActiveBranch(state: SessionProjectionState, headId: string | null): void {
     while (state.activeMessageEntries.length > 0 && state.activeMessageEntries.at(-1)?.id !== headId) {
         const removed = state.activeMessageEntries.pop()!;
+        if (state.firstUser?.id === removed.id) state.firstUser = undefined;
+        if (startsSessionTurn(removed.message)) state.turnCount -= 1;
         state.activeMessagePositions.delete(removed.id);
         if (removed.deliveryId !== undefined) state.activeDeliveryIds.delete(removed.deliveryId);
     }
+    state.latestMessageTimestamp = state.activeMessageEntries.at(-1)?.timestamp;
+    state.latestMeasuredAssistantTimestamp = undefined;
+    for (const entry of state.activeMessageEntries) {
+        if (entry.message.role === "assistant" && entry.message.usage.inputTokens > 0
+            && (state.latestMeasuredAssistantTimestamp === undefined || entry.timestamp > state.latestMeasuredAssistantTimestamp)) {
+            state.latestMeasuredAssistantTimestamp = entry.timestamp;
+        }
+    }
     state.leafId = headId;
+}
+
+export function startsSessionTurn(message: ModelMessage): boolean {
+    return message.role === "user"
+        && message.internal !== true
+        && message.contextSource === undefined
+        && message.arrivedDuringTurn !== true;
+}
+
+function startsTurnEntry(entry: SessionMessageEntry): boolean {
+    return startsSessionTurn(entry.message) || entry.deliveryId !== undefined;
+}
+
+export function sessionTurnTextPart(message: ModelMessage): { readonly role: "user" | "assistant"; readonly text: string } | undefined {
+    if ((message.role !== "user" && message.role !== "assistant") || message.internal === true
+        || (message.role === "user" && message.contextSource !== undefined)) return undefined;
+    const text = message.content.map((part) => part.type === "text" ? part.text : "").join("").trim();
+    return text.length === 0 ? undefined : { role: message.role, text };
+}
+
+function carryDroppedTurnText(
+    previous: SessionTurnText | undefined,
+    entries: readonly SessionMessageEntry[],
+    boundary: number,
+): SessionTurnText | undefined {
+    const lastStart = entries.findLastIndex(startsTurnEntry);
+    if (lastStart > boundary) return undefined;
+    if (lastStart < 0 && previous === undefined) return undefined;
+    const prompt = lastStart < 0 ? [...previous!.prompt] : [];
+    const reply = lastStart < 0 ? [...previous!.reply] : [];
+    for (let position = Math.max(0, lastStart); position <= boundary; position += 1) {
+        const part = sessionTurnTextPart(entries[position]!.message);
+        if (part !== undefined) (part.role === "user" ? prompt : reply).push(part.text);
+    }
+    return { prompt, reply };
+}
+
+function removeRestoredTurnText(
+    previous: SessionTurnText | undefined,
+    entries: readonly SessionMessageEntry[],
+): SessionTurnText | undefined {
+    if (previous === undefined || entries.some(startsTurnEntry)) return undefined;
+    const prompt = [...previous.prompt];
+    const reply = [...previous.reply];
+    for (const entry of entries.toReversed()) {
+        const part = sessionTurnTextPart(entry.message);
+        if (part === undefined) continue;
+        const parts = part.role === "user" ? prompt : reply;
+        if (parts.pop() !== part.text) throw new Error("Restored turn text does not match the carried text");
+    }
+    return { prompt, reply };
 }
 
 function addAttachmentEntry(state: SessionProjectionState, entry: SessionAttachmentEntry): void {
@@ -2281,6 +3241,7 @@ export function ingestSessionRecord(
     lineNumber: number,
     value: Record<string, unknown>,
     state: SessionProjectionState,
+    alreadyIndexed = false,
 ): void {
     const {
         deliveryEntries,
@@ -2329,7 +3290,7 @@ export function ingestSessionRecord(
                 );
             }
         }
-        if (knownMessageIds.has(entry.id)) {
+        if (!alreadyIndexed && knownMessageIds.has(entry.id)) {
             throw invalidSession(
                 path,
                 `line ${lineNumber} repeats entry ID ${entry.id}`,
@@ -2451,22 +3412,19 @@ export function ingestSessionRecord(
         return;
     }
     if (value.type === "model_settings") {
-        modelSettingsEntries.push(
-            parseModelSettingsEntry(path, lineNumber, value),
-        );
+        const entry = parseModelSettingsEntry(path, lineNumber, value);
+        modelSettingsEntries.splice(0, modelSettingsEntries.length, entry);
         return;
     }
     // agent_wear is the name this record had before the select rename.
     if (value.type === "agent_select" || value.type === "agent_wear") {
-        selectedAgentEntries.push(
-            parseSelectedAgentEntry(path, lineNumber, value),
-        );
+        const entry = parseSelectedAgentEntry(path, lineNumber, value);
+        selectedAgentEntries.splice(0, selectedAgentEntries.length, entry);
         return;
     }
     if (value.type === "permissions") {
-        permissionsEntries.push(
-            parsePermissionsEntry(path, lineNumber, value),
-        );
+        const entry = parsePermissionsEntry(path, lineNumber, value);
+        permissionsEntries.splice(0, permissionsEntries.length, entry);
         return;
     }
     if (value.type === "harness_message") {
@@ -2483,9 +3441,8 @@ export function ingestSessionRecord(
         return;
     }
     if (value.type === "session_name") {
-        nameEntries.push(
-            parseSessionNameEntry(path, lineNumber, value),
-        );
+        const entry = parseSessionNameEntry(path, lineNumber, value);
+        nameEntries.splice(0, nameEntries.length, entry);
         return;
     }
     if (value.type === "session_identity") {
@@ -2594,15 +3551,157 @@ export function ingestSessionRecord(
     );
 }
 
-async function scanSessionFile(path: string, repair: boolean): Promise<ParsedSessionFile> {
+async function scanIndexedSessionFile(
+    path: string,
+    repair: boolean,
+    source?: FileHandle,
+    carried?: { readonly value: SessionTurnText | undefined },
+): Promise<ParsedSessionFile> {
+    const file = source ?? await open(path, "r");
+    try {
+        const live = await readIndexedLiveContext(path, file, repair);
+        const state = createSessionProjectionState(live.index);
+        state.indexedLive = true;
+        state.replyUsage = new SessionUsageAccumulator(live.replyUsage);
+        state.indexedUsage = live.usage;
+        state.canonicalMeasurements = live.canonicalMeasurements;
+        state.contextMeasurementBase = live.measurementRecipeState.base;
+        state.contextMeasurementLastRecordCompact = live.measurementRecipeState.lastRecordCompact;
+        state.contextMeasurementsSinceKeyframe = live.measurementRecipeState.sinceKeyframe;
+        state.leafId = live.headId;
+        state.firstUser = live.firstUser;
+        state.latestMessageTimestamp = live.latestMessageTimestamp;
+        state.latestMeasuredAssistantTimestamp = live.latestMeasuredAssistantTimestamp;
+        state.turnCount = live.turnCount;
+        state.carriedTurnText = carried === undefined
+            ? await readCarriedTurnText(path, file, live.index,
+                live.compactionNumber === undefined ? undefined : live.index.compactionBoundary(live.compactionNumber), live.entries)
+            : carried.value;
+        state.openTurnStartId = live.openTurnStartId;
+        state.unsentPrompts = live.unsentPrompts;
+        state.activeMessageEntries.push(...live.entries);
+        for (const id of live.activeDeliveryIds) state.activeDeliveryIds.add(id);
+        for (const [position, entry] of live.entries.entries()) {
+            state.activeMessagePositions.set(entry.id, position);
+            if (entry.deliveryId !== undefined) state.activeDeliveryIds.add(entry.deliveryId);
+        }
+        state.historyTail.push(...live.tail);
+        for (const entry of live.tail) {
+            state.historyTailBytes += live.index.location(live.index.messageRecord(entry.id)!)!.length;
+        }
+        for (const prompt of live.queuedPrompts) state.queuedPrompts.set(prompt.id, prompt);
+        if (live.name !== undefined) state.nameEntries.push(live.name);
+        if (live.settings !== undefined) state.modelSettingsEntries.push(live.settings);
+        if (live.permissions !== undefined) state.permissionsEntries.push(live.permissions);
+        if (live.identity !== undefined) state.identityEntries.push(live.identity);
+        if (live.selectedAgent !== undefined) state.selectedAgentEntries.push(live.selectedAgent);
+        if (live.compaction !== undefined) {
+            state.compactionEntries.push(live.compaction);
+            state.loadedCompactionId = live.compaction.id;
+            state.currentCompactionNumber = live.compactionNumber;
+        }
+        if (live.measurement !== undefined) {
+            const number = live.index.latestMeasurement(live.headId)!;
+            const location = live.index.location(number)!;
+            const value = parseJsonObject(path, number + 1, await readSessionLine(path, location.offset, location.length, file));
+            if (typeof value.timestamp !== "string" || (value.afterMessageId !== null && typeof value.afterMessageId !== "string")) {
+                throw invalidSession(path, `line ${number + 1} is not a valid context measurement entry`);
+            }
+            state.contextMeasurementEntries.push({ type: "context_measurement", timestamp: value.timestamp,
+                afterMessageId: value.afterMessageId, measurement: live.measurement });
+            state.contextMeasurementLastComponents = live.measurement.projection?.components;
+        }
+        const read = async (number: number): Promise<Record<string, unknown>> => {
+            const location = live.index.location(number)!;
+            return parseJsonObject(path, number + 1, await readSessionLine(path, location.offset, location.length, file));
+        };
+        const plain = new Set(["message", "turn_start", "rewind", "compaction", "context_measurement", "session_ask",
+            "session_name", "model_settings", "permissions", "session_identity", "agent_select", "agent_wear", "agent_failure"]);
+        const liveMessageNumbers = new Set(live.entries.map((entry) => live.index.messageRecord(entry.id)!));
+        const unanchoredTail = new Set<number>();
+        let harnessTailBudget = INDEXED_HARNESS_TAIL_BYTES;
+        for (let number = live.index.length - 1; number > 0; number -= 1) {
+            if (live.index.kind(number) !== "harness_message") continue;
+            const anchor = live.index.harnessAnchor(number);
+            if (anchor !== undefined && liveMessageNumbers.has(anchor)) continue;
+            const length = live.index.location(number)!.length;
+            if (length > harnessTailBudget) harnessTailBudget = 0;
+            else {
+                unanchoredTail.add(number);
+                harnessTailBudget -= length;
+            }
+        }
+        for (let number = 1; number < live.index.length; number += 1) {
+            const kind = live.index.kind(number);
+            if (kind !== undefined && plain.has(kind)) continue;
+            const harnessOrdinal = kind === "harness_message" ? state.harnessTotal++ : undefined;
+            const harnessAnchor = kind === "harness_message" ? live.index.harnessAnchor(number) : undefined;
+            const liveHarness = harnessAnchor !== undefined && liveMessageNumbers.has(harnessAnchor);
+            if (kind === "harness_message" && !liveHarness && !unanchoredTail.has(number)) continue;
+            const value = await read(number);
+            if (kind === "queued_prompt") {
+                if (typeof value.id !== "string" || value.id.length === 0) throw invalidSession(path, `line ${number + 1} is not a valid queued prompt`);
+                state.knownQueuedPromptIds.add(value.id);
+            } else if (kind === "queued_prompt_removed") {
+                continue;
+            } else if (kind === "harness_message") {
+                state.harnessMessageEntries.push(parseHarnessMessageEntry(path, number + 1, value));
+                const length = live.index.location(number)!.length;
+                if (!liveHarness) state.harnessTailBytes += length;
+                state.harnessTailLengths.push(length);
+                state.harnessTailOrdinals.push(harnessOrdinal!);
+            } else if (kind === "delivery") {
+                const entry = parseDeliveryEntry(path, number + 1, value);
+                state.deliveryEntries.push(entry);
+                state.knownDeliveryIds.add(entry.id);
+            } else if (kind === "delivery_receipt") {
+                const entry = parseDeliveryReceipt(path, number + 1, value);
+                if (!state.knownDeliveryIds.has(entry.deliveryId)) {
+                    throw invalidSession(path, `line ${number + 1} references missing delivery ${entry.deliveryId}`);
+                }
+                if (state.deliveryReceipts.has(entry.deliveryId)) {
+                    throw invalidSession(path, `line ${number + 1} repeats delivery receipt ${entry.deliveryId}`);
+                }
+                state.deliveryReceipts.add(entry.deliveryId);
+                const associated = live.index.associatedMessage(number);
+                if (associated !== undefined && live.index.isLegacyDeliveryMessage(associated)) {
+                    state.legacyDeliveryMessageIds.set(entry.deliveryId, live.index.messageId(associated)!);
+                }
+            } else if (kind === "attachment") {
+                const entry = parseAttachmentEntry(path, number + 1, value);
+                const existing = state.attachmentsById.get(entry.attachment.id);
+                if (existing === undefined) addAttachmentEntry(state, entry);
+                else if (!sameAttachmentContent(existing.attachment, entry.attachment)) {
+                    throw invalidSession(path, `line ${number + 1} repeats attachment ID ${entry.attachment.id}`);
+                }
+            } else if (kind === "permission_grants") {
+                state.permissionGrantEntries.push(parsePermissionGrantsEntry(path, number + 1, value));
+            } else if (kind === "permission_grant_revocation") {
+                state.permissionGrantRevocationEntries.push(parsePermissionGrantRevocationEntry(path, number + 1, value));
+            } else if (kind === "command_prefix") {
+                parseLegacyCommandPrefixEntry(path, number + 1, value);
+            } else if (kind === "checkpoint") {
+                parseRemovedFileCheckpointEntry(path, number + 1, value);
+            } else {
+                throw invalidSession(path, `line ${number + 1} is not a valid session entry`);
+            }
+        }
+        state.agentFailure = live.agentFailure;
+        return { header: live.header, state, index: live.index, lineCount: live.lineCount };
+    } finally {
+        if (source === undefined) await file.close();
+    }
+}
+
+async function scanSessionFile(path: string, repair: boolean, source?: FileHandle): Promise<ParsedSessionFile> {
     let header: SessionHeader | undefined;
-    const state = createSessionProjectionState();
     const index = new SessionRecordIndex();
+    const state = createSessionProjectionState(index);
     const deferred: DeferredContextMeasurement[] = [];
     let failureLine: number | undefined;
     let scanError: unknown;
     let lineCount = 0;
-    const file = await open(path, "r");
+    const file = source ?? await open(path, "r");
     try {
         const sizes = await scanSessionLines(path, (scanned) => {
             const { offset, length, bytes } = scanned;
@@ -2614,14 +3713,13 @@ async function scanSessionFile(path: string, repair: boolean): Promise<ParsedSes
                     index.append(offset, length, header as unknown as Record<string, unknown>);
                     return;
                 }
-                if (bytes.subarray(0, CONTEXT_MEASUREMENT_LINE_PREFIX.length).equals(CONTEXT_MEASUREMENT_LINE_PREFIX)) {
-                    const afterMessageId = measuredAfterMessageId(bytes);
-                    if (afterMessageId !== undefined) {
-                        deferred.push({ lineNumber: lineCount, afterMessageId, offset, length,
-                            compact: bytes.includes(CONTEXT_RECIPE_KEY) });
-                        index.append(offset, length, { type: "context_measurement" });
-                        return;
-                    }
+                const measurementHeader = contextMeasurementHeader(bytes);
+                if (measurementHeader !== undefined) {
+                    deferred.push({ lineNumber: lineCount, afterMessageId: measurementHeader.afterMessageId, offset, length,
+                        compact: measurementHeader.compact });
+                    index.append(offset, length, { type: "context_measurement", afterMessageId: measurementHeader.afterMessageId },
+                        measurementHeader.compact);
+                    return;
                 }
                 const value = parseJsonObject(path, lineCount, scanned.text);
                 if (value.type === "context_measurement") {
@@ -2659,7 +3757,7 @@ async function scanSessionFile(path: string, repair: boolean): Promise<ParsedSes
         await ingestDeferredContextMeasurements(path, state, deferred, file);
         return { header: header!, state, lineCount, index };
     } finally {
-        await file.close();
+        if (source === undefined) await file.close();
     }
 }
 
@@ -2669,37 +3767,6 @@ interface DeferredContextMeasurement {
     readonly offset: number;
     readonly length: number;
     readonly compact: boolean;
-}
-
-const CONTEXT_MEASUREMENT_LINE_PREFIX = Buffer.from('{"type":"context_measurement"');
-const CONTEXT_RECIPE_KEY = Buffer.from('"contextRecipe":');
-const AFTER_MESSAGE_KEY = Buffer.from('"afterMessageId":');
-const MEASUREMENT_KEY = Buffer.from('"measurement":');
-
-function measuredAfterMessageId(line: Buffer): string | null | undefined {
-    if (line.at(-1) !== 125) return undefined;
-    const measurementAt = line.indexOf(MEASUREMENT_KEY, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
-    const keyAt = line.indexOf(AFTER_MESSAGE_KEY, CONTEXT_MEASUREMENT_LINE_PREFIX.length);
-    if (keyAt === -1 || (measurementAt !== -1 && keyAt > measurementAt)) return undefined;
-    const valueAt = keyAt + AFTER_MESSAGE_KEY.length;
-    if (line[valueAt] === 110 && line[valueAt + 1] === 117
-        && line[valueAt + 2] === 108 && line[valueAt + 3] === 108) return null;
-    if (line[valueAt] !== 34) return undefined;
-    let end = valueAt + 1;
-    let escaped = false;
-    for (; end < line.length; end += 1) {
-        const character = line[end]!;
-        if (escaped) escaped = false;
-        else if (character === 92) escaped = true;
-        else if (character === 34) break;
-    }
-    if (end >= line.length) return undefined;
-    try {
-        const parsed: unknown = JSON.parse(line.subarray(valueAt, end + 1).toString("utf8"));
-        return typeof parsed === "string" ? parsed : undefined;
-    } catch {
-        return undefined;
-    }
 }
 
 async function ingestDeferredContextMeasurements(
@@ -3691,25 +4758,18 @@ function copyPermissionGrant(grant: PermissionGrant): PermissionGrant {
 
 function validateCompaction(
     request: AppendCompactionRequest,
-    active: readonly SessionMessageEntry[],
+    anchor: SessionCompactionAnchor | undefined,
 ): Omit<SessionCompactionEntry, "type" | "id" | "timestamp"> {
     const boundaryMessageId = nonEmpty(
         request.boundaryMessageId,
         "compaction boundary message ID",
     );
-    const boundaryIndex = active.findIndex(
-        (entry) => entry.id === boundaryMessageId,
-    );
-    if (boundaryIndex === -1) {
+    if (anchor === undefined) {
         throw new Error(
             `Compaction boundary ${boundaryMessageId} is not an active message`,
         );
     }
-    const barrierIndex = active.findIndex((entry) =>
-        entry.message.role === "user"
-        && entry.message.compactionBarrier === true
-    );
-    if (barrierIndex !== -1 && boundaryIndex >= barrierIndex) {
+    if (anchor.crossesBarrier) {
         throw new Error("Compaction cannot cross a model-context barrier");
     }
     if (request.projection.length === 0) {
@@ -3720,13 +4780,12 @@ function validateCompaction(
     }
     assertToolCallsPaired(request.projection, "Compaction projection");
     const retained = request.firstRetainedMessageId;
-    const successor = active[boundaryIndex + 1];
-    if (retained !== (successor?.id ?? null)) {
+    if (retained !== anchor.successorId) {
         throw new Error(
             "Compaction must retain the message following its boundary",
         );
     }
-    if (successor?.message.role === "tool_result") {
+    if (anchor.successorIsToolResult) {
         throw new Error(
             "Compaction retains a tool result whose call it compacted away",
         );

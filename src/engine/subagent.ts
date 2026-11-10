@@ -783,7 +783,7 @@ export async function runSubagent(
             sessionAttachmentName(store),
             undefined,
             undefined,
-            () => store.usageMessages(),
+            () => store.usageSummary(),
             () => store.deliveredMessages(),
         );
         events.subscribe(protocol);

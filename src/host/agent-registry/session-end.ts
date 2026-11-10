@@ -2,7 +2,6 @@ import type { SessionEndHookPayload, SessionEndReason } from "../../sdk/hooks.ts
 import { sessionIsSubagent, type SessionStore } from "../../store/session-store.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { RegisteredAgentEntry } from "./support.ts";
-import { startsTurn } from "./turn-finished.ts";
 
 // Call after the entry's run settles. A failed loop is a crash, not an end.
 export function announceSessionEnd(
@@ -34,15 +33,12 @@ export function sessionEndPayload(
     store: SessionStore,
     reason: SessionEndReason,
 ): SessionEndHookPayload {
-    const turns = store.activeEntries()
-        .filter((entry) => startsTurn(entry.message))
-        .length;
     return {
         type: "session_end",
         sessionId: store.header.id,
         workspace: store.header.cwd,
         reason,
-        turns,
+        turns: store.turnCount(),
         spawned: sessionIsSubagent(store.header),
     };
 }
