@@ -513,14 +513,14 @@ export function renderState(rt: TuiRuntime): void {
     renderStatus(rt);
 }
 
-function applyPendingHistoryAnchor(rt: TuiRuntime): void {
-    const anchor = rt.pendingHistoryAnchor;
+export function applyPendingHistoryAnchor(rt: TuiRuntime): void {
+    const anchor = rt.historyPaging.anchor;
     if (anchor === undefined || anchor.placed === true) return;
     const index = rt.state.entries.findIndex((entry) =>
         entry.kind !== "diff" && entry.entryId === anchor.entryId
     );
     if (index === -1) {
-        rt.pendingHistoryAnchor = undefined;
+        rt.historyPaging.anchor = undefined;
         return;
     }
     // A page load reseeds the transcript, which schedules a scroll restore.
@@ -534,7 +534,7 @@ function applyPendingHistoryAnchor(rt: TuiRuntime): void {
     const node = rt.entryNodes[index];
     if (node === undefined || !node.visible) {
         // The entry was folded after capture, so its layout top is not a position.
-        rt.pendingHistoryAnchor = undefined;
+        rt.historyPaging.anchor = undefined;
         return;
     }
     rt.transcript.scrollTo(transcriptNodeTop(rt, node) - anchor.offset);

@@ -1,28 +1,27 @@
-import { createTuiWorkedDivider, tuiWorkedDividerView, updateTuiWorkedDivider } from "../worked-divider.ts";
+import { noteSidebarHistoryUpdate, renderSidebarTranscript } from "./sidebar-transcript.ts";
+import { createTuiWorkedDivider, tuiWorkedDividerView } from "../worked-divider.ts";
 import { isConfigurationRequiredUiRequestUpdate, type AgentUpdate } from "../../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { resolveTuiHostedAgentAddressing, type TuiHostedAgentAddressing } from "../agent-message-routing.ts";
 import type { TuiAgentPane } from "../agent-pane.ts";
-import { createTuiDiff, repaintTuiDiff } from "../diff.ts";
+import { createTuiDiff } from "../diff.ts";
 import { adoptReportedPermission } from "../dials.ts";
-import { createTuiGutterEntry, repaintTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
-import { assistantFollowsTools, defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
+import { createTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
+import { defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
 import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
 import { isSearchLanding } from "../main/chrome.ts";
-import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
+import { createTuiMarkdownEntry } from "../markdown-entry.ts";
 import { installTuiTextLinkHandler, openTuiLink } from "../markdown-links.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
-import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryIsErrorRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryIsErrorRow, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
-import { createTuiNoticeCard, repaintTuiNoticeCard, updateTuiNoticeCard } from "../notice-card.ts";
-import { createTuiErrorRow, repaintTuiErrorRow, tuiErrorRowText, updateTuiErrorRow } from "../error-row.ts";
-import { createTuiReasoningBlock, updateTuiReasoningBlock } from "../reasoning-block.ts";
-import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-window.ts";
-import { createTuiToolHeader, createTuiToolRow, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
-import { tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams } from "../transcript-window.ts";
-import { createTuiUserEntry, repaintTuiUserEntry } from "../user-entry.ts";
-import { setTextContent } from "../text-content.ts";
+import { createTuiNoticeCard } from "../notice-card.ts";
+import { createTuiErrorRow, tuiErrorRowText } from "../error-row.ts";
+import { createTuiReasoningBlock } from "../reasoning-block.ts";
+import { createTuiThinkingWindow } from "../thinking-window.ts";
+import { createTuiToolHeader, createTuiToolRow } from "../tool-row.ts";
+import { createTuiUserEntry } from "../user-entry.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { BoxRenderable, MarkdownRenderable, TextRenderable, type Renderable } from "@opentui/core";
 
@@ -47,6 +46,7 @@ export function sidebarTranscriptWidth(rt: TuiRuntime): number {
 }
 
 export function mainTranscriptWidth(rt: TuiRuntime): number {
+    if (rt.transcript === rt.sidebar.content) return sidebarTranscriptWidth(rt);
     return Math.max(
         1,
         rt.renderer.terminalWidth
@@ -191,115 +191,9 @@ export function renderSidebarAgent(rt: TuiRuntime,
     requestPaint = true,
     repaintTheme = false,
 ): void {
-    if (pane !== rt.hostedSidebar.pane) return;
-    const entries = pane.state.state.entries;
-    const changedKindAt = entries.findIndex((entry, index) =>
-        rt.sidebarEntryNodes[index] !== undefined
-        && rt.sidebarEntryNodeKinds[index] !== entry.kind
-    );
-    const retained = changedKindAt === -1
-        ? Math.min(entries.length, rt.sidebarEntryNodes.length)
-        : changedKindAt;
-    const discarded = rt.sidebarEntryNodes.splice(retained);
-    rt.sidebarEntryNodeKinds.splice(retained);
-
-    entries.forEach((entry, index) => {
-        const wrapper = rt.sidebarEntryNodes[index];
-        if (wrapper !== undefined) {
-            wrapper.visible = tuiTranscriptEntryIsVisible(entry);
-            if (repaintTheme) {
-                repaintTuiGutterEntry(wrapper, {
-                    separatorColor: rt.appearance.transcriptSeparatorColor
-                        ?? rt.theme.element,
-                });
-            }
-            const existing = tuiGutterContent(wrapper);
-            if (existing instanceof MarkdownRenderable) {
-                if (repaintTheme) {
-                    existing.syntaxStyle = rt.markdownStyle;
-                    existing.fg = entry.kind === "assistant"
-                        || entry.kind === "notification"
-                        ? TUI_MUTED
-                        : TUI_TEXT;
-                }
-                if (existing.content !== tuiMarkdownEntryContent(entry)) {
-                    existing.content = tuiMarkdownEntryContent(entry);
-                }
-            } else if (
-                entry.kind === "user"
-                && existing instanceof BoxRenderable
-            ) {
-                if (repaintTheme) repaintTuiUserEntry(existing);
-            } else if (
-                entry.kind === "notice" && entry.card === true
-                && existing instanceof BoxRenderable
-            ) {
-                if (repaintTheme) repaintTuiNoticeCard(existing);
-                updateTuiNoticeCard(existing, entry);
-            } else if (
-                tuiEntryIsErrorRow(entry)
-                && existing instanceof BoxRenderable
-            ) {
-                if (repaintTheme) repaintTuiErrorRow(existing);
-                updateTuiErrorRow(existing, entry);
-            } else if (
-                entry.kind === "diff"
-                && existing instanceof BoxRenderable
-            ) {
-                if (repaintTheme) repaintTuiDiff(existing, rt.markdownStyle);
-            } else if (
-                entry.kind === "tool"
-                && existing instanceof BoxRenderable
-            ) {
-                updateTuiToolRow(existing, entry);
-            } else if (
-                entry.kind === "tool_header"
-                && existing instanceof BoxRenderable
-            ) {
-                updateTuiToolHeader(existing, entry);
-            } else if (
-                entry.kind === "thinking"
-                && existing instanceof BoxRenderable
-            ) {
-                updateTuiThinkingWindow(existing, entry, rt.liveReasoningRows);
-            } else if (
-                entry.kind === "thought"
-                && existing instanceof BoxRenderable
-            ) {
-                updateTuiReasoningBlock(existing, entry);
-            } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
-                updateTuiWorkedDivider(existing, tuiWorkedDividerView(entry));
-            } else if (existing instanceof TextRenderable) {
-                setTextContent(existing, renderTuiEntry(entry));
-            }
-            return;
-        }
-
-        const id = `sidebar-entry-${++rt.sidebarEntryGeneration}`;
-        const node = createTuiEntryNode(rt, 
-            id,
-            entry,
-            tuiEntryMarginTop(entries, index, rt.entrySpacing),
-            assistantFollowsTools(entries, index),
-            tuiTranscriptEntryStreams(
-                entries,
-                index,
-                pane.state.state.working,
-            ),
-        );
-        node.visible = entry.kind !== "tool" || entry.hidden !== true;
-        rt.sidebarEntryNodes.push(node);
-        rt.sidebarEntryNodeKinds.push(entry.kind);
-    });
-    rt.sidebar.replaceRendered(rt.sidebarEntryNodes.map((node, index) => ({
-        node,
-        speaker: entries[index]?.kind === "user" ? "you" : "agent",
-    })));
-    for (const node of discarded) node.destroyRecursively();
+    renderSidebarTranscript(rt, pane, false, repaintTheme);
     renderSidebarJump(rt);
-    if (requestPaint) {
-        renderState(rt);
-    }
+    if (requestPaint) renderState(rt);
 }
 
 export function repaintSidebarForTheme(rt: TuiRuntime): void {
@@ -314,6 +208,7 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
     pane: TuiAgentPane<IdentifiedTuiAgentClient>,
 ): void {
     if (pane !== rt.hostedSidebar.pane) return;
+    if (update.type === "history") noteSidebarHistoryUpdate(rt, pane);
     settleQueueRecall(rt, update);
     if (
         update.type === "ui_request"

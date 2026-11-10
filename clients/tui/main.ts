@@ -329,6 +329,8 @@ import { submitPrompt } from "./main/submit-prompt.ts";
 import { leaveJsonlCommandMode, refuseJsonlCommand, availableCommandSuggestions, availableCommandCompletion, routeVisibleAgentPrompt, attachImagesToSidebar, offerMessageToExtensions, attachPastedImage, attachPastedImages, releaseDroppedImage } from "./main/prompt-routing.ts";
 import { receiveAgentUpdates } from "./main/agent-updates.ts";
 import { applyPendingHistoryScroll, hasEarlierHistory, loadEarlierHistory, maybeRequestEarlierHistory } from "./main/history-paging.ts";
+import { createHistoryPaging } from "./history-paging-state.ts";
+import { jumpSidebarToBottom } from "./main/sidebar-transcript.ts";
 import { invocationIsStale, threadHasEarlierForInvocation, threadLoadEarlierForInvocation } from "./main/extension-invocation.ts";
 import { beginExtensionReveal, cancelExtensionReveal, failExtensionReveal, finishExtensionReveal } from "./main/extension-reveal.ts";
 import { sendCommand, requestExtensionModelSettingsUpdate, settleExtensionModelSettings, rejectPendingExtensionSettingsFor, notifyExtensionSettings, requireSidebarOwner, resolvePooledModel, requestExtensionOneshot, requestExtensionPicker, loadExtensionCommands, supportsSkillCommands, requestSkillCommands, receiveSkillCatalog, receiveSkillInvocation, failPendingSkillInvocations } from "./main/extension-bridge.ts";
@@ -1135,11 +1137,7 @@ export async function startTui(
     rt.clientGeneration = 0;
     rt.conversationGeneration = 0;
     rt.pendingExtensionReveal = undefined;
-    rt.earlierHistoryRequest = undefined;
-    rt.earlierHistoryRetryAt = undefined;
-    rt.earlierHistoryNeedsScroll = false;
-    rt.earlierHistoryBlocked = false;
-    rt.pendingHistoryAnchor = undefined;
+    rt.historyPaging = createHistoryPaging();
     rt.composeSurfaceGeneration = 0;
     rt.resumeListVersion = 0;
     rt.importListVersion = 0;
@@ -1552,7 +1550,7 @@ export async function startTui(
         if (!event.modifiers.shift && (event.scroll?.direction === "up" || event.scroll?.direction === "down")) {
             rt.transcriptResizeAnchor = undefined;
             if (event.scroll.direction === "up") {
-                rt.earlierHistoryNeedsScroll = false;
+                rt.historyPaging.needsScroll = false;
                 rt.renderer.requestRender();
             }
             if (event.scroll.direction === "down") clearTranscriptAnchorPadding(rt);
@@ -1626,7 +1624,8 @@ export async function startTui(
         zIndex: 4,
         visible: false,
         onMouseDown: () => {
-            rt.sidebar.scrollToBottom();
+            jumpSidebarToBottom(rt);
+            renderSidebarJump(rt);
             renderJumpToBottom(rt);
         },
     });
@@ -2632,7 +2631,7 @@ export async function startTui(
         }
         if (
             rt.pendingSearchTarget === undefined
-            && rt.pendingHistoryAnchor === undefined
+            && rt.historyPaging.anchor === undefined
             && !maybeSnapTranscriptWindowToTail(rt)
             && !maybeMaterializeEarlierTranscriptEntries(rt)
             && !maybeMaterializeLaterTranscriptEntries(rt)

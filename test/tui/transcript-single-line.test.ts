@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { ScrollBoxRenderable, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
+import { createHistoryPaging } from "../../clients/tui/history-paging-state.ts";
 import { applyTranscriptScroll } from "../../clients/tui/main/keypress.ts";
 import { renderJumpToBottom } from "../../clients/tui/main/notices.ts";
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
@@ -19,6 +20,7 @@ test("a single upward line leaves follow until scrolling down", async () => {
         transcript,
         state: { entries: [] },
         transcriptAnchorPadding: 0,
+        historyPaging: createHistoryPaging(),
         experimentalTuiHost: { hasModal: () => false },
         sidebar: { isFocused: () => false },
         jumpToBottom: { visible: false },

@@ -3,6 +3,7 @@ import type {
     ClientCommand,
 } from "../../src/engine/protocol.ts";
 import type { TuiAgentAttachment } from "./agent-attachments.ts";
+import { resetHistoryPagingState } from "./history-paging-state.ts";
 import { TuiAgentPaneState } from "./agent-pane-state.ts";
 import { renderedExtensionNotice, type TuiNoticeRenderer } from "./extension-notice.ts";
 
@@ -89,6 +90,7 @@ export class TuiAgentPane<Client extends TuiAgentPaneClient>
 
     async detach(): Promise<void> {
         this.controller.abort();
+        resetHistoryPagingState(this.state.historyPaging, false);
         this.rejectPendingImages("Agent detached while attaching an image");
         await this.pump;
         await this.client.detach();
@@ -96,6 +98,7 @@ export class TuiAgentPane<Client extends TuiAgentPaneClient>
 
     close(): void {
         this.controller.abort();
+        resetHistoryPagingState(this.state.historyPaging, false);
         this.rejectPendingImages("Agent closed while attaching an image");
         this.client.close();
     }
