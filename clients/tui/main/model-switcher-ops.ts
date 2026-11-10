@@ -3,9 +3,15 @@ import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { isHomeClient } from "../home-client.ts";
 import { modelSwitchCommand } from "../model-switch-command.ts";
 import {
+    loadSwitcherScopePreference,
+    saveSwitcherScopePreference,
+} from "../model-switcher-preferences.ts";
+import {
     modelSwitcherKey,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
+    switcherScope,
+    toggleTuiModelSwitcherScope,
     type TuiModelSwitcherPending,
     type TuiModelSwitcherRow,
 } from "../model-switcher.ts";
@@ -85,6 +91,18 @@ function currentKey(rt: TuiRuntime): string | undefined {
     return `${settings.provider}/${settings.model}`;
 }
 
+function persistModelSwitcherScope(
+    rt: TuiRuntime,
+    scope: ReturnType<typeof switcherScope>,
+): void {
+    try {
+        saveSwitcherScopePreference(scope);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        showStatusNotice(rt, `Could not save model picker preferences: ${message}`);
+    }
+}
+
 export function openModelSwitcher(rt: TuiRuntime): void {
     rt.settingsPickerAgent = focusedAgentClient(rt);
     const current = currentKey(rt);
@@ -93,7 +111,20 @@ export function openModelSwitcher(rt: TuiRuntime): void {
         ...(current === undefined ? {} : { current }),
         ...(notice === undefined ? {} : { notice }),
         recents: switcherRecents(rt),
+        scope: loadSwitcherScopePreference(),
     });
+    rt.modelSwitcherView.onScopeChange = (scope) => {
+        persistModelSwitcherScope(rt, scope);
+    };
+    rt.modelSwitcherView.onScope = () => {
+        const state = rt.modelSwitcher;
+        if (state === undefined) return;
+        const next = toggleTuiModelSwitcherScope(state);
+        rt.modelSwitcher = next;
+        persistModelSwitcherScope(rt, switcherScope(next));
+        renderState(rt);
+        focusActiveSurface(rt);
+    };
     requestAgentSettings(rt, focusedAgentClient(rt));
     requestModelSettingsHistory(rt);
     renderState(rt);

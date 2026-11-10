@@ -25,12 +25,14 @@ available; it does not select, favorite, verify, or assign a default model.
 
 ### Choose a model
 
-Open **Switch model** with `/model`. It lists your current model, your
-favorites, and recent models; before you have favorites it lists nothing. Type
-to search every connected model, or press Ctrl+G to list them all. After you
-save a favorite, typing searches favorites and Ctrl+G searches every connected
-model. Highlight a model and press Enter. If it offers effort levels, choose
-one to start the conversation.
+Open **Switch model** with `/model`. With no favorites, it opens on All
+connected; once favorites exist, it opens on the saved scope. In Favorites, it
+lists your current model, favorites, and recent models. Click the header scope
+chip or press Ctrl+G to switch between Favorites and All connected. Search
+follows the selected scope. Highlight a model and press Enter. If it offers
+effort levels, choose one to start the conversation. A model that verifies
+successfully during initial setup becomes the default for new conversations
+when the starter model is unused and no other default has been assigned.
 
 Favorites save models for quick access. You do not need to favorite a model
 before selecting it, verifying it, or assigning it as a default. See
