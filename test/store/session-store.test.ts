@@ -3,6 +3,7 @@ import {
     appendFileSync,
     mkdtempSync,
     readFileSync,
+    renameSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
@@ -19,6 +20,7 @@ import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
 import { projectTranscript } from "../../src/engine/protocol.ts";
+import { scanSessionLines, SESSION_SCAN_CHUNK_BYTES } from "../../src/store/session-lines.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -2838,4 +2840,76 @@ test("a turn_ending continuation reopens as an internal hook message", async () 
     await store.appendMessage(nudge);
 
     expect((await SessionStore.open(path)).messages()).toEqual([nudge]);
+});
+
+test("streamed open indexes UTF-8, long lines, rewinds and later appends by byte offset", async () => {
+    const path = join(temporaryDirectory(), "stream.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "stream", cwd: "/work" });
+    const headerBytes = readFileSync(path).length;
+    const prefix = JSON.stringify({ type: "message", id: "boundary", parentId: null,
+        timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "" }] } });
+    const textStart = prefix.indexOf('"text":""') + '"text":"'.length;
+    const padding = SESSION_SCAN_CHUNK_BYTES - 1 - headerBytes - textStart;
+    const text = "a".repeat(padding) + "🦜" + "b".repeat(SESSION_SCAN_CHUNK_BYTES * 2);
+    await store.appendForeignRecord({ type: "message", id: "boundary", parentId: null,
+        timestamp: "2026-01-01T00:00:00.000Z", message: userMessage(text) });
+    const next = await store.appendMessage(userMessage("before rewind"));
+    appendFileSync(path, '{"type":"unfinished", "text":"🦜');
+    const reopened = await SessionStore.open(path);
+    expect((await reopened.readIndexedMessage("boundary"))?.message).toEqual(userMessage(text));
+    expect(await reopened.readIndexedMessage("missing")).toBeUndefined();
+    await reopened.rewindBefore(next.id);
+    const after = await reopened.appendMessage(userMessage("after 🦜"));
+    expect((await reopened.readIndexedMessage(next.id))?.message).toEqual(userMessage("before rewind"));
+    expect((await reopened.readIndexedMessage(after.id))?.message).toEqual(userMessage("after 🦜"));
+    const again = await SessionStore.open(path);
+    expect((await again.readIndexedMessage(after.id))?.message).toEqual(userMessage("after 🦜"));
+    expect(again.recordIndexStats().records).toBe(5);
+});
+
+test("streamed open preserves malformed and duplicate record errors with a partial tail", async () => {
+    const path = join(temporaryDirectory(), "bad.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "bad", cwd: "/work" });
+    const entry = await store.appendMessage(userMessage("valid"));
+    const lines = readFileSync(path, "utf8").trimEnd().split("\n");
+    appendFileSync(path, `${lines[1]}\nunfinished`);
+    await expect(SessionStore.open(path)).rejects.toThrow(`repeats entry ID ${entry.id}`);
+    expect(readFileSync(path, "utf8").endsWith("\n")).toBe(true);
+    writeFileSync(path, `${lines[0]}\n{bad}\nunfinished`);
+    await expect(SessionStore.open(path)).rejects.toThrow("line 2 is not valid JSON");
+    expect(readFileSync(path, "utf8").endsWith("\n")).toBe(true);
+});
+
+
+test("reopening an externally replaced session indexes the replacement", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const old = await SessionStore.create(path, { sessionId: "old", cwd: "/work" });
+    await old.appendMessage(userMessage("old"));
+    const replacement = await SessionStore.create(join(directory, "replacement.jsonl"), {
+        sessionId: "new", cwd: "/work",
+    });
+    const entry = await replacement.appendMessage(userMessage("new 🦜"));
+    renameSync(replacement.path, path);
+    const reopened = await SessionStore.open(path);
+    expect(reopened.header.id).toBe("new");
+    expect((await reopened.readIndexedMessage(entry.id))?.message).toEqual(userMessage("new 🦜"));
+    expect(old.messages()).toEqual([userMessage("old")]);
+});
+
+
+test("a scan keeps reading its original file if the path is replaced", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const replacement = join(directory, "replacement.jsonl");
+    const original = "x".repeat(SESSION_SCAN_CHUNK_BYTES * 2);
+    writeFileSync(path, `header\n${original}\nend\n`);
+    writeFileSync(replacement, "replacement\n");
+    const lines: string[] = [];
+    await scanSessionLines(path, (line) => {
+        lines.push(line.text);
+        if (lines.length === 1) renameSync(replacement, path);
+    });
+    expect(lines).toEqual(["header", original, "end"]);
+    expect(readFileSync(path, "utf8")).toBe("replacement\n");
 });
