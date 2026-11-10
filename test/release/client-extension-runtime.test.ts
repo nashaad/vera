@@ -45,8 +45,15 @@ test("installed client extensions share the renderer runtime across workspaces a
                 expect(stdout).toContain("diff mounted and reloaded");
             } finally { clearTimeout(timeout); child.kill(); await child.exited; }
         }
-        await bundleRelease(installed.releaseRoot, installed.releaseRoot, probe);
-        const compiled = Bun.spawn([join(installed.releaseRoot, "vera-bin"), workspace], {
+        const dispatcher = join(installed.releaseRoot, "scripts", "release-role-entry.ts");
+        mkdirSync(resolve(dispatcher, ".."), { recursive: true });
+        const dispatcherSource = readFileSync(join(sourceRoot, "scripts", "release-role-entry.ts"), "utf8");
+        writeFileSync(dispatcher, dispatcherSource.replace(
+            "    default:",
+            `    case "probe":\n        await import(${JSON.stringify(probe)});\n        break;\n    default:`,
+        ));
+        await bundleRelease(installed.releaseRoot, installed.releaseRoot, dispatcher);
+        const compiled = Bun.spawn([join(installed.releaseRoot, "vera-bin"), "--vera-role=probe", workspace], {
             cwd: sourceRoot,
             env: { ...process.env, VERA_HOME: join(scratch, "home"), NODE_PATH: join(installed.releaseRoot, "node_modules") },
             stdout: "pipe", stderr: "pipe",
