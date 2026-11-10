@@ -13,7 +13,7 @@ export function heartbeatAge(
     return Number.isFinite(timestamp) ? Math.max(0, now - timestamp) : undefined;
 }
 
-if (import.meta.main) {
+export function runWatchdogEntrypoint(): void {
     installLiveProcess("watchdog");
     process.once("SIGTERM", () => process.exit(0));
     const [pidText, heartbeatPath, logPath, instanceId] = process.argv.slice(2);
@@ -80,6 +80,10 @@ if (import.meta.main) {
             stalled = true;
         }
     }, CHECK_INTERVAL_MS);
+}
+
+if (import.meta.main) {
+    runWatchdogEntrypoint();
 }
 
 function readHeartbeatAge(path: string): number | undefined {

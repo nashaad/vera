@@ -241,7 +241,7 @@ function sleep(ms: number): Promise<void> {
     });
 }
 
-if (import.meta.main) {
+export async function runSupervisorEntrypoint(): Promise<void> {
     installLiveProcess("supervisor");
     await runSupervisor({
         input: process.stdin,
@@ -250,4 +250,8 @@ if (import.meta.main) {
         },
     });
     process.exit(0);
+}
+
+if (import.meta.main) {
+    await runSupervisorEntrypoint();
 }

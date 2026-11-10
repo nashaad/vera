@@ -146,6 +146,9 @@ export function verifyPackedRelease(
     requireRegularFile(releaseRoot, join("clients", "host", "session-worker.ts"));
     requireRegularFile(releaseRoot, join("src", "annex", "main.ts"));
     requireRegularFile(releaseRoot, join("docs", "index.md"));
+    if (readFileSync(join(releaseRoot, RELEASE_CLI_NAME), "utf8").includes("vera-bin")) {
+        requireExecutable(releaseRoot, "vera-bin");
+    }
     if (existsSync(join(releaseRoot, "bundle"))) {
         for (const entry of [
             "clients/cli/main.js", "clients/host/main.js", "clients/host/session-worker.js",

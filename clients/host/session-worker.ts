@@ -17,7 +17,7 @@ function option(name: string): string {
     return value;
 }
 
-async function main(): Promise<void> {
+async function runSessionWorker(): Promise<void> {
     forbidWorkerConfigWrites();
     forbidWorkerAuthWrites();
     forbidWorkerPoolWrites();
@@ -99,9 +99,15 @@ async function main(): Promise<void> {
     }
 }
 
-try {
-    await main();
-} catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
+export async function runSessionWorkerEntrypoint(): Promise<void> {
+    try {
+        await runSessionWorker();
+    } catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+    }
+}
+
+if (import.meta.main) {
+    await runSessionWorkerEntrypoint();
 }

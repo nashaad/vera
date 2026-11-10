@@ -75,6 +75,16 @@ test("the plist runs the host entrypoint for the daily home", () => {
     expect(launchctl.calls.at(-1)?.[0]).toBe("bootstrap");
 });
 
+test("the plist can run a release host wrapper directly", () => {
+    const plist = renderSupervisionPlist({
+        label: "dev.vera.host",
+        executable: "/release/host",
+        logDirectory: "/logs",
+        workingDirectory: "/home",
+    });
+    expect(plist).toContain("<array>\n        <string>/release/host</string>\n    </array>");
+});
+
 test("a clean exit is not restarted, a crash is", () => {
     const plist = renderSupervisionPlist({
         label: "dev.vera.host",

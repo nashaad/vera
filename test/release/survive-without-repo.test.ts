@@ -86,7 +86,7 @@ test("command -v vera is the launcher, and the release runs with the repo denied
             join(installed.releaseRoot, RELEASE_CLI_NAME),
             "utf8",
         );
-        expect(wrapper).toContain("$release/bundle/clients/cli/main.js");
+        expect(wrapper).toContain("$release/vera-bin");
         expect(wrapper).not.toContain(repoRoot);
 
         const expected = `${formatVeraVersion(readStampedRelease(installed.releaseRoot))}\n`;

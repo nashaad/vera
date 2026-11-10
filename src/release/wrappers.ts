@@ -33,29 +33,17 @@ export function releaseSourceEntries(sourceRoot: string): ReleaseWrapperSources 
 }
 
 export function writeSelfContainedWrappers(releaseRoot: string): void {
-    const bun = `"$here/${RELEASE_BUN_NAME}"`;
+    const executable = `"$here/vera-bin"`;
     writeLauncher(join(releaseRoot, RELEASE_CLI_NAME), {
-        bun: `"$release/bun"`,
-        entry: `"$release/bundle/clients/cli/main.js"`,
+        bun: `"$release/vera-bin"`,
+        entry: "--vera-role=cli",
         relocatable: true,
     });
-    writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), bun, `"$here/bundle/clients/host/main.js"`);
-    writeWrapper(
-        join(releaseRoot, RELEASE_WORKER_NAME),
-        bun,
-        `"$here/bundle/src/host/worker/entry.js"`,
-    );
-    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), bun, `"$here/bundle/clients/host/session-worker.js"`);
-    writeWrapper(
-        join(releaseRoot, RELEASE_ANNEX_NAME),
-        bun,
-        `"$here/bundle/src/annex/main.js"`,
-    );
-    writeWrapper(
-        join(releaseRoot, RELEASE_SUPERVISOR_NAME),
-        bun,
-        `"$here/bundle/src/host/worker-supervisor.js"`,
-    );
+    writeWrapper(join(releaseRoot, RELEASE_HOST_NAME), executable, "--vera-role=host");
+    writeWrapper(join(releaseRoot, RELEASE_WORKER_NAME), executable, "--vera-role=worker");
+    writeWrapper(join(releaseRoot, RELEASE_SESSION_WORKER_NAME), executable, "--vera-role=session-worker");
+    writeWrapper(join(releaseRoot, RELEASE_ANNEX_NAME), executable, "--vera-role=annex");
+    writeWrapper(join(releaseRoot, RELEASE_SUPERVISOR_NAME), executable, "--vera-role=supervisor");
 }
 
 export function writeExternalWrappers(
@@ -149,7 +137,9 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `if (exec -a vera true) 2>/dev/null; then named=1; fi\n`
             + `trap ':' INT\n`
             + `trap 'stop=1' TERM HUP\n`
+            + `base_node_path=\${NODE_PATH-}\n`
             + `while :; do\n`
+            + (target.relocatable ? `    NODE_PATH="$release/node_modules\${base_node_path:+:$base_node_path}"; export NODE_PATH\n` : "")
             + `    if [ "$named" -eq 1 ]; then\n`
             + `        ( ${RELAUNCH_LAUNCHER_ENV}=$$ exec -a vera ${target.bun} ${target.entry} "$@" )\n`
             + `    else\n`
@@ -174,6 +164,7 @@ function writeWrapper(path: string, bun: string, entry: string): void {
         `#!/bin/sh\n`
             + `set -eu\n`
             + `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`
+            + (bun.includes("vera-bin") ? `NODE_PATH="$here/node_modules\${NODE_PATH:+:$NODE_PATH}"; export NODE_PATH\n` : "")
             + `if (exec -a x true) 2>/dev/null; then\n`
             + `    exec -a ${name} ${bun} ${entry} "$@"\n`
             + `fi\n`

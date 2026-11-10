@@ -11,8 +11,9 @@ import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 
 socketTest("the development pool flag respects the single-process setting", async () => {
-    await mkdir("/private/tmp/vera-dev", { recursive: true });
-    const root = await mkdtemp("/private/tmp/vera-dev/pc-");
+    const base = process.env.VERA_TEST_TEMP_BASE ?? "/private/tmp/vera-dev";
+    await mkdir(base, { recursive: true });
+    const root = await mkdtemp(join(base, "pc-"));
     const sourceHome = join(root, "factory");
     synthesizeFactoryHome(sourceHome);
     await writeFile(join(sourceHome, "config.json"), JSON.stringify({

@@ -285,7 +285,9 @@ function activationFailureDetail(failure: ExtensionRegistryFailure): string {
 }
 
 async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
-    const module = await import(spec.module) as Record<string, unknown>;
+    const module = spec.module === "vera:worker-adapter"
+        ? await import("./adapter.ts") as Record<string, unknown>
+        : await import(spec.module) as Record<string, unknown>;
     const name = spec.export ?? "default";
     const factory = module[name];
     if (typeof factory !== "function") {
@@ -298,11 +300,15 @@ async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
     );
 }
 
-if (import.meta.main) {
+export async function runWorkerEntrypoint(): Promise<void> {
     installLiveProcess("worker");
     await runWorker(process.stdin, process.stdout);
     await new Promise<void>((resolve) => {
         process.stdout.write("", () => resolve());
     });
     process.exit(0);
+}
+
+if (import.meta.main) {
+    await runWorkerEntrypoint();
 }

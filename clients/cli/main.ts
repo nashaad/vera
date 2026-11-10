@@ -61,7 +61,8 @@ import {
     type SupervisionReport,
     superviseHost,
 } from "../../src/host/supervision.ts";
-import { residentHostEntrypoint } from "../host/launch.ts";
+import { residentHostEntrypoint, residentHostSpawnSpec } from "../host/launch.ts";
+import { isCompiledRelease } from "../../src/release/runtime-path.ts";
 import { renderCliFailure } from "./failure.ts";
 
 export { renderCliFailure } from "./failure.ts";
@@ -1686,10 +1687,16 @@ function runHostSupervision(
         : "status";
     let report: SupervisionReport;
     try {
-        report = (dependencies.superviseHost ?? ((requested) =>
-            superviseHost(requested, {
-                entrypoint: residentHostEntrypoint(),
-            })))(action);
+        report = (dependencies.superviseHost ?? ((requested) => {
+            if (isCompiledRelease()) {
+                const launch = residentHostSpawnSpec();
+                return superviseHost(requested, {
+                    executable: launch.command,
+                    ...(launch.args[0] === undefined ? {} : { entrypoint: launch.args[0] }),
+                });
+            }
+            return superviseHost(requested, { entrypoint: residentHostEntrypoint() });
+        }))(action);
     } catch (error) {
         errorOutput.write(`${renderCliFailure(error)}\n`);
         return 1;
@@ -1941,7 +1948,7 @@ export function cliRequiresMigratedHome(args: readonly string[]): boolean {
         && first !== "-v";
 }
 
-if (import.meta.main) {
+export async function runCliEntrypoint(): Promise<void> {
     const args = process.argv.slice(2);
     let layoutError: unknown;
     if (cliRequiresMigratedHome(args)) {
@@ -1957,4 +1964,8 @@ if (import.meta.main) {
     } else {
         process.exitCode = await runCliMain(args);
     }
+}
+
+if (import.meta.main) {
+    await runCliEntrypoint();
 }

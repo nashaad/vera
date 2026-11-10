@@ -30,7 +30,7 @@ export interface StubProvider {
 // Each run gets its own prefix and home under the system temp directory. The socket
 // path has to stay under the length limit, so the names are short.
 export async function createFixture(options: { readonly pool?: boolean } = {}): Promise<HandoffFixture> {
-    const root = mkdtempSync(join(tmpdir(), "vh-"));
+    const root = mkdtempSync(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vh-"));
     const prefix = join(root, "p");
     const home = join(root, "h");
     const workspace = join(root, "w");
@@ -80,8 +80,7 @@ export function cloneRelease(fromRoot: string, prefix: string, toId: string, opt
     manifest.asset_digest = digestPackedAnnex(join(to, "annex"));
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     if (options.brokenHost === true) {
-        writeFileSync(join(to, "clients", "host", "main.ts"), "process.exit(3);\n");
-        writeFileSync(join(to, "bundle", "clients", "host", "main.js"), "process.exit(3);\n");
+        writeFileSync(join(to, "host"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
     }
     readStampedRelease(to);
     return to;

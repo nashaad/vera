@@ -22,16 +22,18 @@ interface DetachedHostResult {
 socketTest(
     "the first client starts a detached host that survives and accepts attach",
     async () => {
-        const home = await mkdtemp(join(tmpdir(), "vera-detached-host-"));
+        const home = await mkdtemp(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-detached-host-"));
         const veraDirectory = join(home, "vera");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         seedTestRelease(home);
         await writeFile(join(veraDirectory, "config.json"), `${JSON.stringify({
             schema_version: 1,
-            provider: "openrouter",
-            model: "faux/test",
+            provider: "stub",
+            model: "stub-model",
             approval_mode: "auto",
+            curated_models_url: "",
+            providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:1/v1", credential: "none" } },
         })}\n`);
 
         try {
@@ -44,7 +46,6 @@ socketTest(
                     ...process.env,
                     HOME: home,
                     VERA_HOME: veraDirectory,
-                    OPENROUTER_API_KEY: "test-only-key",
                 },
                 stdout: "pipe",
                 stderr: "pipe",
@@ -87,16 +88,18 @@ socketTest(
 socketTest(
     "ten simultaneous first clients from ten directories share one host",
     async () => {
-        const home = await mkdtemp(join(tmpdir(), "vera-ten-host-"));
+        const home = await mkdtemp(join(process.env.VERA_TEST_TEMP_BASE ?? tmpdir(), "vera-ten-host-"));
         const veraDirectory = join(home, "vera");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         seedTestRelease(home);
         await writeFile(join(veraDirectory, "config.json"), `${JSON.stringify({
             schema_version: 1,
-            provider: "openrouter",
-            model: "faux/test",
+            provider: "stub",
+            model: "stub-model",
             approval_mode: "auto",
+            curated_models_url: "",
+            providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:1/v1", credential: "none" } },
         })}\n`);
         const expectedSocket = join(veraDirectory, "runtime", "host.sock");
         const projects = await Promise.all(
@@ -116,7 +119,6 @@ socketTest(
                         ...process.env,
                         HOME: home,
                         VERA_HOME: veraDirectory,
-                        OPENROUTER_API_KEY: "test-only-key",
                     },
                     stdout: "pipe",
                     stderr: "pipe",

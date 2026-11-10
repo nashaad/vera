@@ -1,5 +1,7 @@
 
 import { Language, Parser, type Node as SyntaxNode } from "web-tree-sitter";
+import { join, dirname } from "node:path";
+import { isCompiledRelease } from "../release/runtime-path.ts";
 
 export type BashRedirectOperator =
     | ">"
@@ -101,9 +103,12 @@ export function isBashParserReady(): boolean {
 }
 
 async function createBashParser(): Promise<Parser> {
-    await Parser.init();
-    const packageUrl = import.meta.resolve("tree-sitter-bash/package.json");
-    const wasmUrl = new URL("./tree-sitter-bash.wasm", packageUrl);
+    await Parser.init(isCompiledRelease() ? {
+        locateFile: () => join(dirname(process.execPath), "node_modules", "web-tree-sitter", "tree-sitter.wasm"),
+    } : undefined);
+    const wasmUrl = isCompiledRelease()
+        ? join(dirname(process.execPath), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm")
+        : new URL("./tree-sitter-bash.wasm", import.meta.resolve("tree-sitter-bash/package.json"));
     const bytes = new Uint8Array(await Bun.file(wasmUrl).arrayBuffer());
     const language = await Language.load(bytes);
     const parser = new Parser();

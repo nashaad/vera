@@ -62,6 +62,10 @@ export type VeraProcessKind =
     | "test_fixture";
 
 export function classifyVeraProcess(command: string): VeraProcessKind | undefined {
+    const role = /(?:^|\s)--vera-role=(host|cli|tui|watchdog|worker|session-worker|supervisor)(?:\s|$)/.exec(command)?.[1];
+    if (role === "host" || role === "watchdog" || role === "supervisor") return role;
+    if (role === "cli" || role === "tui") return "client";
+    if (role === "worker" || role === "session-worker") return "worker";
     if (/(?:^|\s)(?:\S*\/)?(?:clients\/host\/main\.ts|bundle\/clients\/host\/main\.js)(?:\s|$)/.test(command)) {
         return "host";
     }

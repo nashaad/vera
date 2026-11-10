@@ -1,7 +1,8 @@
-import { runtimePath } from "../release/runtime-path.ts";
+import { isCompiledRelease, runtimePath } from "../release/runtime-path.ts";
 import { extensionStorage } from "./storage.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
 
 import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
@@ -2243,7 +2244,9 @@ function parseClientExtensionModule(
 async function importFreshClientExtension(
     entrypointPath: string,
 ): Promise<unknown> {
-    const tuiModule = import.meta.resolve("@opentui/core");
+    const tuiModule = isCompiledRelease()
+        ? pathToFileURL(join(dirname(process.execPath), "node_modules", "@opentui", "core", "index.js")).href
+        : import.meta.resolve("@opentui/core");
     const build = await Bun.build({
         entrypoints: [entrypointPath],
         target: "bun",

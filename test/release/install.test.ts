@@ -44,8 +44,7 @@ test("installRelease packs a runnable tree and points current at it", async () =
         expect(existsSync(join(installed.releaseRoot, RELEASE_HOST_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_WORKER_NAME))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, RELEASE_ANNEX_NAME))).toBe(true);
-        expect(existsSync(join(installed.releaseRoot, "bundle", "clients", "host", "main.js"))).toBe(true);
-        expect(existsSync(join(installed.releaseRoot, "bundle", "clients", "host", "session-worker.js"))).toBe(true);
+        expect(existsSync(join(installed.releaseRoot, "vera-bin"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "src"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "clients"))).toBe(true);
         expect(existsSync(join(installed.releaseRoot, "extensions"))).toBe(true);
@@ -69,6 +68,13 @@ test("installRelease packs a runnable tree and points current at it", async () =
         expect(version.stdout.toString()).toBe(
             `${formatVeraVersion(readStampedRelease(installed.releaseRoot))}\n`,
         );
+        const imported = Bun.spawnSync([join(installed.releaseRoot, "vera-bin"), "--vera-role=import"], {
+            cwd: tmpdir(),
+            env: { HOME: prefix, VERA_HOME: join(prefix, "home"), PATH: process.env.PATH },
+            stdout: "pipe", stderr: "pipe",
+        });
+        expect(imported.exitCode).toBe(2);
+        expect(imported.stderr.toString()).toContain("usage: session-import-child <path>");
         const definitions = join(installed.releaseRoot, "src", "providers", "definitions");
         const hidden = `${definitions}.hidden`;
         renameSync(definitions, hidden);
