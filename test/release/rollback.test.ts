@@ -34,7 +34,9 @@ import {
 import {
     RollbackUnavailableError,
     rollbackLocalInstall,
+    supportsRelaunch,
 } from "../../src/release/rollback.ts";
+import { readStampedRelease } from "../../src/release/stamp.ts";
 
 function writeDummyRelease(prefix: string, buildId: string, script = "echo dummy\n"): string {
     const root = releaseDirectory(buildId, prefix);
@@ -108,6 +110,23 @@ function installBrokenOverGood(prefix: string): void {
         prefix,
     );
 }
+
+test("relaunch support uses the stamp and recognizes the published alpha", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-capability-"));
+    try {
+        const manifest = readStampedRelease(writeDummyRelease(prefix, "vera-good"));
+        const alpha = { ...manifest, source_revision: "36bf480cef699d760b1080498e561ed199f1a116", build_id: "vera-36bf480" };
+        expect(supportsRelaunch(alpha)).toBe(true);
+        expect(supportsRelaunch({ ...alpha, build_id: "vera-36bf480+123456789abc" })).toBe(false);
+        expect(supportsRelaunch(manifest)).toBe(false);
+        expect(supportsRelaunch({ ...manifest, relaunch_record_version: 1 })).toBe(true);
+        expect(supportsRelaunch({ ...manifest, relaunch_record_version: 2 })).toBe(false);
+        expect(supportsRelaunch({ ...manifest, product_version: "0.1.0-alpha.2" })).toBe(true);
+        expect(supportsRelaunch({ ...manifest, product_version: "0.1.0-alpha.0" })).toBe(false);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
 
 test("rollbackLocalInstall restores the pinned previous release", async () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-"));
@@ -311,7 +330,7 @@ function sandboxProfile(denied: readonly string[]): string {
 
 test("vera rollback restores the previous release with the repo and network denied", async () => {
     const userHome = mkdtempSync(join(tmpdir(), "vera-rollback-home-"));
-    const prefix = join(userHome, ".local");
+    const prefix = join(userHome, "custom-prefix");
     const scratch = mkdtempSync(join(tmpdir(), "vera-rollback-scratch-"));
     try {
         activateRelease(writeDummyRelease(prefix, "vera-old"), prefix);
@@ -339,6 +358,7 @@ test("vera rollback restores the previous release with the repo and network deni
                 cwd: scratch,
                 env: {
                     HOME: userHome,
+                    VERA_HOME: join(scratch, "vera-home"),
                     PATH: pathEnv,
                 },
                 stdout: "pipe",

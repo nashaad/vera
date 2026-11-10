@@ -19,6 +19,7 @@ export interface ReleaseManifest {
     readonly source_revision: string;
     readonly build_id: string;
     readonly protocol_version: number;
+    readonly relaunch_record_version?: number;
     readonly platform: string;
     readonly arch: string;
     readonly asset_digest: string;
@@ -73,6 +74,9 @@ export function serializeReleaseManifest(manifest: ReleaseManifest): string {
         source_revision: manifest.source_revision,
         build_id: manifest.build_id,
         protocol_version: manifest.protocol_version,
+        ...(manifest.relaunch_record_version === undefined ? {} : {
+            relaunch_record_version: manifest.relaunch_record_version,
+        }),
         platform: manifest.platform,
         arch: manifest.arch,
         asset_digest: manifest.asset_digest,
@@ -113,6 +117,9 @@ export function parseReleaseManifest(text: string): ReleaseManifest {
             record.protocol_version,
             "protocol_version",
         ),
+        ...(record.relaunch_record_version === undefined ? {} : {
+            relaunch_record_version: requiredNumber(record.relaunch_record_version, "relaunch_record_version"),
+        }),
         platform: requiredString(record.platform, "platform"),
         arch: requiredString(record.arch, "arch"),
         asset_digest: assetDigest,

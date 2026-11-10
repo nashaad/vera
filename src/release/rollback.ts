@@ -7,9 +7,13 @@ import {
     rollbackReleaseBuildId,
 } from "./layout.ts";
 import type { ReleaseManifest } from "./manifest.ts";
+import { compareVersions, isReleaseVersion } from "./version.ts";
+import { defaultReadLiveHost, handOffUpdate, type HandOffOutcome } from "./handoff.ts";
+import { targetPidIsAncestor } from "../host/process-ancestry.ts";
 import { readStampedRelease } from "./stamp.ts";
 import {
     readUpgradeJournal,
+    assertPrefixMayManageHost,
     recoverInterruptedUpgrade,
     upgradeLocalInstall,
     type UpgradeLocalOptions,
@@ -38,7 +42,7 @@ export interface FinishedInterruptedSwitch {
     readonly activeBuildId: string | undefined;
 }
 
-export type RollbackOutcome = RolledBackRelease | FinishedInterruptedSwitch;
+export type RollbackOutcome = RolledBackRelease | FinishedInterruptedSwitch | HandOffOutcome;
 
 export type RollbackHostOptions = Pick<
     UpgradeLocalOptions,
@@ -64,6 +68,18 @@ export async function rollbackLocalInstall(
         };
     }
     const target = resolveRollbackTarget(prefix);
+    if (hosts.drainHost === undefined && hosts.startHost === undefined && supportsRelaunch(target.manifest)) {
+        const live = await defaultReadLiveHost();
+        if (live !== undefined && live.build_id !== target.manifest.build_id) {
+            assertPrefixMayManageHost(prefix, "rollback");
+            return handOffUpdate({
+                buildId: target.manifest.build_id,
+                insideSession: targetPidIsAncestor(live.pid) === true,
+                prefix,
+                report: (line) => process.stderr.write(`${line}\n`),
+            });
+        }
+    }
     const upgraded = await upgradeLocalInstall({
         prefix,
         operation: "rollback",
@@ -85,6 +101,17 @@ export async function rollbackLocalInstall(
         toBuildId: upgraded.manifest.build_id,
         releaseRoot: upgraded.releaseRoot,
     };
+}
+
+export function supportsRelaunch(manifest: ReleaseManifest): boolean {
+    if (manifest.relaunch_record_version !== undefined) return manifest.relaunch_record_version === 1;
+    if (!isReleaseVersion(manifest.product_version)) return false;
+    const order = compareVersions(manifest.product_version, "0.1.0-alpha.1");
+    if (order > 0) return true;
+    const revision = "36bf480cef699d760b1080498e561ed199f1a116";
+    const match = /^vera-([a-f0-9]{7,40})$/.exec(manifest.build_id);
+    return order === 0 && manifest.source_revision === revision
+        && match !== null && revision.startsWith(match[1]!);
 }
 
 function resolveRollbackTarget(prefix: string): {

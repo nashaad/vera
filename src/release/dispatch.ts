@@ -11,6 +11,7 @@ import {
     defaultInstallPrefix,
     RELEASE_CLI_NAME,
     releaseDirectory,
+    runningInstallPrefix,
 } from "./layout.ts";
 import { thisProcessBuildId } from "./stamp.ts";
 
@@ -44,7 +45,7 @@ async function resolve(
     retried: boolean,
 ): Promise<number | undefined> {
     const env = options.env ?? process.env;
-    const prefix = options.prefix ?? defaultInstallPrefix();
+    const prefix = options.prefix ?? runningInstallPrefix() ?? defaultInstallPrefix();
     const clientBuildId = options.clientBuildId ?? thisProcessBuildId();
     const inspect = options.inspectHost ?? inspectLiveHostBuild;
     const exec = options.exec ?? execRetainedClient;
