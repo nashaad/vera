@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { commandHookPhase, createCommandHook } from "../../src/extensions/command-hook.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import type {
+    ContextSizeTriggerHook,
     PreCompactHook,
     PreToolUseHook,
     PreTurnHook,
@@ -63,9 +64,11 @@ test("Claude event names need the claude protocol and map to Vera phases", () =>
     expect(commandHookPhase("SessionEnd", "claude")).toBe("session_end");
     expect(commandHookPhase("turn_ending", "claude")).toBe("turn_ending");
     expect(commandHookPhase("subagent_finished", undefined)).toBe("subagent_finished");
+    expect(commandHookPhase("context_size_trigger", undefined)).toBe("context_size_trigger");
     expect(() => commandHookPhase("Stop", undefined)).toThrow("needs the claude protocol");
     expect(() => commandHookPhase("Stop", "vera")).toThrow("needs the claude protocol");
     expect(() => commandHookPhase("subagent_finished", "claude")).toThrow("does not support subagent_finished");
+    expect(() => commandHookPhase("context_size_trigger", "claude")).toThrow("does not support context_size_trigger");
     expect(() => commandHookPhase("Notification", "claude")).toThrow("Unknown command hook phase");
 });
 
@@ -290,6 +293,28 @@ test("vera-protocol commands run on the new phases", async () => {
         type: "session_end", sessionId: "crow-1", workspace: "/nest",
         reason: "closed", turns: 0, spawned: false,
     })).rejects.toThrow("exited with status 1");
+});
+
+test("a Vera context-size-trigger command sees the camelCase payload", async () => {
+    const root = directory();
+    const hook = createCommandHook({
+        phase: "context_size_trigger",
+        argv: script(`await Bun.write(${JSON.stringify(join(root, "trigger"))}, JSON.stringify(p));`),
+    }) as ContextSizeTriggerHook;
+    const payload = {
+        type: "context_size_trigger" as const,
+        sessionId: "crow-1",
+        workspace: "/nest",
+        reason: "pressure" as const,
+        policy: { id: "trim", kind: "every_n" as const },
+        actions: ["trim" as const],
+        tokens: 132_000,
+        tokensAfter: 118_000,
+        capacity: 200_000,
+        spawned: false,
+    };
+    await hook(payload);
+    expect(JSON.parse(readFileSync(join(root, "trigger"), "utf8"))).toEqual(payload);
 });
 
 test("extensions register command hooks for every phase through hooks.command", async () => {

@@ -1,3 +1,8 @@
+import type {
+    ContextSizeAction,
+    ContextSizeTriggerReason,
+} from "../engine/context-size-triggers.ts";
+
 export type JsonPrimitive = string | number | boolean | null;
 
 export interface JsonObject {
@@ -297,6 +302,35 @@ export interface PreCompactHookPayload {
 /** Observe only. Compaction does not wait for it; the session file keeps the full history. */
 export type PreCompactHook = (
     payload: PreCompactHookPayload,
+) => void | Promise<void>;
+
+export interface ContextSizeTriggerHookPolicy {
+    readonly id: string;
+    readonly kind: "ladder" | "high_low" | "every_n";
+}
+
+export interface ContextSizeTriggerHookPayload {
+    readonly type: "context_size_trigger";
+    readonly sessionId: string;
+    readonly workspace: string;
+    /** `pressure` when a configured policy fired. */
+    readonly reason: ContextSizeTriggerReason;
+    /** The policy whose threshold fired. */
+    readonly policy?: ContextSizeTriggerHookPolicy;
+    readonly actions: readonly ContextSizeAction[];
+    /** Estimated context size when the trigger fired. */
+    readonly tokens: number;
+    /** Estimated context size when its actions finished. */
+    readonly tokensAfter: number;
+    /** The context window, when Vera knows it. */
+    readonly capacity?: number;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+}
+
+/** Observe only. Nothing waits for it, and a request already built is not rebuilt. */
+export type ContextSizeTriggerHook = (
+    payload: ContextSizeTriggerHookPayload,
 ) => void | Promise<void>;
 
 export type SessionEndReason =

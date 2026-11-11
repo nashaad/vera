@@ -13,6 +13,11 @@ import { dirname, join } from "node:path";
 
 import { workspaceKey } from "../workspace-key.ts";
 import type { ContextMeasurement } from "./context-measurement.ts";
+import type {
+    ContextSizeAction,
+    ContextSizePolicy,
+    ContextSizeTriggerReason,
+} from "./context-size-triggers.ts";
 import type { NoticeFacts } from "./notice-facts.ts";
 import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
@@ -425,6 +430,21 @@ export interface CompactionFinishedEvent {
     readonly after?: number;
 }
 
+export interface ContextSizeTriggerEvent {
+    readonly type: "context_size_trigger";
+    readonly reason: ContextSizeTriggerReason;
+    readonly policy?: {
+        readonly id: string;
+        readonly kind: ContextSizePolicy["kind"];
+    };
+    readonly actions: readonly ContextSizeAction[];
+    /** Measured when the trigger fired. */
+    readonly tokens: number;
+    /** Measured when its actions finished. */
+    readonly tokensAfter: number;
+    readonly capacity?: number;
+}
+
 export interface PromptPrefixDriftEvent {
     readonly type: "prompt_prefix_drift";
     readonly cause: PromptPrefixDrift["cause"];
@@ -607,6 +627,7 @@ export type EngineEvent =
     | ContextMeasuredEvent
     | CompactionStartedEvent
     | CompactionFinishedEvent
+    | ContextSizeTriggerEvent
     | PromptPrefixDriftEvent
     | PromptHistoryDriftEvent
     | ModelRetryScheduledEvent
@@ -700,6 +721,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     compaction_finished: "info",
     compaction_started: "info",
     context_measured: "debug",
+    context_size_trigger: "info",
     delivery_turn_started: "info",
     model_effort_coarsened: "warn",
     model_fallback_selected: "warn",

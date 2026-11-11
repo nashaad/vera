@@ -232,6 +232,7 @@ const nonBlocking = [
     ["registerTurnFinished", "turn_finished"],
     ["registerSessionUpdated", "session_updated"],
     ["registerPreCompact", "pre_compact"],
+    ["registerContextSizeTrigger", "context_size_trigger"],
     ["registerSessionEnd", "session_end"],
     ["registerSubagentFinished", "subagent_finished"],
 ] as const;
@@ -264,7 +265,7 @@ test("command hooks reject deny for a phase without a block result", async () =>
     expect(failures).toEqual([expect.stringContaining("turn_ending hook cannot deny on failure")]);
 });
 
-for (const phase of ["post_tool_use", "session_start", "turn_ending", "pre_compact", "session_end", "subagent_finished"] as const) {
+for (const phase of ["post_tool_use", "session_start", "turn_ending", "pre_compact", "context_size_trigger", "session_end", "subagent_finished"] as const) {
     test(`${phase} command accepts allow and rejects deny`, async () => {
         const allowed = await load(`vera.hooks.registerCommand({ phase: "${phase}", argv: ["/bin/true"], onFailure: "allow" });`, ["hooks.command"]);
         expect(allowed.failures).toEqual([]);

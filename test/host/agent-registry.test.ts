@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import type {
+    ContextSizeTriggerHookPayload,
     PreCompactHookPayload,
     SessionEndHookPayload,
     SessionEndReason,
@@ -52,6 +53,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelMessage,
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -60,6 +62,7 @@ import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import type { SubagentPoolPolicy } from "../../src/engine/subagent.ts";
@@ -1180,6 +1183,155 @@ test("pre-compact observers hear a started compaction with the session's facts",
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("context-size-trigger observers hear one call per changed projection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-context-size-trigger-"));
+    const spillPath = join(root, "grep.txt");
+    await writeFile(spillPath, TRIGGER_SPILL_OUTPUT, "utf8");
+    let capacity = 0;
+    const payloads: ContextSizeTriggerHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(Array.from(
+            { length: 12 },
+            (_, index) => textResponse(`turn ${index + 1}`),
+        )),
+        model: "faux/test",
+        approvalMode: "auto",
+        contextLimit: () => capacity,
+        onContextSizeTrigger: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const store = registry.agents.get("ship")!.store;
+        capacity = Math.ceil(
+            measureMessages([spilledGrep("call-1", spillPath)]) / 0.42,
+        );
+        await store.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "read the map" }],
+        });
+        await store.appendMessage(grepCall("call-1"));
+        await store.appendMessage(spilledGrep("call-1", spillPath));
+
+        const attachment = registry.find("ship")!.attach();
+        await runPrompt(attachment, "two");
+        await runPrompt(attachment, "three");
+        await runPrompt(attachment, "four");
+        expect(payloads).toHaveLength(1);
+        expect(payloads[0]).toMatchObject({
+            type: "context_size_trigger",
+            sessionId: "ship",
+            reason: "pressure",
+            policy: { id: "trim", kind: "every_n" },
+            actions: ["trim"],
+            spawned: false,
+        });
+
+        // The same projection again is not a new fact.
+        await runPrompt(attachment, "five");
+        expect(payloads).toHaveLength(1);
+
+        await store.appendMessage(grepCall("call-2"));
+        await store.appendMessage(spilledGrep("call-2", spillPath));
+        await runPrompt(attachment, "six");
+        await runPrompt(attachment, "seven");
+        expect(payloads).toHaveLength(1);
+        // The second result is old enough to age, so the projection changes.
+        await runPrompt(attachment, "eight");
+        expect(payloads).toHaveLength(2);
+        expect(payloads[1]).toMatchObject({
+            type: "context_size_trigger",
+            actions: ["trim"],
+            spawned: false,
+        });
+
+        await runPrompt(attachment, "nine");
+        expect(payloads).toHaveLength(2);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an ephemeral session never hears a context-size-trigger call", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-context-trigger-ephemeral-"));
+    const spillPath = join(root, "grep.txt");
+    await writeFile(spillPath, TRIGGER_SPILL_OUTPUT, "utf8");
+    let capacity = 0;
+    const payloads: ContextSizeTriggerHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(Array.from(
+            { length: 6 },
+            (_, index) => textResponse(`turn ${index + 1}`),
+        )),
+        model: "faux/test",
+        approvalMode: "auto",
+        contextLimit: () => capacity,
+        onContextSizeTrigger: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({ id: "aside", workspace: root, ephemeral: true });
+        const store = registry.agents.get("aside")!.store;
+        capacity = Math.ceil(
+            measureMessages([spilledGrep("call-1", spillPath)]) / 0.42,
+        );
+        await store.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "read the map" }],
+        });
+        await store.appendMessage(grepCall("call-1"));
+        await store.appendMessage(spilledGrep("call-1", spillPath));
+
+        const attachment = registry.find("aside")!.attach();
+        await runPrompt(attachment, "two");
+        await runPrompt(attachment, "three");
+        await runPrompt(attachment, "four");
+        await runPrompt(attachment, "five");
+        expect(payloads).toEqual([]);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+const TRIGGER_SPILL_OUTPUT = "src/map.ts:12:buried chest\n".repeat(4_500);
+
+function grepCall(id: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id,
+            name: "grep",
+            input: { pattern: "chest" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+}
+
+function spilledGrep(id: string, spillPath: string): ModelMessage {
+    return {
+        role: "tool_result",
+        toolCallId: id,
+        toolName: "grep",
+        content: [{ type: "text", text: TRIGGER_SPILL_OUTPUT }],
+        isError: false,
+        toolResultSource: {
+            originalBytes: Buffer.byteLength(TRIGGER_SPILL_OUTPUT, "utf8"),
+            spillPath,
+        },
+    };
+}
 
 test("session-end observers hear each way a session ends, once", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-session-end-"));

@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 
 import { signalVerifiedProcessGroup } from "../process-group.ts";
 import type {
+    ContextSizeTriggerHook,
+    ContextSizeTriggerHookPayload,
     PostToolUseHook,
     PostToolUseHookPayload,
     PostToolUseHookResult,
@@ -41,6 +43,7 @@ export type CommandHookPhase =
     | "pre_turn"
     | "turn_ending"
     | "pre_compact"
+    | "context_size_trigger"
     | "session_end"
     | "subagent_finished";
 
@@ -69,6 +72,7 @@ export type CommandHookFunction =
     | PreTurnHook
     | TurnEndingHook
     | PreCompactHook
+    | ContextSizeTriggerHook
     | SessionEndHook
     | SubagentFinishedHook;
 
@@ -79,6 +83,7 @@ const COMMAND_HOOK_PHASES: ReadonlySet<string> = new Set<CommandHookPhase>([
     "pre_turn",
     "turn_ending",
     "pre_compact",
+    "context_size_trigger",
     "session_end",
     "subagent_finished",
 ]);
@@ -210,6 +215,10 @@ function veraCommandHook(command: CommandRun, phase: CommandHookPhase): CommandH
                 veraResult(await runCommand(command, payload, CONTEXT_LIMITS)) as TurnEndingHookResult;
         case "pre_compact":
             return async (payload: PreCompactHookPayload): Promise<void> => {
+                requireSuccess(await runCommand(command, payload, PLAIN_LIMITS));
+            };
+        case "context_size_trigger":
+            return async (payload: ContextSizeTriggerHookPayload): Promise<void> => {
                 requireSuccess(await runCommand(command, payload, PLAIN_LIMITS));
             };
         case "session_end":

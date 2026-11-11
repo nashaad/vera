@@ -175,6 +175,7 @@ import {
 import type { UserMessage } from "../../model/types.ts";
 import type { OneshotMessage } from "../../engine/protocol.ts";
 import type {
+    ContextSizeTriggerHookPayload,
     PreCompactHookPayload,
     SessionEndHookPayload,
     SubagentFinishedHookPayload,
@@ -315,6 +316,7 @@ export interface AgentRegistryOptions {
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
+    readonly onContextSizeTrigger?: (payload: ContextSizeTriggerHookPayload) => void;
     readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
     // Sessions that close_subagent or a trash reaped, which have no caller to report them to the host.

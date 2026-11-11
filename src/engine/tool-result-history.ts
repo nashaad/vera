@@ -10,6 +10,7 @@ import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
 import { measureMessages } from "./context-measurement.ts";
 import {
     createContextSizeTriggerSet,
+    type ContextSizeTriggerReport,
     type ContextSizeTriggerSet,
 } from "./context-size-triggers.ts";
 import {
@@ -111,6 +112,8 @@ export interface ToolResultAgingPolicy {
     readonly budgetBytes?: number;
     /** Absent builds the built-in policy list for this window. */
     readonly triggers?: ContextSizeTriggerSet;
+    /** Called once per action that changed the messages this request carries. */
+    readonly reportTrigger?: (report: ContextSizeTriggerReport) => void;
 }
 
 export interface ToolResultHistoryEntry {
@@ -302,6 +305,30 @@ export function assembleAgedToolResults(
             cache,
         );
     }
+    const trimTrigger = policy.reportTrigger;
+    if (trim !== undefined && trimTrigger !== undefined) {
+        const changed: string[] = [];
+        for (let index = 0; index < budgeted.length; index += 1) {
+            const message = budgeted[index];
+            if (message === entries[index]?.message) continue;
+            if (message?.role !== "tool_result") continue;
+            changed.push(`${index}:${message.toolCallId}:${toolResultBytes(message)}`);
+        }
+        if (changed.length > 0) {
+            let measured: number | undefined;
+            trimTrigger({
+                trigger: trim,
+                action: "trim",
+                // Read only when the caller keeps the report.
+                get tokensAfter(): number {
+                    measured ??= measureMessages(budgeted.slice(0, historyEnd))
+                        + (policy.overheadTokens ?? 0);
+                    return measured;
+                },
+                fingerprint: changed.join(","),
+            });
+        }
+    }
     return Object.freeze(
         trimActiveSteps(entries, budgeted, calls, policy, triggers),
     );
@@ -325,9 +352,17 @@ function trimActiveSteps(
     let tokens = (policy.overheadTokens ?? 0) + measureMessages(messages.slice(0, activeStart + 1));
     let stepStart = -1;
     let trimmedThrough = -1;
+    const fired: ContextSizeTriggerReport["trigger"][] = [];
+    const stubbed: number[] = [];
+    const measurement = (tokens: number) => ({
+        tokens,
+        ...(policy.capacity === undefined ? {} : { capacity: policy.capacity }),
+    });
     const trimBefore = () => {
         if (stepStart < 0) return;
-        if (triggers.fire("stub_active_turn", { tokens }) === undefined) return;
+        const trigger = triggers.fire("stub_active_turn", measurement(tokens));
+        if (trigger === undefined) return;
+        fired.push(trigger);
         const before = tokens;
         for (let index = trimmedThrough + 1; index < stepStart; index += 1) {
             const message = messages[index];
@@ -338,9 +373,10 @@ function trimActiveSteps(
             if (toolResultBytes(stub) >= toolResultBytes(message)) continue;
             tokens -= measureMessages([message]) - measureMessages([stub]);
             messages[index] = stub;
+            stubbed.push(index);
         }
         trimmedThrough = stepStart - 1;
-        triggers.observe("stub_active_turn", { tokens }, tokens < before);
+        triggers.observe("stub_active_turn", measurement(tokens), tokens < before);
     };
     for (let index = activeStart + 1; index < messages.length; index += 1) {
         const message = messages[index];
@@ -352,6 +388,15 @@ function trimActiveSteps(
         tokens += measureMessages([message]);
     }
     trimBefore();
+    const reportTrigger = policy.reportTrigger;
+    if (reportTrigger !== undefined && fired.length > 0 && stubbed.length > 0) {
+        reportTrigger({
+            trigger: fired[0]!,
+            action: "stub_active_turn",
+            tokensAfter: tokens,
+            fingerprint: stubbed.join(","),
+        });
+    }
     return messages;
 }
 

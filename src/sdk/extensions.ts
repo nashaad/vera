@@ -8,6 +8,7 @@ import type {
     TurnEndingHook,
     SessionStartHook,
     PreCompactHook,
+    ContextSizeTriggerHook,
     SessionEndHook,
     SubagentFinishedHook,
     SessionUpdatedHook,
@@ -281,6 +282,8 @@ export interface VeraExtensionHooks {
     registerSessionUpdated(hook: SessionUpdatedHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.pre_compact`. */
     registerPreCompact(hook: PreCompactHook, options?: HookFailureOptions): VeraExtensionDisposer;
+    /** Needs `hooks.context_size_trigger`. */
+    registerContextSizeTrigger(hook: ContextSizeTriggerHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.session_end`. */
     registerSessionEnd(hook: SessionEndHook, options?: HookFailureOptions): VeraExtensionDisposer;
     /** Needs `hooks.subagent_finished`. */
@@ -302,6 +305,7 @@ export interface VeraExtensionCommandHookSpec {
         | "pre_turn"
         | "turn_ending"
         | "pre_compact"
+        | "context_size_trigger"
         | "session_end"
         | "subagent_finished"
         | "PreToolUse"

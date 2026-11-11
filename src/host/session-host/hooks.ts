@@ -17,6 +17,7 @@ import {
 import { notifyObservers, notifyTurnFinished } from "../../extensions/host-services.ts";
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type {
+    ContextSizeTriggerHook,
     PostToolUseHook,
     PreCompactHook,
     PreToolUseHook,
@@ -49,7 +50,8 @@ interface SessionHookOptions {
 
 export function createSessionHooks(options: SessionHookOptions): Pick<AgentRegistryOptions,
     "loadContextualContributions" | "createToolHooks" | "prepareModelRequest"
-    | "onTurnFinished" | "onSessionUpdated" | "onPreCompact" | "onSessionEnd"
+    | "onTurnFinished" | "onSessionUpdated" | "onPreCompact"
+    | "onContextSizeTrigger" | "onSessionEnd"
     | "onSubagentFinished"
 > {
     const { currentConfig, extensions, hostLog, home, startupFindings, sessionImportNotes } = options;
@@ -201,6 +203,12 @@ export function createSessionHooks(options: SessionHookOptions): Pick<AgentRegis
             payload,
             "pre_compact_hook_failed",
         ),
+        onContextSizeTrigger: (payload) => notifyHookObservers(
+            configuredObservers<ContextSizeTriggerHook>(currentConfig(), "context_size_trigger"),
+            extensions.contextSizeTriggerHooks(),
+            payload,
+            "context_size_trigger_hook_failed",
+        ),
         onSessionEnd: (payload) => notifyHookObservers(
             configuredObservers<SessionEndHook>(currentConfig(), "session_end"),
             extensions.sessionEndHooks(),
@@ -258,6 +266,7 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
                 break;
             // Observers are not per session; the registry's notify callbacks run them.
             case "pre_compact":
+            case "context_size_trigger":
             case "session_end":
             case "subagent_finished":
                 break;
@@ -267,7 +276,7 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
 
 function configuredObservers<Hook>(
     config: VeraConfig,
-    phase: "pre_compact" | "session_end" | "subagent_finished",
+    phase: "pre_compact" | "context_size_trigger" | "session_end" | "subagent_finished",
 ): readonly { readonly extensionId: string; readonly run: Hook }[] {
     return configuredCommands(config)
         .filter((command) => command.phase === phase)

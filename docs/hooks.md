@@ -62,6 +62,7 @@ Session start (start, resume, after compaction)
 | `pre_turn` | Before your message reaches the model. It can add context, narrow the tools, change the model, or block the message. |
 | `turn_ending` | When the model gives a final reply with no tool calls. It can send the model back for one more pass. |
 | `pre_compact` | When a compaction starts. It only observes. |
+| `context_size_trigger` | When trimming, active-turn stubbing, or automatic compaction changed the request. It only observes. |
 | `session_end` | When the host closes a session. It only observes. |
 | `subagent_finished` | When a subagent hands its result back to the session that started it. It only observes. |
 
@@ -253,14 +254,15 @@ A turn gets one continuation. Once it has been used, the hook still runs but
 `continue` is ignored. The transcript shows "map-check continued the turn",
 or the `display` line if the result has one.
 
-### Compaction, session end, and subagents
+### Compaction, context size triggers, session end, and subagents
 
-`pre_compact`, `session_end`, and `subagent_finished` only observe. Vera
-writes the same payload an extension function gets (see [Register from an
-extension](#register-from-an-extension)) and ignores stdout. Nothing waits for
-these executables: compaction goes ahead, the session closes, and the parent
-gets the subagent's result. A `session_end` hook that is still running when
-the host exits may be cut off.
+`pre_compact`, `context_size_trigger`, `session_end`, and
+`subagent_finished` only observe. Vera writes the same payload an extension
+function gets (see [Register from an extension](#register-from-an-extension))
+and ignores stdout. Nothing waits for these executables: compaction goes
+ahead, the changed request goes to the model, the session closes, and the
+parent gets the subagent's result. A `session_end` hook that is still running
+when the host exits may be cut off.
 
 ## Use the `claude` protocol
 
@@ -281,9 +283,9 @@ means the top-level event in the same row:
 | `PreCompact` or `pre_compact` | `pre_compact` | your sessions, not subagents |
 | `SessionEnd` or `session_end` | `session_end` | your sessions, not subagents |
 
-The `claude` protocol does not support `post_tool_use` or
-`subagent_finished`. A Claude event name without `"protocol": "claude"`
-prevents the config from loading.
+The `claude` protocol does not support `post_tool_use`,
+`context_size_trigger`, or `subagent_finished`. A Claude event name without
+`"protocol": "claude"` prevents the config from loading.
 
 ```json
 {
@@ -383,10 +385,12 @@ turn. An extension command hook ignores its own failure by default. A failed
 `turn_ending` hook in `config.json` lets the turn end, and later `turn_ending`
 hooks do not run for that reply. The same failure from an extension command
 hook is ignored. A failed
-`pre_compact`, `session_end`, or `subagent_finished` hook is logged to
+`pre_compact`, `context_size_trigger`, `session_end`, or
+`subagent_finished` hook is logged to
 `runtime/logs/host.jsonl` with the executable's file name, as type
-`pre_compact_hook_failed`, `session_end_hook_failed`, or
-`subagent_finished_hook_failed`. Nothing else changes.
+`pre_compact_hook_failed`, `context_size_trigger_hook_failed`,
+`session_end_hook_failed`, or `subagent_finished_hook_failed`. Nothing else
+changes.
 
 A `hooks` entry with an unknown phase or protocol, an empty `argv`, a path
 outside `hooks/`, or a `timeout_ms` that is not a positive whole number
@@ -569,6 +573,24 @@ nothing.
 ```js
 vera.hooks.registerPreCompact(async (compaction) => {
     await stowTheLog(compaction.sessionId, "before the crow folds the map");
+});
+```
+
+An extension can run a function when a context size trigger's actions finish
+with `registerContextSizeTrigger`, after declaring
+`hooks.context_size_trigger`. It fires when trimming, active-turn stubbing, or
+automatic compaction changed the request. It gets the session ID, workspace,
+`reason` (`pressure` when a policy fired), the `policy` that fired (`id` and
+`kind`), the `actions` that ran, the context size in `tokens` and
+`tokensAfter`, the context window in `capacity` when Vera knows it, and
+`spawned`, which is true when another agent started the session. It only
+observes: the request does not wait for it, and a trigger that changed
+nothing does not fire.
+
+```js
+vera.hooks.registerContextSizeTrigger((trigger) => {
+    logbook.push(`${trigger.sessionId} ${trigger.actions.join(",")} `
+        + `${trigger.tokens} -> ${trigger.tokensAfter}`);
 });
 ```
 

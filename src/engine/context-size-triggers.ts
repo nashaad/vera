@@ -46,6 +46,20 @@ export interface ContextSizeTrigger {
     readonly policy?: ContextSizePolicy;
 }
 
+/** What one fired action changed, after it finished. */
+export interface ContextSizeTriggerReport {
+    readonly trigger: ContextSizeTrigger;
+    readonly action: ContextSizeAction;
+    /** Measured when read, so a caller that drops the report pays nothing. */
+    readonly tokensAfter: number;
+    /**
+     * The changed messages, joined in order: index, tool call id and resulting
+     * bytes for trim, index for an active-turn stub. Equal strings mean two
+     * requests saw the same projection.
+     */
+    readonly fingerprint: string;
+}
+
 export interface ContextSizeTriggerSet {
     fire(
         action: ContextSizeAction,

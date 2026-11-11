@@ -14,6 +14,8 @@ import {
 } from "./compaction-scheduler.ts";
 import {
     createContextSizeTriggerSet,
+    type ContextSizeTrigger,
+    type ContextSizeTriggerReport,
 } from "./context-size-triggers.ts";
 import {
     defaultContextSizePolicies,
@@ -87,6 +89,31 @@ export function createCompactionController(
 ): CompactionController {
     const { store, model, events, readModelSettings } = options;
     const contextWatch: ContextWatch = {};
+    // The same projection on a later request reports nothing again.
+    const reportedTriggers = new Map<string, string>();
+    const reportTrigger = (report: ContextSizeTriggerReport): void => {
+        const key = `${report.action}:${report.trigger.policy?.id ?? ""}`;
+        if (reportedTriggers.get(key) === report.fingerprint) return;
+        reportedTriggers.set(key, report.fingerprint);
+        events.emit({
+            type: "context_size_trigger",
+            reason: report.trigger.reason,
+            ...(report.trigger.policy === undefined
+                ? {}
+                : {
+                    policy: {
+                        id: report.trigger.policy.id,
+                        kind: report.trigger.policy.kind,
+                    },
+                }),
+            actions: [report.action],
+            tokens: report.trigger.tokens,
+            tokensAfter: report.tokensAfter,
+            ...(report.trigger.capacity === undefined
+                ? {}
+                : { capacity: report.trigger.capacity }),
+        });
+    };
     // A failed automatic compaction must not turn every later tool boundary into another request to the same unavailable route.
     let automaticCompactionBlocked = false;
     let automaticCompactionBlockedAt: number | undefined;
@@ -222,6 +249,7 @@ export function createCompactionController(
             ?? compactionModel;
         const summarizerProvider = announced?.provider
             ?? compaction.diagnostics?.provider;
+        let firedPolicy: ContextSizeTrigger | undefined;
         if (!force && !contextWatch.refusedForSize) {
             const triggers = createContextSizeTriggerSet(
                 defaultContextSizePolicies({
@@ -244,6 +272,7 @@ export function createCompactionController(
             if (fired === undefined) {
                 return;
             }
+            firedPolicy = fired;
         }
         contextWatch.refusedForSize = false;
         events.emit({
@@ -380,11 +409,22 @@ export function createCompactionController(
                 model: compactionModel,
                 measurement: refreshedMeasurement,
             });
+            if (firedPolicy !== undefined) {
+                reportTrigger({
+                    trigger: firedPolicy,
+                    action: "compact",
+                    tokensAfter: result.after,
+                    fingerprint: `compacted:${store.latestCompaction()?.id ?? result.after}`,
+                });
+            }
         }
     };
     return {
         contextWatch,
-        modelContext: (context) => store.modelContext(agingPolicy(context)),
+        modelContext: (context) => store.modelContext({
+            ...agingPolicy(context),
+            reportTrigger,
+        }),
         historyLineage: () => {
             const compactionId = store.latestCompaction()?.id;
             return {
