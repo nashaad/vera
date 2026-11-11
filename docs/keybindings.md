@@ -16,6 +16,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | Ctrl+X, then M | Open Switch model. Release Ctrl before M. |
 | Ctrl+X, then H | Show or hide a card of the common keys. The composer keeps typing. On a short screen the card shows the keys that fit, and `/help` lists every key. |
 | Ctrl+X, then B | Show or hide the sidebar of running conversations. |
+| Ctrl+X, then D | Exit the TUI and leave this conversation running, including a turn in progress. |
 | Shift+Tab | Open the quick controls for agent and access. |
 | Ctrl+E | Open the conversation list. |
 | Ctrl+F | Search the conversation on screen. |
@@ -55,10 +56,9 @@ remapping.
 
 ### What can be remapped
 
-Supported remaps cover actions that open visible pickers and navigation
-inside them. Core controls such as interrupt, Enter, Escape, text editing,
-and scrolling remain fixed. Actions that change state without opening a
-screen cannot be remapped.
+Supported remaps cover the Ctrl+X choices, the journey and shortlist
+actions, the dial controls, and document inspection. Core controls such as
+interrupt, Enter, Escape, text editing, and scrolling remain fixed.
 
 ### Key names
 

@@ -311,6 +311,15 @@ test("ctrl+x then b toggles the running-sessions rail", () => {
     expect(tuiBindingId("composer", { name: "b" })).toBeUndefined();
 });
 
+test("ctrl+x then d detaches from the conversation", () => {
+    expect(tuiBindingId("global", { name: "x", ctrl: true }))
+        .toBe("open_model_prefix");
+    expect(tuiBindingId("model_prefix", { name: "d" }))
+        .toBe("model_prefix_detach");
+    // A plain d stays text in the composer.
+    expect(tuiBindingId("composer", { name: "d" })).toBeUndefined();
+});
+
 test("the workspace list inherits picker half-page movement", () => {
     expect(tuiBindingId("workspace", { name: "d", ctrl: true }))
         .toBe("half_page_down");

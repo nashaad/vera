@@ -319,7 +319,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "open_model_prefix", keys: ["ctrl+x"], scope: "global",
-        description: "Start a two-key shortcut: release Ctrl, then M for Switch model, H for the keys card, or B for the sidebar",
+        description: "Start a two-key shortcut: release Ctrl, then M for Switch model, H for the keys card, B for the sidebar, or D to leave it running",
         hint: "Ctrl+X models", remappable: true,
     },
     {
@@ -333,6 +333,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "model_prefix_sidebar", keys: ["b"], scope: "model_prefix",
         description: "Show or hide the running-sessions sidebar after Ctrl+X", hint: "b Sidebar", remappable: true,
+    },
+    {
+        id: "model_prefix_detach", keys: ["d"], scope: "model_prefix",
+        description: "Exit the TUI and leave this conversation running after Ctrl+X", hint: "d Detach", remappable: true,
     },
     {
         id: "open_model_picker",

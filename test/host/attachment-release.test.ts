@@ -83,6 +83,41 @@ socketTest(
 );
 
 socketTest(
+    "a kept-running last viewer leaves the agent live",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        let closes = 0;
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE],
+            findAgent: () => agent,
+            closeAgent: async () => {
+                closes += 1;
+                agent.close();
+                return { status: "closed", sessionRetained: true };
+            },
+        });
+        const viewer = await interactiveClient(socketPath, agent.id);
+        try {
+            await viewer.receive();
+            expect(await viewer.release?.("keep_running")).toEqual({
+                outcome: "detached",
+                remainingInteractiveClients: 0,
+            });
+            expect(closes).toBe(0);
+            expect(agent.closed).toBeFalse();
+        } finally {
+            viewer.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
     "simultaneous ordinary releases close exactly once",
     async () => {
         const directory = temporaryDirectory();
