@@ -1,3 +1,4 @@
+import { STREAM_RENDER_INTERVAL_MS } from "./frame-budget.ts";
 
 const COALESCED_UPDATES: ReadonlySet<string> = new Set([
     "assistant_delta",
@@ -23,8 +24,6 @@ export interface RenderCoalescer {
     flush(): void;
     stop(): void;
 }
-
-export const STREAM_RENDER_INTERVAL_MS = 33;
 
 export function createRenderCoalescer(
     options: RenderCoalescerOptions,

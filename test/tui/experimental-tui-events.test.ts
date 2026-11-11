@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { createTuiExperimentalEventBus } from "../../clients/tui/experimental-tui-events.ts";
-import { STREAM_RENDER_INTERVAL_MS } from "../../clients/tui/render-coalescer.ts";
+import { STREAM_RENDER_INTERVAL_MS } from "../../clients/tui/frame-budget.ts";
 
 test("experimental TUI events repaint after async listener settlement", async () => {
     let repaints = 0;
