@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { BootFailedError, bootResidentHost, renderBootBox, type BootCheck, type BootDependencies, type BootInspection, type HostMode } from "../../src/host/boot.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 
-const clean: BootInspection = { hostAnswers: false, lock: "absent", orphans: 0, unproven: 0, bootLoop: false };
+const clean: BootInspection = { home: "/h/.vera", hostAnswers: false, lock: "absent", orphans: 0, unproven: 0, bootLoop: false };
 
 function harness(inspection: BootInspection, starts: Array<(mode: HostMode) => HostLockRecord>, options: {
     published?: boolean;

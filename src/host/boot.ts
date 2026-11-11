@@ -11,6 +11,8 @@ export interface BootCheck {
 }
 
 export interface BootInspection {
+    // The Vera home this boot serves; always shown first.
+    readonly home: string;
     // A host answered on this home's socket.
     readonly hostAnswers: boolean;
     readonly lock: "absent" | "live" | "stale" | "damaged";
@@ -41,6 +43,10 @@ export interface BootDependencies {
     // Asked only when a live host may be running turns.
     confirm(question: string): Promise<boolean>;
     render(checks: readonly BootCheck[]): void;
+    // Called for each check as it is decided, for clients that draw their own box.
+    onCheck?(check: BootCheck): void;
+    // Run every check and show the box even when a healthy host is already running.
+    full?: boolean;
 }
 
 export class BootFailedError extends Error {
@@ -53,8 +59,8 @@ export class BootFailedError extends Error {
 // Starts the resident host. Checks the home first, repairs what it can, and falls
 // back to single process mode and then to the previous release before giving up.
 export async function bootResidentHost(deps: BootDependencies): Promise<HostLockRecord> {
-    const checks: BootCheck[] = [];
-    if (deps.hostPublished !== undefined && await deps.hostPublished().catch(() => false)) {
+    const checks = new CheckList(deps.onCheck);
+    if (deps.full !== true && deps.hostPublished !== undefined && await deps.hostPublished().catch(() => false)) {
         try {
             return await deps.start("default");
         } catch {
@@ -65,7 +71,13 @@ export async function bootResidentHost(deps: BootDependencies): Promise<HostLock
     const healthy = inspection.hostAnswers && inspection.lock === "live";
     if (healthy) {
         try {
-            return await deps.start("default");
+            const host = await deps.start("default");
+            if (deps.full === true) {
+                checks.push(...describe(inspection));
+                checks.push({ label: "Host", status: "ok", detail: `PID ${host.pid}${host.build_id === undefined ? "" : `, build ${host.build_id}`}` });
+                deps.render(checks);
+            }
+            return host;
         } catch (error) {
             checks.push({ label: "Running host", status: "failed", detail: errorText(error) });
             if (!await deps.confirm("The running Vera host is not responding properly. Stop it and start a fresh one? [Y/n] ")) {
@@ -95,7 +107,7 @@ export async function bootResidentHost(deps: BootDependencies): Promise<HostLock
         try {
             const host = await deps.start(attempt.mode);
             checks.push({ label: attempt.label, status: "ok", detail: `PID ${host.pid}${host.build_id === undefined ? "" : `, build ${host.build_id}`}` });
-            if (checks.some((check) => check.status !== "ok")) deps.render(checks);
+            if (deps.full === true || checks.some((check) => check.status !== "ok")) deps.render(checks);
             return host;
         } catch (error) {
             lastError = error;
@@ -123,8 +135,23 @@ function needsRepair(inspection: BootInspection): boolean {
         || (inspection.lock === "live" && !inspection.hostAnswers) || inspection.bootLoop;
 }
 
+class CheckList extends Array<BootCheck> {
+    constructor(private readonly onCheck?: (check: BootCheck) => void) {
+        super();
+    }
+
+    override push(...items: BootCheck[]): number {
+        for (const item of items) this.onCheck?.(item);
+        return super.push(...items);
+    }
+
+    static override get [Symbol.species](): ArrayConstructor {
+        return Array;
+    }
+}
+
 function describe(inspection: BootInspection): BootCheck[] {
-    const checks: BootCheck[] = [];
+    const checks: BootCheck[] = [{ label: "Vera home", status: "ok", detail: inspection.home }];
     checks.push(inspection.releaseProblem === undefined
         ? { label: "Release", status: "ok" }
         : { label: "Release", status: "failed", detail: inspection.releaseProblem });
@@ -182,9 +209,10 @@ export function renderBootBox(checks: readonly BootCheck[], width = 72): string 
         lines.push(...wrap(`${MARK[check.status].padEnd(8)}${check.label}${check.detail === undefined ? "" : `: ${check.detail}`}`, inner, 8));
     }
     const failed = checks.some((check) => check.status === "failed") && !checks.some((check) => check.label.startsWith("Host start") && check.status === "ok");
+    const repaired = checks.some((check) => check.status === "fixed" || check.status === "failed");
     lines.push("", failed
         ? "Vera could not start. Records were backed up under runtime/backups."
-        : "Vera repaired its startup and is continuing.");
+        : repaired ? "Vera repaired its startup and is continuing." : "Vera is running.");
     const top = `+${"-".repeat(width - 2)}+`;
     return [top, ...lines.map((line) => `| ${line.padEnd(inner)} |`), top, ""].join("\n");
 }

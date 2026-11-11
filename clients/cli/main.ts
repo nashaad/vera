@@ -1037,6 +1037,10 @@ export async function runCli(
         }
     }
 
+    if (args[0] === "boot" && args.slice(1).every((flag) => flag === "--json")) {
+        return runBoot(args.includes("--json"), output, errorOutput);
+    }
+
     if (
         args[0] === "host"
         && args[1] === "reset"
@@ -2066,4 +2070,29 @@ export async function runCliEntrypoint(): Promise<void> {
 
 if (import.meta.main) {
     await runCliEntrypoint();
+}
+
+// Runs the startup check and starts the host. A GUI runs 'vera boot --json' first and draws the box from its lines.
+async function runBoot(
+    json: boolean,
+    output: { write(text: string): unknown },
+    errorOutput: { write(text: string): unknown },
+): Promise<number> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const { renderBootBox } = await import("../../src/host/boot.ts");
+    const line = (value: Record<string, unknown>): void => { output.write(`${JSON.stringify(value)}\n`); };
+    try {
+        const host = await findOrStartResidentHost({
+            boot: json
+                ? { full: true, onCheck: (check) => line({ type: "check", ...check }), render: () => {} }
+                : { full: true, render: (checks) => { output.write(renderBootBox(checks)); } },
+        });
+        if (json) line({ type: "ready", pid: host.pid, socket_path: host.socket_path, build_id: host.build_id ?? null });
+        return 0;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (json) line({ type: "failed", message });
+        else errorOutput.write(`${message}\n`);
+        return 1;
+    }
 }

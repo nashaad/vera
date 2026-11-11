@@ -35,7 +35,7 @@ import {
 } from "../../src/release/layout.ts";
 import { activateRelease } from "../../src/release/activate.ts";
 import { releaseProblem } from "../../src/release/handoff.ts";
-import { bootResidentHost, renderBootBox, type BootInspection, type HostMode } from "../../src/host/boot.ts";
+import { bootResidentHost, renderBootBox, type BootCheck, type BootInspection, type HostMode } from "../../src/host/boot.ts";
 import { discoverResetProcesses } from "../../src/host/reset-discovery.ts";
 import { runHostReset } from "../../src/host/reset.ts";
 import { realResetSystem } from "../../src/host/reset-system.ts";
@@ -46,13 +46,21 @@ export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,
     "startHost"
->;
+> & {
+    // How the startup check reports; the default draws the box on stderr when something was not ok.
+    readonly boot?: {
+        readonly full?: boolean;
+        readonly onCheck?: (check: BootCheck) => void;
+        readonly render?: (checks: readonly BootCheck[]) => void;
+    };
+};
 
 const pooledHomes = new Set<string>();
 
 export async function findOrStartResidentHost(
-    options: FindOrStartHostOptions = {},
+    findOptions: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
+    const { boot, ...options } = findOptions;
     const home = selectedVeraHome();
     const baseLockfile = options.lockfile ?? createHostLockfile();
     let pool = pooledHomes.has(home);
@@ -102,7 +110,9 @@ export async function findOrStartResidentHost(
         },
         clearBootFailures,
         confirm: (question) => confirmOnTerminal(question),
-        render: (checks) => { process.stderr.write(renderBootBox(checks)); },
+        render: boot?.render ?? ((checks) => { process.stderr.write(renderBootBox(checks)); }),
+        ...(boot?.onCheck === undefined ? {} : { onCheck: boot.onCheck }),
+        ...(boot?.full === true ? { full: true } : {}),
     });
     remember(host);
     return host;
@@ -117,6 +127,7 @@ async function inspectHome(): Promise<BootInspection> {
     const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
     const problem = activeReleaseProblem();
     return {
+        home: discovery.home,
         hostAnswers,
         lock,
         orphans,
