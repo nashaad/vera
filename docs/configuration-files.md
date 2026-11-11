@@ -40,9 +40,8 @@ host, add this to the top level of Home config:
 }
 ```
 
-Omit `host.workers` to use the default pool, sized to one fewer than the
-available processor cores with at least one session process. A positive
-integer sets the number of session processes. Other values are configuration
+Omit `host.workers` to run conversations in one session process behind the
+host. A positive integer sets the number of session processes. Other values are configuration
 errors. The host reads this setting when it starts; choose Reconnect host from
 Ctrl+P after saving a change.
 

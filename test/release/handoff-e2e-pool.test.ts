@@ -1,7 +1,6 @@
 import { expect } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { existsSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import { join } from "node:path";
 
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
@@ -13,6 +12,7 @@ import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { socketFileIdentity } from "../../src/host/socket-file.ts";
 import { liveProcessDirectoryIn } from "../../src/live-process.ts";
+import { DEFAULT_SESSION_WORKERS } from "../../src/host/runtime.ts";
 import { installRelease } from "../../src/release/install.ts";
 import { defaultEnsureHost } from "../../src/release/upgrade.ts";
 import {
@@ -31,7 +31,7 @@ socketAndLoopbackTest("a packed pool upgrades after a turn and leaves no old pro
         await defaultEnsureHost(env.build1Root, { operation: "install", pool: true });
         const oldLock = readHostLock(env.home)!;
         const socket = join(env.home, "runtime", "host.sock");
-        const count = Math.max(1, availableParallelism() - 1);
+        const count = DEFAULT_SESSION_WORKERS;
         const records = await readRecordedWorkers(env.home);
         expect(records).toHaveLength(count);
         for (const record of records) {
