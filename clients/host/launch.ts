@@ -35,11 +35,13 @@ import {
 } from "../../src/release/layout.ts";
 import { activateRelease } from "../../src/release/activate.ts";
 import { releaseProblem } from "../../src/release/handoff.ts";
-import { bootResidentHost, renderBootBox, type BootCheck, type BootInspection, type HostMode } from "../../src/host/boot.ts";
+import { bootResidentHost, renderBootBox, type BootCheck, type BootInspection, type BootQuestion, type HostMode } from "../../src/host/boot.ts";
 import { discoverResetProcesses } from "../../src/host/reset-discovery.ts";
 import { runHostReset } from "../../src/host/reset.ts";
 import { realResetSystem } from "../../src/host/reset-system.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
+import { openFilesUnder, restoreRuntimeStash, stashRuntime } from "../../src/host/runtime-stash.ts";
+import { forceStopResidentHost, gracefulStopResidentHost } from "../../src/host/force-stop.ts";
 
 export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
@@ -52,6 +54,8 @@ export type FindOrStartHostOptions = Omit<
         readonly full?: boolean;
         readonly onCheck?: (check: BootCheck) => void;
         readonly render?: (checks: readonly BootCheck[]) => void;
+        // Answers boot questions; the default asks on the terminal.
+        readonly confirm?: (question: BootQuestion) => Promise<boolean>;
     };
 };
 
@@ -109,7 +113,13 @@ export async function findOrStartResidentHost(
             return target.buildId;
         },
         clearBootFailures,
-        confirm: (question) => confirmOnTerminal(question),
+        confirm: boot?.confirm ?? ((question) => confirmOnTerminal(`${question.text} [Y/n] `)),
+        stash: async (unknown) => stashRuntime(selectedVeraHome(), {
+            reason: "Vera could not start with this runtime folder.",
+            unknown_processes: unknown,
+        }),
+        restoreStash: async (path) => { restoreRuntimeStash(selectedVeraHome(), path); },
+        stopHost: (record) => stopStartedHost(record),
         render: boot?.render ?? ((checks) => { process.stderr.write(renderBootBox(checks)); }),
         ...(boot?.onCheck === undefined ? {} : { onCheck: boot.onCheck }),
         ...(boot?.full === true ? { full: true } : {}),
@@ -132,13 +142,17 @@ async function inspectHome(): Promise<BootInspection> {
         lock,
         orphans,
         unproven: discovery.unproven.length,
+        unknownProcesses: discovery.unproven.map((item) => {
+            const open = openFilesUnder(item.pid, discovery.home);
+            return `PID ${item.pid}: ${item.reason}${open.length === 0 ? "" : `; holds open ${open.slice(0, 5).join(", ")}${open.length > 5 ? ` and ${open.length - 5} more` : ""}`}`;
+        }),
         ...(problem === undefined ? {} : { releaseProblem: problem }),
         bootLoop: recentBootFailures(Date.now()).length >= BOOT_FAILURE_LIMIT,
     };
 }
 
 // Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
-async function recoverHome(): Promise<{ ok: boolean; lines: string[] }> {
+async function recoverHome(): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
     const lines: string[] = [];
     const code = await runHostReset({ assumeYes: true }, {
         system: realResetSystem(),
@@ -147,7 +161,8 @@ async function recoverHome(): Promise<{ ok: boolean; lines: string[] }> {
         errorOutput: (text) => { lines.push(...text.split("\n").filter((line) => line.trim().length > 0)); },
     });
     const summary = lines.filter((line) => /^(Backup|Stopped|Removed|Nothing to reset|PID|Could not)/.test(line));
-    return { ok: code === 0, lines: summary };
+    const changed = !summary.some((line) => line.startsWith("Nothing to reset"));
+    return { ok: code === 0, changed, lines: summary };
 }
 
 function activeReleaseProblem(): string | undefined {
@@ -166,6 +181,13 @@ function rollbackTarget(): { prefix: string; root: string; buildId: string } | u
     const root = releaseDirectory(buildId, prefix);
     if (releaseProblem(root, buildId) !== undefined) return undefined;
     return { prefix, root, buildId };
+}
+
+// Stops a host this boot started, so a stash can be put back under it.
+async function stopStartedHost(record: HostLockRecord): Promise<void> {
+    await gracefulStopResidentHost({});
+    if (processIsAlive(record.pid)) await forceStopResidentHost({});
+    if (processIsAlive(record.pid)) throw new Error(`Host PID ${record.pid} did not stop.`);
 }
 
 async function confirmOnTerminal(question: string): Promise<boolean> {

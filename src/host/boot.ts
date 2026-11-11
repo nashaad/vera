@@ -20,6 +20,8 @@ export interface BootInspection {
     readonly orphans: number;
     // Processes that may belong to this home but could not be proven to.
     readonly unproven: number;
+    // One line per unidentified process, with any session files it holds open.
+    readonly unknownProcesses?: readonly string[];
     // A message when the active release cannot run; undefined when it can or when no release is installed.
     readonly releaseProblem?: string;
     readonly bootLoop: boolean;
@@ -27,6 +29,8 @@ export interface BootInspection {
 
 export interface RecoveryResult {
     readonly ok: boolean;
+    // False when there was nothing to repair.
+    readonly changed?: boolean;
     readonly lines: readonly string[];
 }
 
@@ -41,12 +45,21 @@ export interface BootDependencies {
     rollback(): Promise<string | undefined>;
     clearBootFailures(): void;
     // Asked only when a live host may be running turns.
-    confirm(question: string): Promise<boolean>;
+    confirm(question: BootQuestion): Promise<boolean>;
+    // Last resort: moves the runtime folder aside and starts an empty one.
+    stash?(unknownProcesses: readonly string[]): Promise<{ readonly path: string; readonly notCarried: readonly string[] }>;
+    restoreStash?(path: string): Promise<void>;
+    stopHost?(host: HostLockRecord): Promise<void>;
     render(checks: readonly BootCheck[]): void;
     // Called for each check as it is decided, for clients that draw their own box.
     onCheck?(check: BootCheck): void;
     // Run every check and show the box even when a healthy host is already running.
     full?: boolean;
+}
+
+export interface BootQuestion {
+    readonly id: "restart_running_host" | "stash_runtime" | "keep_fresh_runtime";
+    readonly text: string;
 }
 
 export class BootFailedError extends Error {
@@ -80,7 +93,7 @@ export async function bootResidentHost(deps: BootDependencies): Promise<HostLock
             return host;
         } catch (error) {
             checks.push({ label: "Running host", status: "failed", detail: errorText(error) });
-            if (!await deps.confirm("The running Vera host is not responding properly. Stop it and start a fresh one? [Y/n] ")) {
+            if (!await deps.confirm({ id: "restart_running_host", text: "The running Vera host is not responding properly. Stop it and start a fresh one?" })) {
                 deps.render(checks);
                 throw new BootFailedError(checks, error);
             }
@@ -126,8 +139,81 @@ export async function bootResidentHost(deps: BootDependencies): Promise<HostLock
             checks.push({ label: "Host start, previous release", status: "failed", detail: errorText(error) });
         }
     }
+    const fresh = await startFromStash(deps, checks, inspection);
+    if (fresh !== undefined) return fresh;
     deps.render(checks);
     throw new BootFailedError(checks, lastError);
+}
+
+// Every other step failed. With the user's consent the runtime folder is stashed and a host
+// starts in an empty one; the user then keeps it or rolls the stash back.
+async function startFromStash(
+    deps: BootDependencies,
+    checks: BootCheck[],
+    inspection: BootInspection,
+): Promise<HostLockRecord | undefined> {
+    if (deps.stash === undefined || deps.restoreStash === undefined) return undefined;
+    const unknown = inspection.unknownProcesses ?? [];
+    const before = [
+        "Vera could not start with its current runtime folder.",
+        ...(unknown.length === 0 ? [] : ["These processes could not be identified and will be left running:", ...unknown.map((line) => `  ${line}`)]),
+        "Move the runtime folder to a stash and start fresh? The inbox, schedules and session blocks are copied over, and the stash can be put back.",
+    ].join("\n");
+    if (!await deps.confirm({ id: "stash_runtime", text: before })) {
+        checks.push({ label: "Fresh runtime", status: "warn", detail: "declined; nothing was moved" });
+        return undefined;
+    }
+    let stash: { readonly path: string; readonly notCarried: readonly string[] };
+    try {
+        stash = await deps.stash(unknown);
+    } catch (error) {
+        checks.push({ label: "Fresh runtime", status: "failed", detail: errorText(error) });
+        return undefined;
+    }
+    checks.push({
+        label: "Fresh runtime",
+        status: "fixed",
+        detail: `stashed to ${stash.path}${stash.notCarried.length === 0 ? "" : `; left in the stash: ${stash.notCarried.join(", ")}`}`,
+    });
+    for (const mode of ["default", "single"] as const) {
+        let host: HostLockRecord;
+        try {
+            host = await deps.start(mode);
+        } catch (error) {
+            checks.push({ label: `Host start on fresh runtime${mode === "single" ? ", single process" : ""}`, status: "failed", detail: errorText(error) });
+            continue;
+        }
+        checks.push({ label: `Host start on fresh runtime${mode === "single" ? ", single process" : ""}`, status: "ok", detail: `PID ${host.pid}` });
+        const keep = await deps.confirm({
+            id: "keep_fresh_runtime",
+            text: `Vera started on a fresh runtime folder (host PID ${host.pid}). Keep it? Answer no to stop this host and put the stash back.`,
+        });
+        if (keep) {
+            checks.push({ label: "Stash", status: "ok", detail: `kept at ${stash.path}` });
+            deps.render(checks);
+            return host;
+        }
+        await rollBackStash(deps, checks, stash.path, host);
+        deps.render(checks);
+        throw new BootFailedError(checks, new Error("The fresh runtime was rolled back at your request."));
+    }
+    await rollBackStash(deps, checks, stash.path, undefined);
+    return undefined;
+}
+
+async function rollBackStash(
+    deps: BootDependencies,
+    checks: BootCheck[],
+    path: string,
+    host: HostLockRecord | undefined,
+): Promise<void> {
+    try {
+        if (host !== undefined) await deps.stopHost?.(host);
+        await deps.restoreStash!(path);
+        checks.push({ label: "Stash", status: "warn", detail: "rolled back; the runtime folder is as it was" });
+    } catch (error) {
+        checks.push({ label: "Stash", status: "failed", detail: `could not roll back: ${errorText(error)}; it is still at ${path}` });
+    }
 }
 
 function needsRepair(inspection: BootInspection): boolean {
@@ -180,7 +266,7 @@ async function recoverInto(deps: BootDependencies, checks: BootCheck[]): Promise
         const result = await deps.recover();
         checks.push({
             label: "Recovery",
-            status: result.ok ? "fixed" : "warn",
+            status: !result.ok ? "warn" : result.changed === false ? "ok" : "fixed",
             ...(result.lines.length === 0 ? {} : { detail: result.lines.join(" ") }),
         });
     } catch (error) {

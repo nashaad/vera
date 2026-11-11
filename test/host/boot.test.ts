@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { BootFailedError, bootResidentHost, renderBootBox, type BootCheck, type BootDependencies, type BootInspection, type HostMode } from "../../src/host/boot.ts";
+import { BootFailedError, bootResidentHost, renderBootBox, type BootCheck, type BootDependencies, type BootInspection, type BootQuestion, type HostMode } from "../../src/host/boot.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 
 const clean: BootInspection = { home: "/h/.vera", hostAnswers: false, lock: "absent", orphans: 0, unproven: 0, bootLoop: false };
@@ -8,6 +8,8 @@ const clean: BootInspection = { home: "/h/.vera", hostAnswers: false, lock: "abs
 function harness(inspection: BootInspection, starts: Array<(mode: HostMode) => HostLockRecord>, options: {
     published?: boolean;
     rollback?: string;
+    answers?: Partial<Record<BootQuestion["id"], boolean>>;
+    stash?: boolean;
 } = {}) {
     const calls: string[] = [];
     const rendered: BootCheck[][] = [];
@@ -24,7 +26,12 @@ function harness(inspection: BootInspection, starts: Array<(mode: HostMode) => H
         },
         rollback: async () => { calls.push("rollback"); return options.rollback; },
         clearBootFailures: () => {},
-        confirm: async () => true,
+        confirm: async (question) => { calls.push(`ask:${question.id}`); return options.answers?.[question.id] ?? true; },
+        ...(options.stash === true ? {
+            stash: async () => { calls.push("stash"); return { path: "/h/.vera/runtime-stashes/stash-1", notCarried: [] }; },
+            restoreStash: async () => { calls.push("restore"); },
+            stopHost: async (record: HostLockRecord) => { calls.push(`stop:${record.pid}`); },
+        } : {}),
         render: (checks) => { rendered.push([...checks]); },
     };
     return { deps, calls, rendered };
@@ -80,4 +87,31 @@ test("recent boot deaths are reported and recovered instead of blocking the star
     expect((await bootResidentHost(deps)).pid).toBe(8);
     expect(calls).toEqual(["inspect", "recover", "start:default"]);
     expect(rendered[0]!.find((check) => check.label === "Recent start failures")?.status).toBe("failed");
+});
+
+test("after every other step fails, a fresh runtime starts once the user agrees, and is kept", async () => {
+    const { deps, calls } = harness({ ...clean, unproven: 1, unknownProcesses: ["PID 99: no proof"] }, [fail, fail, host(12)], { stash: true });
+    expect((await bootResidentHost(deps)).pid).toBe(12);
+    expect(calls).toContain("ask:stash_runtime");
+    expect(calls.indexOf("stash")).toBeGreaterThan(calls.indexOf("ask:stash_runtime"));
+    expect(calls.at(-1)).toBe("ask:keep_fresh_runtime");
+    expect(calls).not.toContain("restore");
+});
+
+test("answering no after the fresh start stops that host and puts the stash back", async () => {
+    const { deps, calls } = harness(clean, [fail, fail, host(12)], { stash: true, answers: { keep_fresh_runtime: false } });
+    await expect(bootResidentHost(deps)).rejects.toBeInstanceOf(BootFailedError);
+    expect(calls.slice(-3)).toEqual(["ask:keep_fresh_runtime", "stop:12", "restore"]);
+});
+
+test("declining the stash moves nothing", async () => {
+    const { deps, calls } = harness(clean, [], { stash: true, answers: { stash_runtime: false } });
+    await expect(bootResidentHost(deps)).rejects.toBeInstanceOf(BootFailedError);
+    expect(calls).not.toContain("stash");
+});
+
+test("a fresh runtime that also fails to start is rolled back on its own", async () => {
+    const { deps, calls } = harness(clean, [], { stash: true });
+    await expect(bootResidentHost(deps)).rejects.toBeInstanceOf(BootFailedError);
+    expect(calls.at(-1)).toBe("restore");
 });

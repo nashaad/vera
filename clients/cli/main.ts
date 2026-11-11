@@ -2081,10 +2081,27 @@ async function runBoot(
     const { findOrStartResidentHost } = await import("../host/launch.ts");
     const { renderBootBox } = await import("../../src/host/boot.ts");
     const line = (value: Record<string, unknown>): void => { output.write(`${JSON.stringify(value)}\n`); };
+    let stdinLines: AsyncIterator<string> | undefined;
+    const readStdinLine = async (): Promise<string | undefined> => {
+        if (stdinLines === undefined) {
+            const { createInterface } = await import("node:readline");
+            stdinLines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
+        }
+        const next = await stdinLines.next();
+        return next.done === true ? undefined : next.value;
+    };
     try {
         const host = await findOrStartResidentHost({
             boot: json
-                ? { full: true, onCheck: (check) => line({ type: "check", ...check }), render: () => {} }
+                ? {
+                    full: true,
+                    onCheck: (check) => line({ type: "check", ...check }),
+                    render: () => {},
+                    confirm: async (question) => {
+                        line({ type: "question", id: question.id, text: question.text });
+                        return parseBootAnswer(await readStdinLine());
+                    },
+                }
                 : { full: true, render: (checks) => { output.write(renderBootBox(checks)); } },
         });
         if (json) line({ type: "ready", pid: host.pid, socket_path: host.socket_path, build_id: host.build_id ?? null });
@@ -2096,3 +2113,19 @@ async function runBoot(
         return 1;
     }
 }
+
+// A GUI answers a question with one line: yes, no, or {"answer": true|false}. A closed stdin means yes, so Vera still starts.
+export function parseBootAnswer(text: string | undefined): boolean {
+    if (text === undefined) return true;
+    const trimmed = text.trim();
+    try {
+        const value = JSON.parse(trimmed) as unknown;
+        if (typeof value === "boolean") return value;
+        if (typeof value === "object" && value !== null && typeof (value as { answer?: unknown }).answer === "boolean") {
+            return (value as { answer: boolean }).answer;
+        }
+    } catch {
+    }
+    return !/^(n|no)$/i.test(trimmed);
+}
+
