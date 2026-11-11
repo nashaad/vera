@@ -1,20 +1,22 @@
 import type { TuiAnimationLevel } from "../activity-bar.ts";
-import { SHIMMER_FRAME_INTERVAL_MS } from "../main.ts";
+import {
+    STATUS_ANIMATING_INTERVAL_MS,
+    STATUS_IDLE_INTERVAL_MS,
+    STATUS_STATIC_INTERVAL_MS,
+    TIMED_SURFACE_REFRESH_INTERVAL_MS,
+} from "../frame-budget.ts";
 import { saveTuiAnimationLevelPreference } from "../theme-preference.ts";
 import { refreshTimedSurfaces } from "./render-state.ts";
 import { renderStatus } from "./render-status.ts";
 import type { TuiRuntime } from "./runtime.ts";
 
-const STATUS_REFRESH_INTERVAL_MS = 100;
-const STATUS_IDLE_INTERVAL_MS = 1000;
-
 // The status line only needs frame-rate ticks while something on it moves.
 export function statusTimerInterval(rt: TuiRuntime): number {
     if (!statusAnimates(rt)) return STATUS_IDLE_INTERVAL_MS;
-    // Live thinking and tool spinners still step at 100 ms with effects off.
+    // With effects off the tick only refreshes text such as elapsed time.
     return rt.animationLevel === 0 && rt.activityAnimation === "off"
-        ? STATUS_REFRESH_INTERVAL_MS
-        : SHIMMER_FRAME_INTERVAL_MS;
+        ? STATUS_STATIC_INTERVAL_MS
+        : STATUS_ANIMATING_INTERVAL_MS;
 }
 
 function statusAnimates(rt: TuiRuntime): boolean {
@@ -52,7 +54,7 @@ export function startStatusTimer(rt: TuiRuntime): void {
     rt.statusTimer = setInterval(() => {
         renderStatus(rt);
         const now = Date.now();
-        if (now - lastTimedSurfaceRefresh >= STATUS_REFRESH_INTERVAL_MS) {
+        if (now - lastTimedSurfaceRefresh >= TIMED_SURFACE_REFRESH_INTERVAL_MS) {
             refreshTimedSurfaces(rt);
             lastTimedSurfaceRefresh = now;
         }

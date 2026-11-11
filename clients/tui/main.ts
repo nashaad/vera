@@ -274,6 +274,7 @@ import {
 } from "./tips.ts";
 import { beginTuiTipLaunch } from "./tips-store.ts";
 import { createRenderCoalescer } from "./render-coalescer.ts";
+import { RENDERER_MAX_FPS } from "./frame-budget.ts";
 import {
     createAuthStorage,
     unreadableAuthStoragePath,
@@ -971,6 +972,7 @@ export async function startTui(
         ?? createCliRenderer({
             exitOnCtrlC: false,
             targetFps: 30,
+            maxFps: RENDERER_MAX_FPS,
             debounceDelay: 33,
         }));
     // Request the kitty keyboard protocol so ctrl+shift chords actually arrive.

@@ -4,8 +4,8 @@ import { statusTimerInterval, syncStatusTimer } from "../../clients/tui/main/ani
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
 
 const IDLE_MS = 1000;
-const EFFECTS_OFF_MS = 100;
-const FAST_MS = 40;
+const EFFECTS_OFF_MS = 1000;
+const FAST_MS = 250;
 
 function runtime(overrides: Record<string, unknown> = {}): TuiRuntime {
     return {
