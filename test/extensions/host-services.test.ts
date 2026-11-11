@@ -17,6 +17,7 @@ import {
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
 import type {
+    ContextSizeTriggerHookPayload,
     PreCompactHookPayload,
     SessionEndHookPayload,
     SessionUpdatedHookPayload,
@@ -158,6 +159,52 @@ test("pre-compact hooks need their capability and get the payload", async () => 
     notifyObservers(registry.preCompactHooks(), compacting, () => {});
     await waitFor(() => globals().__compactSeen !== undefined);
     expect(globals().__compactSeen).toBe("automatic 182000");
+    await registry.close();
+});
+
+test("context-size-trigger hooks need their capability and get the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-trigger.extension", `
+        export function activate(vera) {
+            vera.hooks.registerContextSizeTrigger(() => {});
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.contextSizeTriggerHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.context_size_trigger");
+    await deniedRegistry.close();
+
+    const ledger = createExtension("trigger-ledger.extension", `
+        export function activate(vera) {
+            vera.hooks.registerContextSizeTrigger((payload) => {
+                globalThis.__triggerSeen = payload.reason + " "
+                    + payload.actions.join(",") + " " + payload.tokensAfter;
+            });
+        }
+    `, ["hooks.context_size_trigger"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(ledger)],
+    });
+    const trigger: ContextSizeTriggerHookPayload = {
+        type: "context_size_trigger",
+        sessionId: "session-1",
+        workspace: "/deck",
+        reason: "pressure",
+        policy: { id: "trim", kind: "every_n" },
+        actions: ["trim"],
+        tokens: 132_000,
+        tokensAfter: 118_000,
+        capacity: 200_000,
+        spawned: false,
+    };
+    expect(registry.contextSizeTriggerHooks().map((hook) => hook.extensionId))
+        .toEqual(["trigger-ledger.extension"]);
+    notifyObservers(registry.contextSizeTriggerHooks(), trigger, () => {});
+    await waitFor(() => globals().__triggerSeen !== undefined);
+    expect(globals().__triggerSeen).toBe("pressure trim 118000");
     await registry.close();
 });
 

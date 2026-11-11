@@ -8,6 +8,7 @@ import type {
     VeraSessionTitleOutcome,
 } from "../sdk/extensions.ts";
 import type {
+    ContextSizeTriggerHook,
     PreCompactHook,
     SessionEndHook,
     SessionUpdatedHook,
@@ -97,6 +98,11 @@ export interface RegisteredSessionUpdatedHook {
 export interface RegisteredPreCompactHook {
     readonly extensionId: string;
     readonly run: PreCompactHook;
+}
+
+export interface RegisteredContextSizeTriggerHook {
+    readonly extensionId: string;
+    readonly run: ContextSizeTriggerHook;
 }
 
 export interface RegisteredSessionEndHook {

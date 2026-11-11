@@ -47,6 +47,7 @@ import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
+import { contextSizeTriggerPayload } from "./agent-registry/context-size-trigger.ts";
 import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import { changedSessionUpdate } from "./agent-registry/session-updated.ts";
@@ -983,6 +984,14 @@ export class AgentRegistry {
                 approvalMode: () => entry.approvalMode,
                 append: (text) => agent.appendHarnessMessage(text, "soft"),
             }));
+        }
+        const onContextSizeTrigger = this.options.onContextSizeTrigger;
+        if (!ephemeral && onContextSizeTrigger !== undefined) {
+            events.subscribe((event) => {
+                if (event.type === "context_size_trigger") {
+                    onContextSizeTrigger(contextSizeTriggerPayload(store, event));
+                }
+            });
         }
         const reconciled = this.reconcileResumedSelectedAgent(entry, events);
         if (storedFailure !== undefined) {

@@ -55,6 +55,7 @@ import type {
     TurnFinishedHook,
     SessionUpdatedHook,
     PreCompactHook,
+    ContextSizeTriggerHook,
     SessionEndHook,
     SubagentFinishedHook,
     PreTurnHookPayload,
@@ -74,6 +75,7 @@ import { checkToolOperation, isShippedDirectory, UNREVIEWED_OPERATIONS } from ".
 import {
     ExtensionHostSlot,
     type ExtensionHostServices,
+    type RegisteredContextSizeTriggerHook,
     type RegisteredPreCompactHook,
     type RegisteredSessionEndHook,
     type RegisteredSessionUpdatedHook,
@@ -120,6 +122,7 @@ const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
 const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
 const SESSION_UPDATED_HOOK_CAPABILITY = "hooks.session_updated";
 const PRE_COMPACT_HOOK_CAPABILITY = "hooks.pre_compact";
+const CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY = "hooks.context_size_trigger";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
@@ -184,6 +187,7 @@ export interface ExtensionRegistry {
     turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
     sessionUpdatedHooks(): readonly RegisteredSessionUpdatedHook[];
     preCompactHooks(): readonly RegisteredPreCompactHook[];
+    contextSizeTriggerHooks(): readonly RegisteredContextSizeTriggerHook[];
     sessionEndHooks(): readonly RegisteredSessionEndHook[];
     subagentFinishedHooks(): readonly RegisteredSubagentFinishedHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
@@ -241,6 +245,7 @@ interface LoadedRegistryExtension {
     readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
     readonly sessionUpdatedHooks: readonly RegisteredSessionUpdatedHook[];
     readonly preCompactHooks: readonly RegisteredPreCompactHook[];
+    readonly contextSizeTriggerHooks: readonly RegisteredContextSizeTriggerHook[];
     readonly sessionEndHooks: readonly RegisteredSessionEndHook[];
     readonly subagentFinishedHooks: readonly RegisteredSubagentFinishedHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
@@ -462,6 +467,9 @@ export async function startExtensionRegistry(
         preCompactHooks(): readonly RegisteredPreCompactHook[] {
             return loaded.flatMap((extension) => extension.preCompactHooks);
         },
+        contextSizeTriggerHooks(): readonly RegisteredContextSizeTriggerHook[] {
+            return loaded.flatMap((extension) => extension.contextSizeTriggerHooks);
+        },
         sessionEndHooks(): readonly RegisteredSessionEndHook[] {
             return loaded.flatMap((extension) => extension.sessionEndHooks);
         },
@@ -668,6 +676,7 @@ async function activateExtension(
     const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
     const sessionUpdatedHooks: RegisteredSessionUpdatedHook[] = [];
     const preCompactHooks: RegisteredPreCompactHook[] = [];
+    const contextSizeTriggerHooks: RegisteredContextSizeTriggerHook[] = [];
     const sessionEndHooks: RegisteredSessionEndHook[] = [];
     const subagentFinishedHooks: RegisteredSubagentFinishedHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
@@ -1019,6 +1028,21 @@ async function activateExtension(
                 preCompactHooks.push(registered);
                 return () => removeHook(preCompactHooks, registered);
             },
+            registerContextSizeTrigger(hook: ContextSizeTriggerHook, options?: HookFailureOptions): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid context-size-trigger hook registration");
+                }
+                validateHookFailureOptions(options, "context_size_trigger");
+                const registered = { extensionId: loaded.manifest.id, run: hook };
+                contextSizeTriggerHooks.push(registered);
+                return () => removeHook(contextSizeTriggerHooks, registered);
+            },
             registerSessionEnd(hook: SessionEndHook, options?: HookFailureOptions): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
@@ -1128,6 +1152,11 @@ async function activateExtension(
                         preCompactHooks.push(registered);
                         return () => removeHook(preCompactHooks, registered);
                     }
+                    case "context_size_trigger": {
+                        const registered = { extensionId, run: hook as ContextSizeTriggerHook };
+                        contextSizeTriggerHooks.push(registered);
+                        return () => removeHook(contextSizeTriggerHooks, registered);
+                    }
                     case "session_end": {
                         const registered = { extensionId, run: hook as SessionEndHook };
                         sessionEndHooks.push(registered);
@@ -1198,6 +1227,7 @@ async function activateExtension(
             turnFinishedHooks,
             sessionUpdatedHooks,
             preCompactHooks,
+            contextSizeTriggerHooks,
             sessionEndHooks,
             subagentFinishedHooks,
             modelRequestHooks,

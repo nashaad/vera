@@ -41,9 +41,10 @@ stdin and expects a public Vera hook result as JSON on stdout.
 The `claude` protocol runs scripts written for Claude Code hooks. `phase` may
 be a Claude event name: `PreToolUse`, `SessionStart`, `UserPromptSubmit`,
 `Stop`, `SubagentStop`, `PreCompact`, or `SessionEnd`. A Vera phase name means
-the matching top-level event. The protocol does not support `post_tool_use` or
-`subagent_finished`. `UserPromptSubmit`, `Stop`, `PreCompact`, and
-`SessionEnd` skip subagents; `SubagentStop` runs only in subagents.
+the matching top-level event. The protocol does not support `post_tool_use`,
+`context_size_trigger`, or `subagent_finished`. `UserPromptSubmit`, `Stop`,
+`PreCompact`, and `SessionEnd` skip subagents; `SubagentStop` runs only in
+subagents.
 
 Exit 2 passes trimmed stderr back as a reason, and plain stdout is context for
 `UserPromptSubmit` and `SessionStart`. Payloads and replies for each event are
