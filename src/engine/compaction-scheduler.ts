@@ -16,24 +16,17 @@ import {
 } from "./completion-service.ts";
 import { measureMessages, type ContextMeasurement } from
     "./context-measurement.ts";
+import { resolveCompactionTriggerTokens } from
+    "./context-size-trigger-defaults.ts";
 
-export const COMPACTION_TRIGGER_FRACTION = 0.82;
+export {
+    DEFAULT_COMPACTION_TRIGGER_FRACTION as COMPACTION_TRIGGER_FRACTION,
+    UNKNOWN_CONTEXT_CAPACITY_TOKENS as UNKNOWN_CAPACITY_TRIGGER_TOKENS,
+} from "./context-size-trigger-defaults.ts";
 
 export const POST_COMPACTION_TARGET_FRACTION = 0.45;
 
 export const UNKNOWN_CAPACITY_TARGET_FRACTION = 0.35;
-
-export const UNKNOWN_CAPACITY_TRIGGER_TOKENS = 100_000;
-
-function effectiveTriggerTokens(
-    capacity: number | undefined,
-    trigger?: CompactionTrigger,
-): number | undefined {
-    if (trigger?.tokens !== undefined) {
-        return trigger.tokens;
-    }
-    return capacity === undefined ? UNKNOWN_CAPACITY_TRIGGER_TOKENS : undefined;
-}
 
 export const MIN_SUMMARY_TOKENS = 400;
 
@@ -114,7 +107,7 @@ function configuredTargetBudget(
     if (budget?.targetTokens !== undefined) {
         return budget.targetTokens;
     }
-    const triggerTokens = effectiveTriggerTokens(
+    const triggerTokens = compactionTriggerTokens(
         measurement.capacity,
         budget?.trigger,
     );
@@ -143,12 +136,7 @@ function compactionTriggerTokens(
     capacity: number | undefined,
     trigger?: CompactionTrigger,
 ): number | undefined {
-    const tokens = effectiveTriggerTokens(capacity, trigger);
-    if (capacity === undefined) {
-        return tokens;
-    }
-    const share = capacity * (trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION);
-    return tokens === undefined ? share : Math.min(tokens, share);
+    return resolveCompactionTriggerTokens(capacity, trigger);
 }
 
 function noBoundaryReason(

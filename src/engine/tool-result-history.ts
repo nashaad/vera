@@ -8,6 +8,17 @@ import type {
 import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
 import { measureMessages } from "./context-measurement.ts";
+import {
+    createContextSizeTriggerSet,
+    type ContextSizeTriggerSet,
+} from "./context-size-triggers.ts";
+import {
+    defaultContextSizePolicies,
+} from "./context-size-trigger-defaults.ts";
+
+export {
+    DEFAULT_TRIM_STEP_FRACTION as TOKEN_TRIM_STEP_FRACTION,
+} from "./context-size-trigger-defaults.ts";
 
 export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
 
@@ -50,14 +61,9 @@ export const TOOL_RESULT_AGING_LEVELS: Readonly<
 export const RELAXED_AGING_MIN_CAPACITY = 400_000;
 export const NORMAL_AGING_MIN_CAPACITY = 128_000;
 
-const UNKNOWN_CAPACITY_TOKENS = 100_000;
-
 // Trimming moves in whole steps so that a small change in context size does
 // not re-age results on every request and break the prompt prefix.
-export const TOKEN_TRIM_STEP_FRACTION = 0.1;
 export const BYTE_TRIM_STEP_FRACTION = 0.25;
-const ACTIVE_TURN_TRIM_HIGH_FRACTION = 0.75;
-const ACTIVE_TURN_TRIM_LOW_FRACTION = 0.35;
 
 // Savings needed to bring `excess` under the limit, rounded up to whole steps.
 function stepRequirement(excess: number, step: number): number {
@@ -72,6 +78,14 @@ export function toolResultAgingLevel(
     if (capacity >= RELAXED_AGING_MIN_CAPACITY) return "relaxed";
     if (capacity >= NORMAL_AGING_MIN_CAPACITY) return "normal";
     return "tight";
+}
+
+export function toolResultAgingGateFraction(
+    capacity: number | undefined,
+    pinned?: ToolResultAgingLevel,
+): number {
+    return TOOL_RESULT_AGING_LEVELS[pinned ?? toolResultAgingLevel(capacity)]
+        .gateFraction;
 }
 
 /**
@@ -95,6 +109,8 @@ export interface ToolResultAgingPolicy {
     readonly ageAfterTurns?: number;
     readonly pendingUserTurns?: number;
     readonly budgetBytes?: number;
+    /** Absent builds the built-in policy list for this window. */
+    readonly triggers?: ContextSizeTriggerSet;
 }
 
 export interface ToolResultHistoryEntry {
@@ -173,8 +189,6 @@ export function assembleAgedToolResults(
     ];
     const ageAfterTurns = policy.ageAfterTurns ?? level.ageAfterTurns;
     const budgetBytes = policy.budgetBytes ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
-    const windowTokens = policy.capacity ?? UNKNOWN_CAPACITY_TOKENS;
-    const gateTokens = windowTokens * level.gateFraction;
 
     const turnsAt = new Map<number, number>();
     const calls = new Map<string, ToolCallContent>();
@@ -240,39 +254,57 @@ export function assembleAgedToolResults(
         candidates.push(index);
     }
 
-    const requiredSavings = stepRequirement(
-        pressureTokens - gateTokens,
-        Math.max(1, windowTokens * TOKEN_TRIM_STEP_FRACTION),
+    const triggers = policy.triggers ?? createContextSizeTriggerSet(
+        defaultContextSizePolicies({
+            capacity: policy.capacity,
+            trimGateFraction: level.gateFraction,
+        }),
     );
-    let savedTokens = 0;
-    for (const index of [...candidates, ...readCandidates]) {
-        if (savedTokens >= requiredSavings) break;
-        const message = projected[index];
-        if (message?.role !== "tool_result") continue;
-        const sourceText = readSpill(message.toolResultSource?.spillPath);
-        if (sourceText === undefined) continue;
-        const aged = agedToolResult(
-            message,
-            calls.get(message.toolCallId),
-            provenanceText(index),
-            sourceText,
+    triggers.reset();
+    const trim = triggers.fire("trim", {
+        tokens: pressureTokens,
+        ...(policy.capacity === undefined
+            ? {}
+            : { capacity: policy.capacity }),
+    });
+    let budgeted: readonly ModelMessage[] = projected;
+    if (trim?.policy?.kind === "every_n") {
+        const requiredSavings = stepRequirement(
+            pressureTokens - trim.policy.from,
+            trim.policy.step,
+        );
+        let savedTokens = 0;
+        for (const index of [...candidates, ...readCandidates]) {
+            if (savedTokens >= requiredSavings) break;
+            const message = projected[index];
+            if (message?.role !== "tool_result") continue;
+            const sourceText = readSpill(message.toolResultSource?.spillPath);
+            if (sourceText === undefined) continue;
+            const aged = agedToolResult(
+                message,
+                calls.get(message.toolCallId),
+                provenanceText(index),
+                sourceText,
+                cache,
+            );
+            const saved = measureMessages([message]) - measureMessages([aged]);
+            if (saved <= 0) continue;
+            savedTokens += saved;
+            projected[index] = aged;
+        }
+
+        budgeted = applyToolResultBudget(
+            projected,
+            calls,
+            budgetBytes,
+            provenanceText,
+            { turn, turnsAt, ageAfterTurns, historyEnd },
             cache,
         );
-        const saved = measureMessages([message]) - measureMessages([aged]);
-        if (saved <= 0) continue;
-        savedTokens += saved;
-        projected[index] = aged;
     }
-
-    const budgeted = applyToolResultBudget(
-        projected,
-        calls,
-        budgetBytes,
-        provenanceText,
-        { turn, turnsAt, ageAfterTurns, pressureTokens, gateTokens, historyEnd },
-        cache,
+    return Object.freeze(
+        trimActiveSteps(entries, budgeted, calls, policy, triggers),
     );
-    return Object.freeze(trimActiveSteps(entries, budgeted, calls, policy));
 }
 
 function trimActiveSteps(
@@ -280,6 +312,7 @@ function trimActiveSteps(
     projected: readonly ModelMessage[],
     calls: ReadonlyMap<string, ToolCallContent>,
     policy: ToolResultAgingPolicy,
+    triggers: ContextSizeTriggerSet,
 ): readonly ModelMessage[] {
     if ((policy.pendingUserTurns ?? 0) > 0) return projected;
     let activeStart = -1;
@@ -289,16 +322,12 @@ function trimActiveSteps(
     }
     if (activeStart < 0) return projected;
     const messages = [...projected];
-    const capacity = policy.capacity ?? UNKNOWN_CAPACITY_TOKENS;
-    const high = capacity * ACTIVE_TURN_TRIM_HIGH_FRACTION;
-    const low = capacity * ACTIVE_TURN_TRIM_LOW_FRACTION;
     let tokens = (policy.overheadTokens ?? 0) + measureMessages(messages.slice(0, activeStart + 1));
     let stepStart = -1;
     let trimmedThrough = -1;
-    let armed = true;
     const trimBefore = () => {
-        if (!armed && tokens <= low) armed = true;
-        if (!armed || tokens < high || stepStart < 0) return;
+        if (stepStart < 0) return;
+        if (triggers.fire("stub_active_turn", { tokens }) === undefined) return;
         const before = tokens;
         for (let index = trimmedThrough + 1; index < stepStart; index += 1) {
             const message = messages[index];
@@ -311,7 +340,7 @@ function trimActiveSteps(
             messages[index] = stub;
         }
         trimmedThrough = stepStart - 1;
-        if (tokens < before) armed = tokens <= low;
+        triggers.observe("stub_active_turn", { tokens }, tokens < before);
     };
     for (let index = activeStart + 1; index < messages.length; index += 1) {
         const message = messages[index];
@@ -346,8 +375,6 @@ interface ToolResultBudgetCut {
     readonly turn: number;
     readonly turnsAt: ReadonlyMap<number, number>;
     readonly ageAfterTurns: number;
-    readonly pressureTokens: number;
-    readonly gateTokens: number;
     readonly historyEnd: number;
 }
 
@@ -363,7 +390,6 @@ function applyToolResultBudget(
     const startBytes = totalToolResultBytes(messages.slice(0, cut.historyEnd));
     let carriedBytes = startBytes;
     if (carriedBytes <= budgetBytes) return messages;
-    if (cut.pressureTokens < cut.gateTokens) return messages;
 
     const requiredBytes = stepRequirement(
         startBytes - budgetBytes,

@@ -10,9 +10,15 @@ import {
     compactSession,
     COMPACTION_TRIGGER_FRACTION,
     UNKNOWN_CAPACITY_TRIGGER_TOKENS,
-    shouldCompact,
     type CompactionTrigger,
 } from "./compaction-scheduler.ts";
+import {
+    createContextSizeTriggerSet,
+} from "./context-size-triggers.ts";
+import {
+    defaultContextSizePolicies,
+    DEFAULT_COMPACTION_RETRY_GROWTH_TOKENS,
+} from "./context-size-trigger-defaults.ts";
 import {
     measureMessages,
     type ContextMeasurement,
@@ -35,14 +41,16 @@ import type {
 } from "./run-turn.ts";
 import {
     assembleAgedToolResults,
+    toolResultAgingGateFraction,
     toolResultTotalBudgetBytes,
     type ToolResultAgingPolicy,
     type ToolResultLimits,
 } from "./tool-result-history.ts";
 import { SPILL_DIRECTORY_NAME } from "./tool-result-spill.ts";
 
-// How far the context must grow past a failed automatic compaction before another one is tried.
-export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
+export {
+    DEFAULT_COMPACTION_RETRY_GROWTH_TOKENS as COMPACTION_RETRY_GROWTH_TOKENS,
+} from "./context-size-trigger-defaults.ts";
 
 export interface CompactionControllerOptions {
     readonly store: SessionStore;
@@ -197,7 +205,7 @@ export function createCompactionController(
                 && !contextWatch.refusedForSize
                 && (automaticCompactionBlockedAt === undefined
                     || lastRawEstimate < automaticCompactionBlockedAt
-                        + COMPACTION_RETRY_GROWTH_TOKENS)
+                        + DEFAULT_COMPACTION_RETRY_GROWTH_TOKENS)
             ) {
                 return;
             }
@@ -214,12 +222,28 @@ export function createCompactionController(
             ?? compactionModel;
         const summarizerProvider = announced?.provider
             ?? compaction.diagnostics?.provider;
-        if (
-            !force
-            && !contextWatch.refusedForSize
-            && !shouldCompact(measurement, compaction.trigger)
-        ) {
-            return;
+        if (!force && !contextWatch.refusedForSize) {
+            const triggers = createContextSizeTriggerSet(
+                defaultContextSizePolicies({
+                    capacity: measurement.capacity,
+                    trimGateFraction: toolResultAgingGateFraction(
+                        measurement.capacity,
+                        options.readToolResults()?.agingLevel,
+                    ),
+                    ...(compaction.trigger === undefined
+                        ? {}
+                        : { compactionTrigger: compaction.trigger }),
+                }),
+            );
+            const fired = triggers.fire("compact", {
+                tokens: measurement.tokens,
+                ...(measurement.capacity === undefined
+                    ? {}
+                    : { capacity: measurement.capacity }),
+            });
+            if (fired === undefined) {
+                return;
+            }
         }
         contextWatch.refusedForSize = false;
         events.emit({
