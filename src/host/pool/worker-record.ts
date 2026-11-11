@@ -3,7 +3,7 @@ import { mkdir, open, readFile, readdir, rename, unlink } from "node:fs/promises
 import { dirname, join } from "node:path";
 
 import { defaultHostSocketPath } from "../lockfile.ts";
-import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
+import { checkRecordIdentity, processIsAlive, processStartStamp } from "../process-identity.ts";
 import { forceStopHostProcess } from "../force-stop.ts";
 import { requestHostIdentity, type HostIdentity } from "../protocol.ts";
 import type { WorkerHello } from "./worker-control.ts";
@@ -20,6 +20,8 @@ export interface WorkerRecord {
     readonly build_id: string;
     readonly host_pid: number;
     readonly count?: number;
+    // Linux only; see processStartStamp.
+    readonly start_stamp?: string;
 }
 
 export interface RecoverableWorker {
@@ -55,6 +57,7 @@ export async function publishWorkerRecord(home: string, hello: WorkerHello, cont
         id: hello.id, index: hello.index, pid: hello.pid, started_at: hello.started_at,
         socket_path: hello.socket, control_path: controlPath, build_id: hello.build_id, host_pid: process.pid,
         count: hello.count,
+        ...(stampOf(hello.pid) ?? {}),
     };
     const contents = `${JSON.stringify(record)}\n`;
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -287,14 +290,22 @@ function parseWorkerRecord(source: string): WorkerRecord | undefined {
     } catch { return undefined; }
 }
 
-function parseIdentity(contents: string): { readonly pid: number; readonly started_at: string } | undefined {
+function stampOf(pid: number): { readonly start_stamp: string } | undefined {
+    const stamp = processStartStamp(pid);
+    return stamp === undefined ? undefined : { start_stamp: stamp };
+}
+
+function parseIdentity(contents: string): { readonly pid: number; readonly started_at: string; readonly start_stamp?: string } | undefined {
     try {
         const value: unknown = JSON.parse(contents);
         if (typeof value !== "object" || value === null) return undefined;
         const record = value as Record<string, unknown>;
         return typeof record.pid === "number" && Number.isSafeInteger(record.pid) && record.pid > 0
             && typeof record.started_at === "string" && Number.isFinite(Date.parse(record.started_at))
-            ? { pid: record.pid, started_at: record.started_at } : undefined;
+            ? {
+                pid: record.pid, started_at: record.started_at,
+                ...(typeof record.start_stamp === "string" ? { start_stamp: record.start_stamp } : {}),
+            } : undefined;
     } catch {
         return undefined;
     }

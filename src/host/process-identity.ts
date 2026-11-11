@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 export const START_TIME_TOLERANCE_MS = 10_000;
 
@@ -105,11 +106,30 @@ export function classifyVeraProcess(command: string): VeraProcessKind | undefine
 export type RecordIdentity = "match" | "mismatch" | "unknown";
 
 /** "unknown" means the start time could not be measured. Never signal on it. */
+// Linux kernel boot id and the process start tick: exact, and unaffected by wall clock jumps such as WSL2 resuming from sleep.
+export function processStartStamp(pid: number): string | undefined {
+    if (process.platform !== "linux") return undefined;
+    try {
+        const boot = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+        const ticks = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+        if (boot.length === 0 || ticks === undefined || !/^\d+$/.test(ticks)) return undefined;
+        return `${boot}:${ticks}`;
+    } catch {
+        return undefined;
+    }
+}
+
 export function checkRecordIdentity(
-    record: { readonly pid: number; readonly started_at: string },
+    record: { readonly pid: number; readonly started_at: string; readonly start_stamp?: string },
     lookup: (pid: number) => number | undefined = processStartedAt,
     readCommand: (pid: number) => string | undefined = processCommandLine,
 ): RecordIdentity {
+    // A recorded stamp decides on its own when this OS can read one; injected readers keep the time comparison.
+    if (record.start_stamp !== undefined && lookup === processStartedAt) {
+        const stamp = processStartStamp(record.pid);
+        if (stamp !== undefined) return stamp === record.start_stamp ? "match" : "mismatch";
+    }
     const startedAt = lookup(record.pid);
     if (startedAt === undefined || Number.isNaN(new Date(startedAt).getTime())) {
         return "unknown";
