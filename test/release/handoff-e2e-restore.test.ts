@@ -58,6 +58,7 @@ test("an install whose new host does not start restores the previous build", asy
         const manifest = JSON.parse(readFileSync(join(brokenRoot, "manifest.json"), "utf8"));
         const reports: string[] = [];
         install = installRelease({
+            hotHandOff: true,
             prefix: env.prefix,
             pack: async () => ({ releaseRoot: brokenRoot, manifest }),
             report: (line) => reports.push(line),

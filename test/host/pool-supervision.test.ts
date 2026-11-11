@@ -425,6 +425,17 @@ socketTest("repeated startup failures trip one slot without stopping the host", 
     } finally { await harness.close(); }
 }, 30_000);
 
+socketTest("a fresh pool with no session process up fails host startup", async () => {
+    let home: string | undefined;
+    await expect(fixture({
+        workerCount: 1,
+        prepare: async (dir) => { home = dir; return {}; },
+        spawnSpec: () => ({ command: process.execPath, args: ["-e", "process.exit(7)"] }),
+    })).rejects.toThrow();
+    const left = Bun.spawnSync(["pgrep", "-f", home!]).stdout.toString().trim();
+    expect(left).toBe("");
+}, 30_000);
+
 socketTest("closing the host while a replacement is starting reaps the replacement", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();

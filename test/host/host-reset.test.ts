@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
 import { HOST_LOG_TAIL_BYTES } from "../../src/host/reset-backup.ts";
-import { discoverResetProcesses, type ResetProcessSample } from "../../src/host/reset-discovery.ts";
+import { discoverResetProcesses, veraRoleOf, type ResetProcessSample } from "../../src/host/reset-discovery.ts";
 import {
     GRACEFUL_STOP_DEADLINE_MS,
     RESET_CONFIRM_QUESTION,
@@ -575,4 +575,11 @@ test("vera host reset in a terminal asks instead of assuming yes", async () => {
 
     expect(code).toBe(0);
     expect(calls).toEqual([{ assumeYes: false }]);
+});
+
+test("a host or worker started under its argv0 name is recognised", () => {
+    expect(veraRoleOf("vera-host /Users/a/vera/clients/host/main.ts")).toBe("host");
+    expect(veraRoleOf("vera-host --pool")).toBe("host");
+    expect(veraRoleOf("vera-worker --worker-index 0")).toBe("worker");
+    expect(veraRoleOf("grep vera-host")).toBeUndefined();
 });

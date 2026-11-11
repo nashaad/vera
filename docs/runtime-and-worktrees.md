@@ -96,6 +96,7 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
 | `vera host stop` | Stop this home's host after its running turns end. New turns are refused meanwhile. |
 | `vera host stop --force` | Cut the running turns and stop this home's host now. |
+| `vera boot` | Run the startup check, repair what it finds, and start this home's host. |
 | `vera host reset` | Back up this home's runtime records, then stop its Vera processes, including ones `vera host stop` cannot reach. |
 | `bun run dev:tui --stop` | Stop the current worktree's development host and its recorded TUI client, and keep the home. |
 | `bun run dev:sweep` | Stop processes that have run for two days or longer in the homes of registered development instances. It never stops the default home's host. |
@@ -113,6 +114,44 @@ launcher to stop a trial.
 A host stops itself within about half a minute once its socket file is deleted
 or replaced, for example when a script deletes its home. Run `vera host stop`
 first anyway, so the host closes while its home still exists.
+
+## Startup check
+
+When `vera` finds no published host for its home, it runs the startup check
+before any client starts. `vera boot` runs the full check even when a host is
+already running, and prints the result.
+
+The check looks at the home folder, the active release, the host lock, Vera
+processes left without a working host, and recent host start failures. When
+something fails, Vera repairs it in this order and stops at the first step that
+starts a host:
+
+1. Back up the runtime records under `runtime/backups/`, stop this home's
+   leftover Vera processes, and clear stale sockets and the host lock. These are
+   the same steps as `vera host reset --yes`.
+2. Start the host with session processes. A host whose session process does
+   not come up fails this step.
+3. Start the host as a single process.
+4. Move `current` back to the previous installed release and start that.
+5. With your consent, move the runtime folder to a stash and start on a fresh
+   one. The inbox, schedules and session blocks are copied over. Vera then asks
+   whether to keep the fresh folder; answer no to stop that host and put the
+   stash back.
+
+Each step prints a line in a box on stderr. When every check passes, `vera`
+prints nothing. Without a terminal, every question is answered yes, so Vera
+still starts.
+
+A command run from inside a Vera session does not stop the host it runs under;
+the check reports that and asks you to run `vera` from a terminal outside Vera.
+Only one startup check runs for a home at a time. A second `vera` waits for it,
+then uses the host it started.
+
+`vera boot --json` prints one JSON object per line for a graphical client:
+`check` lines as each check finishes, `question` lines that expect one line on
+stdin (`yes`, `no`, or `{"answer": true}`), a `waiting` line when another boot
+holds the lock, and a final `ready` line with the host PID, socket path, build
+and annex URL, or a `failed` line with the message. A closed stdin answers yes.
 
 ## Reset a home that `vera host stop` cannot reach
 

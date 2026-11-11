@@ -77,6 +77,7 @@ test("an install waits for the running turn, then moves current and the host", a
     const manifest = JSON.parse(readFileSync(join(build2Root, "manifest.json"), "utf8"));
     const reports: string[] = [];
     const install = installRelease({
+        hotHandOff: true,
         prefix: env.prefix,
         pack: async () => ({ releaseRoot: build2Root, manifest }),
         report: (line) => reports.push(line),
@@ -121,6 +122,7 @@ test("handoff moves from a source release to an executable and back", async () =
     const compiledRoot = cloneRelease(env.build1Root, env.prefix, compiledId);
     const compiledManifest = JSON.parse(readFileSync(join(compiledRoot, "manifest.json"), "utf8"));
     const forward = await installRelease({
+        hotHandOff: true,
         prefix: env.prefix,
         pack: async () => ({ releaseRoot: compiledRoot, manifest: compiledManifest }),
         report: () => {},
@@ -131,6 +133,7 @@ test("handoff moves from a source release to an executable and back", async () =
     const compiledPid = readHostLock(env.home)!.pid;
     const sourceManifest = JSON.parse(readFileSync(join(sourceRoot, "manifest.json"), "utf8"));
     const backward = await installRelease({
+        hotHandOff: true,
         prefix: env.prefix,
         pack: async () => ({ releaseRoot: sourceRoot, manifest: sourceManifest }),
         report: () => {},

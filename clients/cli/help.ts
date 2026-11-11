@@ -42,6 +42,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera update [VERSION] [--check]", docs: "installed-command.md", description: "Install the newest release, or the named version; --check reports the running and newest versions without installing" },
     { usage: "vera migrate-home [--rollback]", docs: "config-reference.md", description: "Lift the default profile to the Vera home root; other profiles stay in a sibling backup. --rollback restores that backup" },
     { usage: "vera host stop [-y|--yes] [--force]", docs: "runtime-and-worktrees.md", description: "Stop the resident host after its running turns end; --force cuts them now" },
+    { usage: "vera boot [--json]", docs: "runtime-and-worktrees.md", description: "Run the startup check, repair what it finds and start the host; --json prints one line per check for a GUI" },
     { usage: "vera host reset [-y|--yes]", docs: "runtime-and-worktrees.md", description: "Back up this home's runtime records, stop its Vera processes and clear stale sockets; the next vera starts a fresh host" },
     { usage: "vera host supervise [off|status]", description: "Let launchd restart the resident host when it dies, so schedules keep running with nobody at the keyboard" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },

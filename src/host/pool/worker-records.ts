@@ -7,6 +7,7 @@ import { checkRecordIdentity, processIsAlive, type RecordIdentity } from "../pro
 export interface WorkerStopIdentity {
     readonly pid: number;
     readonly started_at: string;
+    readonly start_stamp?: string;
 }
 
 export interface RecordedWorker extends WorkerStopIdentity {
@@ -45,6 +46,7 @@ export async function readRecordedWorkers(home: string): Promise<readonly Record
         }
         records.push({
             id: record.id, pid: record.pid, started_at: record.started_at, path,
+            ...(typeof record.start_stamp === "string" ? { start_stamp: record.start_stamp } : {}),
             ...(typeof record.host_pid === "number" && Number.isSafeInteger(record.host_pid) && record.host_pid > 0
                 ? { hostPid: record.host_pid } : {}),
         });

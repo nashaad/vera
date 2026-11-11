@@ -1037,6 +1037,10 @@ export async function runCli(
         }
     }
 
+    if (args[0] === "boot" && args.slice(1).every((flag) => flag === "--json")) {
+        return runBoot(args.includes("--json"), output, errorOutput);
+    }
+
     if (
         args[0] === "host"
         && args[1] === "reset"
@@ -2067,3 +2071,70 @@ export async function runCliEntrypoint(): Promise<void> {
 if (import.meta.main) {
     await runCliEntrypoint();
 }
+
+// Runs the startup check and starts the host. A GUI runs 'vera boot --json' first and draws the box from its lines.
+async function runBoot(
+    json: boolean,
+    output: { write(text: string): unknown },
+    errorOutput: { write(text: string): unknown },
+): Promise<number> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const { renderBootBox } = await import("../../src/host/boot.ts");
+    const line = (value: Record<string, unknown>): void => { output.write(`${JSON.stringify(value)}\n`); };
+    let stdinLines: AsyncIterator<string> | undefined;
+    const readStdinLine = async (): Promise<string | undefined> => {
+        if (stdinLines === undefined) {
+            const { createInterface } = await import("node:readline");
+            stdinLines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
+        }
+        const next = await stdinLines.next();
+        return next.done === true ? undefined : next.value;
+    };
+    try {
+        const host = await findOrStartResidentHost({
+            boot: json
+                ? {
+                    full: true,
+                    onCheck: (check) => line({ type: "check", ...check }),
+                    onWaiting: (pid) => line({ type: "waiting", holder_pid: pid ?? null }),
+                    render: () => {},
+                    confirm: async (question) => {
+                        line({ type: "question", id: question.id, text: question.text });
+                        return parseBootAnswer(await readStdinLine());
+                    },
+                }
+                : { full: true, render: (checks) => { output.write(renderBootBox(checks)); } },
+        });
+        if (json) {
+            // A GUI outside the Linux side of WSL cannot open the socket, but can reach the annex over localhost.
+            const { readAnnexUrlThroughHost } = await import("../../src/annex/host-client.ts");
+            const annex = await readAnnexUrlThroughHost(host.socket_path).catch(() => undefined);
+            line({
+                type: "ready", pid: host.pid, socket_path: host.socket_path, build_id: host.build_id ?? null,
+                annex_url: annex !== undefined && "url" in annex ? annex.url : null,
+            });
+        }
+        return 0;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (json) line({ type: "failed", message });
+        else errorOutput.write(`${message}\n`);
+        return 1;
+    }
+}
+
+// A GUI answers a question with one line: yes, no, or {"answer": true|false}. A closed stdin means yes, so Vera still starts.
+export function parseBootAnswer(text: string | undefined): boolean {
+    if (text === undefined) return true;
+    const trimmed = text.trim();
+    try {
+        const value = JSON.parse(trimmed) as unknown;
+        if (typeof value === "boolean") return value;
+        if (typeof value === "object" && value !== null && typeof (value as { answer?: unknown }).answer === "boolean") {
+            return (value as { answer: boolean }).answer;
+        }
+    } catch {
+    }
+    return !/^(n|no)$/i.test(trimmed);
+}
+

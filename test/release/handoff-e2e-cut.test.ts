@@ -46,6 +46,7 @@ test("a host killed after current moves leaves the next start on the target buil
         const build2Root = cloneRelease(env.build1Root, env.prefix, build2);
         const manifest = JSON.parse(readFileSync(join(build2Root, "manifest.json"), "utf8"));
         install = installRelease({
+            hotHandOff: true,
             prefix: env.prefix,
             pack: async () => ({ releaseRoot: build2Root, manifest }),
             report: () => {},

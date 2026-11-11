@@ -1,7 +1,6 @@
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
-import { availableParallelism } from "node:os";
 import { join } from "node:path";
 
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
@@ -9,6 +8,7 @@ import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/stop-worker.ts";
 import { checkRecordIdentity, processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { DEFAULT_SESSION_WORKERS } from "../../src/host/runtime.ts";
 
 interface WorkerRecord extends WorkerStopIdentity {
     readonly host_pid: number;
@@ -33,7 +33,7 @@ async function runHost(workers: number | undefined, args: readonly string[] = []
     const stderr = new Response(child.stderr).text();
     const owned: WorkerStopIdentity[] = [];
     try {
-        const expected = workers ?? Math.max(1, availableParallelism() - 1);
+        const expected = workers ?? DEFAULT_SESSION_WORKERS;
         const deadline = Date.now() + 30_000;
         while (true) {
             if (child.exitCode !== null) throw new Error(`Host exited during startup: ${await stderr}`);

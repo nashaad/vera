@@ -20,7 +20,7 @@ import {
     selectedVeraHome,
     veraRuntimeDirectoryIn,
 } from "../profile-paths.ts";
-import { checkRecordIdentity } from "./process-identity.ts";
+import { checkRecordIdentity, processStartStamp } from "./process-identity.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 3;
@@ -37,6 +37,8 @@ export interface HostLockRecord {
     readonly project_root?: string;
     readonly role?: "host";
     readonly worker_count?: number;
+    // Linux only; see processStartStamp.
+    readonly start_stamp?: string;
 }
 
 export interface HostLockfile {
@@ -193,6 +195,7 @@ export function createHostLockfile(
                 throw new Error("Host start time must be a timestamp");
             }
             const buildId = options.buildId ?? thisProcessBuildId();
+            const stamp = pid === process.pid ? processStartStamp(pid) : undefined;
             if (options.workerCount !== undefined
                 && (!Number.isSafeInteger(options.workerCount) || options.workerCount < 1)) {
                 throw new Error("Host session process count must be a positive integer");
@@ -208,6 +211,7 @@ export function createHostLockfile(
                     : { project_root: nonEmpty(options.projectRoot, "host project root") }),
                 ...(options.role === undefined ? {} : { role: options.role }),
                 ...(options.workerCount === undefined ? {} : { worker_count: options.workerCount }),
+                ...(stamp === undefined ? {} : { start_stamp: stamp }),
             };
             const serialized = `${JSON.stringify(record, null, 2)}\n`;
 
@@ -489,6 +493,7 @@ function parseHostLock(source: string): HostLockRecord | undefined {
             : {}),
         ...(record.role === "host" ? { role: "host" as const } : {}),
         ...(typeof record.worker_count === "number" ? { worker_count: record.worker_count } : {}),
+        ...(typeof record.start_stamp === "string" && record.start_stamp.length > 0 ? { start_stamp: record.start_stamp } : {}),
     };
 }
 

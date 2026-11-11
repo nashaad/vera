@@ -177,6 +177,10 @@ import { cachedHostAuthStorage, createCredentialBroker } from "./pool/credential
 import type { GlobalChange } from "./pool/global-services.ts";
 import type { WorkerGlobals } from "./pool/worker-globals.ts";
 import type { WorkerExtensionServices } from "./pool/extension-catalog.ts";
+
+// CRITICAL: the default is one session worker. Our load research measured one worker behind the host
+// serving 100 sessions on under one core, while a larger pool used more CPU for the same throughput.
+export const DEFAULT_SESSION_WORKERS = 1;
 export { indexStoredSession } from "./session-host/storage.ts";
 
 const MAX_SCHEDULE_WORK_ROWS = 50;
@@ -287,7 +291,7 @@ export async function startResidentHost(
         const startupLog = options.startupLog ?? createHostLogger({ path: defaultHostLogPath(home) });
         const buildId = options.buildId ?? thisProcessBuildId();
         const workers = await inspectWorkerRecords(home, buildId);
-        const configuredCount = options.processWorkerCount ?? Math.max(1, availableParallelism() - 1);
+        const configuredCount = options.processWorkerCount ?? DEFAULT_SESSION_WORKERS;
         if (!Number.isSafeInteger(configuredCount) || configuredCount < 1) throw new Error("Invalid session worker count");
         let sockets = await occupiedWorkerSockets(home, configuredCount);
         const recorded = new Set([...workers.recoverable.map((worker) => worker.record.socket_path),
@@ -433,7 +437,7 @@ async function startHostRuntime(
         throw new Error("Process workers require serializable host services");
     }
     const workerCount = options.processWorker === true
-        ? options.processWorkerCount ?? Math.max(1, availableParallelism() - 1) : 1;
+        ? options.processWorkerCount ?? DEFAULT_SESSION_WORKERS : 1;
     if (!Number.isSafeInteger(workerCount) || workerCount < 1
         || (options.processWorkerCount !== undefined && options.processWorker !== true)) {
         throw new Error("Invalid session worker count");
@@ -1074,6 +1078,8 @@ async function startHostRuntime(
         announceShutdown = resolve;
     });
     const closeHost = (): Promise<void> => {
+        // A worker lost while the host closes must not be replaced.
+        inProcessWorker?.stopSupervising?.();
         sessionHost.stopMaintenance();
         inProcessWorker?.stopMaintenance();
         if (logPruneTimer !== undefined) {
@@ -2496,4 +2502,3 @@ async function closeServerAndRest(
         }
     }
 }
-import { availableParallelism } from "node:os";

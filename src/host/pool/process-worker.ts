@@ -674,6 +674,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 await startSlot(slot);
             }));
             await settled;
+            // A fresh pool with no session process up must fail startup before the host publishes,
+            // so the startup check can fall back to one process instead of a host that cannot open sessions.
+            if (!recovering && !slots.some((slot) => slot.ready)) {
+                const failed = results.find((result) => result.status === "rejected");
+                throw failed?.reason ?? new Error("No session process started");
+            }
             if (recovering && !options.interruptedScan) {
                 for (const [index, result] of results.entries()) {
                     if ((adoptedIndices.has(index) || stoppedIndices.has(index)) && result.status === "rejected") throw result.reason;
@@ -725,6 +731,10 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (identity === undefined || !processIsAlive(identity.pid)) return [];
             return checkRecordIdentity(identity) === "mismatch" ? [] : [identity.pid];
         }),
+        stopSupervising() {
+            closing = true;
+            if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
+        },
         stopMaintenance() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.stopMaintenance").catch(() => {});
         },

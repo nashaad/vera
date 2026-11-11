@@ -31,11 +31,11 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=23]
+## Start, development, and upgrades [lines=24]
 Run `vera` for the installed daily Vera using `~/.vera`.
 To install without a checkout or Bun, run the GitHub release's `install.sh`, which downloads the file for your platform and puts `vera` in `~/.local/bin`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host and the recorded TUI client, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
-By default, the host runs conversations in separate session processes; set `host.workers` to `0` in Home config to use a single-process host.
+By default, the host runs conversations in one session process; set `host.workers` to `0` in Home config to use a single-process host.
 Unless `host.workers` is `0`, the host replaces a failed session process and an interrupted prompt can be sent again.
 Unless `host.workers` is `0`, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.
 An interrupted inbox, schedule, or watch wake stays unread and appears when you next attach.
@@ -43,6 +43,7 @@ A later entry can wake the conversation normally.
 A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
 `vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
 `vera host reset` stops this home's Vera processes, including a host that `vera host stop` cannot reach, after backing up its runtime records; `docs/runtime-and-worktrees.md` says when to use it.
+Before any client starts, `vera` checks its home and repairs a stale lock, leftover processes or a failing release so a host always starts, and `vera boot` runs that check on demand, with `--json` for a graphical client; `docs/runtime-and-worktrees.md` lists the steps.
 Unless `host.workers` is `0`, stop waits for turns across the session processes, force-stop stops the host and its session processes, and `vera ls` names unavailable session processes after their last known summaries.
 If a host is starting before its lock is published, stop reports that startup is in progress. When session processes are enabled, ordinary stop also reports startup while the host adopts them.
 Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing. A development instance's host runs that checkout's code, never the installed release; run `bun run pack:web` in the checkout so its annex can serve the web page.

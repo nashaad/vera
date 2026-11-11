@@ -36,6 +36,8 @@ export interface InProcessWorker {
     stopPids?(): readonly number[];
     start(identity: Pick<HostIdentity, "pid" | "started_at">): Promise<void>;
     stopMaintenance(): void;
+    // Ends worker replacement; the host calls it before anything else closes.
+    stopSupervising?(): void;
     setTurnsHeld?(held: boolean): Promise<void>;
     publishStopWait?(event: StopWaitEvent): Promise<void>;
     waitingOn(): Promise<readonly StopWaitTarget[]>;

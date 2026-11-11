@@ -308,3 +308,23 @@ function processIsAlive(pid: number): boolean {
         return false;
     }
 }
+
+test("a hand-off that never finishes still exits the host", async () => {
+    const signal = Promise.withResolvers<void>();
+    const exits: number[] = [];
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: async () => {},
+    }, {
+        waitForSignal: () => ({ promise: signal.promise, dispose: () => {} }),
+        exit: (code) => exits.push(code),
+        afterClose: () => new Promise<void>(() => {}),
+        afterCloseDeadlineMs: 20,
+        log: () => {},
+    });
+
+    signal.resolve();
+    await running;
+
+    expect(exits).toEqual([0]);
+});

@@ -73,6 +73,9 @@ export function veraRoleOf(command: string): ResetRole | undefined {
     const roleToken = tokens.find((token) => token.startsWith("--vera-role="));
     if (roleToken !== undefined) return roleFromArgument(roleToken.slice("--vera-role=".length));
     const executable = basename(tokens[0] ?? "");
+    // Hosts and workers are spawned with these argv0 names; home proof is still required before any stop.
+    const named = ARGV0_ROLE[executable];
+    if (named !== undefined) return named;
     if (executable === "bun" || executable === "node") {
         const kind = classifyVeraProcess(command);
         if (kind === "host" || kind === "worker" || kind === "supervisor" || kind === "watchdog") return kind;
@@ -80,6 +83,15 @@ export function veraRoleOf(command: string): ResetRole | undefined {
     }
     return undefined;
 }
+
+const ARGV0_ROLE: Readonly<Record<string, ResetRole>> = {
+    "vera-host": "host",
+    "vera-worker": "worker",
+    "vera-annex": "annex",
+    "vera-supervisor": "supervisor",
+    "vera-watchdog": "watchdog",
+    "vera-tui": "client",
+};
 
 function roleFromArgument(value: string): ResetRole | undefined {
     if (value === "host") return "host";
