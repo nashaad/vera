@@ -9,10 +9,11 @@ test("idle leads with the quit press instead of the stop keys", () => {
     expect(rows[1]).toEqual({ chord: "Ctrl+P", label: "commands" });
     expect(rows.map((row) => row.label)).not.toContain("stop");
     expect(rows.map((row) => row.chord)).not.toContain("Ctrl+X");
-    expect(rows.slice(-3)).toEqual([
+    expect(rows.slice(-4)).toEqual([
         { chord: "Ctrl+X b", label: "sidebar" },
         { chord: "Ctrl+X m", label: "models" },
         { chord: "Ctrl+X h", label: "this card" },
+        { chord: "Ctrl+X d", label: "detach" },
     ]);
 });
 

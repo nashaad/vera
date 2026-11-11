@@ -112,7 +112,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.preventDefault();
             key.stopPropagation();
             const after = tuiBindingId("model_prefix", key);
-            // A closed file has no model to switch; only the sidebar applies there.
+            // A closed file has no model to switch; the sidebar and detach still apply there.
             const fileView = isJsonlViewClient(rt.client);
             if (after === "model_prefix_open" && !fileView) openModelSwitcher(rt);
             if (after === "model_prefix_keys" && !fileView) {
@@ -120,6 +120,13 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 renderStatus(rt);
             }
             if (after === "model_prefix_sidebar") toggleWorkspaceSidebar(rt);
+            // Detach leaves the conversation running in the host: the destroy
+            // path releases the attachment instead of stopping it.
+            if (after === "model_prefix_detach") {
+                disarmQuit(rt);
+                rt.keepRunningOnExit = true;
+                rt.renderer.destroy();
+            }
             return;
         }
     }

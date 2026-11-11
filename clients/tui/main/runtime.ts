@@ -193,6 +193,8 @@ export interface TuiRuntime {
     statusNoticeVersion: number;
     modelPrefixPending?: boolean;
     quitArmed?: boolean;
+    /** The exit was asked for by the detach chord: release the attachment with keep_running instead of stopping it. */
+    keepRunningOnExit?: boolean;
     requestedModelChanges: Map<string, { readonly subject: string; readonly patch: ModelSettingsPatch; readonly target: TuiAgentClient; }>;
     requestedPermissionChanges: Map<string, string>;
     abortRequested: boolean;

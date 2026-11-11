@@ -1,6 +1,7 @@
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../../src/host/capabilities.ts";
+import type { AttachmentReleasePolicy } from "../../../src/host/protocol.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
@@ -332,6 +333,11 @@ export async function leaveSwitchSource(rt: TuiRuntime,
 // Quitting must not wait forever on a host that never answers the release.
 export const CLIENT_SHUTDOWN_TIMEOUT_MS = 3_000;
 
+// The detach chord exits through this path too: it keeps the conversation instead.
+function shutdownReleasePolicy(rt: TuiRuntime): AttachmentReleasePolicy {
+    return rt.keepRunningOnExit === true ? "keep_running" : "stop_if_last";
+}
+
 export async function stopClientForShutdown(rt: TuiRuntime, source: TuiAgentClient): Promise<void> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<"timed_out">((resolve) => {
@@ -340,7 +346,7 @@ export async function stopClientForShutdown(rt: TuiRuntime, source: TuiAgentClie
             rt.dependencies.shutdownTimeoutMs ?? CLIENT_SHUTDOWN_TIMEOUT_MS,
         );
     });
-    const stopped = stopClientGracefully(rt, source).then(
+    const stopped = stopClientGracefully(rt, source, shutdownReleasePolicy(rt)).then(
         () => "stopped" as const,
         () => "stopped" as const,
     );
@@ -355,7 +361,11 @@ export async function stopClientForShutdown(rt: TuiRuntime, source: TuiAgentClie
     }
 }
 
-async function stopClientGracefully(rt: TuiRuntime, source: TuiAgentClient): Promise<void> {
+async function stopClientGracefully(
+    rt: TuiRuntime,
+    source: TuiAgentClient,
+    policy: AttachmentReleasePolicy,
+): Promise<void> {
     if (isWorkerFreeClient(source)) {
         await source.detach().catch(() => source.close());
         return;
@@ -367,9 +377,10 @@ async function stopClientGracefully(rt: TuiRuntime, source: TuiAgentClient): Pro
             HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
         ) === true
     ) {
-        await source.release("stop_if_last").catch(() => undefined);
+        await source.release(policy).catch(() => undefined);
     } else if (
-        sourceId !== undefined
+        policy === "stop_if_last"
+        && sourceId !== undefined
         && rt.dependencies.closeSession !== undefined
     ) {
         await rt.dependencies.closeSession(sourceId).catch(() => undefined);

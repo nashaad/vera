@@ -44,10 +44,14 @@ show the newer history. Recovered unsent prompts remain available.
 | Ctrl+C while a stop is in progress | Exit the TUI. |
 | Ctrl+C while idle with a draft | Clear the draft. |
 | Ctrl+C twice while idle with an empty composer | Exit the TUI. |
+| Ctrl+X then D | Detach: exit the TUI and leave this conversation running, including a turn in progress. |
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
 
 When a side pane such as `/btw`'s sidekick is focused, `/close` or Ctrl+W
 closes that pane instead and leaves the live conversation running.
+
+Detach matches Keep running: nothing is stopped or sent, and the host closes
+the conversation after ten idle minutes. `vera resume <id>` returns to it.
 
 `/clear` starts a new conversation and asks Close this conversation or Keep
 running. Keep running stays idle for ten minutes, then closes. `/clear stop`

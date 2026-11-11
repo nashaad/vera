@@ -44,6 +44,7 @@ export function tuiKeysCardRows(turn: TuiKeysCardTurn): TuiKeysCardRow[] {
         { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_sidebar")}`, label: "sidebar" },
         { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_open")}`, label: "models" },
         { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_keys")}`, label: "this card" },
+        { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_detach")}`, label: "detach" },
     );
     return rows;
 }

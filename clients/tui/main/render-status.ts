@@ -467,8 +467,8 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
     const modelPrefixHint = isJsonlViewClient(rt.client)
-        ? `${tuiKeyHint("model_prefix_sidebar")} · esc cancel`
-        : `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · ${tuiKeyHint("model_prefix_sidebar")} · esc cancel`;
+        ? `${tuiKeyHint("model_prefix_sidebar")} · ${tuiKeyHint("model_prefix_detach")} · esc cancel`
+        : `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · ${tuiKeyHint("model_prefix_sidebar")} · ${tuiKeyHint("model_prefix_detach")} · esc cancel`;
     const workerFree = isWorkerFreeClient(rt.client);
     const showStrip = !workerFree;
     const footer = fitFooter(rt.footerLayout, footerItemContents({
