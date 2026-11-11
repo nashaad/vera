@@ -353,7 +353,7 @@ function trimActiveSteps(
     let stepStart = -1;
     let trimmedThrough = -1;
     const fired: ContextSizeTriggerReport["trigger"][] = [];
-    const stubbed: number[] = [];
+    const stubbed: string[] = [];
     const measurement = (tokens: number) => ({
         tokens,
         ...(policy.capacity === undefined ? {} : { capacity: policy.capacity }),
@@ -373,7 +373,7 @@ function trimActiveSteps(
             if (toolResultBytes(stub) >= toolResultBytes(message)) continue;
             tokens -= measureMessages([message]) - measureMessages([stub]);
             messages[index] = stub;
-            stubbed.push(index);
+            stubbed.push(`${index}:${message.toolCallId}`);
         }
         trimmedThrough = stepStart - 1;
         triggers.observe("stub_active_turn", measurement(tokens), tokens < before);

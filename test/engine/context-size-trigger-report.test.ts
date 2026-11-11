@@ -71,6 +71,15 @@ function triggers(events: EngineEventBus): ContextSizeTriggerEvent[] {
     return seen;
 }
 
+function stubIndices(messages: readonly ModelMessage[]): number[] {
+    return messages.flatMap((message, index) =>
+        message.role === "tool_result"
+            && message.content.some((part) => part.text.startsWith("[vera] Stub"))
+            ? [index]
+            : []
+    );
+}
+
 test("a trim reports changed results and repeats wait for a new projection", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-trim-report-"));
     try {
@@ -162,6 +171,65 @@ test("an active-turn stub reports once with the stubbed indices", async () => {
         });
         expect(seen[0]!.tokens).toBeGreaterThan(7_500);
         expect(typeof seen[0]!.tokensAfter).toBe("number");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("an active-turn stub reports again when a new turn stubs the same index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-stub-repeat-"));
+    try {
+        const turn = (name: string): ModelMessage[] => [
+            user(`start ${name}`),
+            toolCall(`${name}-first`),
+            toolResult(`${name}-first`, "a".repeat(40_000), join(root, `unused-${name}-a.txt`)),
+            toolCall(`${name}-second`),
+            toolResult(`${name}-second`, "b".repeat(40_000), join(root, `unused-${name}-b.txt`)),
+        ];
+        const store = await session(root, turn("one"));
+        const events = new EngineEventBus();
+        const seen = triggers(events);
+        const controller = createCompactionController({
+            store,
+            model: "wide",
+            scratchDir: root,
+            events,
+            readCompaction: () => undefined,
+            readToolResults: () => ({
+                agingLevel: "normal",
+                totalBudgetBytes: 1_000_000,
+            }),
+            inbound: {
+                beginAutomaticCompaction() {},
+                endAutomaticCompaction() {},
+            },
+            afterCompacted: async () => false,
+        });
+        const context = { model: "wide", capacity: 10_000 };
+
+        const first = controller.modelContext(context);
+        expect(stubIndices(first)).toEqual([2]);
+        expect(seen).toHaveLength(1);
+
+        // The same projection on the next request reports nothing again.
+        expect(JSON.stringify(controller.modelContext(context)))
+            .toBe(JSON.stringify(first));
+        expect(seen).toHaveLength(1);
+
+        const boundary = store.activeEntries()
+            .find((entry) => entry.message.role === "user")!;
+        await store.rewindBefore(boundary.id);
+        for (const message of turn("two")) await store.appendMessage(message);
+
+        // The new turn stubs the same index with different tool call ids.
+        const second = controller.modelContext(context);
+        expect(stubIndices(second)).toEqual([2]);
+        expect(seen).toHaveLength(2);
+        expect(seen[1]).toMatchObject({
+            type: "context_size_trigger",
+            actions: ["stub_active_turn"],
+            capacity: 10_000,
+        });
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

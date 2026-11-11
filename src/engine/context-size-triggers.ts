@@ -54,8 +54,8 @@ export interface ContextSizeTriggerReport {
     readonly tokensAfter: number;
     /**
      * The changed messages, joined in order: index, tool call id and resulting
-     * bytes for trim, index for an active-turn stub. Equal strings mean two
-     * requests saw the same projection.
+     * bytes for trim, index and tool call id for an active-turn stub. Equal
+     * strings mean two requests saw the same projection.
      */
     readonly fingerprint: string;
 }
