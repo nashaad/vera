@@ -13,6 +13,8 @@ export interface BootCheck {
 export interface BootInspection {
     // The Vera home this boot serves; always shown first.
     readonly home: string;
+    // Set when the home's filesystem cannot host Vera, such as a Windows drive under WSL.
+    readonly homeProblem?: string;
     // A host answered on this home's socket.
     readonly hostAnswers: boolean;
     readonly lock: "absent" | "live" | "stale" | "damaged";
@@ -55,6 +57,8 @@ export interface BootDependencies {
     onCheck?(check: BootCheck): void;
     // Run every check and show the box even when a healthy host is already running.
     full?: boolean;
+    // Runs the check and repair while no other boot for this home does.
+    exclusive?<T>(run: () => Promise<T>): Promise<T>;
 }
 
 export interface BootQuestion {
@@ -72,13 +76,29 @@ export class BootFailedError extends Error {
 // Starts the resident host. Checks the home first, repairs what it can, and falls
 // back to single process mode and then to the previous release before giving up.
 export async function bootResidentHost(deps: BootDependencies): Promise<HostLockRecord> {
+    if (deps.full !== true) {
+        const host = await publishedHost(deps);
+        if (host !== undefined) return host;
+    }
+    if (deps.exclusive === undefined) return bootChecked(deps, false);
+    return deps.exclusive(() => bootChecked(deps, true));
+}
+
+async function publishedHost(deps: BootDependencies): Promise<HostLockRecord | undefined> {
+    if (deps.hostPublished === undefined || !await deps.hostPublished().catch(() => false)) return undefined;
+    try {
+        return await deps.start("default");
+    } catch {
+        return undefined;
+    }
+}
+
+async function bootChecked(deps: BootDependencies, locked: boolean): Promise<HostLockRecord> {
     const checks = new CheckList(deps.onCheck);
-    if (deps.full !== true && deps.hostPublished !== undefined && await deps.hostPublished().catch(() => false)) {
-        try {
-            return await deps.start("default");
-        } catch {
-            // Falls through to the full check below.
-        }
+    // Another boot may have finished while this one waited for the lock.
+    if (locked && deps.full !== true) {
+        const host = await publishedHost(deps);
+        if (host !== undefined) return host;
     }
     const inspection = await deps.inspect();
     const healthy = inspection.hostAnswers && inspection.lock === "live";
@@ -237,7 +257,9 @@ class CheckList extends Array<BootCheck> {
 }
 
 function describe(inspection: BootInspection): BootCheck[] {
-    const checks: BootCheck[] = [{ label: "Vera home", status: "ok", detail: inspection.home }];
+    const checks: BootCheck[] = [inspection.homeProblem === undefined
+        ? { label: "Vera home", status: "ok", detail: inspection.home }
+        : { label: "Vera home", status: "failed", detail: inspection.homeProblem }];
     checks.push(inspection.releaseProblem === undefined
         ? { label: "Release", status: "ok" }
         : { label: "Release", status: "failed", detail: inspection.releaseProblem });

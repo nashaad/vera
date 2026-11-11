@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -89,6 +89,23 @@ export function readStashRecord(stashPath: string): StashRecord | undefined {
 
 // Files under the home that a process holds open, outside the runtime folder; sessions it could still be writing.
 export function openFilesUnder(pid: number, home: string): readonly string[] {
+    const runtime = veraRuntimeDirectoryIn(home) + sep;
+    const under = (path: string): boolean => path.startsWith(home + sep) && !path.startsWith(runtime);
+    // Linux, WSL included, lists open files in /proc without lsof, which many WSL distributions lack.
+    if (process.platform === "linux") {
+        try {
+            const paths: string[] = [];
+            for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+                try {
+                    paths.push(readlinkSync(`/proc/${pid}/fd/${fd}`));
+                } catch {
+                }
+            }
+            return paths.filter(under);
+        } catch {
+            return [];
+        }
+    }
     let output: string;
     try {
         output = execFileSync("lsof", ["-nP", "-a", "-p", String(pid), "-Fn"], {
@@ -99,9 +116,8 @@ export function openFilesUnder(pid: number, home: string): readonly string[] {
     } catch {
         return [];
     }
-    const runtime = veraRuntimeDirectoryIn(home) + sep;
     return output.split("\n")
         .filter((line) => line.startsWith("n"))
         .map((line) => line.slice(1))
-        .filter((path) => path.startsWith(home + sep) && !path.startsWith(runtime));
+        .filter(under);
 }

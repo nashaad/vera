@@ -115,3 +115,21 @@ test("a fresh runtime that also fails to start is rolled back on its own", async
     await expect(bootResidentHost(deps)).rejects.toBeInstanceOf(BootFailedError);
     expect(calls.at(-1)).toBe("restore");
 });
+
+test("the check and repair run inside the boot lock, and a host published while waiting is used", async () => {
+    const { deps, calls } = harness({ ...clean, orphans: 1 }, [host(21)]);
+    let published = false;
+    const locked: BootDependencies = {
+        ...deps,
+        hostPublished: async () => published,
+        exclusive: async (run) => { calls.push("lock"); published = true; return run(); },
+    };
+    expect((await bootResidentHost(locked)).pid).toBe(21);
+    expect(calls).toEqual(["lock", "start:default"]);
+});
+
+test("a home on a Windows drive fails its check", async () => {
+    const { deps, rendered } = harness({ ...clean, homeProblem: "on a Windows drive" }, [host(2)]);
+    await bootResidentHost({ ...deps, full: true });
+    expect(rendered[0]![0]).toEqual({ label: "Vera home", status: "failed", detail: "on a Windows drive" });
+});

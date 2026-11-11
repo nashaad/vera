@@ -42,6 +42,9 @@ import { realResetSystem } from "../../src/host/reset-system.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { openFilesUnder, restoreRuntimeStash, stashRuntime } from "../../src/host/runtime-stash.ts";
 import { forceStopResidentHost, gracefulStopResidentHost } from "../../src/host/force-stop.ts";
+import { homeFilesystemProblem } from "../../src/host/home-filesystem.ts";
+import { targetPidIsAncestor } from "../../src/host/process-ancestry.ts";
+import { acquireHostStartupClaim, HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 
 export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
@@ -54,6 +57,8 @@ export type FindOrStartHostOptions = Omit<
         readonly full?: boolean;
         readonly onCheck?: (check: BootCheck) => void;
         readonly render?: (checks: readonly BootCheck[]) => void;
+        // Told once when another boot for this home holds the lock.
+        readonly onWaiting?: (holderPid: number | undefined) => void;
         // Answers boot questions; the default asks on the terminal.
         readonly confirm?: (question: BootQuestion) => Promise<boolean>;
     };
@@ -123,6 +128,7 @@ export async function findOrStartResidentHost(
         render: boot?.render ?? ((checks) => { process.stderr.write(renderBootBox(checks)); }),
         ...(boot?.onCheck === undefined ? {} : { onCheck: boot.onCheck }),
         ...(boot?.full === true ? { full: true } : {}),
+        exclusive: (run) => withBootLock(run, boot?.onWaiting),
     });
     remember(host);
     return host;
@@ -136,8 +142,10 @@ async function inspectHome(): Promise<BootInspection> {
         : "damaged";
     const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
     const problem = activeReleaseProblem();
+    const homeProblem = homeFilesystemProblem(discovery.home);
     return {
         home: discovery.home,
+        ...(homeProblem === undefined ? {} : { homeProblem }),
         hostAnswers,
         lock,
         orphans,
@@ -153,6 +161,16 @@ async function inspectHome(): Promise<BootInspection> {
 
 // Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
 async function recoverHome(): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
+    // Stopping a host this command runs under would end the command and its session.
+    const discovery = await discoverResetProcesses(realResetSystem());
+    const own = discovery.candidates.find((candidate) => candidate.role !== "client" && targetPidIsAncestor(candidate.pid) === true);
+    if (own !== undefined) {
+        return {
+            ok: false,
+            changed: false,
+            lines: [`This command runs inside Vera ${own.role} PID ${own.pid}, so nothing was stopped. Run vera from a terminal outside Vera.`],
+        };
+    }
     const lines: string[] = [];
     const code = await runHostReset({ assumeYes: true }, {
         system: realResetSystem(),
@@ -181,6 +199,31 @@ function rollbackTarget(): { prefix: string; root: string; buildId: string } | u
     const root = releaseDirectory(buildId, prefix);
     if (releaseProblem(root, buildId) !== undefined) return undefined;
     return { prefix, root, buildId };
+}
+
+// A boot can wait on the user, so the lock lives in the home itself, outside the runtime folder a stash moves.
+const BOOT_LOCK_MAX_AGE_MS = 15 * 60_000;
+
+async function withBootLock<T>(run: () => Promise<T>, onWaiting?: (holderPid: number | undefined) => void): Promise<T> {
+    const path = join(selectedVeraHome(), "boot.lock");
+    let told = false;
+    for (;;) {
+        try {
+            const claim = await acquireHostStartupClaim({ path, maxClaimAgeMs: BOOT_LOCK_MAX_AGE_MS });
+            try {
+                return await run();
+            } finally {
+                await claim.release().catch(() => {});
+            }
+        } catch (error) {
+            if (!(error instanceof HostStartupInProgressError)) throw error;
+            if (!told) {
+                told = true;
+                (onWaiting ?? ((pid) => process.stderr.write(`Another Vera${pid === undefined ? "" : ` (PID ${pid})`} is starting this home; waiting for it.\n`)))(error.holderPid);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    }
 }
 
 // Stops a host this boot started, so a stash can be put back under it.

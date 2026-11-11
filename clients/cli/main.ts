@@ -2096,6 +2096,7 @@ async function runBoot(
                 ? {
                     full: true,
                     onCheck: (check) => line({ type: "check", ...check }),
+                    onWaiting: (pid) => line({ type: "waiting", holder_pid: pid ?? null }),
                     render: () => {},
                     confirm: async (question) => {
                         line({ type: "question", id: question.id, text: question.text });
@@ -2104,7 +2105,15 @@ async function runBoot(
                 }
                 : { full: true, render: (checks) => { output.write(renderBootBox(checks)); } },
         });
-        if (json) line({ type: "ready", pid: host.pid, socket_path: host.socket_path, build_id: host.build_id ?? null });
+        if (json) {
+            // A GUI outside the Linux side of WSL cannot open the socket, but can reach the annex over localhost.
+            const { readAnnexUrlThroughHost } = await import("../../src/annex/host-client.ts");
+            const annex = await readAnnexUrlThroughHost(host.socket_path).catch(() => undefined);
+            line({
+                type: "ready", pid: host.pid, socket_path: host.socket_path, build_id: host.build_id ?? null,
+                annex_url: annex !== undefined && "url" in annex ? annex.url : null,
+            });
+        }
         return 0;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
