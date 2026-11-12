@@ -104,11 +104,23 @@ try {
         throw new Error("Sessions is in the sidebar after the relaunch.");
     }
 
+    // With its only view moved out, the sidebar still shows its page rows, and both toggles work.
+    const modifier = process.platform === "darwin" ? "meta" : "control";
+    const sidebarRows = `${location("sidebar")} .nav-row`;
+    await second.page.waitForSelector(sidebarRows, { timeout: 5_000 });
+    await press(second.app, "B", [modifier]);
+    await second.page.waitForSelector(location("sidebar"), { state: "detached", timeout: 5_000 });
+    await second.page.click(".titlebar [data-header-toggle=\"sidebar\"]");
+    await second.page.waitForSelector(sidebarRows, { timeout: 5_000 });
+    await second.page.click(`${location("sidebar")} [data-header-toggle="sidebar"]`);
+    await second.page.waitForSelector(location("sidebar"), { state: "detached", timeout: 5_000 });
+    await press(second.app, "B", [modifier]);
+    await second.page.waitForSelector(sidebarRows, { timeout: 5_000 });
+
     await second.page.click(`${sessionsHeader} .icon-button`);
     await second.page.getByRole("menuitem", { name: "Reset Location" }).click();
     await assertIn(second.page, "sidebar");
 
-    const modifier = process.platform === "darwin" ? "meta" : "control";
     await press(second.app, "B", [modifier]);
     await second.page.waitForSelector(location("sidebar"), { state: "detached", timeout: 5_000 });
     await press(second.app, "B", [modifier]);

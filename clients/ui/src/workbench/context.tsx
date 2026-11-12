@@ -20,9 +20,10 @@ export function useWorkbench(): WorkbenchApi {
     return api;
 }
 
-// A location takes space only while it is on and has something to show.
+// A location takes space only while it is on and has something to show. The sidebar
+// always has its nav rows and footer, so it shows with no views in it.
 export function useIsShown(location: LocationId): boolean {
     const { layout } = useWorkbench();
     const resolved = layout.locations[location];
-    return resolved.visible && resolved.containers.length > 0;
+    return resolved.visible && (location === "sidebar" || resolved.containers.length > 0);
 }
