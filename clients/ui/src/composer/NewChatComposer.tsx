@@ -36,7 +36,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const [busy, setBusy] = useState(false);
     const empty = text.trim().length === 0;
     const branch = useBranch(bridge, folder);
-    const { controls: models, draft } = useDraftModels(bridge, folder, !busy);
+    const { controls: models, draft } = useDraftModels(bridge, folder, connection.phase === "attached", !busy);
     const mounted = useRef(true);
 
     useEffect(() => {

@@ -24,14 +24,15 @@ export interface DraftModels {
 const UNREADABLE = "The host did not list its models.";
 
 // New Chat's model controls: the host's defaults for the picked folder, changed only in this window
-// until the session is created.
-export function useDraftModels(bridge: DesktopBridge, folder: string | undefined, enabled: boolean): DraftModels {
+// until the session is created. New Chat mounts before the host is up, so it reads again on attach.
+export function useDraftModels(bridge: DesktopBridge, folder: string | undefined, attached: boolean, enabled: boolean): DraftModels {
     const [settings, setSettings] = useState<ModelSettings | undefined>(undefined);
     const [failure, setFailure] = useState<string | undefined>(undefined);
     const [picked, setPicked] = useState<ModelChoice | undefined>(undefined);
     const [effort, setEffort] = useState<string | null | undefined>(undefined);
 
     useEffect(() => {
+        if (!attached) return undefined;
         let live = true;
         setFailure(undefined);
         void bridge.readModelSettings(folder).then(
@@ -52,7 +53,7 @@ export function useDraftModels(bridge: DesktopBridge, folder: string | undefined
         return () => {
             live = false;
         };
-    }, [bridge, folder]);
+    }, [bridge, folder, attached]);
 
     const actions = useMemo(() => {
         const adopt = (value: unknown): void => {

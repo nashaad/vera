@@ -91,12 +91,15 @@ try {
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
     await trial.waitForHost();
 
+    // New Chat mounts before the host is up; its pill still fills in once the host attaches.
+    const modelPill = page.locator(".model-pill");
+    await until("the model pill before a folder is picked", async () => /crow/i.test(await modelPill.innerText()));
+
     await page.getByRole("button", { name: /No folder/ }).click();
     await page.getByRole("menuitem", { name: /Open folder/ }).click();
     await page.waitForSelector(".context-chips .chip-label:text-is(\"work\")");
 
     // New Chat: search for Raven, pin it to the shortlist, pick it, then send.
-    const modelPill = page.locator(".model-pill");
     await until("the model pill", async () => /crow/i.test(await modelPill.innerText()));
     await modelPill.click();
     await page.locator(".model-search input").fill("raven");
