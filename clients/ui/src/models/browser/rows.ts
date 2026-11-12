@@ -40,6 +40,19 @@ export function tabRows(tab: BrowserTab, settings: ModelSettings): readonly Mode
     return tab === "Favorites" ? settings.shortlist : allModels(settings);
 }
 
+export const ANY_PROVIDER = "any";
+
+// Connections, the one listing the most models first.
+export function providerOrder(settings: ModelSettings): readonly string[] {
+    const counts = new Map<string, number>();
+    for (const entry of allModels(settings)) counts.set(entry.provider, (counts.get(entry.provider) ?? 0) + 1);
+    return [...counts.keys()].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0));
+}
+
+export function fromProvider(rows: readonly ModelEntry[], provider: string): readonly ModelEntry[] {
+    return provider === ANY_PROVIDER ? rows : rows.filter((entry) => entry.provider === provider);
+}
+
 export function cutoffLabel(cutoff: string): string {
     return cutoff === "any" ? "Any" : `${cutoff}+`;
 }

@@ -6,6 +6,7 @@ import { blendedText, entryKey, isCurrent, waText } from "./rows.ts";
 
 export interface ModelListProps {
     readonly rows: readonly ModelEntry[];
+    readonly empty: string;
     readonly selectedKey: string | undefined;
     readonly choice: ModelChoice | undefined;
     readonly pinned: ReadonlySet<string>;
@@ -15,7 +16,7 @@ export interface ModelListProps {
     readonly onPin: (entry: ModelEntry, on: boolean) => void;
 }
 
-export function ModelList({ rows, selectedKey, choice, pinned, enabled, providerName, onSelect, onPin }: ModelListProps) {
+export function ModelList({ rows, empty, selectedKey, choice, pinned, enabled, providerName, onSelect, onPin }: ModelListProps) {
     const listRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -88,7 +89,7 @@ export function ModelList({ rows, selectedKey, choice, pinned, enabled, provider
                     </div>
                 );
             })}
-            {rows.length === 0 && <div className="models-empty">No models match.</div>}
+            {rows.length === 0 && <div className="models-empty">{empty}</div>}
         </div>
     );
 }

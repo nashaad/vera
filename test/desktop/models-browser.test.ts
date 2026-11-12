@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import type { ModelEntry, ModelSettings } from "../../clients/ui/src/models/settings.ts";
 import {
+    ANY_PROVIDER,
     cutoffLabel,
     defaultRows,
     entryKey,
+    fromProvider,
     modelFacts,
     pickSelection,
     probeLine,
+    providerOrder,
 } from "../../clients/ui/src/models/browser/rows.ts";
 
 function entry(overrides: Partial<ModelEntry> = {}): ModelEntry {
@@ -131,6 +134,26 @@ describe("pickSelection", () => {
 
     test("is undefined when nothing is listed", () => {
         expect(pickSelection([], undefined, undefined)).toBeUndefined();
+    });
+});
+
+describe("provider filter", () => {
+    const pinned = entry({ provider: "codex", model: "a" });
+    const catalog = [
+        pinned,
+        entry({ provider: "openrouter", model: "b" }),
+        entry({ provider: "openrouter", model: "c" }),
+        entry({ provider: "anthropic", model: "d" }),
+    ];
+
+    test("lists connections with the most models first", () => {
+        expect(providerOrder(settings({ shortlist: [pinned], catalog }))).toEqual(["openrouter", "codex", "anthropic"]);
+    });
+
+    test("keeps one connection's rows, or every row for Any", () => {
+        expect(fromProvider(catalog, "openrouter").map((row) => row.model)).toEqual(["b", "c"]);
+        expect(fromProvider(catalog, ANY_PROVIDER)).toBe(catalog);
+        expect(fromProvider([pinned], "openrouter")).toEqual([]);
     });
 });
 
