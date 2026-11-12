@@ -4,9 +4,14 @@ import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcri
 import {
     approvalChoices,
     approvalResponse,
+    holdsTurn,
+    PAST_APPROVAL_LIMIT,
+    pastApprovalView,
     questionResponse,
+    rememberApproval,
     setupResponse,
     type ApprovalRequest,
+    type PastApproval,
 } from "../../clients/ui/src/session/requests.ts";
 import { parseSessionLine, type SessionMessage } from "../../clients/ui/src/session/wire.ts";
 
@@ -138,4 +143,34 @@ describe("answers", () => {
         expect(JSON.parse(questionResponse("q1", { outcome: "cancelled" })).response)
             .toEqual({ type: "user_question", outcome: "cancelled" });
     });
+});
+
+test("an answered approval leaves nothing for an allow, one line for a denial, and the whole card when kept", () => {
+    const request = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+    expect(pastApprovalView({ request, decision: "allow_once" }, false)).toBe("none");
+    expect(pastApprovalView({ request, decision: "allow_always" }, false)).toBe("none");
+    expect(pastApprovalView({ request, decision: "deny" }, false)).toBe("line");
+    expect(pastApprovalView({ request, decision: "allow_once" }, true)).toBe("card");
+    expect(pastApprovalView({ request, decision: "deny" }, true)).toBe("card");
+});
+
+test("only the newest answered approvals are kept", () => {
+    let past: readonly PastApproval[] = [];
+    for (let index = 0; index < PAST_APPROVAL_LIMIT + 3; index += 1) {
+        const request = { kind: "approval", requestId: `r${index}`, tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+        past = rememberApproval(past, { request, decision: "deny" });
+    }
+    expect(past).toHaveLength(PAST_APPROVAL_LIMIT);
+    expect(past[0]?.request.requestId).toBe("r3");
+    expect(past.at(-1)?.request.requestId).toBe(`r${PAST_APPROVAL_LIMIT + 2}`);
+});
+
+test("an open approval or question holds the turn, and an out-of-band question does not", () => {
+    const approvalRequest = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+    const question = { kind: "question", requestId: "q1", question: "Which nest?", choices: [], allowCustom: false, allowNotes: false, outOfBand: false } as const;
+    expect(holdsTurn([])).toBe(false);
+    expect(holdsTurn([approvalRequest])).toBe(true);
+    expect(holdsTurn([question])).toBe(true);
+    expect(holdsTurn([{ ...question, outOfBand: true }])).toBe(false);
+    expect(holdsTurn([{ ...question, outOfBand: true }, approvalRequest])).toBe(true);
 });

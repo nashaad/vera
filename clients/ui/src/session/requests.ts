@@ -45,7 +45,30 @@ export interface SetupRequest {
 
 export type OpenRequest = ApprovalRequest | QuestionRequest | SetupRequest;
 
+// An open request the turn cannot go on without. An out-of-band question lets the work continue.
+export function holdsTurn(requests: readonly OpenRequest[]): boolean {
+    return requests.some((request) => request.kind !== "question" || !request.outOfBand);
+}
+
 export type ApprovalDecision = "allow_once" | "allow_similar" | "allow_always" | "deny";
+
+export interface PastApproval {
+    readonly request: ApprovalRequest;
+    readonly decision: ApprovalDecision;
+}
+
+// Answered approvals kept for the transcript, newest last.
+export const PAST_APPROVAL_LIMIT = 10;
+
+export function rememberApproval(past: readonly PastApproval[], entry: PastApproval): readonly PastApproval[] {
+    return [...past, entry].slice(-PAST_APPROVAL_LIMIT);
+}
+
+// What an answered approval leaves behind: nothing for an allow, one muted line for a denial, the whole card when kept.
+export function pastApprovalView(entry: PastApproval, keepCards: boolean): "card" | "line" | "none" {
+    if (keepCards) return "card";
+    return entry.decision === "deny" ? "line" : "none";
+}
 
 export interface QuestionSelected {
     readonly outcome: "selected";

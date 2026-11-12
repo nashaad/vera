@@ -8,6 +8,7 @@ import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
 import { usePaneLayout } from "../session/paneLayout.ts";
 import { QueueStrip } from "../session/QueueStrip.tsx";
 import { RequestCards } from "../session/RequestCards.tsx";
+import { holdsTurn } from "../session/requests.ts";
 import { SessionRail } from "../session/SessionRail.tsx";
 import { companionFor } from "../session/subagents.ts";
 import { Transcript } from "../session/Transcript.tsx";
@@ -71,12 +72,18 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     {blocks.length === 0 ? (
                         <p className="transcript-empty">Nothing has been said in this session yet.</p>
                     ) : (
-                        <Transcript blocks={blocks} running={running} {...(folder === undefined ? {} : { folder })} />
+                        <Transcript
+                            blocks={blocks}
+                            running={running}
+                            status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
+                            {...(watch.retry === undefined ? {} : { retry: watch.retry })}
+                            {...(folder === undefined ? {} : { folder })}
+                        />
                     )}
                     {watch.phase === "closed" || watch.phase === "failed" ? (
                         <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
                     ) : null}
-                    <RequestCards requests={watch.requests} send={send} />
+                    <RequestCards key={route.agentId} requests={watch.requests} send={send} running={running} />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>
             </div>

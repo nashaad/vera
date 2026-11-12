@@ -15,6 +15,7 @@ import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/t
 import { buildMenuTemplate } from "./app-menu.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
+import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
@@ -211,6 +212,7 @@ ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
     if (fromWindow(event)) layoutStore.save(layout);
 });
+ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
     if (!fromWindow(event) || process.platform !== "darwin") return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;

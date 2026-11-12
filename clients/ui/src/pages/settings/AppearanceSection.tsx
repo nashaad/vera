@@ -110,6 +110,18 @@ export function AppearanceSection() {
                     <span className="appearance-switch-knob" />
                 </button>
             </SettingRow>
+            <SettingRow name="Past approvals" description="Keeps each approval's full card in the transcript after you answer it.">
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={appearance.pastApprovals}
+                    aria-label="Past approvals"
+                    className="appearance-switch"
+                    onClick={() => save({ ...appearance, pastApprovals: !appearance.pastApprovals })}
+                >
+                    <span className="appearance-switch-knob" />
+                </button>
+            </SettingRow>
             <p className="settings-note">These settings apply to this window and are kept in its own storage.</p>
         </>
     );

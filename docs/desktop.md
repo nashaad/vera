@@ -111,7 +111,10 @@ workspace and a session.
   Appearance. The sections sit under two headings: Settings, and Desktop for
   what the window keeps itself.
   - Appearance picks the theme and sets text size, code size and density (each
-    Small or Compact, Default, Large or Comfortable) and Reduce motion. These four
+    Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
+    motion stops the status line's dots and sweep and the fade on new words. Past
+    approvals, off by default, keeps each answered approval card in the
+    conversation instead of dropping it; see Approvals and questions. These five
     are kept in the desktop's browser storage under the home's
     `machine/desktop/chromium`, not in `config.json`, so other clients do not use
     them.
@@ -296,17 +299,38 @@ The conversation is split into turns, one for each message you sent. The first
 message is shown as a box across the column; later ones as a bubble on the
 right. Under each message:
 
-- `Worked for 12s` with a chevron, from the first to the last timestamped step
-  of the turn. It folds the turn's work away.
-- Each thought shows as `Thought` and its length in seconds, and opens to show
-  its text. A thought still being written shows three dots and its latest line.
-- Tool calls that follow one another are grouped. One call shows its phrase,
-  such as `Read host.ts`, `Ran git status`, `Searched for outrider in vera-hq`
-  or `Searched sessions for outrider`. Several calls show `Ran 3 commands` when
-  they are all one tool, and `Used 4 tools` otherwise. A group opens to a card
-  with one row per call; a row opens to the command or arguments and the output,
-  and a failed call is marked. A group still running shows a dot instead of the
-  chevron.
+- While the turn runs, one status line at the end of the conversation says what
+  Vera is doing. It changes its words and never its place:
+  - `Thinking`, with the turn's clock before it once the turn is two seconds old
+    (`12s · Thinking`), until text or a tool call arrives.
+  - `12s · 236 tokens` while a reply is being written. The window counts about
+    one token for each four characters it has received, because the host sends no
+    count until the turn ends.
+  - A verb, its target and the seconds the call has run, such as `Running git
+    status 4s` or `Reading host.ts 1s`, while a tool runs. The line is a button:
+    it opens the calls in progress, and opens again to close them.
+  - `Retrying on <model>` with `attempt 2 of 5` and the clock while the host
+    retries a failed request.
+  - `Waiting on you` while an approval or a question is open.
+
+  Three dots and a light sweep across the verb are the only motion. Reduce motion
+  stops both. The line leaves when the turn ends.
+- A call shows no row of its own while the turn runs. When the turn writes text
+  after its calls, the calls become one past-tense line with a chevron, such as
+  `Ran 3 commands, read 2 files` or `Searched 2 times, edited a file`, naming
+  each kind of call in the order it first ran. Calls that follow one another
+  with no text between them make one line, and the line marks how many failed. It
+  opens to one dimmed row per call: a verb and what it acted on, such as `Read
+  host.ts`. A row with output opens to it. A shell call opens to a box holding its
+  command, coloured, with a copy button, and its output. A run in which every call
+  wrote or edited a file draws no line when the turn's changed-files card names
+  those files.
+- While the turn runs, the plan it wrote shows as a checklist under the newest
+  text and leaves when the turn ends. It does not open the Plan view.
+- New words in the reply being written fade in. Only the newest block of a live
+  reply does; finished replies do not.
+- Reasoning is hidden. A thought shows nothing during the turn or after it, and
+  the status line says only `Thinking`. See Showing reasoning below.
 - Replies render a small part of Markdown: headings, paragraphs, lists, bold,
   italic, inline code, links and fenced code. Fenced code has its language and a
   copy button. Links are shown with their address on hover and are not opened.
@@ -327,6 +351,24 @@ A reply that is still being written updates about four times a second, and about
 When the host is not running, the page says so. When the host closes the
 session, or the connection drops, the page keeps what it showed and adds a
 strip with the reason.
+
+### Showing reasoning
+
+The window hides reasoning by default and has no setting or command for it. A
+flag in `machine/desktop/flags.json` under the home turns it on:
+
+```
+{"showReasoning": true}
+```
+
+The window reads the file once, when it starts or its page reloads, so restart
+the window after editing it. A missing, oversized (over 4 KB) or invalid file,
+and any value other than `true`, leaves reasoning hidden. The host does not read
+the file.
+
+With the flag on, each thought shows as `Thought` and its length in seconds,
+and opens to show its text. A thought still being written shows three dots and
+its latest line. The status line still says only `Thinking`, with the clock.
 
 ## Composer
 
@@ -398,9 +440,10 @@ Images:
 ## Approvals and questions
 
 When the session asks before running a tool, a card appears under the
-conversation with the tool's name, the command or arguments, and any warning
-Vera gives. A line under the cards says `Waiting on you` while one is
-unanswered. The card's buttons:
+conversation. Its title is the action and what it acts on, such as `Create
+index.html` or `Run git push crow-nest main`, with the command or arguments
+and any warning Vera gives below it. While a card is unanswered the status line
+at the end of the conversation says `Waiting on you`. The card's buttons:
 
 - `Allow once` (key 1) runs this call.
 - `Allow similar` (key 2) runs it and allows calls like it for the rest of the
@@ -424,7 +467,15 @@ window. Finish it from the terminal.
 The keys answer the first card without an answer. They work when the composer
 is empty or not focused, and not while you type in a field or hold Cmd, Ctrl or
 Alt. While a card waits, Escape answers it instead of releasing a queued
-message. An answered card stays until Vera closes it.
+message.
+
+An answered approval does not stay in the conversation. An allowed one leaves
+nothing, since the call it allowed shows in the turn's work. A denied one leaves
+one muted line, such as `Denied: Run rm -rf the-plank`. Answered approvals clear
+when your next turn starts. Settings > Appearance > Past approvals, off by
+default, keeps the full answered card instead, with the answer in place of the
+buttons, for up to ten answers. An answered question or setup card stays until
+Vera closes it.
 
 The approval pill at the left of the composer's bar shows the session's mode
 and opens a menu:
@@ -637,6 +688,7 @@ node clients/desktop/test/shortcuts.e2e.mjs
 node clients/desktop/test/compose.e2e.mjs
 node clients/desktop/test/chat.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
+node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs

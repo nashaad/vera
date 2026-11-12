@@ -48,6 +48,8 @@ export const VALUE_TOKENS = [
     "space",
     "row-height",
     "motion",
+    "motion-slow",
+    "motion-loop",
 ] as const;
 
 export type ColorToken = (typeof COLOR_TOKENS)[number];

@@ -6,6 +6,7 @@ import { Overlays } from "./overlays/Overlays.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
+import { useDesktopFlagsLoaded } from "./state/useDesktopFlags.ts";
 import { useHostConnection } from "./state/useHostConnection.ts";
 import { ViewEnvContext } from "./views/env.tsx";
 import { Workbench } from "./workbench/Workbench.tsx";
@@ -18,7 +19,9 @@ function reportTitleBarHeight(height: number): void {
 export function App() {
     const [log] = useState(() => new OutputLog());
     const { state, reconnect, answer } = useHostConnection(log);
-    const { loaded, layout, dispatch, run, commands } = useLayout();
+    const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout();
+    const flagsLoaded = useDesktopFlagsLoaded();
+    const loaded = layoutLoaded && flagsLoaded;
     const environment = useMemo(() => ({ connection: state, log }), [state, log]);
     const platform = window.veraDesktop?.platform ?? "";
 

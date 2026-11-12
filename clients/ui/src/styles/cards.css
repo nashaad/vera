@@ -53,6 +53,16 @@
     font-size: var(--vera-font-size-code);
 }
 
+.card-target {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Keeps the end of a long path visible while the start truncates. */
 .card-path::before {
     content: "\200E";
@@ -274,15 +284,23 @@
     font-size: var(--vera-font-size-label);
 }
 
-.request-waiting {
-    display: flex;
-    align-items: center;
-    gap: calc(var(--vera-space) * 2);
-    margin: calc(var(--vera-space) * -1) 0 calc(var(--vera-space) * 3);
-    color: var(--vera-warning);
-    font-size: var(--vera-font-size-body);
+.request-outcome {
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3.25);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    border-top: thin solid var(--vera-border);
 }
 
-.request-waiting-dots {
-    letter-spacing: calc(var(--vera-space) / 2);
+.request-outcome[data-decision="deny"] {
+    color: var(--vera-danger);
+}
+
+/* A denied request keeps one quiet line where its card was. */
+.request-denied {
+    margin: calc(var(--vera-space) * 2) 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

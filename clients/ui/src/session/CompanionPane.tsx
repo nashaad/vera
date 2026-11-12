@@ -60,7 +60,8 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
                             <Transcript
                                 blocks={blocks}
                                 running={watch.status !== "idle"}
-                                showRetry={false}
+                                status={watch.status}
+                                {...(watch.retry === undefined ? {} : { retry: watch.retry })}
                                 {...(row?.workspace ? { folder: row.workspace } : {})}
                             />
                         )}

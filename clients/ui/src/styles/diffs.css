@@ -217,18 +217,6 @@
     font-size: calc(var(--vera-font-size) * 12.5 / 13);
 }
 
-.retry-line {
-    display: flex;
-    gap: calc(var(--vera-space) * 2);
-    align-items: center;
-}
-
-.retry-icon {
-    flex: 0 0 auto;
-    width: calc(var(--vera-space) * 3.5);
-    height: calc(var(--vera-space) * 3.5);
-}
-
 .inbox-banner {
     display: flex;
     gap: calc(var(--vera-space) * 2.5);

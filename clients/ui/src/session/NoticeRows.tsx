@@ -4,7 +4,6 @@ import { ChevronDownIcon, ChevronRightIcon, InboxIcon, RefreshIcon } from "../co
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
-import { useActiveSession } from "./activeSession.ts";
 import type { DeliveryBlock, NoticeBlock, SubstitutionBlock } from "./model.ts";
 
 const PREVIEW_LINES = 3;
@@ -69,19 +68,6 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
                     Open it
                 </button>
             )}
-        </div>
-    );
-}
-
-// Shown under the last turn while a failed model request waits for its next attempt.
-export function RetryLine() {
-    const retry = useActiveSession()?.watch.retry;
-    if (retry === undefined) return null;
-    const when = retry.retryAt === undefined ? "" : ` at ${clockTime(retry.retryAt)}`;
-    return (
-        <div className="transcript-notice retry-line" data-tone="warning">
-            <RefreshIcon className="retry-icon" />
-            Retrying {retry.model}, attempt {retry.nextAttempt} of {retry.maxAttempts}{when}
         </div>
     );
 }

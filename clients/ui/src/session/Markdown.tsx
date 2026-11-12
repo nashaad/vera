@@ -1,19 +1,33 @@
 import { memo, useState, type ReactNode } from "react";
 
 import { CheckIcon, CopyIcon } from "../components/Icons.tsx";
+import { copyText } from "./copyText.ts";
 
 // A small subset: headings, paragraphs, lists, fenced code, and inline
 // bold, italic, code and links. Raw HTML is never rendered.
 
 const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\s][^*]*\*)/g;
 
-function inline(text: string, key: string): ReactNode[] {
+// Wraps each word in a span that fades in when it mounts. A word keeps its key while the text grows, so only new words animate.
+function words(text: string, key: string, counter: { next: number }): ReactNode[] {
+    return text.split(/(\s+)/).map((part) => {
+        if (part === "" || /^\s+$/.test(part)) return part;
+        return <span key={`${key}-w${counter.next++}`} className="word-in">{part}</span>;
+    });
+}
+
+function inline(text: string, key: string, fade = false): ReactNode[] {
     const out: ReactNode[] = [];
+    const counter = { next: 0 };
+    const plain = (part: string): void => {
+        if (fade) out.push(...words(part, key, counter));
+        else out.push(part);
+    };
     let last = 0;
     let index = 0;
     for (const match of text.matchAll(INLINE)) {
         const at = match.index ?? 0;
-        if (at > last) out.push(text.slice(last, at));
+        if (at > last) plain(text.slice(last, at));
         const token = match[0];
         const k = `${key}-${index++}`;
         if (token.startsWith("**")) out.push(<strong key={k}>{token.slice(2, -2)}</strong>);
@@ -25,21 +39,12 @@ function inline(text: string, key: string): ReactNode[] {
         } else out.push(<em key={k}>{token.slice(1, -1)}</em>);
         last = at + token.length;
     }
-    if (last < text.length) out.push(text.slice(last));
+    if (last < text.length) plain(text.slice(last));
     return out;
 }
 
 export function Inline({ text }: { readonly text: string }) {
     return <>{inline(text, "i")}</>;
-}
-
-async function copyText(text: string): Promise<boolean> {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 function CodeCard({ lang, body }: { readonly lang: string; readonly body: string }) {
@@ -66,7 +71,7 @@ const BULLET = /^\s*[-*+]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
 
-function renderBlock(block: string, key: string): ReactNode {
+function renderBlock(block: string, key: string, fade: boolean): ReactNode {
     if (block.startsWith("```")) {
         const newline = block.indexOf("\n");
         const lang = block.slice(3, newline === -1 ? undefined : newline).trim();
@@ -77,20 +82,31 @@ function renderBlock(block: string, key: string): ReactNode {
     if (heading !== null && !block.includes("\n")) {
         const level = Math.min((heading[1] ?? "#").length + 2, 6);
         const Tag = `h${level}` as "h3" | "h4" | "h5" | "h6";
-        return <Tag key={key}>{inline(heading[2] ?? "", key)}</Tag>;
+        return <Tag key={key}>{inline(heading[2] ?? "", key, fade)}</Tag>;
     }
     const lines = block.split("\n");
     if (lines.every((line) => BULLET.test(line))) {
-        return <ul key={key}>{lines.map((line, i) => <li key={i}>{inline(line.replace(BULLET, ""), `${key}-${i}`)}</li>)}</ul>;
+        return <ul key={key}>{lines.map((line, i) => <li key={i}>{inline(line.replace(BULLET, ""), `${key}-${i}`, fade)}</li>)}</ul>;
     }
     if (lines.every((line) => NUMBERED.test(line))) {
-        return <ol key={key}>{lines.map((line, i) => <li key={i}>{inline(line.replace(NUMBERED, ""), `${key}-${i}`)}</li>)}</ol>;
+        return <ol key={key}>{lines.map((line, i) => <li key={i}>{inline(line.replace(NUMBERED, ""), `${key}-${i}`, fade)}</li>)}</ol>;
     }
-    return <p key={key}>{inline(block, key)}</p>;
+    return <p key={key}>{inline(block, key, fade)}</p>;
 }
 
-export const Markdown = memo(function Markdown({ text }: { readonly text: string }) {
-    return <div className="assistant-text">{splitBlocks(text).map((block, i) => renderBlock(block, String(i)))}</div>;
+export interface MarkdownProps {
+    readonly text: string;
+    // Fades in the words of the last block as they arrive; for text that is still streaming.
+    readonly fade?: boolean;
+}
+
+export const Markdown = memo(function Markdown({ text, fade = false }: MarkdownProps) {
+    const blocks = splitBlocks(text);
+    return (
+        <div className="assistant-text">
+            {blocks.map((block, i) => renderBlock(block, String(i), fade && i === blocks.length - 1))}
+        </div>
+    );
 });
 
 // Splits on blank lines and before headings, keeping a fenced block whole even when it has blank lines.

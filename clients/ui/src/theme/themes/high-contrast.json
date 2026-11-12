@@ -74,6 +74,8 @@
         "radius-xl": "0px",
         "space": "5px",
         "row-height": "34px",
-        "motion": "0ms linear"
+        "motion": "0ms linear",
+        "motion-slow": "0ms linear",
+        "motion-loop": "0ms linear"
     }
 }

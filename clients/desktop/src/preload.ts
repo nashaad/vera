@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { LayoutState } from "../../ui/src/layout/model.ts";
+import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
 import type {
     BranchSessionResult,
     CloseSessionResult,
@@ -35,6 +36,7 @@ const bridge: DesktopBridge = {
         return (layout ?? undefined) as LayoutState | undefined;
     },
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
+    loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
     createSession: async (workspace: string | undefined, approvalMode?: string) => {
         const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
         return result as CreateSessionResult;

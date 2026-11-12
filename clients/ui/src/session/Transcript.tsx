@@ -1,13 +1,17 @@
 import { Fragment, memo, useMemo, useRef, useState } from "react";
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
+import { CheckIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
 import { relativeTime } from "../protocol/sessions.ts";
-import type { FileChange } from "./changes.ts";
+import { useDesktopFlags } from "../state/useDesktopFlags.ts";
+import { type FileChange, latestChecklist } from "./changes.ts";
+import { copyText } from "./copyText.ts";
 import { DiffRollup } from "./DiffRollup.tsx";
-import { DeliveryRow, NoticeRow, RetryLine, SubstitutionRow } from "./NoticeRows.tsx";
+import { estimateTokens, LiveStatus, TaskCard } from "./LiveStatus.tsx";
+import { DeliveryRow, NoticeRow, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
-import type { Block, ThoughtBlock, ToolCall, ToolsBlock } from "./model.ts";
-import { keepTurns, type Turn, type TurnRender } from "./turns.ts";
+import type { AgentRunStatus, Block, RetryState, ThoughtBlock } from "./model.ts";
+import { RunLine } from "./ToolRuns.tsx";
+import { keepTurns, type Run, type Turn, type TurnRender } from "./turns.ts";
 
 function formatSeconds(total: number): string {
     const seconds = Math.max(1, Math.round(total));
@@ -34,45 +38,44 @@ function turnSeconds(turn: Turn): number | undefined {
     return (end - start) / 1000;
 }
 
-async function copyText(text: string): Promise<boolean> {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 export interface TranscriptProps {
     readonly blocks: readonly Block[];
     // True while the agent is working; the last turn then shows its work open and no actions.
     readonly running: boolean;
     // The session folder, used to show changed files relative to it.
     readonly folder?: string;
-    // False for a read-only pane showing a session other than the active one.
-    readonly showRetry?: boolean;
+    // What the agent is doing, for the status line at the end of the live turn.
+    readonly status?: AgentRunStatus;
+    // Set while a failed model request waits to be tried again.
+    readonly retry?: RetryState;
 }
 
-export function Transcript({ blocks, running, folder, showRetry = true }: TranscriptProps) {
+export function Transcript({ blocks, running, folder, status = "working", retry }: TranscriptProps) {
+    const { showReasoning } = useDesktopFlags();
     const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
     const renders = useMemo<readonly TurnRender[]>(() => {
-        const next = keepTurns(kept.current, blocks);
+        const next = keepTurns(kept.current, blocks, { reasoning: showReasoning });
         kept.current = next.byKey;
         return next.renders;
-    }, [blocks]);
+    }, [blocks, showReasoning]);
     return (
         <>
-            {renders.map((render, index) => (
-                <TurnView
-                    key={render.turn.key}
-                    turn={render.turn}
-                    rollups={render.rollups}
-                    folder={folder}
-                    first={index === 0}
-                    live={running && index === renders.length - 1}
-                    showRetry={showRetry}
-                />
-            ))}
+            {renders.map((render, index) => {
+                const live = running && index === renders.length - 1;
+                return (
+                    <TurnView
+                        key={render.turn.key}
+                        turn={render.turn}
+                        rollups={render.rollups}
+                        runs={render.runs}
+                        folder={folder}
+                        first={index === 0}
+                        live={live}
+                        waiting={live && status === "waiting"}
+                        retry={live ? retry : undefined}
+                    />
+                );
+            })}
         </>
     );
 }
@@ -80,16 +83,28 @@ export function Transcript({ blocks, running, folder, showRetry = true }: Transc
 interface TurnViewProps {
     readonly turn: Turn;
     readonly rollups: ReadonlyMap<number, readonly FileChange[]>;
+    readonly runs: ReadonlyMap<number, Run>;
     readonly folder?: string;
     readonly first: boolean;
     readonly live: boolean;
-    readonly showRetry: boolean;
+    readonly waiting: boolean;
+    readonly retry: RetryState | undefined;
 }
 
-const TurnView = memo(function TurnView({ turn, rollups, folder, first, live, showRetry }: TurnViewProps) {
+// Characters of text the turn has written so far, for the status line's token estimate.
+function writtenCharacters(turn: Turn): number {
+    const answer = turn.answer?.text.length ?? 0;
+    return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer);
+}
+
+const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry }: TurnViewProps) {
     const [open, setOpen] = useState(true);
     const seconds = turnSeconds(turn);
     const showWork = open || live;
+    // While the turn ends in a run of calls, the status line names the call and the run draws nothing yet.
+    const liveRunEnd = live && turn.answer === undefined ? turn.work.length - 1 : -1;
+    const liveRun = [...runs.values()].find((run) => run.end === liveRunEnd);
+    const checklist = live ? latestChecklist(turn.work) : undefined;
     return (
         <div className="turn">
             {turn.user === undefined ? null : first ? (
@@ -105,15 +120,29 @@ const TurnView = memo(function TurnView({ turn, rollups, folder, first, live, sh
             ) : null}
             {showWork ? turn.work.map((block, index) => {
                 const changes = rollups.get(index);
+                const run = runs.get(index);
+                const showRun = run !== undefined && !run.quiet && run.end !== liveRunEnd;
                 return (
                     <Fragment key={block.key}>
-                        <BlockView block={block} next={turn.work[index + 1] ?? turn.answer} />
+                        {block.kind === "tools" ? (showRun ? <RunLine calls={run.calls} /> : null) : (
+                            <BlockView block={block} next={turn.work[index + 1] ?? turn.answer} />
+                        )}
                         {changes === undefined ? null : <DiffRollup changes={changes} folder={folder} />}
                     </Fragment>
                 );
             }) : null}
-            {turn.answer === undefined ? null : <Markdown text={turn.answer.text} />}
-            {live && showRetry ? <RetryLine /> : null}
+            {turn.answer === undefined ? null : <Markdown text={turn.answer.text} fade={live} />}
+            {checklist === undefined ? null : <TaskCard checklist={checklist} />}
+            {live ? (
+                <LiveStatus
+                    {...(turn.user?.at === undefined ? {} : { since: turn.user.at })}
+                    calls={liveRun?.calls ?? []}
+                    streaming={turn.answer !== undefined}
+                    tokens={estimateTokens(writtenCharacters(turn))}
+                    waiting={waiting}
+                    {...(retry === undefined ? {} : { retry })}
+                />
+            ) : null}
             {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} /> : null}
         </div>
     );
@@ -128,7 +157,7 @@ const BlockView = memo(function BlockView({ block, next }: { readonly block: Blo
         case "text":
             return <Markdown text={block.text} />;
         case "tools":
-            return <ToolGroup block={block} />;
+            return null;
         case "notice":
             return <NoticeRow block={block} />;
         case "substitution":
@@ -159,177 +188,6 @@ function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?
                 <ChevronRightIcon className="chev" />
             </button>
             {open ? <div className="thought-body">{block.text}</div> : null}
-        </>
-    );
-}
-
-const VERBS: Readonly<Record<string, readonly [string, string]>> = {
-    bash: ["Ran", "command"],
-    read: ["Read", "file"],
-    edit: ["Edited", "file"],
-    write: ["Wrote", "file"],
-    grep: ["Searched", "pattern"],
-    list: ["Listed", "folder"],
-    web_fetch: ["Fetched", "page"],
-    web_download: ["Downloaded", "file"],
-};
-
-function argText(call: ToolCall, ...keys: readonly string[]): string | undefined {
-    for (const key of keys) {
-        const value = call.args[key];
-        if (typeof value === "string" && value.trim() !== "") return value.replace(/\s+/g, " ").trim();
-    }
-    return undefined;
-}
-
-function lastSegment(path: string): string {
-    const parts = path.split(/[\\/]/).filter((part) => part !== "");
-    return parts[parts.length - 1] ?? path;
-}
-
-// A past-tense phrase for a call, such as `Read host.ts` or `Searched for outrider in vera-hq`.
-export function callLabel(call: ToolCall): string {
-    const path = argText(call, "path", "file_path");
-    const file = path === undefined ? undefined : lastSegment(path);
-    switch (call.tool) {
-        case "bash": {
-            const command = argText(call, "command", "cmd");
-            return command === undefined ? call.title : `Ran ${command}`;
-        }
-        case "read":
-            return file === undefined ? call.title : `Read ${file}`;
-        case "edit":
-            return file === undefined ? call.title : `Edited ${file}`;
-        case "write":
-            return file === undefined ? call.title : `Wrote ${file}`;
-        case "list":
-            return file === undefined ? call.title : `Listed ${file}`;
-        case "grep": {
-            const pattern = argText(call, "pattern");
-            if (pattern === undefined) return call.title;
-            return file === undefined ? `Searched for ${pattern}` : `Searched for ${pattern} in ${file}`;
-        }
-        case "catalog_search": {
-            const query = argText(call, "query", "q");
-            return query === undefined ? call.title : `Searched sessions for ${query}`;
-        }
-        case "web_fetch": {
-            const url = argText(call, "url");
-            return url === undefined ? call.title : `Fetched ${url}`;
-        }
-        default:
-            return call.title;
-    }
-}
-
-// "Ran 3 commands" when every call is one tool, otherwise "Used 4 tools".
-export function groupSummary(calls: readonly ToolCall[]): string {
-    const first = calls[0];
-    if (first === undefined) return "Working";
-    if (calls.length === 1) return callLabel(first);
-    const verb = VERBS[first.tool];
-    if (verb !== undefined && calls.every((call) => call.tool === first.tool)) {
-        return `${verb[0]} ${calls.length} ${verb[1]}s`;
-    }
-    return `Used ${calls.length} tools`;
-}
-
-function ToolGroup({ block }: { readonly block: ToolsBlock }) {
-    const [open, setOpen] = useState(true);
-    const running = block.active || block.calls.some((call) => call.state === "running");
-    const single = block.calls.length === 1 ? block.calls[0] : undefined;
-    return (
-        <div className="tool-group" data-active={running}>
-            <button type="button" className="tool-head" disabled={running} aria-expanded={open} onClick={() => setOpen(!open)}>
-                <span className="t">{groupSummary(block.calls)}</span>
-                {running ? <span className="live-dot" /> : open ? <ChevronDownIcon className="chev" /> : <ChevronRightIcon className="chev" />}
-            </button>
-            {(running || open) && block.calls.length > 0 ? (
-                <div className="tool-card">
-                    {single !== undefined && single.state !== "running" ? (
-                        <div className="tool-row" data-open="true" data-failed={single.state === "failed"}>
-                            <div className="tool-name">
-                                {single.tool}
-                                {single.state === "failed" ? <span className="failed-tag">failed</span> : null}
-                            </div>
-                            <ToolBody call={single} />
-                        </div>
-                    ) : (
-                        block.calls.map((call, index) => <ToolRow key={index} call={call} />)
-                    )}
-                </div>
-            ) : null}
-        </div>
-    );
-}
-
-function ToolRow({ call }: { readonly call: ToolCall }) {
-    const [open, setOpen] = useState(false);
-    const done = call.state !== "running";
-    return (
-        <div className="tool-row" data-open={open} data-failed={call.state === "failed"}>
-            <button type="button" className="tool-row-head" disabled={!done} aria-expanded={open} onClick={() => setOpen(!open)}>
-                <span className="t">{callLabel(call)}</span>
-                {call.state === "failed" ? <span className="failed-tag">failed</span> : null}
-                {!done ? <span className="live-dot" /> : open ? <ChevronDownIcon className="chev" /> : <ChevronRightIcon className="chev" />}
-            </button>
-            {open && done ? <ToolBody call={call} /> : null}
-        </div>
-    );
-}
-
-function invocationOf(call: ToolCall): string {
-    const command = call.args["command"] ?? call.args["cmd"];
-    if (typeof command === "string") return command;
-    const rest = call.title.startsWith(`${call.tool} `) ? call.title.slice(call.tool.length + 1) : "";
-    return rest;
-}
-
-function ToolBody({ call }: { readonly call: ToolCall }) {
-    const [copied, setCopied] = useState(false);
-    const invocation = invocationOf(call);
-    const shell = call.tool === "bash";
-    const copy = async (): Promise<void> => {
-        if (!(await copyText(invocation))) return;
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1400);
-    };
-    return (
-        <>
-            {invocation === "" ? null : (
-                <div className="cmd-chip">
-                    <code>
-                        {shell ? <><span className="dollar">$ </span><Shell text={invocation} /></> : <><span className="verb">{call.tool}</span> {invocation}</>}
-                    </code>
-                    <button type="button" className="copy" title={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
-                        {copied ? <CheckIcon /> : <CopyIcon />}
-                    </button>
-                </div>
-            )}
-            <pre className="tool-out">{call.output === "" ? "(no output)" : call.output ?? ""}</pre>
-        </>
-    );
-}
-
-// Colours the word at the head of each pipeline segment, its flags, and quoted strings.
-function Shell({ text }: { readonly text: string }) {
-    let head = true;
-    return (
-        <>
-            {text.split(/(\s+|\||;|&&)/).map((part, index) => {
-                if (part === "" || /^\s+$/.test(part)) return part;
-                if (part === "|" || part === ";" || part === "&&") {
-                    head = true;
-                    return <span key={index} className="pipe">{part}</span>;
-                }
-                if (head) {
-                    head = false;
-                    return <span key={index} className="cmd">{part}</span>;
-                }
-                if (part.startsWith("-")) return <span key={index} className="flag">{part}</span>;
-                if (/^["']/.test(part)) return <span key={index} className="str">{part}</span>;
-                return <span key={index}>{part}</span>;
-            })}
         </>
     );
 }

@@ -1,30 +1,39 @@
 import { useState } from "react";
 
 import { HandIcon, TerminalIcon, WarningIcon } from "../components/Icons.tsx";
-import { approvalChoices, approvalResponse, type ApprovalDecision, type ApprovalRequest } from "./requests.ts";
+import { approvalChoices, type ApprovalDecision, type ApprovalRequest } from "./requests.ts";
+import { askTarget, askTitle } from "./toolTitle.ts";
 
 const INPUT_PREVIEW_LIMIT = 400;
 
 export interface ApprovalCardProps {
     readonly request: ApprovalRequest;
-    readonly answered: boolean;
-    readonly onRespond: (line: string) => void;
+    // Set once the request was answered: the card then shows the answer instead of the choices.
+    readonly outcome?: ApprovalDecision;
+    readonly onDecide: (decision: ApprovalDecision) => void;
 }
 
-export function ApprovalCard({ request, answered, onRespond }: ApprovalCardProps) {
+const OUTCOME_TEXT: Readonly<Record<ApprovalDecision, string>> = {
+    allow_once: "Allowed once",
+    allow_similar: "Allowed for similar requests",
+    allow_always: "Always allowed",
+    deny: "Denied",
+};
+
+export function ApprovalCard({ request, outcome, onDecide }: ApprovalCardProps) {
     const [why, setWhy] = useState(false);
     const offered = approvalChoices(request);
     const path = stringField(request.input, "path");
-    const decide = (decision: ApprovalDecision): void => onRespond(approvalResponse(request.requestId, decision));
+    const target = askTarget(request.tool, request.input);
     const Icon = request.tool === "bash" ? TerminalIcon : HandIcon;
 
     return (
-        <div className="request-card" data-kind="approval" data-request-id={request.requestId} data-answered={answered}>
+        <div className="request-card" data-kind="approval" data-request-id={request.requestId} data-answered={outcome !== undefined}>
             <div className="request-head">
                 <Icon />
                 <span className="request-head-main">
-                    <span className="request-tool">{request.tool}</span>
-                    {path === undefined ? null : <span className="card-path">{path}</span>}
+                    <span className="request-tool">{askTitle(request.tool)}</span>
+                    {target.length === 0 ? null : <span className={path === target ? "card-path" : "card-target"}>{target}</span>}
                 </span>
                 {request.sourceAgentId === undefined ? null : (
                     <span className="request-badge">subagent {request.sourceAgentId.slice(0, 8)}</span>
@@ -33,29 +42,43 @@ export function ApprovalCard({ request, answered, onRespond }: ApprovalCardProps
             </div>
             <ApprovalBody request={request} path={path} />
             {why ? <WhyBlock request={request} showGrants={offered.includes("allow_similar")} /> : null}
-            <div className="request-actions">
-                <button type="button" className="button button-primary" disabled={answered} onClick={() => decide("allow_once")}>
-                    Allow once <kbd className="kbd">1</kbd>
-                </button>
-                {offered.includes("allow_similar") ? (
-                    <button type="button" className="button request-ghost" disabled={answered} onClick={() => decide("allow_similar")}>
-                        Allow similar <kbd className="kbd">2</kbd>
+            {outcome === undefined ? (
+                <div className="request-actions">
+                    <button type="button" className="button button-primary" onClick={() => onDecide("allow_once")}>
+                        Allow once <kbd className="kbd">1</kbd>
                     </button>
-                ) : null}
-                {offered.includes("allow_always") ? (
-                    <button type="button" className="button request-ghost" disabled={answered} onClick={() => decide("allow_always")}>
-                        Always <kbd className="kbd">4</kbd>
+                    {offered.includes("allow_similar") ? (
+                        <button type="button" className="button request-ghost" onClick={() => onDecide("allow_similar")}>
+                            Allow similar <kbd className="kbd">2</kbd>
+                        </button>
+                    ) : null}
+                    {offered.includes("allow_always") ? (
+                        <button type="button" className="button request-ghost" onClick={() => onDecide("allow_always")}>
+                            Always <kbd className="kbd">4</kbd>
+                        </button>
+                    ) : null}
+                    <button type="button" className="button request-ghost" aria-expanded={why} onClick={() => setWhy(!why)}>
+                        Why?
                     </button>
-                ) : null}
-                <button type="button" className="button request-ghost" aria-expanded={why} onClick={() => setWhy(!why)}>
-                    Why?
-                </button>
-                <span className="request-spacer" />
-                <button type="button" className="button request-danger" disabled={answered} onClick={() => decide("deny")}>
-                    Deny <kbd className="kbd">esc</kbd>
-                </button>
-            </div>
+                    <span className="request-spacer" />
+                    <button type="button" className="button request-danger" onClick={() => onDecide("deny")}>
+                        Deny <kbd className="kbd">esc</kbd>
+                    </button>
+                </div>
+            ) : (
+                <div className="request-outcome" data-decision={outcome}>{OUTCOME_TEXT[outcome]}</div>
+            )}
         </div>
+    );
+}
+
+// What stays in the transcript when an approval was denied and past approvals are off.
+export function DeniedLine({ request }: { readonly request: ApprovalRequest }) {
+    const target = askTarget(request.tool, request.input);
+    return (
+        <p className="request-denied" data-request-id={request.requestId}>
+            Denied: {askTitle(request.tool)}{target.length === 0 ? "" : ` ${target}`}
+        </p>
     );
 }
 

@@ -119,6 +119,8 @@ try {
     await rollup.waitFor({ timeout: 15_000 });
     const title = await rollup.locator(".diff-rollup-title").innerText();
     if (!/Edited 1 file/.test(title)) throw new Error(`Rollup title was ${title}`);
+    // Writes the rollup and the plan already name draw no line of their own.
+    if (await page.locator(".run-head").count() !== 0) throw new Error("A run of landed writes drew a summary line.");
     await rollup.locator(".diff-file-head").first().click();
     await rollup.locator(".diff-line[data-kind=\"add\"]", { hasText: "feathers" }).waitFor({ timeout: 5_000 });
 
