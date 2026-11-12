@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ShieldIcon, type IconProps } from "../../components/Icons.tsx";
+import { LayersIcon, ShieldIcon, type IconProps } from "../../components/Icons.tsx";
 
 export interface SettingsSection {
     readonly id: string;
@@ -19,5 +19,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         Icon: ShieldIcon,
         terms: "permission approve deny allow mode grant always",
         file: "config.json and preferences.json in the Vera home",
+    },
+    {
+        id: "providers",
+        name: "Providers",
+        Icon: LayersIcon,
+        terms: "model provider api key pricing shortlist catalog refresh",
+        file: "config.json and the model catalog cache in the Vera home",
     },
 ];

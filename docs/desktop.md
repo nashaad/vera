@@ -236,8 +236,8 @@ On New Chat the folder chip is a menu: the folders of your eight most recent
 sessions, newest first, then `Open folder…`, which opens the system folder
 picker. It starts on the folder of your most recent session, and says
 `Choose folder` when there is none. Sending creates a session in that folder
-with the host's default model and settings, opens its page, and sends the
-message as soon as the page is attached. The page title is the first line of
+with the host's default settings and the model and effort chosen on the bar's
+pills, opens its page, and sends the message as soon as the page is attached. The page title is the first line of
 the message until the session is named.
 
 Images:
@@ -309,6 +309,57 @@ you pick another; the pick applies to that session only.
 
 Settings > Approvals names the default mode and the standing permissions and
 says where to change them: the window reads both only through a session's pill.
+
+## Models
+
+The model pill at the right of the composer's bar shows the provider and the
+model the session runs; on New Chat, the model the new session will start
+with. It opens a menu:
+
+- A search box at the top. Typing filters the shortlist and adds the matching
+  models that are not on it, each with a pin button that adds it to the
+  shortlist.
+- `Auto` and `Fast` are shown but not available yet.
+- `Shortlist`: your shortlisted models with their provider and default
+  effort. Keys 1 to 4 pick the first four while the search box is empty, and
+  Up, Down and Enter move through the rows. A model its provider no longer
+  offers is greyed out.
+- When the session runs a model that is not on the shortlist, it shows first
+  under `Running, not on your shortlist`.
+- `All models…` opens the Models browser.
+
+Picking a model in a session switches it and makes it the default for new
+sessions. A switch made while a turn runs applies when the turn ends, and the
+pill says `after this turn` until then. When Vera refuses the switch, the pill
+says so. On New Chat the pick applies to the new session only; if Vera cannot
+start the session on it, the message stays in the box with a line saying why.
+
+The effort pill next to it shows the effort level and is hidden when the model
+has only one. It opens a slider from least to most effort, with the level's
+description under it and a button that goes back to the model's default.
+
+The Models browser has four tabs:
+
+- `Shortlist` and `All models` list models with their WA score, blended price
+  per million tokens, a `P` for models on the score and price front, an image
+  mark, and a pin that adds or removes the model from the shortlist. A search
+  box and an `Intelligence` filter narrow the list; models the catalog hides
+  appear only in a search. Selecting a row shows its details: provider,
+  shortlist, verified, images, WA score, listed and blended price, context
+  window and model id, with `Run this model`, the shortlist button and
+  `Probe it`, which sends one short request and says whether the model passed.
+- `Defaults` shows the model and effort new sessions start with, and the
+  subagent and reviewer defaults. Choosing a model per job is not available
+  from the window yet.
+- `Help` explains the marks.
+
+Settings > Providers lists the providers the home is connected to, with how
+many models each lists and when it was last listed. `Refresh` lists a
+provider's models again. `Forget` asks first, then removes the provider's saved
+connection and what Vera learned about its models. `Add a provider` explains
+that connecting one is done in the terminal with `vera` and `/provider`; the
+provider appears here once connected. Fallback after failures is not available
+from the window yet.
 
 ## Finding the host
 

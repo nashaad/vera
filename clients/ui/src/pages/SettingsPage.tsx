@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { SearchIcon } from "../components/Icons.tsx";
 import { ApprovalsSection } from "./settings/ApprovalsSection.tsx";
+import { ProvidersSection } from "./settings/ProvidersSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
 
@@ -44,6 +45,7 @@ export function SettingsPage() {
                 <div className="settings-col">
                     {current === undefined ? null : <div className="where">{current.file}</div>}
                     {current?.id === "approvals" ? <ApprovalsSection /> : null}
+                    {current?.id === "providers" ? <ProvidersSection /> : null}
                 </div>
             </div>
         </div>

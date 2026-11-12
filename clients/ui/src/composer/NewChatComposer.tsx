@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
+import { ModelPills } from "../models/ModelPills.tsx";
+import { useDraftModels } from "../models/useDraftModels.ts";
 import { useRouter } from "../pages/router.tsx";
 import type { CreateSessionResult, DesktopBridge } from "../protocol/bridge.ts";
 import { setPendingPrompt } from "../session/pendingPrompt.ts";
@@ -30,6 +32,7 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
     const [busy, setBusy] = useState(false);
     const empty = text.trim().length === 0;
     const branch = useBranch(bridge, folder);
+    const { controls: models, draft } = useDraftModels(bridge, folder, !busy);
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -51,7 +54,11 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
             setBusy(false);
             return;
         }
-        setPendingPrompt(result.agentId, { text: content, images: images.map((image) => image.path) });
+        setPendingPrompt(result.agentId, {
+            text: content,
+            images: images.map((image) => image.path),
+            ...(draft === undefined ? {} : { model: draft }),
+        });
         navigate({ kind: "session", agentId: result.agentId, title: sessionTitle(content), workspace: result.workspace });
     };
 
@@ -115,6 +122,7 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
                 onAttach={() => void bridge.chooseImages().then(addPaths)}
                 attachEnabled={!busy}
                 barStart={<NewApprovalPill mode={approvalMode} onPick={setApprovalMode} disabled={busy} />}
+                barEnd={<ModelPills controls={models} />}
             />
         </div>
     );

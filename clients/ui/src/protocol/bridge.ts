@@ -41,6 +41,37 @@ export interface CreateSessionFailure {
 
 export type CreateSessionResult = CreatedSession | CreateSessionFailure;
 
+export interface HostRequestFailure {
+    readonly ok: false;
+    // Phrased for the person; never raw error text.
+    readonly reason: string;
+}
+
+export interface HostModelsAnswer {
+    readonly ok: true;
+    // The host's `model_settings`; the page parses it.
+    readonly settings: unknown;
+}
+
+export type HostModelsResult = HostModelsAnswer | HostRequestFailure;
+
+export type ModelOperationKind = "keep" | "unkeep" | "verify";
+
+export interface ModelCheck {
+    readonly provider: string;
+    readonly model: string;
+    readonly status: "passed" | "failed";
+    readonly reason?: string;
+}
+
+export interface ModelOperationAnswer {
+    readonly ok: true;
+    readonly results: readonly ModelCheck[];
+    readonly settings?: unknown;
+}
+
+export type ModelOperationResult = ModelOperationAnswer | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -54,6 +85,14 @@ export interface DesktopBridge {
     unwatchSession(): void;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     createSession(workspace: string, approvalMode?: string): Promise<CreateSessionResult>;
+    // The host's models, shortlist and connected providers for a folder, or the host's own folder.
+    readModelSettings(workspace?: string): Promise<HostModelsResult>;
+    // Asks one provider for its model list again.
+    refreshCatalog(provider: string, workspace?: string): Promise<HostModelsResult>;
+    // Removes a provider's saved connection and what Vera learned about its models.
+    forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
+    // Adds a model to the shortlist, removes it, or probes it with a live request.
+    operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // Opens the native folder picker; undefined when cancelled.
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.

@@ -1,0 +1,376 @@
+/* The model and effort pills in the composer bar, the model menu and the effort popover. */
+
+.model-pills {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+}
+
+.pill-button .pill-chevron {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+}
+
+.model-picker,
+.effort-picker {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+}
+
+.effort-pill .effort-label {
+    color: var(--vera-text-dim);
+}
+
+/* model menu */
+
+.model-picker .model-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--vera-space) * 1.5);
+    z-index: 10;
+    width: calc(var(--vera-space) * 80);
+    max-height: calc(var(--vera-space) * 110);
+    overflow-y: auto;
+    user-select: text;
+}
+
+.model-search {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    margin: 0 0 calc(var(--vera-space) * 1.5);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text-disabled);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.model-search:focus-within {
+    border-color: var(--vera-border-input);
+}
+
+.model-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    color: var(--vera-text);
+    font: inherit;
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
+.model-search input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.model-search-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.model-label {
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2) calc(var(--vera-space) * 0.75);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.model-empty,
+.model-note {
+    margin: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    white-space: normal;
+}
+
+.model-note {
+    color: var(--vera-warning);
+}
+
+.model-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1);
+}
+
+.model-menu .model-item {
+    display: flex;
+    flex: 1 1 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    min-width: 0;
+    width: 100%;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    white-space: normal;
+}
+
+.model-row .model-item {
+    width: auto;
+    padding-block: calc(var(--vera-space) * 1.25);
+}
+
+.model-row .model-item-text {
+    flex-direction: row;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: baseline;
+}
+
+.model-row .model-item-name {
+    flex: 0 1 auto;
+}
+
+.model-row .model-item-sub {
+    flex: 0 2 auto;
+}
+
+.model-item-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.model-item-name {
+    overflow: hidden;
+    color: var(--vera-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-item-sub {
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-menu .model-item[aria-disabled="true"] {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.model-menu .model-item[aria-disabled="true"] .model-item-name {
+    color: var(--vera-text-disabled);
+}
+
+.model-check {
+    color: var(--vera-accent);
+}
+
+.model-count {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.model-chevron {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+}
+
+.model-pin {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 6);
+    height: calc(var(--vera-space) * 6);
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.model-pin:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.model-pin:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.model-pin-icon {
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.model-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 8);
+    height: calc(var(--vera-space) * 4.5);
+    background: var(--vera-border-input);
+    border-radius: calc(var(--vera-space) * 2.25);
+}
+
+.model-switch i {
+    position: absolute;
+    top: calc(var(--vera-space) * 0.5);
+    left: calc(var(--vera-space) * 0.5);
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    background: var(--vera-text-dim);
+    border-radius: 50%;
+}
+
+/* effort popover */
+
+.effort-picker .effort-pop {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--vera-space) * 1.5);
+    z-index: 10;
+    width: calc(var(--vera-space) * 62.5);
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 3.25) calc(var(--vera-space) * 3.5);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    box-shadow: var(--vera-shadow);
+}
+
+.effort-head {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    margin-bottom: calc(var(--vera-space) * 0.5);
+}
+
+.effort-bolt {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+    color: var(--vera-text-dim);
+}
+
+.effort-level {
+    flex: 1 1 auto;
+    color: var(--vera-accent);
+    font-size: var(--vera-font-size-body);
+    text-align: center;
+}
+
+.effort-reset {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 6);
+    height: calc(var(--vera-space) * 6);
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.effort-reset:hover:not(:disabled) {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.effort-reset:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.effort-reset:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.effort-reset-icon {
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.effort-model {
+    margin-bottom: calc(var(--vera-space) * 3);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    text-align: center;
+}
+
+.effort-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: calc(var(--vera-space) * 5.5);
+}
+
+.effort-rail {
+    position: absolute;
+    top: calc(var(--vera-space) * 1.5);
+    right: 0;
+    bottom: calc(var(--vera-space) * 1.5);
+    left: 0;
+    background: var(--vera-border-input);
+    border-radius: calc(var(--vera-space) * 1.5);
+}
+
+.effort-fill {
+    position: absolute;
+    top: calc(var(--vera-space) * 1.5);
+    bottom: calc(var(--vera-space) * 1.5);
+    left: 0;
+    background: var(--vera-accent);
+    border-radius: calc(var(--vera-space) * 1.5);
+}
+
+.effort-stop {
+    position: absolute;
+    top: 50%;
+    width: var(--vera-space);
+    height: var(--vera-space);
+    background: var(--vera-text-disabled);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.effort-knob {
+    position: absolute;
+    top: 50%;
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    background: var(--vera-text);
+    border-radius: 50%;
+    box-shadow: var(--vera-shadow);
+    transform: translate(-50%, -50%);
+}
+
+.effort-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.effort-track:focus-within .effort-knob {
+    outline: thin solid var(--vera-focus);
+}
+
+.effort-desc {
+    margin: calc(var(--vera-space) * 2.5) 0 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}

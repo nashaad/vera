@@ -12,6 +12,16 @@ import { CHANNELS } from "./channels.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
+import {
+    forgetProvider,
+    modelArgument,
+    operateModel,
+    operationArgument,
+    providerArgument,
+    readModels,
+    refreshProvider,
+    workspaceArgument,
+} from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { shortcutCommand } from "./shortcuts.ts";
@@ -215,6 +225,27 @@ ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unkn
 ipcMain.handle(CHANNELS.branchRead, async (event, folder: unknown): Promise<string | undefined> => {
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return undefined;
     return readBranch(folder);
+});
+ipcMain.handle(CHANNELS.modelsRead, (event, workspace: unknown) =>
+    fromWindow(event) ? readModels(hostSocketPath, workspaceArgument(workspace)) : undefined);
+ipcMain.handle(CHANNELS.catalogRefresh, (event, provider: unknown, workspace: unknown) => {
+    const id = providerArgument(provider);
+    if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
+    return refreshProvider(hostSocketPath, id, workspaceArgument(workspace));
+});
+ipcMain.handle(CHANNELS.providerForget, (event, provider: unknown, workspace: unknown) => {
+    const id = providerArgument(provider);
+    if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
+    return forgetProvider(hostSocketPath, id, workspaceArgument(workspace));
+});
+ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unknown, model: unknown, workspace: unknown) => {
+    const kind = operationArgument(operation);
+    const id = providerArgument(provider);
+    const name = modelArgument(model);
+    if (!fromWindow(event) || kind === undefined || id === undefined || name === undefined) {
+        return { ok: false, reason: "That is not a model Vera knows." };
+    }
+    return operateModel(hostSocketPath, kind, id, name, workspaceArgument(workspace));
 });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;

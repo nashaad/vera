@@ -3,7 +3,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export function configureFauxHome(home, port, approvalMode = "auto") {
+// `catalog` adds models the provider lists beside crow-0; only crow-0 is on the shortlist.
+export function configureFauxHome(home, port, approvalMode = "auto", catalog = []) {
     const model = { name: "faux-model", provider: "faux-0", model: "crow-0" };
     const assignment = { models: [model] };
     mkdirSync(join(home, "runtime", "cache"), { recursive: true });
@@ -25,7 +26,12 @@ export function configureFauxHome(home, port, approvalMode = "auto") {
         schema_version: 2,
         provider: "faux-0",
         fetched_at: new Date().toISOString(),
-        models: [{ id: "crow-0", label: "Crow", context_window: 32000, tool_support: true, levels: [], pricing: { input: 1, output: 8 } }],
+        // A matching endpoint keeps the host from replacing this file with the provider's bare list.
+        endpoint: `http://127.0.0.1:${port}/v1/models`,
+        models: [
+            { id: "crow-0", label: "Crow", context_window: 32000, tool_support: true, levels: [], pricing: { input: 1, output: 8 } },
+            ...catalog,
+        ],
     }));
 }
 

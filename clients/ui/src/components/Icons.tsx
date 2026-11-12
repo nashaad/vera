@@ -349,3 +349,57 @@ export function TerminalIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function BoltIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z" />
+        </Icon>
+    );
+}
+
+export function PinIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M9 4h6" />
+            <path d="M10 4v5l-3 4h10l-3-4V4" />
+            <path d="M12 13v7" />
+        </Icon>
+    );
+}
+
+export function LayersIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m12 4 9 5-9 5-9-5 9-5Z" />
+            <path d="m3 14 9 5 9-5" />
+        </Icon>
+    );
+}
+
+export function KeyIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="8" cy="15" r="4" />
+            <path d="m11 12 8-8" />
+            <path d="m16 7 3 3" />
+        </Icon>
+    );
+}
+
+export function RefreshIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+            <path d="M20 4v5h-5" />
+        </Icon>
+    );
+}
+
+export function ProbeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 12h4l2-5 4 10 2-5h4" />
+        </Icon>
+    );
+}

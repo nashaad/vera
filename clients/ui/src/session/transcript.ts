@@ -148,6 +148,10 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
             return { ...state, approval: message.approval };
         case "permissions_rejected":
             return { ...state, approvalRefused: message.requestId };
+        case "model_settings":
+            return { ...state, models: message.reply };
+        case "model_settings_rejected":
+            return { ...state, modelRefused: message.refusal };
         default:
             return {
                 ...state,

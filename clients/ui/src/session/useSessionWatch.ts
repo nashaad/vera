@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer } from "react";
 
+import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import type { SessionWatch } from "./model.ts";
 import { getPermissionsCommand } from "./permissions.ts";
@@ -59,12 +60,14 @@ export function useSessionWatch(
             bridge.unwatchSession();
         };
     }, [bridge, agentId, connected]);
-    // The approval mode is not part of history, so it is asked for on every attach.
+    // The approval mode and the model are not part of history, so both are asked for on every attach.
     const attached = watch.phase === "attached";
     useEffect(() => {
         if (!attached) return;
         requestCount += 1;
-        bridge.sendSession(getPermissionsCommand(`desktop-permissions-${Date.now().toString(36)}-${requestCount}`));
+        const stamp = `${Date.now().toString(36)}-${requestCount}`;
+        bridge.sendSession(getPermissionsCommand(`desktop-permissions-${stamp}`));
+        bridge.sendSession(getModelSettingsCommand(`desktop-models-${stamp}`));
     }, [bridge, attached]);
     const ready = canLoadOlder(watch);
     const { olderBefore } = watch;

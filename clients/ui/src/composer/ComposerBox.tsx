@@ -21,6 +21,8 @@ export interface ComposerBoxProps {
     readonly attachEnabled: boolean;
     // Controls drawn after the attach button, such as the approval pill.
     readonly barStart?: ReactNode;
+    // Controls drawn just before the send button, such as the model and effort pills.
+    readonly barEnd?: ReactNode;
 }
 
 export function ComposerBox({
@@ -37,6 +39,7 @@ export function ComposerBox({
     onAttach,
     attachEnabled,
     barStart,
+    barEnd,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
     const stop = buttonMode === "stop";
@@ -97,6 +100,7 @@ export function ComposerBox({
                 </button>
                 {barStart}
                 <span className="grow" />
+                {barEnd}
                 <button
                     type="button"
                     className="send-button"

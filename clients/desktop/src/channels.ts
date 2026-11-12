@@ -16,5 +16,9 @@ export const CHANNELS = {
     branchRead: "vera:branch-read",
     imagesChoose: "vera:images-choose",
     imagePaste: "vera:image-paste",
+    modelsRead: "vera:models-read",
+    catalogRefresh: "vera:catalog-refresh",
+    providerForget: "vera:provider-forget",
+    modelOperate: "vera:model-operate",
     event: "vera:event",
 } as const;

@@ -1,4 +1,5 @@
 import type { AgentRunStatus, ImageReply, QueuedPrompt } from "./model.ts";
+import { parseModelRefusal, parseModelSettingsReply, type ModelRefusal, type ModelSettingsReply } from "../models/settings.ts";
 import { parsePermissions, type ApprovalState } from "./permissions.ts";
 import { parseUiRequest, type OpenRequest } from "./requests.ts";
 
@@ -203,6 +204,16 @@ export interface PermissionsRejectedMessage {
     readonly requestId: string;
 }
 
+export interface ModelSettingsMessage {
+    readonly type: "model_settings";
+    readonly reply: ModelSettingsReply;
+}
+
+export interface ModelRefusedMessage {
+    readonly type: "model_settings_rejected";
+    readonly refusal: ModelRefusal;
+}
+
 export type SessionMessage =
     | AttachedMessage
     | AttachFailedMessage
@@ -218,6 +229,8 @@ export type SessionMessage =
     | UiRequestClosedMessage
     | PermissionsMessage
     | PermissionsRejectedMessage
+    | ModelSettingsMessage
+    | ModelRefusedMessage
     | LiveMessage;
 
 type Fields = Record<string, unknown>;
@@ -321,6 +334,14 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
         case "permissions_rejected": {
             const requestId = str(value.requestId);
             return requestId === undefined ? undefined : { type: "permissions_rejected", requestId };
+        }
+        case "model_settings": {
+            const reply = parseModelSettingsReply(value);
+            return reply === undefined ? undefined : { type: "model_settings", reply };
+        }
+        case "model_settings_rejected": {
+            const refusal = parseModelRefusal(value);
+            return refusal === undefined ? undefined : { type: "model_settings_rejected", refusal };
         }
         default:
             return parseLive(type, value);

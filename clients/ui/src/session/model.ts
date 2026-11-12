@@ -1,6 +1,7 @@
 // What the session page shows, built from the host's `history` entries and the
 // live updates that follow them on the watch connection.
 
+import type { ModelRefusal, ModelSettingsReply } from "../models/settings.ts";
 import type { ApprovalState } from "./permissions.ts";
 import type { OpenRequest } from "./requests.ts";
 
@@ -122,6 +123,9 @@ export interface SessionWatch {
     readonly approval?: ApprovalState;
     // The id of the last permissions change the session refused.
     readonly approvalRefused?: string;
+    // Unknown until the session answers `get_model_settings`.
+    readonly models?: ModelSettingsReply;
+    readonly modelRefused?: ModelRefusal;
 }
 
 // The page keeps at most this many history blocks; older pages drop off the far end.

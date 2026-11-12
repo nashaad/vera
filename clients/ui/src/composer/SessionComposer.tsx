@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
-import { takePendingPrompt } from "../session/pendingPrompt.ts";
+import { effortCommand, switchModelCommand } from "../models/commands.ts";
+import { ModelPills } from "../models/ModelPills.tsx";
+import { useSessionModels } from "../models/useSessionModels.ts";
+import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
 import type { SessionComposerProps } from "./Composer.tsx";
 import { ApprovalPill } from "./ApprovalPill.tsx";
@@ -16,6 +19,12 @@ import { useSessionImages } from "./useImages.ts";
 
 const IMAGES_WAITING = "The images are still attaching.";
 const NOT_IMAGES = "Only image files can be attached.";
+const MODEL_REFUSED = "Vera could not start this session on the model you chose, so the prompt was not sent.";
+
+interface ModelGate {
+    readonly requestId: string;
+    readonly prompt: PendingPrompt;
+}
 
 export function SessionComposer({ bridge, agentId, watch, send, folder }: SessionComposerProps) {
     const [text, setText] = useState("");
@@ -24,6 +33,8 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
     const [autoSend, setAutoSend] = useState(false);
     const lastSent = useRef<SentPrompt | undefined>(undefined);
     const withdrawing = useRef<string | undefined>(undefined);
+    // A New Chat prompt waits here until the session has switched to the model chosen for it.
+    const modelGate = useRef<ModelGate | undefined>(undefined);
     const attached = watch.phase === "attached";
     const running = watch.status !== "idle";
     const queued = watch.queue.length > 0;
@@ -36,6 +47,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
     }, []);
     const { images, add, remove, clear } = useSessionImages(send, watch.images, onRefused);
     const ready = readyAttachments(images, watch.images);
+    const models = useSessionModels(bridge, watch, send, folder);
 
     // A refusal of the last prompt sent from here gives the text back and says why.
     useEffect(() => {
@@ -55,11 +67,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
         setText((current) => (current.trim().length === 0 ? withdrawn.content : `${current}\n${withdrawn.content}`));
     }, [watch.withdrawn]);
 
-    // A prompt typed on New Chat goes out once, when the new session's watch attaches.
-    useEffect(() => {
-        if (!attached) return;
-        const pending = takePendingPrompt(agentId);
-        if (pending === undefined) return;
+    const startPending = useCallback((pending: PendingPrompt): void => {
         if (pending.images.length === 0) {
             lastSent.current = sendPrompt(send, pending.text);
             return;
@@ -67,7 +75,38 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
         setText(pending.text);
         add(pending.images);
         setAutoSend(true);
-    }, [attached, agentId, send, add]);
+    }, [send, add]);
+
+    // A prompt typed on New Chat goes out once, when the new session's watch attaches.
+    useEffect(() => {
+        if (!attached) return;
+        const pending = takePendingPrompt(agentId);
+        if (pending === undefined) return;
+        const model = pending.model;
+        if (model === undefined) {
+            startPending(pending);
+            return;
+        }
+        const requestId = freshRequestId("model");
+        modelGate.current = { requestId, prompt: pending };
+        send(model.switched
+            ? switchModelCommand(requestId, model.provider, model.model, model.effort)
+            : effortCommand(requestId, model.effort ?? null));
+    }, [attached, agentId, send, startPending]);
+
+    useEffect(() => {
+        const gate = modelGate.current;
+        if (gate === undefined) return;
+        if (watch.models?.requestId === gate.requestId) {
+            modelGate.current = undefined;
+            startPending(gate.prompt);
+        } else if (watch.modelRefused?.requestId === gate.requestId) {
+            modelGate.current = undefined;
+            setNotice(MODEL_REFUSED);
+            setText(gate.prompt.text);
+            if (gate.prompt.images.length > 0) add(gate.prompt.images);
+        }
+    }, [watch.models, watch.modelRefused, startPending, add]);
 
     const submit = (): void => {
         const content = text.trim();
@@ -153,6 +192,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
                 barStart={
                     <ApprovalPill approval={watch.approval} refused={watch.approvalRefused} send={send} enabled={attached} running={running} />
                 }
+                barEnd={<ModelPills controls={models} />}
             />
         </div>
     );

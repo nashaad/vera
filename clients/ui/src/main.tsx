@@ -14,6 +14,8 @@ import "./styles/transcript.css";
 import "./styles/composer.css";
 import "./styles/cards.css";
 import "./styles/settings.css";
+import "./styles/models.css";
+import "./styles/models-browser.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {
