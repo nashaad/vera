@@ -109,7 +109,11 @@ workspace and a session.
 - Settings has a list of sections on the left with a search box that filters
   them by name and keywords, and the chosen section on the right. It opens on
   Appearance. The sections sit under two headings: Settings, and Desktop for
-  what the window keeps itself.
+  what the window keeps itself. When the page is narrow the list shows only
+  each section's icon, with its name on hover, and the search box becomes a
+  search icon. Clicking that icon opens the whole list over the section;
+  Escape, a click outside or picking a section closes it again. A setting's
+  control moves under its description when there is no room beside it.
   - Appearance picks the theme and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
     motion stops the status line's dots and sweep and the fade on new words. Past

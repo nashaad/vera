@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import { agentMeta, scopeLabel } from "../../clients/ui/src/pages/settings/agents.ts";
 import { filterSettings } from "../../clients/ui/src/pages/settings/filter.ts";
+import { railNarrow } from "../../clients/ui/src/pages/settings/useNarrowRail.ts";
 import { filterShortcutGroups } from "../../clients/ui/src/commands/keys.ts";
 import { THEME_LABELS, themeFromAttribute, themeSwatch } from "../../clients/ui/src/pages/settings/appearance.ts";
 import { FOLDER_LIMIT, folderSummary, workspaceFolders } from "../../clients/ui/src/pages/settings/workspaces.ts";
@@ -148,5 +149,18 @@ describe("agent labels", () => {
         expect(agentMeta(base)).toBe("This folder");
         expect(agentMeta({ ...base, defaultModel: "model-a", defaultEffort: "high" })).toBe("This folder · model-a · effort high");
         expect(agentMeta({ ...base, scope: "user", defaultEffort: "" })).toBe("Your home");
+    });
+});
+
+describe("settings rail", () => {
+    test("keeps only its icons below 150 space units", () => {
+        expect(railNarrow(599, 4)).toBe(true);
+        expect(railNarrow(600, 4)).toBe(false);
+        expect(railNarrow(700, 5)).toBe(true);
+    });
+
+    test("stays whole until the space token is read", () => {
+        expect(railNarrow(100, 0)).toBe(false);
+        expect(railNarrow(100, Number.NaN)).toBe(false);
     });
 });

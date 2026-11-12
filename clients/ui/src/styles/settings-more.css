@@ -2,7 +2,7 @@
 
 .appearance-themes {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(calc(var(--vera-space) * 30), 1fr));
     gap: calc(var(--vera-space) * 3);
     margin-bottom: calc(var(--vera-space) * 2);
 }

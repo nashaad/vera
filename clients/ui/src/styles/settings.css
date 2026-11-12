@@ -10,7 +10,43 @@
     flex: 0 0 calc(var(--vera-space) * 48);
     padding: calc(var(--vera-space) * 5.5) calc(var(--vera-space) * 2.5);
     overflow-y: auto;
+    background: var(--vera-surface);
     border-right: thin solid var(--vera-border);
+}
+
+.settings-split[data-rail="icons"] .settings-rail {
+    flex-basis: calc(var(--vera-space) * 13);
+    padding-inline: calc(var(--vera-space) * 1.5);
+}
+
+.settings-split[data-rail="icons"] .rail-row {
+    justify-content: center;
+    padding: 0;
+}
+
+.settings-split[data-rail="icons"] .rail-row span {
+    display: none;
+}
+
+.settings-split[data-rail="icons"] .rail-group {
+    height: 0;
+    margin: calc(var(--vera-space) * 2) calc(var(--vera-space) * 1.5);
+    padding: 0;
+    overflow: hidden;
+    border-top: thin solid var(--vera-border);
+}
+
+/* The negative margin keeps the section where the icon rail left it while the whole rail lies over it. */
+.settings-split[data-rail="open"] .settings-rail {
+    position: relative;
+    z-index: 1;
+    margin-right: calc(var(--vera-space) * -35);
+    box-shadow: var(--vera-shadow);
+}
+
+.settings-split[data-rail="icons"] .settings-col,
+.settings-split[data-rail="open"] .settings-col {
+    padding-inline: calc(var(--vera-space) * 4);
 }
 
 .rail-search {
@@ -139,16 +175,18 @@
     border-radius: var(--vera-radius-xl);
 }
 
+/* With too little room beside the text the control wraps under it, starting at its left edge. */
 .setting {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: calc(var(--vera-space) * 3.5);
+    gap: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3.5);
     padding: calc(var(--vera-space) * 2.75) 0;
     border-bottom: thin solid var(--vera-border);
 }
 
 .setting-body {
-    flex: 1 1 auto;
+    flex: 1 1 calc(var(--vera-space) * 50);
     min-width: 0;
 }
 
@@ -238,6 +276,7 @@
 
 .provider-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: calc(var(--vera-space) * 3);
     margin-bottom: calc(var(--vera-space) * 2);
@@ -255,7 +294,7 @@
 }
 
 .provider-body {
-    flex: 1 1 auto;
+    flex: 1 1 calc(var(--vera-space) * 50);
     min-width: 0;
 }
 
