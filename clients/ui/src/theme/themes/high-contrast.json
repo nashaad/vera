@@ -24,7 +24,11 @@
         "navy": "#003366",
         "slate": "#ffffff",
         "white": "#ffffff",
-        "black": "#000000"
+        "black": "#000000",
+        "blue-deep": "#66ccff",
+        "rail": "#5e5e5e",
+        "stop": "#ffffff99",
+        "knob": "#ffffff"
     },
     "colors": {
         "surface": "canvas",
@@ -57,10 +61,16 @@
         "diff-added": "green",
         "diff-removed": "red",
         "selection": "navy",
-        "scrollbar": "line"
+        "scrollbar": "line",
+        "slider-value": "blue",
+        "slider-rail": "rail",
+        "slider-fill": "blue-deep",
+        "slider-stop": "stop",
+        "slider-knob": "knob"
     },
     "values": {
         "shadow": "none",
+        "shadow-knob": "0 0 0 1px #000000",
         "font-ui": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Inter, system-ui, sans-serif",
         "font-code": "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, monospace",
         "font-size": "14px",

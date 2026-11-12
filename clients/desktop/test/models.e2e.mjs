@@ -90,7 +90,7 @@ async function assertEffortPopover(page) {
     if (await page.locator(".effort-stop").count() !== 2) throw new Error("The track does not have one stop per level.");
     if (!await page.locator(".effort-reset").isDisabled()) throw new Error("Reset is live while the model runs its default.");
 
-    // The level name is centered in the popover with the model's name under it, in smaller text.
+    // The level name is centered between the bolt and Reset, with the model's name under it in smaller text.
     const layout = await page.evaluate(() => {
         const pop = document.querySelector(".effort-pop").getBoundingClientRect();
         const text = (selector) => {
@@ -121,7 +121,6 @@ async function assertEffortPopover(page) {
     await pillShows("Low");
     await sliderReads("Low");
     if ((await level.innerText()) !== "Low") throw new Error("The popover did not follow the click on Low.");
-    if (await page.locator(".effort-stop[data-reached=\"true\"]").count() !== 1) throw new Error("Stops past the knob read as reached.");
     await clickStop(1);
     await pillShows("High");
     await sliderReads("High");

@@ -30,10 +30,16 @@ export const COLOR_TOKENS = [
     "diff-removed",
     "selection",
     "scrollbar",
+    "slider-value",
+    "slider-rail",
+    "slider-fill",
+    "slider-stop",
+    "slider-knob",
 ] as const;
 
 export const VALUE_TOKENS = [
     "shadow",
+    "shadow-knob",
     "font-ui",
     "font-code",
     "font-size",

@@ -594,9 +594,10 @@ top, the model's name under it, and a track with a stop for each level the model
 offers, running from least to most effort. The knob sits on the current level
 and the track is filled up to it. Click a stop or drag the knob to change the
 effort, or use Left and Right, Home and End; the pill follows as it moves.
-Escape closes the popover. The level's description sits under the track, and
-`Reset` goes back to the model's default level; it is dimmed while the model
-already runs that level and left out when the model lists no default.
+Escape closes the popover. Hovering the track shows the level's description.
+The reset button at the top right goes back to the model's default level; it is
+dimmed while the model already runs that level and left out when the model
+lists no default.
 
 When the composer is too narrow for every pill, the approval pill shows only its
 hand icon, and if that is not enough the effort pill hides, so the model's name
