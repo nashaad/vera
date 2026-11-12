@@ -54,6 +54,7 @@ test("a command's -h prints help instead of running the command", async () => {
     const run = capture();
     expect(await runCli(["doctor", "-h"], run.dependencies)).toBe(0);
     expect(run.out[0]).toContain("vera doctor --check-providers");
+    expect(run.out[0]).toContain("vera doctor --config [--yes]");
     expect(run.out[0]).toContain("runtime-and-worktrees.md");
 });
 

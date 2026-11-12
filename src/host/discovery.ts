@@ -24,6 +24,13 @@ import {
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 
+export class HostStartDeadlineError extends Error {
+    constructor() {
+        super("Resident host did not start before its deadline");
+        this.name = "HostStartDeadlineError";
+    }
+}
+
 export class HostReplacementBusyError extends Error {
     constructor() {
         super("other work is still using the resident host");
@@ -88,16 +95,17 @@ export async function ensureResidentHost(
     };
     const beforeDeadline = async <T>(
         operation: () => Promise<T> | T,
-        message: string,
+        late: string | Error,
     ): Promise<T> => {
+        const failure = (): Error => typeof late === "string" ? new Error(late) : late;
         const remainingMs = deadline - now();
-        if (remainingMs <= 0) throw new Error(message);
+        if (remainingMs <= 0) throw failure();
         let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
             return await Promise.race([
                 Promise.resolve().then(operation),
                 new Promise<never>((_resolve, reject) => {
-                    timeout = setTimeout(() => reject(new Error(message)), remainingMs);
+                    timeout = setTimeout(() => reject(failure()), remainingMs);
                 }),
             ]);
         } finally {
@@ -359,19 +367,19 @@ export async function ensureResidentHost(
 
     await beforeDeadline(
         () => options.startHost(),
-        "Resident host did not start before its deadline",
+        new HostStartDeadlineError(),
     );
     while (true) {
         const started = await beforeDeadline(
             () => lockfile.read(),
-            "Resident host did not start before its deadline",
+            new HostStartDeadlineError(),
         );
         if (started !== undefined) {
             return started;
         }
         const remainingMs = deadline - now();
         if (remainingMs <= 0) {
-            throw new Error("Resident host did not start before its deadline");
+            throw new HostStartDeadlineError();
         }
         await wait(Math.min(pollIntervalMs, remainingMs));
     }

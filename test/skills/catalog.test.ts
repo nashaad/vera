@@ -259,7 +259,7 @@ test("a broken project config keeps its last list, or turns every skill off if i
     expect(names(neverLoaded.skills)).toEqual([]);
     expect(names(neverLoaded.disabledSkills)).toEqual(["crow-call", "plunder", "review"]);
     expect(neverLoaded.warnings).toEqual([
-        ".vera/config.json could not be read: disabled_skills is not a valid list. Skills are off until it loads.",
+        ".vera/config.json could not be read: disabled_skills[0]: expected a skill name, with * allowed only at the end, found \"cr*w\". Skills are off until it loads.",
     ]);
 
     writeFileSync(configPath, JSON.stringify({ disabled_skills: ["crow-*"] }));
@@ -279,7 +279,7 @@ test("a broken project config keeps its last list, or turns every skill off if i
     const invalid = await load();
     expect(names(invalid.skills)).toEqual(["plunder"]);
     expect(invalid.warnings).toEqual([
-        ".vera/config.json could not be read: disabled_skills is not a valid list. Skills use the last settings that loaded.",
+        ".vera/config.json could not be read: disabled_skills: expected a list of names, found \"crow-call\". Skills use the last settings that loaded.",
     ]);
 
     rmSync(configPath);

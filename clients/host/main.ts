@@ -22,20 +22,39 @@ import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { runPendingHandoff } from "../../src/release/handoff.ts";
 import { clearBootFailures } from "./boot-failures.ts";
 import {
+    clearHostStartupFailure,
+    homeCommandPrefix,
+    hostHomeProblem,
+    hostSocketPathProblem,
+    recordHostStartupFailure,
+} from "../../src/host/startup-failure.ts";
+import {
     anotherHostIsServing,
     isSupervisedHost,
     startWaitingOutRivals,
 } from "./supervised-start.ts";
 
+const LOCK_RESET_ADVICE = "To back up this home's records, stop its Vera processes and clear the lock, run: ";
+
+// Nobody reads this process's output, so the cause also goes where the launcher looks for it.
+function failStartup(error: unknown): never {
+    const text = error instanceof HostLockUnreadableError
+        ? `${renderCliFailure(error)}\n${LOCK_RESET_ADVICE}${homeCommandPrefix()}vera host reset`
+        : renderCliFailure(error);
+    recordHostStartupFailure(text);
+    process.stderr.write(`${text}\n`);
+    process.exit(1);
+}
+
 export async function runHostEntrypoint(): Promise<void> {
+    const blocker = hostHomeProblem() ?? hostSocketPathProblem();
+    if (blocker !== undefined) failStartup(blocker);
     let config;
     try {
         config = loadOrCreateVeraConfig();
     } catch (error) {
-        if (error instanceof VeraConfigError) {
-            process.stderr.write(`${renderCliFailure(error)}\n`);
-            process.exit(1);
-        }
+        if (error instanceof VeraConfigError) failStartup(error);
+        recordHostStartupFailure(renderCliFailure(error));
         throw error;
     }
 
@@ -68,14 +87,13 @@ export async function runHostEntrypoint(): Promise<void> {
             process.exit(HOST_STARTUP_RACE_EXIT_CODE);
         }
         // A supervised host waits this out, so only an unsupervised start gets here.
-        if (error instanceof HostLockUnreadableError) {
-            process.stderr.write(`${renderCliFailure(error)}\n`);
-            process.exit(1);
-        }
+        if (error instanceof HostLockUnreadableError) failStartup(error);
+        recordHostStartupFailure(renderCliFailure(error));
         throw error;
     }
 
     clearBootFailures();
+    clearHostStartupFailure();
     if (pool && process.argv.includes("--pool")) process.stdout.write("Session worker ready\n");
     installLiveProcess("host");
     const developmentSource = noteDevelopmentInstance();
