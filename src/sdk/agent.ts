@@ -19,8 +19,6 @@ import {
 import { configuredTurnPolicy } from "../turn-policy.ts";
 import {
     createLiveVeraConfigReader,
-    loadOptionalVeraConfig,
-    VERA_CONFIG_SCHEMA_VERSION,
     type VeraConfig,
 } from "../config.ts";
 import {
@@ -72,8 +70,13 @@ import type {
 import {
     veraProfileDirectory,
 } from "../profile-paths.ts";
-import { createAuthStorage, type AuthStorage } from "../providers/auth-storage.ts";
+import { createAuthStorage } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import {
+    defaultRunAdapterFactory,
+    homeConfig,
+    type RunAdapterFactory,
+} from "./home-run.ts";
 import {
     applyModelRequestOptions,
     ProviderRoutingAdapter,
@@ -119,10 +122,7 @@ export interface VeraRunOptions<Output = never> {
     readonly signal?: AbortSignal;
     readonly output?: AgentOutputSchema<Output>;
     readonly config?: VeraConfig;
-    readonly createAdapter?: (
-        config: VeraConfig,
-        workspace: string,
-    ) => ModelAdapter;
+    readonly createAdapter?: RunAdapterFactory;
     readonly sessionPath?: string;
 }
 
@@ -205,7 +205,7 @@ interface BoundAgentOptions {
     readonly profileDirectory: string;
     readonly config: VeraConfig;
     readonly runtimePosture: string;
-    readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
+    readonly createAdapter: RunAdapterFactory;
     readonly readRequestOptionsConfig: () => VeraConfig;
     readonly runtime: SdkRuntime;
 }
@@ -218,7 +218,7 @@ interface ResolvedAgentOptions {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly posture: string;
     readonly functions: readonly RegisteredTool[];
-    readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
+    readonly createAdapter: RunAdapterFactory;
     readonly readRequestOptionsConfig: () => VeraConfig;
 }
 
@@ -240,10 +240,7 @@ export class Vera {
         private readonly workspace: string,
         private readonly profileDirectory: string,
         private readonly runtimePosture: string,
-        private readonly createAdapter: (
-            config: VeraConfig,
-            workspace: string,
-        ) => ModelAdapter,
+        private readonly createAdapter: RunAdapterFactory,
         private readonly readRequestOptionsConfig: () => VeraConfig,
         private readonly runtime: SdkRuntime = new SdkRuntime(),
     ) {}
@@ -527,6 +524,7 @@ async function runResolvedTurn<Output>(
         const configuredAdapter = resolved.createAdapter(
             resolved.config,
             resolved.workspace,
+            { sessionId: sessionStore.header.id, sessionPath },
         );
         const adapter = new ProviderRoutingAdapter(
             () => configuredAdapter,
@@ -879,18 +877,6 @@ function builtInPostureRank(name: string): number | undefined {
     return rank < 0 ? undefined : rank;
 }
 
-// Without config.json the agent names its own route, and posture stays readonly.
-function homeConfig(profileDirectory: string): VeraConfig {
-    return loadOptionalVeraConfig({
-        path: join(profileDirectory, "config.json"),
-    }) ?? {
-        schema_version: VERA_CONFIG_SCHEMA_VERSION,
-        provider: "",
-        model: "",
-        approval_mode: "readonly",
-    };
-}
-
 function requirePermissionMode(name: string, config: VeraConfig): void {
     if (
         builtInPermissionMode(name) === undefined
@@ -934,31 +920,6 @@ function defaultAdapterFactory(): NonNullable<VeraCreateOptions["createAdapter"]
             authStorage,
             projectRoot: selectedWorkspace,
         });
-}
-
-function defaultRunAdapterFactory(): NonNullable<VeraRunOptions["createAdapter"]> {
-    const authStorage = readOnlyAuthStorage(createAuthStorage());
-    return (selected, selectedWorkspace) =>
-        createConfiguredModelAdapter(selected, {
-            authStorage,
-            projectRoot: selectedWorkspace,
-        });
-}
-
-function readOnlyAuthStorage(inner: AuthStorage): AuthStorage {
-    return {
-        getCredential: (provider) => inner.getCredential(provider),
-        setCredential() {
-            throw new Error(
-                "This bounded run cannot write auth.json. Refresh the credential with vera login, then retry.",
-            );
-        },
-        deleteCredential() {
-            throw new Error(
-                "This bounded run cannot write auth.json. Refresh the credential with vera login, then retry.",
-            );
-        },
-    };
 }
 
 function mapCredentialFailure<Output>(

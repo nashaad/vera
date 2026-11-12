@@ -19,6 +19,11 @@ containing only Vera's identity prompt and your message, with no tools:
 vera -p "Summarize this text" --prompt-only
 ```
 
+Print mode loads the extensions in the home's `config.json` `extensions` list,
+and a model-call extension such as telemetry sees its calls. Other extension
+hooks, tools and commands do not run in print mode. An extension that fails to
+load ends the turn with an error naming it, and the model is not called.
+
 ### Choose the model and effort for one run
 
 `--model` selects a model from your library for this turn. `--effort` overrides

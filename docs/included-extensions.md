@@ -195,8 +195,9 @@ so use a `config.json` `extensions` entry whose path is the absolute path of
 `examples/extensions/telemetry` rather than installing it: an installed copy
 runs with no configuration and stays off. `sink.type` is `axiom`, which needs
 a `dataset` and a `token` such as `{env:AXIOM_TOKEN}`, or `jsonl`, which writes
-to the extension's profile directory. `vera -p` print mode does not load
-config extensions, so it sends nothing. Restart the host after adding or
+to the extension's profile directory. `vera -p` print mode loads the entry
+too and sends its model-call events, but no session-end event; it reads the
+entry on every run, so it needs no restart. Restart the host after adding or
 changing the entry: Ctrl+P, then Reconnect host. The restarted host must see
 the token's environment variable, or the extension does not load. The
 example's README lists the events it sends and some Axiom queries.

@@ -38,6 +38,7 @@ import {
 } from "../tools/execute.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import type { RegisteredTool } from "../tools/types.ts";
+import { placeInWorkspace } from "./workspace-scope.ts";
 import {
     applyPermissionGrant,
     isPermissionGrant,
@@ -87,6 +88,7 @@ export interface PermissionAction {
     readonly path?: string;
     readonly host?: string;
     readonly scope?: PermissionScope;
+    readonly otherWorktree?: true;
     readonly operation?: string;
     readonly executable?: string;
 }
@@ -106,6 +108,7 @@ export interface PermissionPredicate {
     readonly pathGlob?: string;
     readonly host?: string;
     readonly scope?: PermissionScope;
+    readonly otherWorktree?: boolean;
     readonly operation?: string;
     readonly executable?: string;
 }
@@ -273,6 +276,20 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     },
 ];
 
+// A write or delete in another worktree of the session's repository is never left to the reviewer.
+const OTHER_WORKTREE_RULES: readonly PermissionRule[] = [
+    {
+        name: "routine.other_worktree_write",
+        when: { verb: "write", otherWorktree: true },
+        then: "ask",
+    },
+    {
+        name: "routine.other_worktree_delete",
+        when: { verb: "delete", otherWorktree: true },
+        then: "ask",
+    },
+];
+
 const READONLY_RULES: readonly PermissionRule[] = [
     ...SECRET_FILE_HYGIENE_DENY_GLOBS.map((glob): PermissionRule => ({
         name: `readonly.secret_file_hygiene_deny.${glob}`,
@@ -321,7 +338,7 @@ export const BUILT_IN_PERMISSION_MODES: Readonly<
     },
     auto: {
         name: "auto",
-        rules: ROUTINE_RULES,
+        rules: [...ROUTINE_RULES, ...OTHER_WORKTREE_RULES],
         defaultOutcome: "review",
         reviewerProfile: "default",
     },
@@ -975,7 +992,7 @@ function structuredInputAction(
         tool: toolCall.name,
         verb: spec.verb,
         path,
-        scope: pathScope(path, workspace),
+        ...pathPlacement(path, workspace),
     };
 }
 
@@ -1602,7 +1619,7 @@ function shellPathAction(
             tool: "bash",
             verb,
             path,
-            scope: pathScope(path, workspace),
+            ...pathPlacement(path, workspace),
             executable,
         };
 }
@@ -1655,16 +1672,19 @@ function rescopeScratchAction(
         return action;
     }
     const root = resolve(scratchDir);
-    return action.path === root || action.path.startsWith(`${root}${sep}`)
-        ? { ...action, scope: "workspace" }
-        : action;
+    if (action.path !== root && !action.path.startsWith(`${root}${sep}`)) {
+        return action;
+    }
+    const { otherWorktree: _otherWorktree, ...inside } = action;
+    return { ...inside, scope: "workspace" };
 }
 
-function pathScope(path: string, workspace: string): PermissionScope {
-    const root = resolve(workspace);
-    return path === root || path.startsWith(`${root}${sep}`)
-        ? "workspace"
-        : "outside_workspace";
+function pathPlacement(
+    path: string,
+    workspace: string,
+): Pick<PermissionAction, "scope" | "otherWorktree"> {
+    const { scope, otherWorktree } = placeInWorkspace(path, workspace);
+    return otherWorktree ? { scope, otherWorktree } : { scope };
 }
 
 function accidentGuardReason(
