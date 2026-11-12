@@ -86,7 +86,7 @@ export function SearchPage() {
     const statusById = new Map(rows.map((row) => [row.id, row.status]));
 
     return (
-        <Page title="Search" lede="Search every session by title and by what was said inside it." Icon={SearchIcon}>
+        <Page title="Search" lede="Search every session by title and by what was said inside it.">
             <div className="toolbar">
                 <label className="search-field">
                     <SearchIcon />

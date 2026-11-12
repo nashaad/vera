@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ChevronDownIcon, FolderIcon, RefreshIcon, SearchIcon, BlocksIcon } from "../components/Icons.tsx";
+import { ChevronDownIcon, FolderIcon, RefreshIcon, SearchIcon } from "../components/Icons.tsx";
 import {
     buildItems,
     cardBadges,
@@ -251,7 +251,7 @@ export function CustomizePage() {
                             onClick={() => setKind(pill)}
                         >
                             {pill === "all" ? "All" : KIND_LABELS[pill].plural}
-                            <span className="customize-count">{counts[pill]}</span>
+                            {pill === "all" ? null : <span className="customize-count">{counts[pill]}</span>}
                         </button>
                     ))}
                 </div>
@@ -278,7 +278,6 @@ export function CustomizePage() {
         <Page
             title="Customize"
             lede={folderLabel === undefined ? "What Vera loads for a session in a folder." : `What Vera loads for ${folderLabel}.`}
-            Icon={BlocksIcon}
             wide
         >
             <div className="toolbar">

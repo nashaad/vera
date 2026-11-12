@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { ChevronRightIcon, FolderIcon, PlusIcon } from "../components/Icons.tsx";
+import { ChevronRightIcon, PlusIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { folderName, groupSessions } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
@@ -105,7 +105,7 @@ export function WorkspacePage({ route }: { readonly route: WorkspaceRoute }) {
     }
 
     return (
-        <Page title={folderName(route.folder)} lede={lede} Icon={FolderIcon}>
+        <Page title={folderName(route.folder)} lede={lede}>
             <div className="toolbar">
                 <button
                     type="button"

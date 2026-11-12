@@ -5,7 +5,7 @@ import type { IconProps } from "../components/Icons.tsx";
 export interface PageProps {
     readonly title: string;
     readonly lede: string;
-    readonly Icon: (props: IconProps) => ReactNode;
+    readonly Icon?: (props: IconProps) => ReactNode;
     readonly children?: ReactNode;
     readonly wide?: boolean;
     readonly actions?: ReactNode;
@@ -15,7 +15,7 @@ export interface PageProps {
 export function Page({ title, lede, Icon, children, wide = false, actions }: PageProps) {
     const heading = (
         <h1 className="page-title">
-            <Icon className="page-title-icon" />
+            {Icon === undefined ? null : <Icon className="page-title-icon" />}
             {title}
         </h1>
     );

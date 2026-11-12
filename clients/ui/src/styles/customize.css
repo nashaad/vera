@@ -131,7 +131,7 @@
     align-items: center;
     margin-top: calc(var(--vera-space) * 1.5);
     color: var(--vera-text-disabled);
-    font-size: var(--vera-font-size-label);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
 }
 
 .customize-badge {

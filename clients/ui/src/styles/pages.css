@@ -209,7 +209,7 @@
     font-size: var(--vera-font-size);
     background: transparent;
     border: thin solid var(--vera-border);
-    border-radius: var(--vera-radius-xl);
+    border-radius: calc(var(--vera-space) * 7.5 / 2);
     cursor: pointer;
 }
 
@@ -221,7 +221,7 @@
 .filter-pill[aria-pressed="true"] {
     color: var(--vera-text);
     background: var(--vera-surface-hover);
-    border-color: var(--vera-border-input);
+    border-color: color-mix(in srgb, var(--vera-text-disabled) 60%, var(--vera-border-input));
 }
 
 .filter-pill:disabled {
