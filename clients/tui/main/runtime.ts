@@ -551,6 +551,10 @@ export interface TuiRuntime {
     homeState: HomeState;
     homeCommandMode: boolean;
     homeTypedText: string | undefined;
+    /** A name set with /rename before any conversation exists. It goes to the conversation that starts next. */
+    homeSessionName: string | undefined;
+    /** The rename request sent for that name, so its reply is matched without blocking the first prompt. */
+    homeNameRequestId: string | undefined;
     /** A prompt that reached submit with no provider behind it. It sits in the composer until the gates close. */
     onboardingPromptWaiting: boolean;
     /** The model-settings request the waiting prompt runs on, once onboarding has asked for it. */

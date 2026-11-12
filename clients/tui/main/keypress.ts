@@ -1680,7 +1680,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    const scrollBinding = anyOverlayOpen(rt)
+    // The start screen has no transcript to scroll; Ctrl+U there edits the composer.
+    const scrollBinding = anyOverlayOpen(rt) || isHomeClient(rt.client)
         ? undefined
         : tuiBindingId("conversation", key);
     if (applyTranscriptScroll(rt, scrollBinding)) {
