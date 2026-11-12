@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { ChevronDownIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { modelName } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
@@ -18,6 +19,7 @@ export function ModelPill({ controls, onBrowse }: ModelPillProps) {
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
+    const placed = usePopoverPlacement(open, root);
 
     const { settings, choice } = controls;
     const name = settings === undefined || choice === undefined ? "Model" : modelName(settings, choice);
@@ -41,7 +43,7 @@ export function ModelPill({ controls, onBrowse }: ModelPillProps) {
                 <ChevronDownIcon className="pill-chevron" />
             </button>
             {open && settings !== undefined ? (
-                <ModelMenu controls={controls} settings={settings} onClose={close} onBrowse={onBrowse} />
+                <ModelMenu controls={controls} settings={settings} onClose={close} onBrowse={onBrowse} style={placed} />
             ) : null}
         </div>
     );

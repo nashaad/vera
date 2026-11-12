@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { BoltIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { ModelControls } from "./controls.ts";
@@ -9,10 +9,11 @@ export interface EffortPopoverProps {
     readonly controls: ModelControls;
     readonly entry: ModelEntry;
     readonly name: string;
+    readonly style?: CSSProperties;
 }
 
 // The slider keeps the dragged position until the host echoes the new effort, so the knob does not snap back between steps.
-export function EffortPopover({ controls, entry, name }: EffortPopoverProps) {
+export function EffortPopover({ controls, entry, name, style }: EffortPopoverProps) {
     const effort = controls.choice?.effort;
     const [dragged, setDragged] = useState<number | undefined>(undefined);
     useEffect(() => setDragged(undefined), [effort]);
@@ -25,7 +26,7 @@ export function EffortPopover({ controls, entry, name }: EffortPopoverProps) {
     const atDefault = effort === undefined || effort === entry.defaultLevel;
 
     return (
-        <div className="effort-pop" role="dialog" aria-label="Effort">
+        <div className="effort-pop" role="dialog" data-popover="above-end" style={style} aria-label="Effort">
             <div className="effort-head">
                 <BoltIcon className="effort-bolt" />
                 <span className="effort-level">{effortText(entry, effort)}</span>

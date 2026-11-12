@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
 
 import { GaugeIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import type { ActiveSession } from "./activeSession.ts";
 import type { ContextState } from "./model.ts";
@@ -25,6 +26,7 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
+    const placed = usePopoverPlacement(open, root);
     const context = session.watch.context;
 
     const compact = () => {
@@ -46,7 +48,7 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
                 <GaugeIcon className="pill-icon" />
                 <span className="pill-label">{pillLabel(context)}</span>
             </button>
-            {open ? <ContextPopover context={context} onCompact={compact} /> : null}
+            {open ? <ContextPopover context={context} onCompact={compact} style={placed} /> : null}
         </div>
     );
 }
@@ -65,13 +67,14 @@ function percentOf(tokens: number, capacity: number): number {
 interface ContextPopoverProps {
     readonly context: ContextState | undefined;
     readonly onCompact: () => void;
+    readonly style: CSSProperties | undefined;
 }
 
-function ContextPopover({ context, onCompact }: ContextPopoverProps) {
+function ContextPopover({ context, onCompact, style }: ContextPopoverProps) {
     const [listing, setListing] = useState(false);
     if (context === undefined) {
         return (
-            <div className="context-pop" role="dialog" aria-label="Context usage">
+            <div className="context-pop" role="dialog" data-popover="below-end" style={style} aria-label="Context usage">
                 <p className="context-empty">No measurement yet.</p>
                 <button type="button" className="context-compact" onClick={onCompact}>Compact…</button>
             </div>
@@ -88,7 +91,7 @@ function ContextPopover({ context, onCompact }: ContextPopoverProps) {
     const trigger = triggerPosition(context);
 
     return (
-        <div className="context-pop" role="dialog" aria-label="Context usage">
+        <div className="context-pop" role="dialog" data-popover="below-end" style={style} aria-label="Context usage">
             <div className="context-head">
                 <span className="context-headline">{headline}</span>
                 <span className="context-basis">{basis}</span>

@@ -105,10 +105,6 @@
 }
 
 .folder-menu {
-    position: absolute;
-    bottom: calc(100% + var(--vera-space) * 1.5);
-    left: 0;
-    z-index: 10;
     display: flex;
     flex-direction: column;
     width: calc(var(--vera-space) * 72);
@@ -471,12 +467,8 @@
 }
 
 .approval-picker .approval-menu {
-    position: absolute;
-    bottom: calc(100% + var(--vera-space) * 1.5);
-    left: 0;
-    z-index: 10;
     width: calc(var(--vera-space) * 80);
-    max-height: calc(var(--vera-space) * 110);
+    max-height: min(calc(var(--vera-space) * 110), var(--popover-room));
     overflow-y: auto;
     user-select: text;
 }

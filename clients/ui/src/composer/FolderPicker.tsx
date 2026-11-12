@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ChevronDownIcon, FolderIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import type { FolderChoice } from "./rules.ts";
 
 export interface FolderPickerActions {
@@ -19,6 +20,7 @@ export interface FolderPickerProps extends FolderPickerActions {
 export function FolderPicker({ label, folder, choices, onPick, onOpen }: FolderPickerProps) {
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
+    const placed = usePopoverPlacement(open, root);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -51,7 +53,7 @@ export function FolderPicker({ label, folder, choices, onPick, onOpen }: FolderP
                 <ChevronDownIcon className="chip-chevron" />
             </button>
             {open ? (
-                <div className="folder-menu" role="menu">
+                <div className="folder-menu" role="menu" data-popover="above-start" style={placed}>
                     {choices.map((choice) => (
                         <button
                             key={choice.folder}

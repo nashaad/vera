@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { HandIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { modeLabel, modeOptions } from "../session/permissions.ts";
 import { ApprovalMenu, modeChoices, type ApprovalChoice } from "./ApprovalMenu.tsx";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
@@ -18,6 +19,7 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
+    const placed = usePopoverPlacement(open, root);
 
     const pick = (next: string | undefined): void => {
         onPick(next);
@@ -51,7 +53,7 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
                 <HandIcon className="pill-icon" />
                 <span className="pill-label">{mode === undefined ? "Default approvals" : modeLabel(mode)}</span>
             </button>
-            {open ? <ApprovalMenu choices={choices} /> : null}
+            {open ? <ApprovalMenu choices={choices} style={placed} /> : null}
         </div>
     );
 }

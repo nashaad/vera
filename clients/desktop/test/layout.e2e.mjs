@@ -59,6 +59,25 @@ async function assertNarrowFits(app, page) {
             return inner.left < outer.left - 0.5 || inner.right > outer.right + 0.5;
         }).map((label) => label.textContent));
     if (spilled.length > 0) throw new Error(`Pill text runs out of its pill: ${spilled.join(", ")}.`);
+
+    // Each popover opens whole: no pane covers or clips it and it stays inside the window.
+    const popovers = [
+        [".composer-bar .approval-picker .pill-button", ".approval-menu"],
+        [".composer-bar .model-pill", ".model-menu"],
+        [".context-chips .folder-picker .chip-button", ".folder-menu"],
+    ];
+    for (const [pill, popover] of popovers) {
+        await page.locator(pill).first().click();
+        await page.waitForSelector(popover, { timeout: 5_000 });
+        const hidden = await page.locator(popover).evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const corners = [[rect.left + 4, rect.top + 4], [rect.right - 4, rect.top + 4], [rect.left + 4, rect.bottom - 4], [rect.right - 4, rect.bottom - 4]];
+            return corners.some(([x, y]) => !node.contains(document.elementFromPoint(x, y)));
+        });
+        await page.keyboard.press("Escape");
+        await page.waitForSelector(popover, { state: "detached", timeout: 5_000 });
+        if (hidden) throw new Error(`${popover} is cut off at the narrow width.`);
+    }
 }
 
 async function dragSessionsToPanel(page) {

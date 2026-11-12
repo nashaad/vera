@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { ChevronDownIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { findModel, modelName } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
@@ -17,6 +18,7 @@ export function EffortPill({ controls }: EffortPillProps) {
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
+    const placed = usePopoverPlacement(open, root);
 
     const { settings, choice } = controls;
     const entry = settings === undefined || choice === undefined ? undefined : findModel(settings, choice);
@@ -36,7 +38,7 @@ export function EffortPill({ controls }: EffortPillProps) {
                 <span className="pill-label effort-label">{effortText(entry, choice.effort)}</span>
                 <ChevronDownIcon className="pill-chevron" />
             </button>
-            {open ? <EffortPopover controls={controls} entry={entry} name={modelName(settings, choice)} /> : null}
+            {open ? <EffortPopover controls={controls} entry={entry} name={modelName(settings, choice)} style={placed} /> : null}
         </div>
     );
 }

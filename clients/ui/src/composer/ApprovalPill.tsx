@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { HandIcon, WarningIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import {
     defaultModeCommand,
     modeLabel,
@@ -35,6 +36,7 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
+    const placed = usePopoverPlacement(open, root);
 
     const wasRefused = sentId !== undefined && refused === sentId;
     const waiting = running && approval?.pending === true && approval.requestId === sentId;
@@ -73,7 +75,7 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                 {waiting ? <span className="pill-sub">after this turn</span> : null}
             </button>
             {open && approval !== undefined ? (
-                <ApprovalMenu choices={modeChoices(modeOptions(approval.modes), approval.mode, (mode) => dispatch("mode", (id) => sessionModeCommand(id, mode), true))}>
+                <ApprovalMenu style={placed} choices={modeChoices(modeOptions(approval.modes), approval.mode, (mode) => dispatch("mode", (id) => sessionModeCommand(id, mode), true))}>
                     <div className="menu-separator" />
                     <button
                         type="button"

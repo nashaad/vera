@@ -340,6 +340,20 @@
 
 /* menus */
 
+/* usePopoverPlacement sets the inset; the margin is the gap to the anchor. */
+[data-popover] {
+    position: fixed;
+    z-index: 30;
+}
+
+[data-popover^="above"] {
+    margin-bottom: calc(var(--vera-space) * 1.5);
+}
+
+[data-popover^="below"] {
+    margin-top: calc(var(--vera-space) * 1.5);
+}
+
 .menu {
     position: fixed;
     z-index: 30;

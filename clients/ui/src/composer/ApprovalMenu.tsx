@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { CheckIcon, HandIcon, ShieldIcon, type IconProps } from "../components/Icons.tsx";
 import { type ModeOption } from "../session/permissions.ts";
@@ -17,6 +17,7 @@ export interface ApprovalMenuProps {
     readonly choices: readonly ApprovalChoice[];
     // Rows below the choices, such as the session's standing permissions.
     readonly children?: ReactNode;
+    readonly style?: CSSProperties;
 }
 
 export function modeChoices(
@@ -36,9 +37,9 @@ export function modeChoices(
 }
 
 // The list shared by the session pill and the New Chat pill.
-export function ApprovalMenu({ choices, children }: ApprovalMenuProps) {
+export function ApprovalMenu({ choices, children, style }: ApprovalMenuProps) {
     return (
-        <div className="approval-menu menu" role="menu">
+        <div className="approval-menu menu" role="menu" data-popover="above-start" style={style}>
             <div className="menu-label">How should tool calls be approved?</div>
             {choices.map((choice) => (
                 <button

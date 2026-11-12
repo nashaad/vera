@@ -28,12 +28,8 @@
 /* model menu */
 
 .model-picker .model-menu {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + var(--vera-space) * 1.5);
-    z-index: 10;
     width: calc(var(--vera-space) * 80);
-    max-height: calc(var(--vera-space) * 110);
+    max-height: min(calc(var(--vera-space) * 110), var(--popover-room));
     overflow-y: auto;
     user-select: text;
 }
@@ -234,10 +230,6 @@
 /* effort popover */
 
 .effort-picker .effort-pop {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + var(--vera-space) * 1.5);
-    z-index: 10;
     width: calc(var(--vera-space) * 62.5);
     padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 3.25) calc(var(--vera-space) * 3.5);
     background: var(--vera-surface-menu);

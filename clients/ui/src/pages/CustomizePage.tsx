@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ChevronDownIcon, FolderIcon, RefreshIcon, SearchIcon } from "../components/Icons.tsx";
+import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import {
     buildItems,
     cardBadges,
@@ -71,6 +72,7 @@ interface FolderMenuProps {
 function FolderMenu({ folder, folders, onPick }: FolderMenuProps) {
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
+    const placed = usePopoverPlacement(open, root);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -105,7 +107,7 @@ function FolderMenu({ folder, folders, onPick }: FolderMenuProps) {
                 <ChevronDownIcon />
             </button>
             {open ? (
-                <div className="folder-menu" role="menu">
+                <div className="folder-menu" role="menu" data-popover="below-start" style={placed}>
                     {choices.map((choice) => (
                         <button
                             key={choice}

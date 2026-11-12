@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useState, type CSSProperties, type KeyboardEvent } from "react";
 
 import { ChevronRightIcon, SearchIcon } from "../components/Icons.tsx";
 import { allModels, NUMBERED_ROWS } from "./catalog.ts";
@@ -12,10 +12,11 @@ export interface ModelMenuProps {
     readonly settings: ModelSettings;
     readonly onClose: () => void;
     readonly onBrowse: () => void;
+    readonly style?: CSSProperties;
 }
 
 // The quick model picker. The shortlist is what it offers; everything else is one search or one browse away.
-export function ModelMenu({ controls, settings, onClose, onBrowse }: ModelMenuProps) {
+export function ModelMenu({ controls, settings, onClose, onBrowse, style }: ModelMenuProps) {
     const [query, setQuery] = useState("");
     const [focus, setFocus] = useState<number | undefined>(undefined);
     const [reason, setReason] = useState<string | undefined>(undefined);
@@ -54,7 +55,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse }: ModelMenuPr
     const nothingMatches = rows.searching && rows.running === undefined && rows.shortlist.length === 0 && rows.browse.length === 0;
 
     return (
-        <div className="model-menu menu" role="menu" onKeyDown={onKeyDown}>
+        <div className="model-menu menu" role="menu" data-popover="above-end" style={style} onKeyDown={onKeyDown}>
             <label className="model-search">
                 <SearchIcon className="model-search-icon" />
                 <input

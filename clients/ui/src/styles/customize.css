@@ -6,10 +6,7 @@
 }
 
 .customize-folder .folder-menu {
-    top: calc(100% + var(--vera-space) * 1.5);
-    bottom: auto;
-    left: 0;
-    max-height: calc(var(--vera-space) * 90);
+    max-height: min(calc(var(--vera-space) * 90), var(--popover-room));
     overflow-y: auto;
 }
 
