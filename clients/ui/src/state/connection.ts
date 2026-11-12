@@ -8,6 +8,8 @@ export interface ReadyFacts {
     readonly pid: number;
     readonly buildId: string | null;
     readonly home: string;
+    // When this window saw the host ready, for Settings > Devices.
+    readonly attachedAt: number;
 }
 
 export interface UiQuestion {
@@ -71,7 +73,7 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
         case "ready":
             return {
                 phase: "attached",
-                ready: { pid: event.pid, buildId: event.buildId, home: event.home },
+                ready: { pid: event.pid, buildId: event.buildId, home: event.home, attachedAt: Date.now() },
             };
         case "missing_cli":
             return {

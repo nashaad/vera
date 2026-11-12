@@ -36,6 +36,7 @@ test("@core a ready host attaches and the host facts fill in from the polls", ()
         identity: { protocol_version: 7 },
         sessions: 3,
     });
+    expect(state.ready?.attachedAt).toBeGreaterThan(0);
     expect(bannerFor(state)).toBeUndefined();
     expect(toneOf(state)).toBe("success");
 });

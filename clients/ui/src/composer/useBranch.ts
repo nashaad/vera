@@ -8,10 +8,10 @@ interface BranchState {
 }
 
 // The branch of a folder's repository; undefined while loading, when there is none, or for another folder.
-export function useBranch(bridge: DesktopBridge, folder: string | undefined): string | undefined {
+export function useBranch(bridge: DesktopBridge | undefined, folder: string | undefined): string | undefined {
     const [state, setState] = useState<BranchState | undefined>(undefined);
     useEffect(() => {
-        if (folder === undefined) return undefined;
+        if (bridge === undefined || folder === undefined) return undefined;
         let live = true;
         bridge
             .readBranch(folder)

@@ -21,7 +21,12 @@ const HINTS: readonly Hint[] = [
 ];
 
 // New Chat: the greeting, the composer that starts a session, then the window's toggles.
-export function HomePage({ platform }: { readonly platform: string }) {
+export interface HomePageProps {
+    readonly platform: string;
+    readonly folder?: string;
+}
+
+export function HomePage({ platform, folder }: HomePageProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
     return (
         <div className="page-scroll">
@@ -30,7 +35,7 @@ export function HomePage({ platform }: { readonly platform: string }) {
                     <h1 className="greeting">Where to, captain?</h1>
                     {bridge === undefined ? null : (
                         <div className="home-composer">
-                            <Composer mode="new" bridge={bridge} />
+                            <Composer key={folder ?? ""} mode="new" bridge={bridge} {...(folder === undefined ? {} : { folder })} />
                         </div>
                     )}
                     <ul className="home-keys">

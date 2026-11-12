@@ -10,6 +10,8 @@ import type {
     HostModelsResult,
     ModelOperationKind,
     ModelOperationResult,
+    SessionSearchRequest,
+    SessionSearchResult,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import type { ThemeName } from "../../ui/src/theme/tokens.ts";
@@ -68,6 +70,9 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.providerForget, provider, workspace)) as HostModelsResult,
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
+    searchSessions: async (request: SessionSearchRequest) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
+    revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);
         ipcRenderer.on(CHANNELS.event, handler);

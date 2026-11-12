@@ -1,48 +1,122 @@
-import { BellIcon } from "../components/Icons.tsx";
+import { useEffect, useState } from "react";
+
+import { BellIcon, ChevronRightIcon } from "../components/Icons.tsx";
 import { folderName } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
+import { type FinishedEntry, useFinished } from "../state/finished.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
 import { useRouter } from "./router.tsx";
 
-interface Bucket {
+const NOW_TICK_MS = 60_000;
+
+export interface WorkRowView {
+    readonly id: string;
+    readonly name: string;
+    readonly workspace: string;
+    readonly status: SessionStatus;
+    readonly detail: string;
+}
+
+export interface WorkBucket {
     readonly id: string;
     readonly title: string;
     readonly note: string;
-    readonly status: SessionStatus;
+    readonly warn: boolean;
+    readonly rows: readonly WorkRowView[];
 }
 
-const BUCKETS: readonly Bucket[] = [
-    { id: "needs-you", title: "Needs you", note: "Stopped at an approval or a question.", status: "waiting" },
-    { id: "running", title: "Running", note: "Working now.", status: "working" },
-];
-
-function detail(row: SessionRow, now: number): string {
-    const lead = row.status === "waiting" ? "Waiting on you" : "Working";
-    const age = relativeTime(row.updatedAt, now);
-    if (age === "") return lead;
-    return age === "now" ? `${lead}, active now` : `${lead}, last active ${age} ago`;
+export function runningDetail(updatedAt: number | undefined, now: number): string {
+    const age = relativeTime(updatedAt, now);
+    if (age === "") return "Running";
+    return age === "now" ? "Running · active now" : `Running · active ${age} ago`;
 }
 
-function WorkRow({ row, now }: { readonly row: SessionRow; readonly now: number }) {
+export function finishedDetail(finishedAt: number, now: number): string {
+    const age = relativeTime(finishedAt, now);
+    return age === "now" ? "Finished just now" : `Finished ${age} ago`;
+}
+
+function rowOf(row: SessionRow, detail: string): WorkRowView {
+    return { id: row.id, name: row.name, workspace: row.workspace, status: row.status, detail };
+}
+
+// A session that is waiting or running now is listed there only, even if it finished earlier.
+export function workBuckets(
+    rows: readonly SessionRow[],
+    finished: readonly FinishedEntry[],
+    now: number,
+): readonly WorkBucket[] {
+    const waiting = rows.filter((row) => row.status === "waiting").map((row) => rowOf(row, "Waiting on you"));
+    const working = rows
+        .filter((row) => row.status === "working")
+        .map((row) => rowOf(row, runningDetail(row.updatedAt, now)));
+    const claimed = new Set([...waiting, ...working].map((row) => row.id));
+    const settled = finished
+        .filter((entry) => !claimed.has(entry.agentId))
+        .map((entry): WorkRowView => ({
+            id: entry.agentId,
+            name: entry.name,
+            workspace: entry.workspace,
+            status: entry.status,
+            detail: finishedDetail(entry.finishedAt, now),
+        }));
+    const buckets: WorkBucket[] = [
+        {
+            id: "needs-you",
+            title: "Needs you",
+            note: "Stopped at an approval or a question.",
+            warn: true,
+            rows: waiting,
+        },
+        {
+            id: "running",
+            title: "Running",
+            note: "Working now. Nothing to do but let them finish.",
+            warn: false,
+            rows: working,
+        },
+        {
+            id: "finished",
+            title: "Finished since you last looked",
+            note: "Settled in the last hour while this window was open, and not opened since.",
+            warn: false,
+            rows: settled,
+        },
+    ];
+    return buckets.filter((bucket) => bucket.rows.length > 0);
+}
+
+function useNow(): number {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), NOW_TICK_MS);
+        return () => window.clearInterval(timer);
+    }, []);
+    return now;
+}
+
+function WorkRow({ row }: { readonly row: WorkRowView }) {
     const { navigate } = useRouter();
+    const running = row.status === "working" || row.status === "waiting";
     return (
         <li>
             <button
                 type="button"
-                className="work-row"
+                className="list-row"
                 data-session={row.id}
                 data-status={row.status}
                 onClick={() => navigate({ kind: "session", agentId: row.id, title: row.name })}
             >
-                <span className="session-dot" data-running="true" aria-hidden="true" />
-                <span className="work-row-body">
-                    <span className="work-row-name">
-                        <span className="work-row-title">{row.name}</span>
-                        <span className="work-row-folder" title={row.workspace}>{folderName(row.workspace)}</span>
+                <span className="session-dot" data-running={running} aria-hidden="true" />
+                <span className="list-row-body">
+                    <span className="list-row-name">
+                        <span className="list-row-title">{row.name}</span>
+                        <span className="badge" title={row.workspace}>{folderName(row.workspace)}</span>
                     </span>
-                    <span className="work-row-detail">{detail(row, now)}</span>
+                    <span className="list-row-detail">{row.detail}</span>
                 </span>
+                <ChevronRightIcon className="list-row-go" />
             </button>
         </li>
     );
@@ -50,25 +124,31 @@ function WorkRow({ row, now }: { readonly row: SessionRow; readonly now: number 
 
 export function WorkPage() {
     const { connection } = useViewEnvironment();
-    const rows = connection.sessionRows ?? [];
-    const now = Date.now();
-    const buckets = BUCKETS
-        .map((bucket) => ({ bucket, rows: rows.filter((row) => row.status === bucket.status) }))
-        .filter((entry) => entry.rows.length > 0);
+    const { navigate } = useRouter();
+    const now = useNow();
+    const finished = useFinished(now);
+    const buckets = workBuckets(connection.sessionRows ?? [], finished, now);
     return (
-        <Page title="Work" lede="Every session that needs you or is running." Icon={BellIcon}>
+        <Page title="Work" lede="Every session that needs you, is running, or just finished." Icon={BellIcon}>
             {buckets.length === 0 ? (
-                <EmptyState title="Nothing is waiting on you">
-                    No session is stopped at an approval or running. A session shows here while it works.
-                </EmptyState>
-            ) : buckets.map(({ bucket, rows: members }) => (
-                <section key={bucket.id} className="work-bucket" data-bucket={bucket.id}>
-                    <h2 className="section-title" data-tone={bucket.id === "needs-you" ? "warn" : undefined}>
-                        {bucket.title} <span className="section-count">{members.length}</span>
+                <>
+                    <EmptyState title="Nothing is waiting on you">
+                        A session shows here while it works, when it stops for you, and for an hour after it finishes.
+                    </EmptyState>
+                    <div className="work-empty-actions">
+                        <button type="button" className="solid-btn" onClick={() => navigate({ kind: "home" })}>
+                            New chat
+                        </button>
+                    </div>
+                </>
+            ) : buckets.map((bucket) => (
+                <section key={bucket.id} data-bucket={bucket.id}>
+                    <h2 className="section-title" data-tone={bucket.warn ? "warn" : undefined}>
+                        {bucket.title} <span className="section-count">{bucket.rows.length}</span>
                     </h2>
                     <p className="section-note">{bucket.note}</p>
-                    <ul className="work-list">
-                        {members.map((row) => <WorkRow key={row.id} row={row} now={now} />)}
+                    <ul className="list">
+                        {bucket.rows.map((row) => <WorkRow key={row.id} row={row} />)}
                     </ul>
                 </section>
             ))}

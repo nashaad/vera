@@ -1,7 +1,20 @@
-export type PageKind = "home" | "search" | "work" | "customize" | "settings";
+import { folderName } from "../protocol/sessionGroups.ts";
+
+export type PageKind = "home" | "search" | "work" | "customize" | "settings" | "devices";
 
 export interface PageRoute {
-    readonly kind: PageKind;
+    readonly kind: Exclude<PageKind, "home">;
+}
+
+export interface HomeRoute {
+    readonly kind: "home";
+    // New Chat starts in this folder when set, as "New chat here" asks.
+    readonly folder?: string;
+}
+
+export interface WorkspaceRoute {
+    readonly kind: "workspace";
+    readonly folder: string;
 }
 
 export interface SessionRoute {
@@ -13,7 +26,7 @@ export interface SessionRoute {
     readonly workspace?: string;
 }
 
-export type Route = PageRoute | SessionRoute;
+export type Route = HomeRoute | PageRoute | SessionRoute | WorkspaceRoute;
 
 export interface RouterState {
     readonly history: readonly Route[];
@@ -36,15 +49,27 @@ export const PAGE_TITLES: Readonly<Record<PageKind, string>> = {
     work: "Work",
     customize: "Customize",
     settings: "Settings",
+    devices: "Devices",
 };
 
 export function sameRoute(left: Route, right: Route): boolean {
     if (left.kind === "session") return right.kind === "session" && left.agentId === right.agentId;
+    if (left.kind === "workspace") return right.kind === "workspace" && left.folder === right.folder;
+    if (left.kind === "home") return right.kind === "home" && left.folder === right.folder;
     return left.kind === right.kind;
 }
 
 export function currentRoute(state: RouterState): Route {
     return state.history[state.cursor] ?? INITIAL_ROUTER.history[0] as Route;
+}
+
+// The newest session at or before the page shown, so Search can offer "This conversation".
+export function lastSession(state: RouterState): SessionRoute | undefined {
+    for (let index = state.cursor; index >= 0; index -= 1) {
+        const route = state.history[index];
+        if (route?.kind === "session") return route;
+    }
+    return undefined;
 }
 
 export function canGoBack(state: RouterState): boolean {
@@ -72,5 +97,7 @@ export function reduceRouter(state: RouterState, action: RouterAction): RouterSt
 }
 
 export function routeTitle(route: Route): string {
-    return route.kind === "session" ? route.title : PAGE_TITLES[route.kind];
+    if (route.kind === "session") return route.title;
+    if (route.kind === "workspace") return folderName(route.folder);
+    return PAGE_TITLES[route.kind];
 }

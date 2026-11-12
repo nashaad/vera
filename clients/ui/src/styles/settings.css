@@ -163,6 +163,50 @@
     font-size: calc(var(--vera-font-size) * 12.5 / 13);
 }
 
+.settings-lede {
+    margin: calc(var(--vera-space) * -2.5) 0 calc(var(--vera-space) * 4);
+    color: var(--vera-text-dim);
+}
+
+.settings-sec {
+    margin: calc(var(--vera-space) * 6) 0 calc(var(--vera-space) * 1);
+    color: var(--vera-text);
+    font-size: calc(var(--vera-font-size) * 14 / 13);
+    font-weight: 500;
+}
+
+.settings-muted {
+    margin: calc(var(--vera-space) * 1.5) 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.settings-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--vera-font-size-body);
+}
+
+.settings-grid th {
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2);
+    color: var(--vera-text-disabled);
+    font-weight: 400;
+    text-align: left;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.settings-grid td {
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    vertical-align: middle;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.settings-grid code {
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+}
+
 .settings-note {
     margin: calc(var(--vera-space) * 5) 0 0;
     color: var(--vera-text-dim);
@@ -171,17 +215,6 @@
 
 /* Settings > Providers, and the provider sheet it opens. */
 
-.provider-lede {
-    margin: calc(var(--vera-space) * -2.5) 0 calc(var(--vera-space) * 4);
-    color: var(--vera-text-dim);
-}
-
-.provider-section-head {
-    margin: calc(var(--vera-space) * 6) 0 calc(var(--vera-space) * 1);
-    color: var(--vera-text);
-    font-size: calc(var(--vera-font-size) * 14 / 13);
-    font-weight: 500;
-}
 
 .provider-row {
     display: flex;

@@ -43,26 +43,50 @@ connection, ends the attachment and shows the banner.
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
-pages are New Chat, Search, Work, Customize, Settings and a session.
+pages are New Chat, Search, Work, Customize, Settings, Devices, a workspace and a
+session.
 
 - New Chat is the home page. It has a greeting, a composer that starts a new
   session, and under it the sidebar, the right pane and the panel, each with the
   shortcut that shows or hides it. The composer is described under Composer.
-- Work lists sessions in two sections: Needs you, for sessions stopped at an
-  approval or a question, and Running. A section appears only when it has a
-  session. With neither, the page says that nothing is waiting on you.
-- A session page opens when you pick a row in the Sessions view or on Work. Its
-  title is the session name. It is described under Session view.
-- Search and Customize are placeholders. Each shows its title, a line of
-  description and an empty state. Search lists sessions in the sidebar only, and
-  Customize does not read the home's customizations.
+- Search finds sessions by what was said in them and by their titles. The host
+  searches the messages, tool commands and file edits of every session, and the
+  window matches titles of the sessions it has listed. Each result shows the
+  session's title, folder and age, and under it the lines that matched, with the
+  words you typed marked. Everything searches all sessions; This conversation
+  searches only the session last open. A menu limits the search to one folder.
+  Picking a result opens the session. When the host stops at its first 20
+  sessions, a note under the results asks for more words.
+- Work lists sessions in three sections: Needs you, for sessions stopped at an
+  approval or a question, Running, and Finished since you last looked, for
+  sessions whose turn ended while the window was open and that you have not
+  opened since. A finished session leaves the list after an hour or when you open
+  it. A section appears only when it has a session. With none, the page says that
+  nothing is waiting on you.
+- A workspace page opens when you click a folder's title in the Sessions view. It
+  shows the folder's path, its git branch and the machine, a New chat here
+  button that opens New Chat in that folder, and Show in Finder (Open folder on
+  other platforms). Below them it counts the folder's sessions, the running ones
+  and those that need you, says when the folder was last active, and lists its
+  sessions.
+- Devices lists the machines this window can reach. Today that is only this
+  machine, with the connection state and host build. Picking it shows the host's
+  state, its home and the newest sessions on it.
+- A session page opens when you pick a row in the Sessions view, on Work, on
+  Search or on a workspace or device page. Its title is the session name. It is
+  described under Session view.
+- Customize is a placeholder with its title, a line of description and an empty
+  state. It does not read the home's customizations.
 - Settings has a list of sections on the left with a search box that filters
-  them by name, and the chosen section on the right. Its one section is
-  Approvals, described under Approvals and questions.
+  them by name, and the chosen section on the right. Approvals is described
+  under Approvals and questions and Providers under Models. Devices says that no
+  other device can reach the host, since it listens on a local socket, and lists
+  this window as the one active connection with the time it attached. Other
+  clients attached to the same host are not listed.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 The row of the current page is filled. Work shows a count of sessions waiting on
-you. Settings opens from the gear in the sidebar's footer.
+you. Devices and Settings open from the buttons in the sidebar's footer.
 
 Back and forward sit in the sidebar's top row, or in the main header when the
 sidebar is hidden. Each is disabled when there is no page in its direction.

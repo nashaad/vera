@@ -93,6 +93,38 @@ export interface ClosedSession {
 
 export type CloseSessionResult = ClosedSession | HostRequestFailure;
 
+export type SessionSearchKind = "user_message" | "agent_message" | "tool_command" | "file_edit";
+
+export interface SessionSearchHit {
+    readonly kind: SessionSearchKind;
+    readonly snippet: string;
+}
+
+export interface SessionSearchMatch {
+    readonly agentId: string;
+    readonly title: string;
+    readonly workspace: string;
+    // Milliseconds since the epoch; NaN when the host sent a time this client could not read.
+    readonly updatedAt: number;
+    readonly hits: readonly SessionSearchHit[];
+}
+
+export interface SessionSearchRequest {
+    readonly query: string;
+    readonly workspace?: string;
+    // Searches only this session.
+    readonly agentId?: string;
+}
+
+export interface SessionSearchAnswer {
+    readonly ok: true;
+    readonly matches: readonly SessionSearchMatch[];
+    // True when more sessions matched than the host returns at once.
+    readonly truncated: boolean;
+}
+
+export type SessionSearchResult = SessionSearchAnswer | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -118,6 +150,10 @@ export interface DesktopBridge {
     forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Adds a model to the shortlist, removes it, or probes it with a live request.
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
+    // Searches what was said in the home's sessions; titles are not searched.
+    searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
+    // Opens a folder in the system file manager; false when it could not be opened.
+    revealFolder(folder: string): Promise<boolean>;
     // Opens the native folder picker; undefined when cancelled.
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.

@@ -15,6 +15,8 @@ export interface SessionComposerProps {
 export interface NewChatComposerProps {
     readonly mode: "new";
     readonly bridge: DesktopBridge;
+    // The folder the new session starts in until another is chosen.
+    readonly folder?: string;
 }
 
 export type ComposerProps = SessionComposerProps | NewChatComposerProps;

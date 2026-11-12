@@ -19,11 +19,11 @@ import { addDraftImages, type DraftImage } from "./useImages.ts";
 const CREATE_FAILED = "Vera could not create the session.";
 const NOT_IMAGES = "Only image files can be attached.";
 
-export function NewChatComposer({ bridge }: NewChatComposerProps) {
+export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposerProps) {
     const { connection } = useViewEnvironment();
     const { navigate } = useRouter();
     const choices = folderChoices(connection.sessionRows ?? []);
-    const [picked, setPicked] = useState<string | undefined>(undefined);
+    const [picked, setPicked] = useState<string | undefined>(startFolder);
     const [approvalMode, setApprovalMode] = useState<string | undefined>(undefined);
     const folder = picked ?? choices[0]?.folder;
     const [text, setText] = useState("");

@@ -20,6 +20,9 @@ import "./styles/session-tools.css";
 import "./styles/diffs.css";
 import "./styles/right-views.css";
 import "./styles/session-panes.css";
+import "./styles/search.css";
+import "./styles/workspace.css";
+import "./styles/devices.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {

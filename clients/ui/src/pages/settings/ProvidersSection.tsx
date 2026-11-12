@@ -52,7 +52,7 @@ export function ProvidersSection() {
     return (
         <>
             <h1>Providers &amp; models</h1>
-            <p className="provider-lede">The providers this Vera home is connected to and the models each one lists.</p>
+            <p className="settings-lede">The providers this Vera home is connected to and the models each one lists.</p>
             {bridge === undefined ? <p className="provider-empty">This window has no host bridge.</p> : null}
             {bridge !== undefined && state.status === "loading" ? <p className="provider-empty">Reading providers…</p> : null}
             {state.status === "failed" ? (
@@ -84,7 +84,7 @@ export function ProvidersSection() {
             <div className="provider-add">
                 <button type="button" className="button" onClick={() => setAdding(true)}>Add a provider</button>
             </div>
-            <h2 className="provider-section-head">Fallback</h2>
+            <h2 className="settings-sec">Fallback</h2>
             <SettingRow name="Fall back after failures" description="Not available in this window yet." />
             {adding ? <ProviderWizard onClose={closeWizard} /> : null}
         </>

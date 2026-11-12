@@ -38,6 +38,8 @@ function Row({ row, nested, now }: { readonly row: SessionRow; readonly nested: 
 
 function Group({ group, now }: { readonly group: SessionGroup; readonly now: number }) {
     const [open, setOpen] = useState(true);
+    const { route, navigate } = useRouter();
+    const active = route.kind === "workspace" && route.folder === group.workspace;
     return (
         <section className="session-group" data-workspace={group.workspace} data-open={open}>
             <div className="group-head">
@@ -53,8 +55,13 @@ function Group({ group, now }: { readonly group: SessionGroup; readonly now: num
                 <button
                     type="button"
                     className="group-title"
-                    title={group.workspace}
-                    onClick={() => setOpen(!open)}
+                    title={group.workspace === "" ? undefined : `Open ${group.workspace}`}
+                    data-active={active}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => {
+                        if (group.workspace === "") setOpen(!open);
+                        else navigate({ kind: "workspace", folder: group.workspace });
+                    }}
                 >
                     {group.title}
                 </button>

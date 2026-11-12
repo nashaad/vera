@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { LayersIcon, ShieldIcon, type IconProps } from "../../components/Icons.tsx";
+import { LaptopIcon, LayersIcon, ShieldIcon, type IconProps } from "../../components/Icons.tsx";
 
 export interface SettingsSection {
     readonly id: string;
@@ -26,5 +26,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         Icon: LayersIcon,
         terms: "model provider api key pricing shortlist catalog refresh",
         file: "config.json and the model catalog cache in the Vera home",
+    },
+    {
+        id: "devices",
+        name: "Devices",
+        Icon: LaptopIcon,
+        terms: "device machine computer session trusted remote pair client sign out",
+        file: "Read from the host this window is attached to",
     },
 ];

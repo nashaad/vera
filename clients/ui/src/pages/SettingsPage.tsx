@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { SearchIcon } from "../components/Icons.tsx";
 import { ApprovalsSection } from "./settings/ApprovalsSection.tsx";
+import { DevicesSection } from "./settings/DevicesSection.tsx";
 import { ProvidersSection } from "./settings/ProvidersSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
@@ -46,6 +47,7 @@ export function SettingsPage() {
                     {current === undefined ? null : <div className="where">{current.file}</div>}
                     {current?.id === "approvals" ? <ApprovalsSection /> : null}
                     {current?.id === "providers" ? <ProvidersSection /> : null}
+                    {current?.id === "devices" ? <DevicesSection /> : null}
                 </div>
             </div>
         </div>

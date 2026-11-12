@@ -234,6 +234,10 @@
     background: var(--vera-surface-hover);
 }
 
+.group-title[data-active="true"] {
+    color: var(--vera-text);
+}
+
 .session-list {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

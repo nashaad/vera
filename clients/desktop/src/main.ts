@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -29,6 +29,7 @@ import {
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
+import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { branchSession, closeSession, idArgument } from "./session-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
@@ -275,6 +276,15 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
         return { ok: false, reason: "That is not a model Vera knows." };
     }
     return operateModel(hostSocketPath, kind, id, name, workspaceArgument(workspace));
+});
+ipcMain.handle(CHANNELS.sessionsSearch, (event, request: unknown) => {
+    const parsed = searchArgument(request);
+    if (!fromWindow(event) || parsed === undefined) return { ok: false, reason: "That search could not be sent." };
+    return searchSessions(hostSocketPath, parsed);
+});
+ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<boolean> => {
+    if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return false;
+    return (await shell.openPath(folder)) === "";
 });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;

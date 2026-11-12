@@ -7,14 +7,17 @@ import {
     canGoForward,
     currentRoute,
     INITIAL_ROUTER,
+    lastSession,
     reduceRouter,
     type Route,
+    type SessionRoute,
 } from "./routes.ts";
 
 export interface Router {
     readonly route: Route;
     readonly canBack: boolean;
     readonly canForward: boolean;
+    readonly lastSession: SessionRoute | undefined;
     readonly navigate: (route: Route) => void;
 }
 
@@ -39,6 +42,7 @@ export function RouterProvider({ commands, children }: RouterProviderProps) {
         route: currentRoute(state),
         canBack: canGoBack(state),
         canForward: canGoForward(state),
+        lastSession: lastSession(state),
         navigate: (route) => dispatch({ type: "navigate", route }),
     }), [state]);
     return <RouterContext.Provider value={router}>{children}</RouterContext.Provider>;

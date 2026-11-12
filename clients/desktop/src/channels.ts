@@ -22,5 +22,7 @@ export const CHANNELS = {
     catalogRefresh: "vera:catalog-refresh",
     providerForget: "vera:provider-forget",
     modelOperate: "vera:model-operate",
+    sessionsSearch: "vera:sessions-search",
+    folderReveal: "vera:folder-reveal",
     event: "vera:event",
 } as const;
