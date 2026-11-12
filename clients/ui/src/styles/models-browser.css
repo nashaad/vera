@@ -15,7 +15,7 @@
     display: flex;
     flex-direction: column;
     width: min(calc(var(--vera-space) * 225), 92%);
-    max-height: 82%;
+    max-height: min(calc(var(--vera-space) * 200), calc(100% - var(--vera-space) * 8));
     overflow: hidden;
     background: var(--vera-surface-panel);
     border: thin solid var(--vera-border);
@@ -344,11 +344,24 @@
 }
 
 .models-detail {
-    flex: 0 0 calc(var(--vera-space) * 64);
+    display: flex;
+    flex: 0 0 calc(var(--vera-space) * 72);
+    flex-direction: column;
     min-height: 0;
-    padding: calc(var(--vera-space) * 4);
-    overflow-y: auto;
     border-left: thin solid var(--vera-border);
+}
+
+/* The info shrinks and scrolls only when the pane is too short, so the buttons under it never leave view. */
+.models-detail-info {
+    flex: 0 1 auto;
+    min-height: 0;
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4) 0;
+    overflow-y: auto;
+}
+
+.models-detail-foot {
+    flex: 0 0 auto;
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4);
 }
 
 .models-detail-name {
@@ -357,16 +370,20 @@
 }
 
 .models-detail-provider {
-    margin-bottom: calc(var(--vera-space) * 3);
+    margin-bottom: calc(var(--vera-space) * 2);
     font-size: var(--vera-font-size-label);
     color: var(--vera-text-dim);
 }
 
 .models-description {
-    margin: 0 0 calc(var(--vera-space) * 3);
+    display: -webkit-box;
+    margin: 0 0 calc(var(--vera-space) * 2);
+    overflow: hidden;
     font-size: var(--vera-font-size-label);
-    line-height: 1.5;
+    line-height: 1.45;
     color: var(--vera-text-muted);
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
 }
 
 .models-facts {
@@ -376,12 +393,13 @@
 
 .models-fact {
     display: grid;
-    grid-template-columns: calc(var(--vera-space) * 23) 1fr;
-    gap: calc(var(--vera-space) * 2.5);
+    grid-template-columns: calc(var(--vera-space) * 22) 1fr;
+    gap: calc(var(--vera-space) * 2);
     align-items: baseline;
-    padding: calc(var(--vera-space) * 1.5) 0;
+    padding: var(--vera-space) 0;
     border-bottom: thin solid var(--vera-border);
     font-size: var(--vera-font-size-label);
+    line-height: 1.35;
 }
 
 .models-fact-key {
@@ -405,13 +423,23 @@
 .models-actions {
     display: flex;
     flex-direction: column;
-    gap: calc(var(--vera-space) * 2);
-    margin-top: calc(var(--vera-space) * 4);
+    gap: calc(var(--vera-space) * 1.75);
 }
 
 .models-button {
     justify-content: center;
     width: 100%;
+}
+
+.models-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 1.75);
+}
+
+.models-actions-row .models-button {
+    flex: 1 1 auto;
+    width: auto;
 }
 
 .models-button:disabled {
@@ -420,15 +448,15 @@
 }
 
 .models-probe {
-    margin-top: calc(var(--vera-space) * 2.5);
+    margin-top: calc(var(--vera-space) * 2);
     font-size: var(--vera-font-size-label);
     color: var(--vera-text-muted);
 }
 
 .models-note {
-    margin-top: calc(var(--vera-space) * 3);
+    margin-top: calc(var(--vera-space) * 1.75);
     font-size: var(--vera-font-size-label);
-    line-height: 1.5;
+    line-height: 1.45;
     color: var(--vera-text-dim);
 }
 
