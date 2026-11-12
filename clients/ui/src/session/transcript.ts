@@ -1,6 +1,7 @@
 import type { AgentRunStatus, Block, NoticeTone, SessionWatch, ToolCall, ToolState } from "./model.ts";
 import { MAX_HISTORY_BLOCKS, MAX_IMAGE_REPLIES } from "./model.ts";
 import { foldLive } from "./live.ts";
+import { addRequest, closeRequest } from "./requests.ts";
 import { toolTitle } from "./toolTitle.ts";
 import type { LiveMessage, PageInfo, SessionMessage, ToolResultEntry, WireEntry } from "./wire.ts";
 
@@ -101,6 +102,7 @@ export function initialWatch(agentId: string): SessionWatch {
         loadingOlder: false,
         queue: [],
         images: [],
+        requests: [],
     };
 }
 
@@ -118,6 +120,8 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
                 status: message.status ?? "idle",
                 loadingOlder: false,
                 queue: message.queue ?? [],
+                // Open requests outlive a checkpoint; an idle session has none.
+                requests: (message.status ?? "idle") === "idle" ? [] : state.requests,
                 ...cursorOf(message.page),
             };
         case "history_page":
@@ -136,8 +140,22 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
             const { type: _type, ...refused } = message;
             return { ...state, refused };
         }
+        case "ui_request":
+            return { ...state, requests: addRequest(state.requests, message.request) };
+        case "ui_request_closed":
+            return { ...state, requests: closeRequest(state.requests, message.requestId) };
+        case "permissions":
+            return { ...state, approval: message.approval };
+        case "permissions_rejected":
+            return { ...state, approvalRefused: message.requestId };
         default:
-            return { ...state, live: foldLive(state.live, message), status: statusAfter(state.status, message) };
+            return {
+                ...state,
+                live: foldLive(state.live, message),
+                status: statusAfter(state.status, message),
+                // A finished turn cannot still be waiting on an answer.
+                requests: message.type === "turn_finished" || message.type === "agent_failed" ? [] : state.requests,
+            };
     }
 }
 

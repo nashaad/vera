@@ -397,3 +397,209 @@
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / -2);
 }
+
+/* approval pill and its menu */
+
+.pill-button {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1);
+    min-width: 0;
+    height: calc(var(--vera-space) * 6.5);
+    padding: 0 calc(var(--vera-space) * 1.75);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 13.5 / 13);
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.pill-button:hover:not(:disabled),
+.pill-button[aria-expanded="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.pill-button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.pill-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.pill-button .pill-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.pill-button .pill-sub {
+    color: var(--vera-text-disabled);
+}
+
+.approval-picker {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+}
+
+.approval-picker .approval-menu {
+    position: absolute;
+    bottom: calc(100% + var(--vera-space) * 1.5);
+    left: 0;
+    z-index: 10;
+    width: calc(var(--vera-space) * 80);
+    max-height: calc(var(--vera-space) * 110);
+    overflow-y: auto;
+    user-select: text;
+}
+
+.approval-menu .menu-label {
+    padding: calc(var(--vera-space) * 1.25) calc(var(--vera-space) * 2.25) calc(var(--vera-space));
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.approval-menu .menu-item {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
+    color: var(--vera-text);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    align-items: flex-start;
+    gap: calc(var(--vera-space) * 2.5);
+    min-height: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
+    white-space: normal;
+}
+
+.approval-menu .menu-item:hover,
+.approval-menu .menu-item:focus-visible {
+    background: var(--vera-surface-hover);
+    outline: none;
+}
+
+.approval-item-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+}
+
+.approval-item-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.approval-item-name {
+    color: var(--vera-text);
+    font-size: var(--vera-font-size);
+}
+
+.approval-item-desc {
+    margin-top: calc(var(--vera-space) / 4);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.approval-item.warn .approval-item-name {
+    color: var(--vera-warning);
+}
+
+.approval-check {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text);
+}
+
+.approval-standing {
+    margin-top: calc(var(--vera-space) * 1);
+}
+
+.approval-standing-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+    min-height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 1.5) 0 calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
+}
+
+.approval-standing-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.approval-remove {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    padding: 0;
+    color: var(--vera-text-disabled);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.approval-remove:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.approval-remove:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.approval-remove-icon {
+    width: calc(var(--vera-space) * 2.75);
+    height: calc(var(--vera-space) * 2.75);
+}
+
+.approval-more,
+.approval-note {
+    display: flex;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: flex-start;
+    margin: 0;
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.approval-note {
+    margin-top: calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-dim);
+}
+
+.approval-note-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-warning);
+}
+
+.approval-refused {
+    color: var(--vera-danger);
+}

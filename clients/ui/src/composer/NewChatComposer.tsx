@@ -9,6 +9,7 @@ import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
 import { imagePathsOf } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
+import { NewApprovalPill } from "./NewApprovalPill.tsx";
 import { enterAction, folderChoices, sessionTitle } from "./rules.ts";
 import { useBranch } from "./useBranch.ts";
 import { addDraftImages, type DraftImage } from "./useImages.ts";
@@ -21,6 +22,7 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
     const { navigate } = useRouter();
     const choices = folderChoices(connection.sessionRows ?? []);
     const [picked, setPicked] = useState<string | undefined>(undefined);
+    const [approvalMode, setApprovalMode] = useState<string | undefined>(undefined);
     const folder = picked ?? choices[0]?.folder;
     const [text, setText] = useState("");
     const [images, setImages] = useState<readonly DraftImage[]>([]);
@@ -42,7 +44,7 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
         if (folder === undefined || content.length === 0 || busy) return;
         setBusy(true);
         setNotice(undefined);
-        const result = await createSession(bridge, folder);
+        const result = await createSession(bridge, folder, approvalMode);
         if (!mounted.current) return;
         if (!result.ok) {
             setNotice(result.reason);
@@ -112,14 +114,19 @@ export function NewChatComposer({ bridge }: NewChatComposerProps) {
                 onPaths={addPaths}
                 onAttach={() => void bridge.chooseImages().then(addPaths)}
                 attachEnabled={!busy}
+                barStart={<NewApprovalPill mode={approvalMode} onPick={setApprovalMode} disabled={busy} />}
             />
         </div>
     );
 }
 
-async function createSession(bridge: DesktopBridge, folder: string): Promise<CreateSessionResult> {
+async function createSession(
+    bridge: DesktopBridge,
+    folder: string,
+    approvalMode: string | undefined,
+): Promise<CreateSessionResult> {
     try {
-        return await bridge.createSession(folder);
+        return await bridge.createSession(folder, approvalMode);
     } catch {
         return { ok: false, reason: CREATE_FAILED };
     }

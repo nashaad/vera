@@ -52,8 +52,8 @@ export interface DesktopBridge {
     // Sends one request line on the watch connection, such as a history page request.
     sendSession(text: string): void;
     unwatchSession(): void;
-    // Asks the attached host to create a session in an absolute folder.
-    createSession(workspace: string): Promise<CreateSessionResult>;
+    // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
+    createSession(workspace: string, approvalMode?: string): Promise<CreateSessionResult>;
     // Opens the native folder picker; undefined when cancelled.
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.

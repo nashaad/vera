@@ -1,4 +1,6 @@
 import type { AgentRunStatus, ImageReply, QueuedPrompt } from "./model.ts";
+import { parsePermissions, type ApprovalState } from "./permissions.ts";
+import { parseUiRequest, type OpenRequest } from "./requests.ts";
 
 // Wire shapes the session view reads. Fields the view never uses are left out.
 // An entry the view does not show parses as "other", so entry indexes stay put.
@@ -181,6 +183,26 @@ export interface ImageReplyMessage {
     readonly reply: ImageReply;
 }
 
+export interface UiRequestMessage {
+    readonly type: "ui_request";
+    readonly request: OpenRequest;
+}
+
+export interface UiRequestClosedMessage {
+    readonly type: "ui_request_closed";
+    readonly requestId: string;
+}
+
+export interface PermissionsMessage {
+    readonly type: "permissions";
+    readonly approval: ApprovalState;
+}
+
+export interface PermissionsRejectedMessage {
+    readonly type: "permissions_rejected";
+    readonly requestId: string;
+}
+
 export type SessionMessage =
     | AttachedMessage
     | AttachFailedMessage
@@ -192,6 +214,10 @@ export type SessionMessage =
     | PromptWithdrawnMessage
     | PromptRefusedMessage
     | ImageReplyMessage
+    | UiRequestMessage
+    | UiRequestClosedMessage
+    | PermissionsMessage
+    | PermissionsRejectedMessage
     | LiveMessage;
 
 type Fields = Record<string, unknown>;
@@ -279,6 +305,22 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
             if (requestId === undefined) return undefined;
             const error = str(value.error) ?? "The image could not be attached.";
             return { type: "image_reply", reply: { requestId, outcome: "rejected", error } };
+        }
+        case "ui_request": {
+            const request = parseUiRequest(value);
+            return request === undefined ? undefined : { type: "ui_request", request };
+        }
+        case "ui_request_closed": {
+            const requestId = str(value.requestId);
+            return requestId === undefined ? undefined : { type: "ui_request_closed", requestId };
+        }
+        case "permissions": {
+            const approval = parsePermissions(value);
+            return approval === undefined ? undefined : { type: "permissions", approval };
+        }
+        case "permissions_rejected": {
+            const requestId = str(value.requestId);
+            return requestId === undefined ? undefined : { type: "permissions_rejected", requestId };
         }
         default:
             return parseLive(type, value);

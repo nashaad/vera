@@ -174,20 +174,27 @@ ipcMain.on(CHANNELS.theme, (event, name: unknown) => {
     activeTheme = name;
     installMenu();
 });
-ipcMain.handle(CHANNELS.sessionCreate, async (event, workspace: unknown): Promise<CreateSessionResult> => {
-    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
-    if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
-    if (typeof workspace !== "string" || !isAbsolute(workspace)) return { ok: false, reason: "Choose a folder first." };
-    try {
-        const ready = await createAgentThroughHost(hostSocketPath, workspace);
-        return { ok: true, agentId: ready.id, workspace: ready.workspace };
-    } catch (error) {
-        if (error instanceof AgentStartError && error.reason !== undefined) {
-            return { ok: false, reason: error.reason };
+// A mode name the host can look up; anything else starts the session with the host default.
+const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+
+ipcMain.handle(
+    CHANNELS.sessionCreate,
+    async (event, workspace: unknown, approvalMode: unknown): Promise<CreateSessionResult> => {
+        if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+        if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
+        if (typeof workspace !== "string" || !isAbsolute(workspace)) return { ok: false, reason: "Choose a folder first." };
+        const mode = typeof approvalMode === "string" && APPROVAL_MODE_PATTERN.test(approvalMode) ? approvalMode : undefined;
+        try {
+            const ready = await createAgentThroughHost(hostSocketPath, workspace, mode);
+            return { ok: true, agentId: ready.id, workspace: ready.workspace };
+        } catch (error) {
+            if (error instanceof AgentStartError && error.reason !== undefined) {
+                return { ok: false, reason: error.reason };
+            }
+            return { ok: false, reason: "Vera could not start a session in that folder." };
         }
-        return { ok: false, reason: "Vera could not start a session in that folder." };
-    }
-});
+    },
+);
 ipcMain.handle(CHANNELS.folderChoose, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;
     const result = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });

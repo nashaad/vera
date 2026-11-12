@@ -22,8 +22,8 @@ const bridge: DesktopBridge = {
         return (layout ?? undefined) as LayoutState | undefined;
     },
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
-    createSession: async (workspace: string) => {
-        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace);
+    createSession: async (workspace: string, approvalMode?: string) => {
+        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
         return result as CreateSessionResult;
     },
     chooseFolder: async () => {

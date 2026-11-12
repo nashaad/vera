@@ -1,0 +1,288 @@
+/* Approval, question and setup cards shown in the transcript column. */
+
+.request-card {
+    margin: calc(var(--vera-space) * 3) 0;
+    overflow: hidden;
+    border: thin solid color-mix(in srgb, var(--vera-warning) 25%, var(--vera-border));
+    border-radius: var(--vera-radius-lg);
+    background: var(--vera-surface-raised);
+}
+
+.request-card[data-answered="true"] {
+    border-color: var(--vera-border);
+}
+
+.request-card:focus-within {
+    border-color: var(--vera-border-input);
+}
+
+.request-head {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    padding: calc(var(--vera-space) * 2.75) calc(var(--vera-space) * 3.25);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.request-head > .icon {
+    color: var(--vera-text-muted);
+}
+
+.request-head-main {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    min-width: 0;
+}
+
+.request-tool {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.card-path {
+    min-width: 0;
+    overflow: hidden;
+    direction: rtl;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+}
+
+/* Keeps the end of a long path visible while the start truncates. */
+.card-path::before {
+    content: "\200E";
+}
+
+.request-title {
+    min-width: 0;
+    white-space: normal;
+}
+
+.request-task {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.request-badge {
+    flex: 0 0 auto;
+    padding: calc(var(--vera-space) / 4) calc(var(--vera-space) * 1.5);
+    color: var(--vera-badge-text);
+    background: var(--vera-badge);
+    border-radius: var(--vera-radius-sm);
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+}
+
+.request-body {
+    padding: 0 calc(var(--vera-space) * 3.25) calc(var(--vera-space) * 3);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-body);
+    line-height: 1.45;
+}
+
+.request-body > * + * {
+    margin-top: calc(var(--vera-space) * 2);
+}
+
+.request-body p {
+    margin: 0;
+}
+
+.request-code {
+    margin: 0;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2.5);
+    overflow-x: auto;
+    color: var(--vera-text);
+    background: var(--vera-surface-code);
+    border-radius: var(--vera-radius);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.request-muted {
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.request-warning {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+}
+
+.request-warning > .icon {
+    color: var(--vera-warning);
+}
+
+.request-why {
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3.25);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    border-top: thin solid var(--vera-border);
+}
+
+.request-why > p + p {
+    margin-top: calc(var(--vera-space) * 1.5);
+}
+
+.request-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3.25);
+    background: color-mix(in srgb, var(--vera-surface-raised) 88%, var(--vera-surface));
+    border-top: thin solid var(--vera-border);
+}
+
+.request-actions .button {
+    gap: calc(var(--vera-space) * 1.5);
+}
+
+.request-actions .button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.request-spacer {
+    flex: 1 1 auto;
+}
+
+.request-ghost {
+    border-color: var(--vera-border-input);
+}
+
+.request-danger {
+    color: var(--vera-danger);
+    border-color: var(--vera-border);
+}
+
+.request-danger:hover {
+    background: color-mix(in srgb, var(--vera-danger) 12%, var(--vera-surface-raised));
+    border-color: color-mix(in srgb, var(--vera-danger) 40%, var(--vera-border));
+}
+
+.request-field {
+    display: block;
+}
+
+.request-label {
+    display: block;
+    margin-bottom: calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.request-textarea,
+.request-input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    font-family: var(--vera-font-ui);
+    font-size: var(--vera-font-size-body);
+}
+
+.request-textarea {
+    resize: vertical;
+}
+
+.request-textarea:focus-visible,
+.request-input:focus-visible,
+.request-choice:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.request-choices {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1.5);
+}
+
+.request-choice {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1);
+    width: 100%;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text);
+    background: transparent;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--vera-motion), border-color var(--vera-motion);
+}
+
+.request-choice:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+    border-color: var(--vera-border-input);
+}
+
+.request-choice:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.request-choice-top {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+}
+
+.request-choice-label {
+    min-width: 0;
+    font-weight: 500;
+}
+
+.request-choice-description {
+    padding-left: calc(var(--vera-space) * 7);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.request-custom {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+}
+
+.request-custom .request-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+}
+
+.request-note {
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.request-waiting {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    margin: calc(var(--vera-space) * -1) 0 calc(var(--vera-space) * 3);
+    color: var(--vera-warning);
+    font-size: var(--vera-font-size-body);
+}
+
+.request-waiting-dots {
+    letter-spacing: calc(var(--vera-space) / 2);
+}

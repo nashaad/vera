@@ -12,6 +12,8 @@ import "./styles/sidebar-nav.css";
 import "./styles/pages.css";
 import "./styles/transcript.css";
 import "./styles/composer.css";
+import "./styles/cards.css";
+import "./styles/settings.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {

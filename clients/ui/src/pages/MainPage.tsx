@@ -1,8 +1,9 @@
-import { BlocksIcon, GearIcon, SearchIcon } from "../components/Icons.tsx";
+import { BlocksIcon, SearchIcon } from "../components/Icons.tsx";
 import { HomePage } from "./HomePage.tsx";
 import { EmptyState, Page } from "./Page.tsx";
 import type { Route } from "./routes.ts";
 import { SessionPage } from "./SessionPage.tsx";
+import { SettingsPage } from "./SettingsPage.tsx";
 import { WorkPage } from "./WorkPage.tsx";
 
 export interface MainPageProps {
@@ -31,10 +32,6 @@ export function MainPage({ route, platform }: MainPageProps) {
                 </Page>
             );
         case "settings":
-            return (
-                <Page title="Settings" lede="How this window looks and behaves." Icon={GearIcon}>
-                    <EmptyState title="Nothing to set yet">The theme is chosen from the View menu.</EmptyState>
-                </Page>
-            );
+            return <SettingsPage />;
     }
 }

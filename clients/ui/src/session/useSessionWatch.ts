@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer } from "react";
 
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import type { SessionWatch } from "./model.ts";
+import { getPermissionsCommand } from "./permissions.ts";
 import { beginOlder, canLoadOlder, initialWatch, reduceWatch, watchClosed } from "./transcript.ts";
 import { historyPageRequest, parseSessionLine, type SessionMessage } from "./wire.ts";
 
@@ -31,7 +32,7 @@ export interface SessionWatchHandle {
     readonly send: (line: string) => void;
 }
 
-let pageRequests = 0;
+let requestCount = 0;
 
 // One watch connection at a time: opening another session closes this one in the shell.
 // `connected` reopens the watch after the host connection comes back.
@@ -58,13 +59,20 @@ export function useSessionWatch(
             bridge.unwatchSession();
         };
     }, [bridge, agentId, connected]);
+    // The approval mode is not part of history, so it is asked for on every attach.
+    const attached = watch.phase === "attached";
+    useEffect(() => {
+        if (!attached) return;
+        requestCount += 1;
+        bridge.sendSession(getPermissionsCommand(`desktop-permissions-${Date.now().toString(36)}-${requestCount}`));
+    }, [bridge, attached]);
     const ready = canLoadOlder(watch);
     const { olderBefore } = watch;
     const loadOlder = useCallback(() => {
         if (!ready || olderBefore === undefined) return;
-        pageRequests += 1;
+        requestCount += 1;
         dispatch({ type: "older" });
-        bridge.sendSession(historyPageRequest(`page-${pageRequests}`, olderBefore));
+        bridge.sendSession(historyPageRequest(`page-${requestCount}`, olderBefore));
     }, [bridge, ready, olderBefore]);
     const send = useCallback((line: string) => bridge.sendSession(line), [bridge]);
     return { watch, loadOlder, send };

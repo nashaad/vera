@@ -1,4 +1,4 @@
-import { useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { ArrowUpIcon, PlusIcon, SquareIcon } from "../components/Icons.tsx";
 import { pastedImagePaths } from "./images.ts";
@@ -19,6 +19,8 @@ export interface ComposerBoxProps {
     readonly onPaths: (paths: readonly string[]) => void;
     readonly onAttach: () => void;
     readonly attachEnabled: boolean;
+    // Controls drawn after the attach button, such as the approval pill.
+    readonly barStart?: ReactNode;
 }
 
 export function ComposerBox({
@@ -34,6 +36,7 @@ export function ComposerBox({
     onPaths,
     onAttach,
     attachEnabled,
+    barStart,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
     const stop = buttonMode === "stop";
@@ -92,6 +95,7 @@ export function ComposerBox({
                 >
                     <PlusIcon className="round-icon" />
                 </button>
+                {barStart}
                 <span className="grow" />
                 <button
                     type="button"

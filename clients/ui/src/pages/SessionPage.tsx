@@ -4,6 +4,7 @@ import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
 import { QueueStrip } from "../session/QueueStrip.tsx";
+import { RequestCards } from "../session/RequestCards.tsx";
 import { Transcript } from "../session/Transcript.tsx";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { releaseQueuedCommand } from "../session/wire.ts";
@@ -36,7 +37,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     useEffect(() => {
         const element = scroller.current;
         if (element !== null && pinned.current) element.scrollTop = element.scrollHeight;
-    }, [blocks.length, watch.live]);
+    }, [blocks.length, watch.live, watch.requests]);
 
     const onScroll = (): void => {
         const element = scroller.current;
@@ -69,6 +70,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     {watch.phase === "closed" || watch.phase === "failed" ? (
                         <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
                     ) : null}
+                    <RequestCards requests={watch.requests} send={send} />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>
             </div>

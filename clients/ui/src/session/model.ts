@@ -1,6 +1,9 @@
 // What the session page shows, built from the host's `history` entries and the
 // live updates that follow them on the watch connection.
 
+import type { ApprovalState } from "./permissions.ts";
+import type { OpenRequest } from "./requests.ts";
+
 export type ToolState = "running" | "done" | "failed";
 
 export interface ToolCall {
@@ -113,6 +116,12 @@ export interface SessionWatch {
     readonly refused?: RefusedPrompt;
     // Answers to this window's image attachments, newest last, capped at MAX_IMAGE_REPLIES.
     readonly images: readonly ImageReply[];
+    // Approvals and questions still open, oldest first.
+    readonly requests: readonly OpenRequest[];
+    // Unknown until the session answers `get_permissions`.
+    readonly approval?: ApprovalState;
+    // The id of the last permissions change the session refused.
+    readonly approvalRefused?: string;
 }
 
 // The page keeps at most this many history blocks; older pages drop off the far end.

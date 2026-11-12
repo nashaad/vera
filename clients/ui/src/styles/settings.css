@@ -1,0 +1,170 @@
+/* The Settings page: a rail of sections beside the chosen section. */
+
+.settings-split {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+
+.settings-rail {
+    flex: 0 0 calc(var(--vera-space) * 48);
+    padding: calc(var(--vera-space) * 5.5) calc(var(--vera-space) * 2.5);
+    overflow-y: auto;
+    border-right: thin solid var(--vera-border);
+}
+
+.rail-search {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    margin: 0 calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.25);
+    color: var(--vera-text-disabled);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.rail-search:focus-within {
+    border-color: var(--vera-border-input);
+}
+
+.rail-search-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.rail-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
+.rail-search input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.rail-group {
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 1.25);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.rail-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.25);
+    width: 100%;
+    height: calc(var(--vera-space) * 7.5);
+    padding: 0 calc(var(--vera-space) * 2.25);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 13.5 / 13);
+    text-align: left;
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.rail-row:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.rail-row[aria-current="page"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.rail-row:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.rail-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+    color: var(--vera-text-dim);
+}
+
+.rail-row span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rail-empty {
+    margin: 0;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.settings-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+}
+
+.settings-col {
+    max-width: calc(var(--vera-space) * 165);
+    padding: calc(var(--vera-space) * 6.5) calc(var(--vera-space) * 6) calc(var(--vera-space) * 10);
+}
+
+.settings-col h1 {
+    margin: 0 0 calc(var(--vera-space) * 4);
+    color: var(--vera-text);
+    font-size: calc(var(--vera-font-size) * 18 / 13);
+    font-weight: 500;
+}
+
+/* Where the section's settings are written. */
+.where {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 0 calc(var(--vera-space) * 3.5);
+    padding: calc(var(--vera-space) * 0.75) calc(var(--vera-space) * 2);
+    color: var(--vera-text-disabled);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-xl);
+}
+
+.setting {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 3.5);
+    padding: calc(var(--vera-space) * 2.75) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.setting-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.setting-name {
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.setting-desc {
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
+}
+
+.settings-note {
+    margin: calc(var(--vera-space) * 5) 0 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}

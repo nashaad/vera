@@ -53,10 +53,12 @@ pages are New Chat, Search, Work, Customize, Settings and a session.
   session. With neither, the page says that nothing is waiting on you.
 - A session page opens when you pick a row in the Sessions view or on Work. Its
   title is the session name. It is described under Session view.
-- Search, Customize and Settings are placeholders. Each shows its title, a line
-  of description and an empty state. Search lists sessions in the sidebar only,
-  Customize does not read the home's customizations, and Settings names the View
-  menu for the theme.
+- Search and Customize are placeholders. Each shows its title, a line of
+  description and an empty state. Search lists sessions in the sidebar only, and
+  Customize does not read the home's customizations.
+- Settings has a list of sections on the left with a search box that filters
+  them by name, and the chosen section on the right. Its one section is
+  Approvals, described under Approvals and questions.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 The row of the current page is filled. Work shows a count of sessions waiting on
@@ -166,8 +168,9 @@ returns to where you last put it. A file that cannot be read is moved to
 
 A session page shows that session's conversation, with a composer under it for
 your next message. The app watches the session without joining it, so closing
-the window leaves the session running. It does not answer approvals or
-questions yet. A session that is running keeps updating as it works.
+the window leaves the session running. A session that is running keeps
+updating as it works. Approvals and questions show as cards under the
+conversation; see Approvals and questions.
 
 The conversation is split into turns, one for each message you sent. The first
 message is shown as a box across the column; later ones as a bubble on the
@@ -254,6 +257,58 @@ Images:
 - On New Chat the images are attached once the new session is open, and the
   message is sent when they are all attached. If one is refused, the message
   stays in the box.
+
+## Approvals and questions
+
+When the session asks before running a tool, a card appears under the
+conversation with the tool's name, the command or arguments, and any warning
+Vera gives. A line under the cards says `Waiting on you` while one is
+unanswered. The card's buttons:
+
+- `Allow once` (key 1) runs this call.
+- `Allow similar` (key 2) runs it and allows calls like it for the rest of the
+  session.
+- `Always` (key 4) runs it and allows calls like it in every session.
+- `Deny` (key 3 or Escape) refuses it; the turn goes on without it.
+- `Why?` shows Vera's reason and what Allow similar would allow.
+
+Allow similar and Always appear only when Vera offers them for that call; a
+subagent's request offers only Allow once and Deny.
+
+A question from Vera shows its choices, numbered. A number key or a click picks
+one. When the question takes a typed answer, a box under the choices sends what
+you write with `Answer` or Enter, and a note box sends a note with the choice.
+`Skip` or Escape cancels the question.
+
+A setup request, such as a provider that needs signing in, says what is needed
+and has `Dismiss` (Escape), which tells Vera the setup cannot be done from this
+window. Finish it from the terminal.
+
+The keys answer the first card without an answer. They work when the composer
+is empty or not focused, and not while you type in a field or hold Cmd, Ctrl or
+Alt. While a card waits, Escape answers it instead of releasing a queued
+message. An answered card stays until Vera closes it.
+
+The approval pill at the left of the composer's bar shows the session's mode
+and opens a menu:
+
+- The modes: `Ask for approval`, `Approve for me` (a reviewer clears the safe
+  calls and asks you about the rest), `Read only` and `Full access`, then any
+  mode defined in the home. Picking one changes this session. A change made
+  while a turn runs applies when the turn ends, and the pill says
+  `after this turn` until then.
+- `Make this the default for new sessions` saves the session's mode as the
+  home's default.
+- `This session allows` lists what Allow similar has allowed, and
+  `Every session allows` lists what Always has allowed, each with an `x` that
+  removes it.
+
+When Vera refuses a change, the pill's menu says so. On New Chat the pill says
+`Default approvals` and starts the new session in the home's default mode until
+you pick another; the pick applies to that session only.
+
+Settings > Approvals names the default mode and the standing permissions and
+says where to change them: the window reads both only through a session's pill.
 
 ## Finding the host
 

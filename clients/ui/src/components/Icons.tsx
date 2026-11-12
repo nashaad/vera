@@ -312,3 +312,40 @@ export function ImageIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function HandIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+            <path d="M11 11.5V4a1.5 1.5 0 0 1 3 0v7.5" />
+            <path d="M14 11.5V6a1.5 1.5 0 0 1 3 0v8.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 16a1.5 1.5 0 0 1 2.3-1.9L8 16" />
+        </Icon>
+    );
+}
+
+export function ShieldIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M12 3 5 6v5.5c0 4.3 2.9 8 7 9.5 4.1-1.5 7-5.2 7-9.5V6z" />
+        </Icon>
+    );
+}
+
+export function QuestionIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7" />
+            <path d="M12 17h.01" />
+        </Icon>
+    );
+}
+
+export function TerminalIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2.5" />
+            <path d="m7 9 3 3-3 3M12.5 15H17" />
+        </Icon>
+    );
+}

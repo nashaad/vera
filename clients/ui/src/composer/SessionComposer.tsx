@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import { takePendingPrompt } from "../session/pendingPrompt.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
 import type { SessionComposerProps } from "./Composer.tsx";
+import { ApprovalPill } from "./ApprovalPill.tsx";
 import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
 import { imagePathsOf } from "./files.ts";
@@ -149,6 +150,9 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
                 onPaths={add}
                 onAttach={() => void bridge.chooseImages().then(add)}
                 attachEnabled={attached}
+                barStart={
+                    <ApprovalPill approval={watch.approval} refused={watch.approvalRefused} send={send} enabled={attached} running={running} />
+                }
             />
         </div>
     );
