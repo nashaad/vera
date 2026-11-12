@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
 const sessionsHeader = "[data-view-header=\"core.sessions\"]";
@@ -42,14 +42,6 @@ async function dragSessionsToPanel(page) {
 
 async function assertIn(page, name, header = sessionsHeader) {
     await page.waitForSelector(`${location(name)} ${header}`, { timeout: 10_000 });
-}
-
-async function press(app, key, modifiers) {
-    await app.evaluate(({ BrowserWindow }, { key, modifiers }) => {
-        const contents = BrowserWindow.getAllWindows()[0].webContents;
-        contents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers });
-        contents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers });
-    }, { key, modifiers });
 }
 
 async function theme(page) {
@@ -105,7 +97,7 @@ try {
     }
 
     // With its only view moved out, the sidebar still shows its page rows, and both toggles work.
-    const modifier = process.platform === "darwin" ? "meta" : "control";
+    const modifier = MODIFIER;
     const sidebarRows = `${location("sidebar")} .nav-row`;
     await second.page.waitForSelector(sidebarRows, { timeout: 5_000 });
     await press(second.app, "B", [modifier]);

@@ -70,6 +70,18 @@ export function startTrial() {
     return { root, home, launch, hostPid, waitForHost, cleanup };
 }
 
+// Goes through the same path as a key typed on the keyboard: the main process's
+// before-input-event first, then the page. Playwright's keyboard skips the main process.
+export async function press(app, key, modifiers = []) {
+    await app.evaluate(({ BrowserWindow }, { key, modifiers }) => {
+        const contents = BrowserWindow.getAllWindows()[0].webContents;
+        contents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers });
+        contents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers });
+    }, { key, modifiers });
+}
+
+export const MODIFIER = process.platform === "darwin" ? "meta" : "control";
+
 async function stopProcess(pid) {
     try {
         process.kill(pid, "SIGTERM");

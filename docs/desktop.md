@@ -608,6 +608,7 @@ bun run typecheck:desktop
 bun test test/desktop
 node clients/desktop/test/attach.e2e.mjs
 node clients/desktop/test/layout.e2e.mjs
+node clients/desktop/test/shortcuts.e2e.mjs
 node clients/desktop/test/compose.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
