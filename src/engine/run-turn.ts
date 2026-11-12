@@ -178,6 +178,7 @@ import {
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
+import { classifierFallbackReason } from "./classifier-fallback.ts";
 import {
     collectReviewerPathFacts,
     type ReviewerPathFacts,
@@ -2745,6 +2746,8 @@ async function executePreparedTool(
             return autoDenial(permission.reason, scratchNote, "permission-mode");
         }
         const grantProposals = permissionGrantProposals(permission);
+        // A classifier that gives no decision asks instead of ending the turn.
+        let askReason: string | undefined;
         if (permission.behavior === "review") {
             const reviewCall = state.reviewToolCallForProfile === undefined
                 ? state.reviewToolCall
@@ -2758,123 +2761,116 @@ async function executePreparedTool(
                         nextSignal,
                     );
             if (reviewCall === undefined) {
-                const reason =
-                    "The automatic classifier is not configured, so the action did not run.";
-                state.events.emit({
-                    type: "tool_review_decided",
-                    toolCall: hookCall,
-                    decision: "unavailable",
-                    reason,
-                    riskLevel: "high",
-                    userAuthorization: "unknown",
-                });
-                return {
-                    result: {
-                        ...deniedToolResult(toolCall, reason),
-                        classifierOutcome: { kind: "failed" },
-                    },
-                    interrupt: {
-                        detail: reason,
-                        classifierFailure: { tool: toolCall.name, kind: "no_route" },
-                    },
-                };
-            }
-            let pathFacts: readonly ReviewerPathFacts[] | undefined;
-            try {
-                pathFacts = await collectReviewerPathFacts(
-                    permissionContext.workspace,
-                    hookCall,
-                    permission.actions,
-                    signal,
-                );
-            } catch (error) {
-                if (!signal.aborted) {
-                    throw error;
-                }
-            }
-            // git can exit normally after the cancel, so the collector may still return facts.
-            const review = pathFacts === undefined || signal.aborted
-                ? reviewCancelled()
-                : await reviewCall(
-                    {
-                        toolCall: hookCall,
-                        workspace: state.toolRuntime.workspace,
-                        reason: permission.reason,
-                        pathFacts,
-                        transcript: state.readReviewTranscript === undefined
-                            ? state.messages
-                            : await state.readReviewTranscript(),
-                    },
-                    signal,
-                );
-            // A cancel outranks a mode change made while the review ran; rechecking would start the tool.
-            if (
-                !signal.aborted
-                && (state.readApprovalMode?.() ?? state.approvalMode)
-                    !== approvalMode
-            ) {
-                continue permissionCheck;
-            }
-            state.events.emit({
-                type: "tool_review_decided",
-                toolCall: hookCall,
-                decision: review.decision,
-                reason: review.reason,
-                riskLevel: review.riskLevel,
-                userAuthorization: review.userAuthorization,
-            });
-            if (review.decision === "deny") {
-                const interrupt = breaker.record("deny");
-                return {
-                    result: {
-                        ...deniedByPolicy(
-                            state,
-                            toolCall,
-                            `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
-                            undefined,
-                            "reviewer",
-                        ),
-                        classifierOutcome: {
-                            kind: "denied",
-                            riskLevel: review.riskLevel,
-                            reason: review.reason,
-                        },
-                    },
-                    ...(interrupt === undefined ? {} : { interrupt: { detail: interrupt } }),
-                };
-            }
-            if (review.decision === "unavailable") {
-                const denied = deniedToolResult(toolCall, review.reason);
-                const result: ToolResultMessage = review.failure !== undefined
-                    ? { ...denied, classifierOutcome: { kind: "failed" } }
-                    : signal.aborted
-                        ? { ...denied, classifierOutcome: { kind: "cancelled" } }
-                        : denied;
-                // A classifier that cannot answer withholds every later call too, so the turn stops here.
-                return review.failure === undefined
-                    ? { result }
-                    : {
-                        result,
-                        interrupt: {
-                            detail: review.reason,
-                            classifierFailure: { tool: toolCall.name, ...review.failure },
-                        },
-                    };
-            }
-            breaker.record("allow");
-            const reviewedGrants = reviewedGrantProposals(permission);
-            if (reviewedGrants.length > 0 && state.addPermissionGrants !== undefined) {
+                askReason = classifierFallbackReason({ kind: "no_route" });
+            } else {
+                let pathFacts: readonly ReviewerPathFacts[] | undefined;
                 try {
-                    await state.addPermissionGrants(reviewedGrants);
-                } catch {
-                    // An unsaved grant only means the next call is classified again.
+                    pathFacts = await collectReviewerPathFacts(
+                        permissionContext.workspace,
+                        hookCall,
+                        permission.actions,
+                        signal,
+                    );
+                } catch (error) {
+                    if (!signal.aborted) {
+                        throw error;
+                    }
+                }
+                // git can exit normally after the cancel, so the collector may still return facts.
+                const review = pathFacts === undefined || signal.aborted
+                    ? reviewCancelled()
+                    : await reviewCall(
+                        {
+                            toolCall: hookCall,
+                            workspace: state.toolRuntime.workspace,
+                            reason: permission.reason,
+                            pathFacts,
+                            transcript: state.readReviewTranscript === undefined
+                                ? state.messages
+                                : await state.readReviewTranscript(),
+                        },
+                        signal,
+                    );
+                // A cancel outranks a mode change made while the review ran; rechecking would start the tool.
+                if (
+                    !signal.aborted
+                    && (state.readApprovalMode?.() ?? state.approvalMode)
+                        !== approvalMode
+                ) {
+                    continue permissionCheck;
+                }
+                const asksInstead = review.decision === "unavailable"
+                    && review.failure !== undefined
+                    && review.failure.kind !== "undescribed"
+                    && !signal.aborted;
+                if (!asksInstead) {
+                    state.events.emit({
+                        type: "tool_review_decided",
+                        toolCall: hookCall,
+                        decision: review.decision,
+                        reason: review.reason,
+                        riskLevel: review.riskLevel,
+                        userAuthorization: review.userAuthorization,
+                    });
+                }
+                if (review.decision === "deny") {
+                    const interrupt = breaker.record("deny");
+                    return {
+                        result: {
+                            ...deniedByPolicy(
+                                state,
+                                toolCall,
+                                `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
+                                undefined,
+                                "reviewer",
+                            ),
+                            classifierOutcome: {
+                                kind: "denied",
+                                riskLevel: review.riskLevel,
+                                reason: review.reason,
+                            },
+                        },
+                        ...(interrupt === undefined ? {} : { interrupt: { detail: interrupt } }),
+                    };
+                }
+                if (review.decision === "unavailable") {
+                    if (asksInstead && review.failure !== undefined) {
+                        askReason = classifierFallbackReason(review.failure);
+                    } else {
+                        const denied = deniedToolResult(toolCall, review.reason);
+                        const result: ToolResultMessage = review.failure !== undefined
+                            ? { ...denied, classifierOutcome: { kind: "failed" } }
+                            : signal.aborted
+                                ? { ...denied, classifierOutcome: { kind: "cancelled" } }
+                                : denied;
+                        // Cancelled reviews, a missing profile reviewer, and undescribable actions are not askable.
+                        return review.failure === undefined
+                            ? { result }
+                            : {
+                                result,
+                                interrupt: {
+                                    detail: review.reason,
+                                    classifierFailure: { tool: toolCall.name, ...review.failure },
+                                },
+                            };
+                    }
+                } else {
+                    breaker.record("allow");
+                    const reviewedGrants = reviewedGrantProposals(permission);
+                    if (reviewedGrants.length > 0 && state.addPermissionGrants !== undefined) {
+                        try {
+                            await state.addPermissionGrants(reviewedGrants);
+                        } catch {
+                            // An unsaved grant only means the next call is classified again.
+                        }
+                    }
                 }
             }
         }
-        if (permission.behavior === "ask") {
+        if (permission.behavior === "ask" || askReason !== undefined) {
             const approval = await state.inbound.requestToolApproval(
                 hookCall,
-                permission.reason,
+                askReason ?? permission.reason ?? "This tool needs your approval.",
                 {
                     timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
                     signal,

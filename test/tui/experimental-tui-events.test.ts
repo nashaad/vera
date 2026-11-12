@@ -22,6 +22,18 @@ test("experimental TUI events repaint after async listener settlement", async ()
     expect(requests).toEqual(["turn_finished"]);
 });
 
+test("a synchronous listener requests its render before fire returns", () => {
+    const requests: string[] = [];
+    const bus = createTuiExperimentalEventBus(
+        () => {},
+        (updateType) => { requests.push(updateType); },
+    );
+    bus.events.on("fixture", "agent_event", () => {});
+
+    bus.agentEvent({ type: "turn_finished" });
+    expect(requests).toEqual(["turn_finished"]);
+});
+
 test("experimental TUI transcript listeners fire only when a message changes", () => {
     const bus = createTuiExperimentalEventBus(() => {}, () => {});
     let fired = 0;
@@ -56,8 +68,8 @@ test("experimental TUI stream deltas pass their update type to the client's rend
     await Promise.resolve();
     expect(requests).toEqual(["assistant_delta", "assistant_thinking"]);
 
-    bus.agentEvent({ type: "assistant_delta", text: "chunk" });
     bus.clear();
+    bus.agentEvent({ type: "assistant_delta", text: "chunk" });
     await Promise.resolve();
     await Promise.resolve();
     expect(requests).toHaveLength(2);

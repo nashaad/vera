@@ -32,6 +32,7 @@ const PREDICATE_FIELDS = [
     "pathGlob",
     "host",
     "scope",
+    "otherWorktree",
     "operation",
     "executable",
 ] as const;
@@ -128,6 +129,8 @@ export function isPermissionPredicate(
         && (value.scope === undefined
             || value.scope === "workspace"
             || value.scope === "outside_workspace")
+        && (value.otherWorktree === undefined
+            || typeof value.otherWorktree === "boolean")
         && (value.executable === undefined
             || isNonEmptyString(value.executable));
 }
@@ -148,6 +151,8 @@ export function permissionPredicateMatches(
         && (predicate.host === undefined
             || hostMatches(predicate.host, action.host))
         && (predicate.scope === undefined || predicate.scope === action.scope)
+        && (predicate.otherWorktree === undefined
+            || predicate.otherWorktree === (action.otherWorktree === true))
         && (predicate.executable === undefined
             || predicate.executable === action.executable);
 }
