@@ -72,22 +72,19 @@ export function createTuiExperimentalEventBus(
         event: TuiExperimentalEventName,
         ...args: any[]
     ): void {
-        const updateType = event === "agent_event"
-            ? String((args[0] as VeraExperimentalTuiAgentEvent).type)
-            : event;
         for (const registered of listeners[event]) {
             try {
                 const result = registered.listener(...args);
                 if (isThenable(result)) {
                     void Promise.resolve(result)
                         .catch((error) => reportFailure(registered, error))
-                        .then(() => { if (!closed) requestRender(updateType); });
+                        .then(() => { if (!closed) requestRender(event); });
                 } else if (!closed) {
-                    requestRender(updateType);
+                    requestRender(event);
                 }
             } catch (error) {
                 reportFailure(registered, error);
-                requestRender(updateType);
+                requestRender(event);
             }
         }
     }

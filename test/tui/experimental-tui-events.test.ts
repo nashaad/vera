@@ -19,7 +19,7 @@ test("experimental TUI events repaint after async listener settlement", async ()
     await Promise.resolve();
     await Promise.resolve();
     expect(settled).toBe(true);
-    expect(requests).toEqual(["turn_finished"]);
+    expect(requests).toEqual(["agent_event"]);
 });
 
 test("a synchronous listener requests its render before fire returns", () => {
@@ -31,7 +31,7 @@ test("a synchronous listener requests its render before fire returns", () => {
     bus.events.on("fixture", "agent_event", () => {});
 
     bus.agentEvent({ type: "turn_finished" });
-    expect(requests).toEqual(["turn_finished"]);
+    expect(requests).toEqual(["agent_event"]);
 });
 
 test("experimental TUI transcript listeners fire only when a message changes", () => {
@@ -54,7 +54,7 @@ test("experimental TUI transcript listeners fire only when a message changes", (
     expect(fired).toBe(3);
 });
 
-test("experimental TUI stream deltas pass their update type to the client's render clock", async () => {
+test("agent events share one repaint token regardless of their update type", async () => {
     const requests: string[] = [];
     const bus = createTuiExperimentalEventBus(
         () => {},
@@ -66,7 +66,7 @@ test("experimental TUI stream deltas pass their update type to the client's rend
     bus.agentEvent({ type: "assistant_thinking", text: "chunk" });
     await Promise.resolve();
     await Promise.resolve();
-    expect(requests).toEqual(["assistant_delta", "assistant_thinking"]);
+    expect(requests).toEqual(["agent_event", "agent_event"]);
 
     bus.clear();
     bus.agentEvent({ type: "assistant_delta", text: "chunk" });
