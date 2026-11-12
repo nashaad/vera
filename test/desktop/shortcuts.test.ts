@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
 import { THEME_COMMANDS } from "../../clients/ui/src/commands/theme-commands.ts";
 import { THEME_NAMES, type ThemeName } from "../../clients/ui/src/theme/tokens.ts";
-import { LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
+import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 
 function key(code: string, overrides: Partial<ShortcutInput> = {}): ShortcutInput {
     return {
@@ -24,6 +24,26 @@ test("@core the three toggles are bound directly on the platform modifier", () =
     expect(shortcutCommand(key("KeyB", { meta: true, alt: true }), "darwin")).toBe("layout.toggleRightPane");
     expect(shortcutCommand(key("KeyB", { control: true }), "linux")).toBe("layout.toggleSidebar");
     expect(shortcutCommand(key("KeyB", { control: true, alt: true }), "win32")).toBe("layout.toggleRightPane");
+});
+
+test("@core page shortcuts open New Chat and Settings and walk back and forward", () => {
+    expect(shortcutCommand(key("KeyN", { meta: true }), "darwin")).toBe("go.newChat");
+    expect(shortcutCommand(key("BracketLeft", { meta: true }), "darwin")).toBe("go.back");
+    expect(shortcutCommand(key("BracketRight", { control: true }), "linux")).toBe("go.forward");
+    expect(shortcutCommand(key("Comma", { meta: true }), "darwin")).toBe("go.settings");
+    expect(shortcutCommand(key("KeyN", { meta: true, alt: true }), "darwin")).toBeUndefined();
+});
+
+test("the Go menu carries each page shortcut with its accelerator", () => {
+    const run: string[] = [];
+    const go = buildMenuTemplate("darwin", (id) => run.push(id)).find((entry) => entry.label === "Go");
+    if (!Array.isArray(go?.submenu)) throw new Error("There is no Go menu.");
+    const items = go.submenu.filter((entry) => entry.type !== "separator");
+    expect(items.map((entry) => [entry.id, entry.label, entry.accelerator])).toEqual(
+        GO_SHORTCUTS.map((shortcut) => [shortcut.command, shortcut.label, shortcut.accelerator]),
+    );
+    for (const entry of items) (entry.click as () => void)();
+    expect(run).toEqual(GO_SHORTCUTS.map((shortcut) => shortcut.command));
 });
 
 test("the other platform's modifier, extra modifiers, repeats and key releases do not trigger a toggle", () => {

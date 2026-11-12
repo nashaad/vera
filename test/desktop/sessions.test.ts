@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 
 import { relativeTime, sessionRows } from "../../clients/ui/src/protocol/sessions.ts";
 
-test("@core session rows carry a name and the last activity, and skip rows they cannot read", () => {
+test("@core session rows carry a name, folder, status and the last activity, and skip rows they cannot read", () => {
     const rows = sessionRows({
         agents: [
-            { id: "abc", name: "  First  ", updated_at: "2026-01-02T03:04:05Z", live: true },
-            { id: "def12345678", title: "Titled" },
+            { id: "abc", name: "  First  ", workspace: "/w/crow", status: "working", updated_at: "2026-01-02T03:04:05Z", live: true, parent_id: "p1" },
+            { id: "def12345678", title: "Titled", status: "sailing" },
             { id: "ghi12345678" },
             { id: "" },
             { name: "no id" },
@@ -15,15 +15,18 @@ test("@core session rows carry a name and the last activity, and skip rows they 
         ],
     });
     expect(rows).toEqual([
-        { id: "abc", name: "First", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true },
-        { id: "def12345678", name: "Titled", live: false },
-        { id: "ghi12345678", name: "ghi12345", live: false },
+        { id: "abc", name: "First", workspace: "/w/crow", status: "working", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true, parentId: "p1" },
+        { id: "def12345678", name: "Titled", workspace: "", status: "other", live: false },
+        { id: "ghi12345678", name: "ghi12345", workspace: "", status: "other", live: false },
     ]);
 });
 
 test("an unreadable time leaves the row without one", () => {
     expect(sessionRows({ agents: [{ id: "a", updated_at: "not a date" }, { id: "b", updated_at: 5 }] }))
-        .toEqual([{ id: "a", name: "a", live: false }, { id: "b", name: "b", live: false }]);
+        .toEqual([
+            { id: "a", name: "a", workspace: "", status: "other", live: false },
+            { id: "b", name: "b", workspace: "", status: "other", live: false },
+        ]);
 });
 
 test("the relative time is coarse and never negative", () => {

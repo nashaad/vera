@@ -8,6 +8,8 @@ import "./styles/panel.css";
 import "./styles/workbench.css";
 import "./styles/views.css";
 import "./styles/sidebar-foot.css";
+import "./styles/sidebar-nav.css";
+import "./styles/pages.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {

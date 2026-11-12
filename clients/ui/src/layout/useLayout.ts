@@ -19,6 +19,8 @@ export interface LayoutController {
     readonly layout: ResolvedLayout;
     readonly dispatch: (action: LayoutAction) => void;
     readonly run: (command: string, args?: unknown) => void;
+    // Other parts of the window register their own commands here.
+    readonly commands: CommandRegistry;
 }
 
 interface Services {
@@ -103,5 +105,5 @@ export function useLayout(): LayoutController {
         commands.execute(command, args);
     }, [commands]);
 
-    return { loaded, layout, dispatch, run };
+    return { loaded, layout, dispatch, run, commands };
 }

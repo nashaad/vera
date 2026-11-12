@@ -3,12 +3,24 @@ import type { AgentListFacts } from "./client.ts";
 // The sessions list shows one page; the session count comes from the host's total.
 export const SESSIONS_PAGE_SIZE = 50;
 
+export type SessionStatus = "idle" | "working" | "waiting" | "completed" | "other";
+
 export interface SessionRow {
     readonly id: string;
     readonly name: string;
+    // The folder the session works in; empty when the host sent none.
+    readonly workspace: string;
+    readonly status: SessionStatus;
     // Milliseconds since the epoch; absent when the host reported no usable time.
     readonly updatedAt?: number;
     readonly live: boolean;
+    readonly parentId?: string;
+}
+
+const KNOWN_STATUSES: readonly SessionStatus[] = ["idle", "working", "waiting", "completed"];
+
+function statusOf(value: unknown): SessionStatus {
+    return KNOWN_STATUSES.find((status) => status === value) ?? "other";
 }
 
 const SHORT_ID_LENGTH = 8;
@@ -24,8 +36,11 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
         rows.push({
             id: fields.id,
             name: displayName(fields),
+            workspace: typeof fields.workspace === "string" ? fields.workspace : "",
+            status: statusOf(fields.status),
             ...(Number.isFinite(updated) ? { updatedAt: updated } : {}),
             live: fields.live === true,
+            ...(typeof fields.parent_id === "string" && fields.parent_id.length > 0 ? { parentId: fields.parent_id } : {}),
         });
     }
     return rows;

@@ -165,3 +165,69 @@ export function CheckIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function ComposeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
+            <path d="m17.5 3.5 3 3L12 15l-4 1 1-4 8.5-8.5Z" />
+        </Icon>
+    );
+}
+
+export function SearchIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+        </Icon>
+    );
+}
+
+export function BellIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z" />
+            <path d="M10 18.5a2 2 0 0 0 4 0" />
+        </Icon>
+    );
+}
+
+export function BlocksIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <path d="M14 17.5h7" />
+            <path d="M17.5 14v7" />
+        </Icon>
+    );
+}
+
+export function ArrowLeftIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M19 12H5" />
+            <path d="m11 6-6 6 6 6" />
+        </Icon>
+    );
+}
+
+export function ArrowRightIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M5 12h14" />
+            <path d="m13 6 6 6-6 6" />
+        </Icon>
+    );
+}
+
+export function GearIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" />
+        </Icon>
+    );
+}

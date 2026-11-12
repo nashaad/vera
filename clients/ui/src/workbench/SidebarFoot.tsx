@@ -1,5 +1,7 @@
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
-import { PanelIcon } from "../components/Icons.tsx";
+import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
+import { GearIcon, PanelIcon } from "../components/Icons.tsx";
+import { useRouter } from "../pages/router.tsx";
 import { buildLabel, phaseLabel, toneOf, type UiState } from "../state/connection.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown, useWorkbench } from "./context.tsx";
@@ -26,6 +28,25 @@ function PanelToggle() {
     );
 }
 
+function SettingsButton() {
+    const { run } = useWorkbench();
+    const { route } = useRouter();
+    const hint = shortcutLabel(NAVIGATION_COMMANDS.settings, window.veraDesktop?.platform ?? "");
+    return (
+        <button
+            type="button"
+            className="header-button"
+            aria-label="Settings"
+            title={hint === "" ? "Settings" : `Settings (${hint})`}
+            data-page="settings"
+            data-lit={route.kind === "settings"}
+            onClick={() => run(NAVIGATION_COMMANDS.settings)}
+        >
+            <GearIcon />
+        </button>
+    );
+}
+
 function hostTitle(state: UiState): string {
     const lines = [`Host build ${state.ready?.buildId ?? "unknown"}`];
     if (state.identity !== undefined) {
@@ -35,7 +56,7 @@ function hostTitle(state: UiState): string {
     return lines.join("\n");
 }
 
-// The sidebar's bottom row: the connection to the host, then window controls.
+// The sidebar's bottom row: the connection to the host, the panel toggle and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
     return (
@@ -55,6 +76,7 @@ export function SidebarFoot() {
                 ) : null}
             </span>
             <PanelToggle />
+            <SettingsButton />
         </footer>
     );
 }

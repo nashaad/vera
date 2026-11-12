@@ -1,8 +1,9 @@
 import { HeaderToggle } from "../components/HeaderToggle.tsx";
 import { LOCATION_TITLES, type LocationId } from "../layout/model.ts";
 import { useWorkbench } from "./context.tsx";
-import { useDropTarget } from "./drag.tsx";
+import { useDrag, useDropTarget } from "./drag.tsx";
 import { SidebarFoot } from "./SidebarFoot.tsx";
+import { SidebarNav } from "./SidebarNav.tsx";
 import { SidebarTop } from "./SidebarTop.tsx";
 import { Switcher } from "./Switcher.tsx";
 import { ViewStack } from "./ViewStack.tsx";
@@ -17,6 +18,10 @@ export function LocationPane({ location }: LocationPaneProps) {
     const { layout, dispatch } = useWorkbench();
     const resolved = layout.locations[location];
     const active = resolved.active;
+    const { payload } = useDrag();
+    // One container needs no switcher: its view draws its own headings. The rows come back
+    // with a second container, and during a drag so a container can still be dropped there.
+    const sidebarSwitcher = resolved.containers.length !== 1 || payload !== undefined;
 
     // A view dropped on the body joins the active container; a container dropped there moves here.
     const drop = useDropTarget({
@@ -57,7 +62,8 @@ export function LocationPane({ location }: LocationPaneProps) {
             {location === "sidebar" ? (
                 <>
                     <SidebarTop />
-                    <Switcher location="sidebar" variant="nav" />
+                    <SidebarNav />
+                    {sidebarSwitcher ? <Switcher location="sidebar" variant="nav" /> : null}
                 </>
             ) : null}
             {location === "panel" ? <Switcher location="panel" variant="tabs" /> : null}

@@ -148,6 +148,11 @@
     overflow: auto;
 }
 
+.location[data-location="sidebar"] .view-body {
+    padding-top: calc(var(--vera-space) * 2.5);
+    scrollbar-gutter: stable;
+}
+
 .view-empty,
 .view-note {
     margin: 0;
@@ -158,6 +163,77 @@
 
 /* sessions */
 
+.session-group {
+    margin-bottom: calc(var(--vera-space) * 1.5);
+}
+
+.group-head {
+    display: flex;
+    align-items: center;
+    height: calc(var(--vera-space) * 6.5);
+    padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) / 2);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+/* The caret's slot is always there so the title never shifts; it only draws on hover or while shut. */
+.group-disclose {
+    display: flex;
+    flex: 0 0 calc(var(--vera-space) * 3.5);
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 4.5);
+    padding: 0;
+    color: var(--vera-text-disabled);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    opacity: 0;
+}
+
+.session-group:hover .group-disclose,
+.session-group[data-open="false"] .group-disclose,
+.group-disclose:focus-visible {
+    opacity: 1;
+}
+
+.group-disclose:hover {
+    color: var(--vera-text-muted);
+}
+
+.group-chevron {
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    transition: transform var(--vera-motion);
+}
+
+.session-group[data-open="true"] .group-chevron {
+    transform: rotate(90deg);
+}
+
+.group-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--vera-space) * 5);
+    padding: 0 var(--vera-space);
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font: inherit;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.group-title:hover {
+    color: var(--vera-text-muted);
+    background: var(--vera-surface-hover);
+}
+
 .session-list {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -167,6 +243,7 @@
 }
 
 .session-row {
+    position: relative;
     display: flex;
     gap: calc(var(--vera-space) * 2.25);
     align-items: center;
@@ -182,6 +259,10 @@
     background: var(--vera-surface-hover);
 }
 
+.session-row[data-nested="true"] {
+    padding-left: calc(var(--vera-space) * 4.5);
+}
+
 .session-dot {
     flex: 0 0 auto;
     width: calc(var(--vera-space) * 1.75);
@@ -190,9 +271,9 @@
     border-radius: 50%;
 }
 
-.session-row[data-live="true"] .session-dot {
-    background: var(--vera-success);
-    border-color: var(--vera-success);
+.session-dot[data-running="true"] {
+    background: var(--vera-link);
+    border-color: var(--vera-link);
 }
 
 .session-name {

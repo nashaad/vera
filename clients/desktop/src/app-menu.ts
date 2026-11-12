@@ -2,7 +2,7 @@ import type { MenuItemConstructorOptions } from "electron";
 
 import { THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
 import { DEFAULT_THEME, THEME_NAMES, type ThemeName } from "../../ui/src/theme/tokens.ts";
-import { LAYOUT_SHORTCUTS } from "./shortcuts.ts";
+import { GO_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
 
 const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
     dark: "Dark",
@@ -16,12 +16,20 @@ export function buildMenuTemplate(
     run: (commandId: string) => void,
     theme: ThemeName = DEFAULT_THEME,
 ): MenuItemConstructorOptions[] {
-    const layoutItems: MenuItemConstructorOptions[] = LAYOUT_SHORTCUTS.map((shortcut) => ({
+    const item = (shortcut: (typeof LAYOUT_SHORTCUTS | typeof GO_SHORTCUTS)[number]): MenuItemConstructorOptions => ({
         id: shortcut.command,
         label: shortcut.label,
         accelerator: shortcut.accelerator,
         click: () => run(shortcut.command),
-    }));
+    });
+    const layoutItems = LAYOUT_SHORTCUTS.map(item);
+    const [newChat, back, forward, settings] = GO_SHORTCUTS.map(item);
+    const go: MenuItemConstructorOptions = {
+        label: "Go",
+        submenu: [newChat, { type: "separator" }, back, forward, { type: "separator" }, settings].filter(
+            (entry): entry is MenuItemConstructorOptions => entry !== undefined,
+        ),
+    };
     const themeItems: MenuItemConstructorOptions[] = THEME_NAMES.map((name) => ({
         id: THEME_COMMANDS[name],
         label: THEME_LABELS[name],
@@ -55,6 +63,7 @@ export function buildMenuTemplate(
             : { label: "File", submenu: [{ role: "quit" }] },
         { role: "editMenu" },
         view,
+        go,
         { role: "windowMenu" },
     ];
 }

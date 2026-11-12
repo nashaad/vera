@@ -16,21 +16,19 @@ with its header and banner, a right pane and a bottom panel. There is no
 full-width title bar and no status bar.
 
 - On macOS the window controls sit in the sidebar's top row, beside a button
-  that hides the sidebar. Other platforms keep the system title bar.
-- The main area has its own header: the title of what is open on the left and,
-  at the right, a button that opens and closes the right pane. When the sidebar
-  is hidden, the header leaves room for the window controls and takes the
-  button that shows the sidebar again. The window is
-  dragged from the sidebar's top row, the main header and the right pane's top
-  row.
+  that hides the sidebar. Back and forward sit at the right of that row. Other
+  platforms keep the system title bar.
+- The main area has its own header: the title of the current page on the left
+  and, at the right, a button that opens and closes the right pane. When the
+  sidebar is hidden, the header leaves room for the window controls and takes
+  the button that shows the sidebar again, with back and forward beside it. The
+  window is dragged from the sidebar's top row, the main header and the right
+  pane's top row.
 - The sidebar and the main area are separated by one soft line. Other regions
   are set apart by surface shade.
-- The main area shows a greeting and one row each for the sidebar, the right
-  pane and the panel, with the shortcut that shows or hides it. Conversations
-  open there in a later build.
 - The sidebar's bottom row shows a small colored dot with the connection state
-  and the host build, and at the right a button that toggles the panel.
-  Hovering the state shows the host build, protocol version, host process id and
+  and the host build, at the right a button that toggles the panel, and a gear
+  that opens Settings. Hovering the state shows the host build, protocol version, host process id and
   home path. The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
 - A banner under the main header appears when there is no connection or the
@@ -42,22 +40,61 @@ While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
 connection, ends the attachment and shows the banner.
 
+## Pages
+
+The main area shows one page at a time. Its title is in the main header. The
+pages are New Chat, Search, Work, Customize and Settings.
+
+- New Chat is the home page. It has a greeting and lists the sidebar, the right
+  pane and the panel, each with the shortcut that shows or hides it. It has no
+  composer yet.
+- Work lists sessions in two sections: Needs you, for sessions stopped at an
+  approval or a question, and Running. A section appears only when it has a
+  session. With neither, the page says that nothing is waiting on you.
+- Search, Customize and Settings are placeholders. Each shows its title, a line
+  of description and an empty state. Search lists sessions in the sidebar only,
+  Customize does not read the home's customizations, and Settings names the View
+  menu for the theme.
+
+The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
+The row of the current page is filled. Work shows a count of sessions waiting on
+you. Settings opens from the gear in the sidebar's footer.
+
+Back and forward sit in the sidebar's top row, or in the main header when the
+sidebar is hidden. Each is disabled when there is no page in its direction.
+History holds the last 50 pages. Opening a page other than the current one drops
+the forward pages, as a browser does, and opening the current page adds nothing.
+
+Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
+Settings. The Go menu holds New Chat, Back, Forward and Settings with the same
+shortcuts. Search, Work and Customize have commands (`go.search`, `go.work`,
+`go.customize`) and no shortcut. On other platforms the modifier is Ctrl.
+
 ## Layout
 
 Views live in three locations: the sidebar on the left, the right pane and the
-bottom panel. A location holds view containers. The sidebar switches them with
-rows at its top, each an icon and a title, with the selected row filled. The
-right pane switches them with rounded tabs in its top row, each an icon and a
-title. The panel switches them with tabs. A
-container holds one or more views stacked on top of each other, and each view
-has a header that collapses it. The main area is not a location for views.
+bottom panel. A location holds view containers. Below the sidebar's page rows,
+the sidebar switches its containers with rows, each an icon and a title, with the
+selected row filled. Those rows are hidden while the sidebar holds exactly one
+container. They show with any other number of containers, and while a container
+is being dragged. The right pane switches them with rounded tabs in its top row,
+each an icon and a title. The panel switches them with tabs. A container holds
+one or more views stacked on top of each other, and each view has a header that
+collapses it. The main area is not a location for views.
 
 Three views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
-  first. Each row has a dot that is filled while the host has the session
-  running, the session name, and the time since its last activity at the right,
-  written short (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`). It is read-only.
+  first, in groups by folder. A group's heading is the last segment of the folder
+  path, or `No folder` when a session has none. Hovering the heading shows the
+  full path. Groups are in the order of their most recent session, and rows keep
+  the host's order inside a group. A child session in the same folder is listed
+  under its parent, indented. A child of a child is listed under the same top
+  parent. A group collapses and expands from its heading; the state is not kept
+  across launches. Each row has a dot, the session name, and the time since its
+  last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
+  `1y`). A session that is running or waiting has a filled blue dot and shows no
+  time. The other rows have an outlined dot. It is read-only.
 - Host, in the right pane inside the Vera container, shows the connection state
   and tiles for the session count, host build, protocol version, host process id
   and home path. The home path is shortened, with the user's home directory
@@ -106,8 +143,9 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `layout.toggleRightPane`, `layout.togglePanel`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
-`container.reset`, `theme.dark`, `theme.light` and `theme.highContrast`. Menus
-and shortcuts run commands and nothing else.
+`container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`, `go.newChat`,
+`go.search`, `go.work`, `go.customize`, `go.settings`, `go.back` and `go.forward`.
+Menus and shortcuts run commands and nothing else.
 
 A view is told whether it is visible and never where it sits. A location with
 nothing in it is not drawn, except that the sidebar's rows stay so a container

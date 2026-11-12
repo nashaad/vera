@@ -130,14 +130,26 @@ try {
     await second.page.waitForSelector(location("panel"), { timeout: 5_000 });
 
     // A container moves through its own menu; the View menu's Reset Layout undoes it.
-    const activity = "[data-switcher=\"sidebar\"] [data-container=\"core.sessions\"]";
+    const outputHeader = "[data-view-header=\"core.output\"]";
+    const activity = "[data-switcher=\"panel\"] [data-container=\"core.output\"]";
     await second.page.click(activity, { button: "right" });
     await second.page.getByRole("menuitem", { name: "Move to Right Pane" }).click();
-    await assertIn(second.page, "rightPane");
+    await assertIn(second.page, "rightPane", outputHeader);
     await second.app.evaluate(({ Menu }) => {
         Menu.getApplicationMenu().getMenuItemById("layout.reset").click();
     });
+    await second.page.waitForSelector(`${location("rightPane")} ${outputHeader}`, { state: "detached", timeout: 10_000 });
     await assertIn(second.page, "sidebar");
+
+    // The sidebar's page rows switch the main area; Cmd+[ and Cmd+] walk back and forward.
+    await second.page.click(".nav-row[data-page=\"work\"]");
+    await second.page.waitForSelector("main[data-page=\"work\"]", { timeout: 5_000 });
+    await press(second.app, "[", [modifier]);
+    await second.page.waitForSelector("main[data-page=\"home\"]", { timeout: 5_000 });
+    await press(second.app, "]", [modifier]);
+    await second.page.waitForSelector("main[data-page=\"work\"]", { timeout: 5_000 });
+    await press(second.app, "N", [modifier]);
+    await second.page.waitForSelector("main[data-page=\"home\"]", { timeout: 5_000 });
 
     console.log(`layout e2e passed: ${trial.home}`);
 } finally {
