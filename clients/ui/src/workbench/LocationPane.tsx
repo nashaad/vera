@@ -1,0 +1,75 @@
+import { HeaderToggle } from "../components/HeaderToggle.tsx";
+import { LOCATION_TITLES, type LocationId } from "../layout/model.ts";
+import { useWorkbench } from "./context.tsx";
+import { useDropTarget } from "./drag.tsx";
+import { SidebarFoot } from "./SidebarFoot.tsx";
+import { SidebarTop } from "./SidebarTop.tsx";
+import { Switcher } from "./Switcher.tsx";
+import { ViewStack } from "./ViewStack.tsx";
+
+export interface LocationPaneProps {
+    readonly location: LocationId;
+}
+
+// The pane for one location, with its container switcher: rows under the sidebar's top row,
+// tabs above the panel, pills in the right pane's top row.
+export function LocationPane({ location }: LocationPaneProps) {
+    const { layout, dispatch } = useWorkbench();
+    const resolved = layout.locations[location];
+    const active = resolved.active;
+
+    // A view dropped on the body joins the active container; a container dropped there moves here.
+    const drop = useDropTarget({
+        id: `body.${location}`,
+        accepts: (dragged) => (dragged.kind === "view" ? active !== undefined : true),
+        onDrop: (dragged) => {
+            if (dragged.kind === "view" && active !== undefined) {
+                dispatch({ type: "moveView", view: dragged.id, to: { container: active.id } });
+            } else if (dragged.kind === "container") {
+                dispatch({ type: "moveContainer", container: dragged.id, location });
+            }
+        },
+    });
+
+    const body = (
+        <div
+            className="location-body"
+            data-drop={drop.over ? "over" : drop.active ? "available" : undefined}
+            onDragOver={drop.props.onDragOver}
+            onDragLeave={drop.props.onDragLeave}
+            onDrop={drop.props.onDrop}
+        >
+            {resolved.containers.map((container) => (
+                <ViewStack key={container.id} container={container} active={container.id === active?.id} />
+            ))}
+        </div>
+    );
+
+    // The size is the width of a side pane and the height of the panel.
+    const size = location === "panel" ? { height: resolved.size } : { width: resolved.size };
+    return (
+        <section
+            className="location"
+            data-location={location}
+            aria-label={LOCATION_TITLES[location]}
+            style={size}
+        >
+            {location === "sidebar" ? (
+                <>
+                    <SidebarTop />
+                    <Switcher location="sidebar" variant="nav" />
+                </>
+            ) : null}
+            {location === "panel" ? <Switcher location="panel" variant="tabs" /> : null}
+            {location === "rightPane" ? (
+                <div className="pane-top">
+                    <Switcher location="rightPane" variant="pills" />
+                    <span className="spacer" />
+                    <HeaderToggle location="rightPane" />
+                </div>
+            ) : null}
+            {body}
+            {location === "sidebar" ? <SidebarFoot /> : null}
+        </section>
+    );
+}

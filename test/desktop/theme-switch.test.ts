@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { activateTheme } from "../../clients/ui/src/theme/activate.ts";
+import type { ThemeName } from "../../clients/ui/src/theme/tokens.ts";
 import { applyTheme, startingThemeName, themeFile } from "../../clients/ui/src/theme/apply.ts";
 import type { ThemeRoot } from "../../clients/ui/src/theme/apply.ts";
 
@@ -45,7 +46,11 @@ test("@core the starting theme is dark", () => {
 test("@core activating a theme reports the resolved surface to the window", () => {
     const page = fakeRoot();
     const reported: string[] = [];
-    const bridge = { setWindowBackground: (color: string): void => { reported.push(color); } };
+    const named: ThemeName[] = [];
+    const bridge = {
+        setWindowBackground: (color: string): void => { reported.push(color); },
+        setTheme: (name: ThemeName): void => { named.push(name); },
+    };
     const surface = (): string => ` ${page.values.get("--vera-surface") ?? ""} `;
 
     activateTheme("dark", { root: page.root, bridge, surface });
@@ -54,12 +59,13 @@ test("@core activating a theme reports the resolved surface to the window", () =
     expect(reported).toHaveLength(2);
     expect(reported[0]).toBe(themeFile("dark").palette.canvas);
     expect(reported[1]).toBe(themeFile("light").palette.canvas);
+    expect(named).toEqual(["dark", "light"]);
 });
 
 test("activating a theme without a window bridge or a surface value reports nothing", () => {
     const page = fakeRoot();
     const reported: string[] = [];
-    const bridge = { setWindowBackground: (color: string): void => { reported.push(color); } };
+    const bridge = { setWindowBackground: (color: string): void => { reported.push(color); }, setTheme: (): void => {} };
 
     activateTheme("dark", { root: page.root, bridge, surface: () => "  " });
     expect(reported).toEqual([]);

@@ -1,47 +1,41 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { ConnectionPanel } from "./components/ConnectionPanel.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
-import { StatusBar } from "./components/StatusBar.tsx";
-import { TitleBar } from "./components/TitleBar.tsx";
+import { useLayout } from "./layout/useLayout.ts";
 import { bannerFor } from "./state/connection.ts";
+import { OutputLog } from "./state/outputLog.ts";
 import { useHostConnection } from "./state/useHostConnection.ts";
-import { activateTheme } from "./theme/activate.ts";
-import { readStoredTheme, storeTheme } from "./theme/storage.ts";
-import { THEME_NAMES, type ThemeName } from "./theme/tokens.ts";
+import { ViewEnvContext } from "./views/env.tsx";
+import { Workbench } from "./workbench/Workbench.tsx";
+import { WorkbenchProvider } from "./workbench/WorkbenchProvider.tsx";
 
 function reportTitleBarHeight(height: number): void {
     window.veraDesktop?.setTitleBarHeight(height);
 }
 
 export function App() {
-    const { state, reconnect, answer } = useHostConnection();
-    const [theme, setTheme] = useState<ThemeName>(() => readStoredTheme());
-
-    const changeTheme = (name: ThemeName): void => {
-        activateTheme(name);
-        storeTheme(name);
-        setTheme(name);
-    };
+    const [log] = useState(() => new OutputLog());
+    const { state, reconnect, answer } = useHostConnection(log);
+    const { loaded, layout, dispatch, run } = useLayout();
+    const environment = useMemo(() => ({ connection: state, log }), [state, log]);
+    const platform = window.veraDesktop?.platform ?? "";
 
     const banner = bannerFor(state);
     return (
-        <div className="app">
-            {window.veraDesktop?.platform === "darwin" ? (
-                <TitleBar onHeight={reportTitleBarHeight} />
-            ) : null}
-            {banner !== undefined ? (
-                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} />
-            ) : null}
-            <main className="main">
-                <ConnectionPanel state={state} />
-            </main>
-            <StatusBar
-                state={state}
-                theme={theme}
-                themeNames={THEME_NAMES}
-                onThemeChange={changeTheme}
-            />
-        </div>
+        <WorkbenchProvider layout={layout} dispatch={dispatch} run={run}>
+            <ViewEnvContext.Provider value={environment}>
+                <div className="app" data-platform={platform} data-sessions={state.sessions}>
+                    {loaded ? (
+                        <Workbench
+                            platform={platform}
+                            banner={banner !== undefined ? (
+                                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} />
+                            ) : null}
+                            {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
+                        />
+                    ) : <div className="workbench" />}
+                </div>
+            </ViewEnvContext.Provider>
+        </WorkbenchProvider>
     );
 }

@@ -67,15 +67,31 @@ async function stopHost(pid) {
     process.kill(pid, "SIGKILL");
 }
 
-const SESSIONS = "[data-stat=\"sessions\"]";
+// The app root carries the session count whatever the layout, unlike the views, which can be closed.
+const SESSIONS = ".app[data-sessions]";
 
 async function waitForSessions(page) {
-    await page.waitForFunction(
-        (selector) => /^\d+$/.test(document.querySelector(selector)?.textContent ?? ""),
-        SESSIONS,
-        { timeout: 45_000 },
-    );
-    return page.textContent(SESSIONS);
+    await page.waitForSelector(SESSIONS, { timeout: 45_000 });
+    return page.getAttribute(SESSIONS, "data-sessions");
+}
+
+// The View menu is native, so the test clicks its items from the main process.
+async function chooseTheme(command) {
+    await app.evaluate(({ Menu }, id) => {
+        Menu.getApplicationMenu().getMenuItemById(id).click();
+    }, command);
+}
+
+// The page reports the theme to the shell, which rebuilds the menu with that item checked.
+async function waitForCheckedTheme(command) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+        const checked = await app.evaluate(({ Menu }, id) => (
+            Menu.getApplicationMenu().getMenuItemById(id).checked
+        ), command);
+        if (checked) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`The View menu never checked ${command}.`);
 }
 
 async function surfaceColor(page) {
@@ -149,12 +165,17 @@ try {
     const count = await waitForSessions(page);
     if (count !== "0") throw new Error(`Expected 0 sessions, saw ${count}`);
 
-    const status = await page.textContent(".statusbar");
-    if (!/host \S+/.test(status) || !/protocol v\d+/.test(status)) {
-        throw new Error(`Unexpected status bar: ${status}`);
+    const state = page.locator(".sidebar-foot [data-item=\"state\"]");
+    const stateText = await state.textContent();
+    if (!/^Attached · \S+$/.test(stateText)) throw new Error(`Unexpected sidebar footer: ${stateText}`);
+    const stateTitle = await state.getAttribute("title");
+    if (!/Protocol v\d+/.test(stateTitle) || !stateTitle.includes(home)) {
+        throw new Error(`The footer tooltip lacks the protocol or home: ${stateTitle}`);
     }
-    if (!status.includes("0 sessions")) throw new Error(`The status bar lacks the count: ${status}`);
-    if (!status.includes(home)) throw new Error("The status bar does not show the home path.");
+    if (await page.getByRole("button", { name: /^(Dark|Light|High contrast)$/ }).count() > 0) {
+        throw new Error("The window still has theme buttons.");
+    }
+    await waitForCheckedTheme("theme.dark");
     const stored = await page.evaluate(() => (
         document.documentElement.style.getPropertyValue("--vera-surface")
     ));
@@ -181,17 +202,19 @@ try {
     startedPids.push(secondPid);
     if (secondPid === firstPid) throw new Error("Reconnect reused the stopped host pid.");
 
-    await page.getByRole("button", { name: "Light" }).click();
+    await chooseTheme("theme.light");
     const theme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
     if (theme !== "light") throw new Error(`Theme did not switch, saw ${theme}`);
     const lightSurface = await surfaceColor(page);
     if (lightSurface === darkSurface) throw new Error("The light theme has the same surface as dark.");
     await waitForWindowBackground(page, lightSurface);
+    await waitForCheckedTheme("theme.light");
 
-    await page.getByRole("button", { name: "High contrast" }).click();
+    await chooseTheme("theme.highContrast");
     const contrastSurface = await surfaceColor(page);
     if (contrastSurface === lightSurface) throw new Error("High contrast has the same surface as light.");
     await waitForWindowBackground(page, contrastSurface);
+    await waitForCheckedTheme("theme.highContrast");
 
     if (violations.length > 0) throw new Error(`Content security policy violations: ${violations.join("; ")}`);
 

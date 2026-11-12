@@ -12,6 +12,11 @@ export interface AgentListFacts {
     readonly total?: number;
 }
 
+export interface ListAgentsOptions {
+    readonly limit?: number;
+    readonly order?: "id" | "recent";
+}
+
 const MAX_FRAME_BYTES = 1_048_576;
 const RESPONSE_TIMEOUT_MS = 5_000;
 
@@ -54,17 +59,14 @@ export class HostProtocolClient {
         );
     }
 
-    listAgents(limit = 50): Promise<AgentListFacts> {
+    // One page, most recently updated first. The host reports the whole listing's size as total.
+    listAgents(options: ListAgentsOptions = {}): Promise<AgentListFacts> {
+        const { limit = 50, order } = options;
         return this.request<AgentListFacts>(
-            { type: "list_agents", limit },
+            { type: "list_agents", limit, ...(order === undefined ? {} : { order }) },
             "agent_list",
             isAgentList,
         );
-    }
-
-    // One row is enough: the host reports the size of the whole listing as total.
-    async countSessions(): Promise<number | undefined> {
-        return sessionCount(await this.listAgents(1));
     }
 
     feed(chunk: string): void {

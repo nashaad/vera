@@ -1,0 +1,89 @@
+// Shared setup for desktop e2e runs: a throwaway VERA_HOME and a launcher for the
+// built app. Stopping only ever signals the host recorded under that home.
+
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const root = new URL("../../..", import.meta.url).pathname;
+const require = createRequire(join(root, "clients", "desktop", "package.json"));
+const { _electron: electron } = require("playwright-core");
+const electronPath = require("electron");
+
+export function startTrial() {
+    const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
+    const home = join(trialRoot, ".vera");
+    const bun = process.env.VERA_DESKTOP_BUN
+        || execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
+    const apps = [];
+
+    async function launch() {
+        const app = await electron.launch({
+            executablePath: electronPath,
+            args: [join(root, "clients", "desktop")],
+            cwd: root,
+            env: {
+                ...process.env,
+                VERA_HOME: home,
+                VERA_DESKTOP_DEV_CLI: join(root, "clients", "cli", "main.ts"),
+                VERA_DESKTOP_BUN: bun,
+            },
+            timeout: 60_000,
+        });
+        apps.push(app);
+        return app;
+    }
+
+    function hostPid() {
+        try {
+            const record = JSON.parse(readFileSync(join(home, "runtime", "host.json"), "utf8"));
+            const ours = typeof record.pid === "number" && record.pid > 0
+                && typeof record.socket_path === "string" && record.socket_path.startsWith(home);
+            if (!ours) return undefined;
+            // The lock outlives a host that exited, so only a live pid counts.
+            process.kill(record.pid, 0);
+            return record.pid;
+        } catch {
+            return undefined;
+        }
+    }
+
+    // A host that is still starting when the test ends would outlive it, so tests wait first.
+    async function waitForHost() {
+        for (let attempt = 0; attempt < 450; attempt += 1) {
+            const pid = hostPid();
+            if (pid !== undefined) return pid;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        throw new Error("The trial host never appeared in the lock.");
+    }
+
+    async function cleanup() {
+        for (const app of apps) await app.close().catch(() => {});
+        const pid = hostPid();
+        if (pid !== undefined) await stopProcess(pid);
+        rmSync(trialRoot, { recursive: true, force: true });
+    }
+
+    return { root, home, launch, hostPid, waitForHost, cleanup };
+}
+
+async function stopProcess(pid) {
+    try {
+        process.kill(pid, "SIGTERM");
+    } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+        return;
+    }
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+            process.kill(pid, 0);
+        } catch {
+            return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    process.kill(pid, "SIGKILL");
+}

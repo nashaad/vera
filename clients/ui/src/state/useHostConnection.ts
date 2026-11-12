@@ -1,8 +1,10 @@
 import { useEffect, useReducer, useRef } from "react";
 
 import type { DesktopEvent } from "../protocol/bridge.ts";
-import { HostProtocolClient } from "../protocol/client.ts";
+import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
+import { HostProtocolClient, sessionCount } from "../protocol/client.ts";
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
+import { describeEvent, type OutputLog } from "./outputLog.ts";
 
 const POLL_MS = 3_000;
 
@@ -12,7 +14,7 @@ export interface HostConnection {
     answer(id: string, yes: boolean): void;
 }
 
-export function useHostConnection(): HostConnection {
+export function useHostConnection(log: OutputLog): HostConnection {
     const [state, dispatch] = useReducer(reduceConnection, INITIAL_STATE);
     const clientRef = useRef<HostProtocolClient | undefined>(undefined);
     // Bumped whenever the connection changes, so a late reply never lands on a newer one.
@@ -31,12 +33,15 @@ export function useHostConnection(): HostConnection {
         }).catch((error: unknown) => {
             if (!current()) return;
             dropClient(messageOf(error));
+            log.append("warning", `Connection lost: ${messageOf(error)}`);
             dispatch({ type: "lost", reason: messageOf(error) });
         });
-        client.countSessions().then((count) => {
-            if (current()) dispatch({ type: "sessions", count });
+        client.listAgents({ limit: SESSIONS_PAGE_SIZE, order: "recent" }).then((list) => {
+            if (current()) dispatch({ type: "sessions", count: sessionCount(list), rows: sessionRows(list) });
         }).catch((error: unknown) => {
-            if (current()) dispatch({ type: "notice", message: messageOf(error) });
+            if (!current()) return;
+            log.append("warning", `Session list failed: ${messageOf(error)}`);
+            dispatch({ type: "notice", message: messageOf(error) });
         });
     };
 
@@ -50,6 +55,9 @@ export function useHostConnection(): HostConnection {
             return;
         }
         const onEvent = (event: DesktopEvent): void => {
+            const line = describeEvent(event);
+            if (line !== undefined) log.append(line.kind, line.text);
+            if (event.type === "command") return;
             if (event.type === "frame") {
                 clientRef.current?.feed(event.text);
                 return;
@@ -90,11 +98,13 @@ export function useHostConnection(): HostConnection {
         state,
         reconnect: () => {
             dropClient("Reconnecting.");
+            log.append("info", "Reconnect requested.");
             dispatch({ type: "reconnecting" });
             window.veraDesktop.reconnect();
         },
         answer: (id, yes) => {
             window.veraDesktop.answer(id, yes);
+            log.append("info", `Answered ${yes ? "yes" : "no"}.`);
             dispatch({ type: "answered" });
         },
     };

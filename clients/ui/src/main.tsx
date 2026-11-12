@@ -5,7 +5,9 @@ import "./styles/base.css";
 import "./styles/titlebar.css";
 import "./styles/banner.css";
 import "./styles/panel.css";
-import "./styles/statusbar.css";
+import "./styles/workbench.css";
+import "./styles/views.css";
+import "./styles/sidebar-foot.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {

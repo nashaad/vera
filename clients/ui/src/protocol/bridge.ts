@@ -1,3 +1,6 @@
+import type { LayoutState } from "../layout/model.ts";
+import type { ThemeName } from "../theme/tokens.ts";
+
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
 export type DesktopEvent =
@@ -13,6 +16,8 @@ export type DesktopEvent =
     | { readonly type: "frame"; readonly text: string }
     | { readonly type: "disconnected"; readonly reason: string }
     | { readonly type: "failed"; readonly message: string }
+    // A native menu item or shortcut asking the page to run one of its commands.
+    | { readonly type: "command"; readonly id: string }
     | {
         readonly type: "missing_cli";
         readonly message: string;
@@ -29,6 +34,11 @@ export interface DesktopBridge {
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.
     setWindowBackground(color: string): void;
+    // Tells the shell which theme is active so the View menu can check it.
+    setTheme(name: ThemeName): void;
+    // The saved layout, or undefined when none is saved or the file was unreadable.
+    loadLayout(): Promise<LayoutState | undefined>;
+    saveLayout(layout: LayoutState): void;
     onEvent(listener: (event: DesktopEvent) => void): () => void;
 }
 

@@ -1,0 +1,35 @@
+.sidebar-foot {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    height: calc(var(--vera-space) * 11.5);
+    padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) * 3);
+    border-top: thin solid var(--vera-border);
+}
+
+.sidebar-foot-state {
+    display: flex;
+    flex: 1 1 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    white-space: nowrap;
+}
+
+.sidebar-foot-dot {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 1.75);
+    height: calc(var(--vera-space) * 1.75);
+    margin: 0 calc(var(--vera-space) * 0.75);
+    background: var(--tone);
+    border-radius: 50%;
+}
+
+.sidebar-foot-build {
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    text-overflow: ellipsis;
+}

@@ -1,5 +1,6 @@
 import type { DesktopEvent, DesktopPhase } from "../protocol/bridge.ts";
 import type { HostIdentityFacts } from "../protocol/client.ts";
+import type { SessionRow } from "../protocol/sessions.ts";
 
 export type UiPhase = DesktopPhase | "disconnected" | "failed" | "missing";
 
@@ -19,6 +20,8 @@ export interface UiState {
     readonly ready?: ReadyFacts;
     readonly identity?: HostIdentityFacts;
     readonly sessions?: number;
+    // The first page of the host's listing; `sessions` is the size of the whole listing.
+    readonly sessionRows?: readonly SessionRow[];
     readonly question?: UiQuestion;
     readonly failure?: string;
     readonly checked?: readonly string[];
@@ -28,7 +31,11 @@ export interface UiState {
 export type UiAction =
     | { readonly type: "event"; readonly event: DesktopEvent }
     | { readonly type: "identity"; readonly identity: HostIdentityFacts }
-    | { readonly type: "sessions"; readonly count: number | undefined }
+    | {
+        readonly type: "sessions";
+        readonly count: number | undefined;
+        readonly rows: readonly SessionRow[];
+    }
     | { readonly type: "notice"; readonly message: string }
     | { readonly type: "lost"; readonly reason: string }
     | { readonly type: "reconnecting" }
@@ -43,7 +50,7 @@ export function reduceConnection(state: UiState, action: UiAction): UiState {
         case "identity":
             return { ...state, identity: action.identity, notice: undefined };
         case "sessions":
-            return { ...state, sessions: action.count, notice: undefined };
+            return { ...state, sessions: action.count, sessionRows: action.rows, notice: undefined };
         case "notice":
             return { ...state, notice: action.message };
         case "lost":
@@ -78,11 +85,12 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
         case "disconnected":
             return lost(state, event.reason);
         case "frame":
+        case "command":
             return state;
     }
 }
 
-// The last host facts stay for the status bar; the live ones are dropped with the connection.
+// The last host facts stay for the sidebar footer; the live ones are dropped with the connection.
 function lost(state: UiState, reason: string): UiState {
     if (state.phase === "disconnected") return state;
     return { phase: "disconnected", ready: state.ready, failure: reason };
@@ -105,6 +113,14 @@ export type BannerState =
         readonly detail: string;
     };
 
+// The right pane is closed by default, so the banner itself names the paths that were checked.
+function missingDetail(state: UiState): string {
+    const reason = state.failure ?? "Vera is not installed.";
+    return state.checked !== undefined && state.checked.length > 0
+        ? `${reason} Checked: ${state.checked.join(", ")}`
+        : reason;
+}
+
 export function bannerFor(state: UiState): BannerState | undefined {
     if (state.question !== undefined) {
         return {
@@ -120,7 +136,7 @@ export function bannerFor(state: UiState): BannerState | undefined {
             kind: "missing",
             tone: "danger",
             title: "Vera is not installed",
-            detail: state.failure ?? "Vera is not installed.",
+            detail: missingDetail(state),
         };
     }
     if (state.phase === "failed") {

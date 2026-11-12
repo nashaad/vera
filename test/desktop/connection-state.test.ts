@@ -24,11 +24,11 @@ function run(...actions: UiAction[]): UiState {
 
 const event = (value: DesktopEvent): UiAction => ({ type: "event", event: value });
 
-test("@core a ready host attaches and the status bar facts fill in from the polls", () => {
+test("@core a ready host attaches and the host facts fill in from the polls", () => {
     const state = run(
         event(READY),
         { type: "identity", identity: { pid: 42, protocol_version: 7 } },
-        { type: "sessions", count: 3 },
+        { type: "sessions", count: 3, rows: [] },
     );
     expect(state).toMatchObject({
         phase: "attached",
@@ -44,7 +44,7 @@ test("@core losing the host drops live facts, keeps the last known build and hom
     const state = run(
         event(READY),
         { type: "identity", identity: { pid: 42, protocol_version: 7 } },
-        { type: "sessions", count: 3 },
+        { type: "sessions", count: 3, rows: [] },
         event({ type: "disconnected", reason: "The host is not running." }),
     );
     expect(state.phase).toBe("disconnected");
@@ -87,7 +87,7 @@ test("@core an answered question leaves the banner", () => {
 
 test("@core a missing install and a failed start are danger banners with their reason", () => {
     const missing = run(event({ type: "missing_cli", message: "not installed", checked: ["/a"] }));
-    expect(bannerFor(missing)).toMatchObject({ kind: "missing", tone: "danger" });
+    expect(bannerFor(missing)).toMatchObject({ kind: "missing", tone: "danger", detail: "not installed Checked: /a" });
     expect(missing.checked).toEqual(["/a"]);
     const failed = run(event({ type: "failed", message: "boom" }));
     expect(bannerFor(failed)).toMatchObject({ kind: "failed", tone: "danger", detail: "boom" });
@@ -96,7 +96,7 @@ test("@core a missing install and a failed start are danger banners with their r
 test("@core a new ready event replaces the old connection's facts", () => {
     const state = run(
         event(READY),
-        { type: "sessions", count: 9 },
+        { type: "sessions", count: 9, rows: [] },
         event({ ...READY, pid: 43 } as DesktopEvent),
     );
     expect(state.ready?.pid).toBe(43);

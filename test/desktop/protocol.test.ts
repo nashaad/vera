@@ -44,12 +44,12 @@ test("@core the client rejects an oversized frame and fails pending work", async
     expect(identity).rejects.toThrow("larger than this client accepts");
 });
 
-test("@core the session count comes from total, not from the page size", async () => {
+test("@core the page request carries its size and order, and the count comes from total", async () => {
     const { client, frames } = connected();
-    const count = client.countSessions();
-    expect(JSON.parse(frames[0]!)).toEqual({ type: "list_agents", limit: 1 });
+    const page = client.listAgents({ limit: 25, order: "recent" });
+    expect(JSON.parse(frames[0]!)).toEqual({ type: "list_agents", limit: 25, order: "recent" });
     client.feed("{\"type\":\"agent_list\",\"agents\":[{}],\"next_cursor\":\"a\",\"total\":12}\n");
-    expect(await count).toBe(12);
+    expect(sessionCount(await page)).toBe(12);
 });
 
 test("@core a page with more rows behind it and no total has no count", () => {

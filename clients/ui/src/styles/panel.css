@@ -1,14 +1,7 @@
-.panel {
+.host-view {
     display: grid;
-    gap: calc(var(--vera-space) * 3);
-    width: 100%;
-    max-width: calc(var(--vera-space) * 170);
-    margin: 0 auto;
-    padding: calc(var(--vera-space) * 6);
-    background: var(--vera-surface-panel);
-    border: thin solid var(--vera-border);
-    border-radius: calc(var(--vera-radius) * 1.5);
-    box-shadow: var(--vera-shadow);
+    gap: calc(var(--vera-space) * 2.5);
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
 }
 
 .kicker {
@@ -17,9 +10,7 @@
     align-items: center;
     margin: 0;
     color: var(--vera-text-muted);
-    font-size: var(--vera-font-size-code);
-    letter-spacing: calc(var(--vera-space) / 4);
-    text-transform: uppercase;
+    font-size: var(--vera-font-size-label);
 }
 
 .dot {
@@ -29,47 +20,44 @@
     border-radius: 50%;
 }
 
-.headline {
-    margin: 0;
-    font-size: calc(var(--vera-font-size) * 1.6);
-    font-weight: 500;
-    line-height: 1.25;
-}
-
-.detail {
-    margin: 0;
-    color: var(--vera-text-muted);
-}
-
 .stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(calc(var(--vera-space) * 36), 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: calc(var(--vera-space) * 1.5);
-    margin: calc(var(--vera-space) * 2) 0 0;
+    margin: 0;
 }
 
 .stat {
-    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3);
+    padding: calc(var(--vera-space) * 1.75) calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 2);
     background: var(--vera-surface-raised);
-    border: thin solid var(--vera-border);
     border-radius: var(--vera-radius);
 }
 
+.stat-wide {
+    grid-column: 1 / -1;
+}
+
 .stat-label {
-    color: var(--vera-text-muted);
-    font-size: var(--vera-font-size-code);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
 }
 
 .stat-value {
     margin: 0;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-chat);
+}
+
+.stat-path {
+    overflow-wrap: anywhere;
     font-family: var(--vera-font-code);
-    font-size: calc(var(--vera-font-size) * 1.3);
+    font-size: var(--vera-font-size);
 }
 
 .meta {
     margin: 0;
-    color: var(--vera-text-muted);
+    color: var(--vera-text-dim);
     font-family: var(--vera-font-code);
-    font-size: var(--vera-font-size-code);
+    font-size: var(--vera-font-size-label);
     overflow-wrap: anywhere;
 }

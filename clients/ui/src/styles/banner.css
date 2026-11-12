@@ -5,7 +5,6 @@
     align-items: center;
     padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 4);
     background: var(--vera-surface-raised);
-    border-bottom: thin solid var(--tone);
 }
 
 .banner-icon {
@@ -29,5 +28,5 @@
     white-space: pre-wrap;
     color: var(--vera-text-muted);
     font-family: var(--vera-font-code);
-    font-size: var(--vera-font-size-code);
+    font-size: var(--vera-font-size-label);
 }

@@ -59,3 +59,109 @@ export function RemoteIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function SidebarIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M9 4v16" />
+        </Icon>
+    );
+}
+
+export function SidebarRightIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M15 4v16" />
+        </Icon>
+    );
+}
+
+export function PanelIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M3 14h18" />
+        </Icon>
+    );
+}
+
+export function SessionsIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9l-4 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+        </Icon>
+    );
+}
+
+export function ServerIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="7" rx="2" />
+            <rect x="3" y="13" width="18" height="7" rx="2" />
+            <path d="M7 7.5h.01" />
+            <path d="M7 16.5h.01" />
+        </Icon>
+    );
+}
+
+export function FolderIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z" />
+        </Icon>
+    );
+}
+
+export function OutputIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m5 8 4 4-4 4" />
+            <path d="M12 16h7" />
+        </Icon>
+    );
+}
+
+export function ViewIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m12 4-9 5 9 5 9-5-9-5Z" />
+            <path d="m3 14 9 5 9-5" />
+        </Icon>
+    );
+}
+
+export function MoreIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="5" cy="12" r="1" fill="currentColor" />
+            <circle cx="12" cy="12" r="1" fill="currentColor" />
+            <circle cx="19" cy="12" r="1" fill="currentColor" />
+        </Icon>
+    );
+}
+
+export function ChevronRightIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m9 6 6 6-6 6" />
+        </Icon>
+    );
+}
+
+export function ChevronDownIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m6 9 6 6 6-6" />
+        </Icon>
+    );
+}
+
+export function CheckIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m5 12 5 5 9-10" />
+        </Icon>
+    );
+}
