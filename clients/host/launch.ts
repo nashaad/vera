@@ -5,6 +5,7 @@ export { clearBootFailures, countsAsBootFailure, HostBootLoopError, recentBootFa
 import { spawn } from "node:child_process";
 import {
     existsSync,
+    readFileSync,
     statSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -330,23 +331,38 @@ export function worktreeRuntimeNotice(
     environment: Record<string, string | undefined> = process.env,
 ): string | undefined {
     const chosen = (environment[VERA_HOME_ENV] ?? "").trim().length > 0;
-    if (chosen || !insideLinkedWorktree(cwd)) return undefined;
+    if (chosen) return undefined;
+    const root = linkedWorktreeRoot(cwd);
+    if (root === undefined || !isVeraCheckout(root)) return undefined;
     return "started inside a Git worktree with no instance of its own, so this"
         + " session is attached to the daily host and does not run"
         + " this worktree's code. Quit and start it with"
         + " 'bun run dev:tui'.";
 }
 
-function insideLinkedWorktree(cwd: string): boolean {
+function linkedWorktreeRoot(cwd: string): string | undefined {
     let directory = resolve(cwd);
     for (;;) {
         const marker = statSync(join(directory, ".git"), {
             throwIfNoEntry: false,
         });
-        if (marker !== undefined) return marker.isFile();
+        if (marker !== undefined) return marker.isFile() ? directory : undefined;
         const parent = dirname(directory);
-        if (parent === directory) return false;
+        if (parent === directory) return undefined;
         directory = parent;
+    }
+}
+
+// The advice names `bun run dev:tui`, so it is only right where that script exists in Vera's own package.
+function isVeraCheckout(root: string): boolean {
+    try {
+        const manifest: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+        if (typeof manifest !== "object" || manifest === null) return false;
+        const { name, scripts } = manifest as { name?: unknown; scripts?: unknown };
+        if (name !== "vera" || typeof scripts !== "object" || scripts === null) return false;
+        return typeof (scripts as Record<string, unknown>)["dev:tui"] === "string";
+    } catch {
+        return false;
     }
 }
 

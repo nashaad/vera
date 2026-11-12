@@ -168,18 +168,51 @@ async function waitForProcessExit(pid: number): Promise<void> {
 }
 
 /** A checkout whose `.git` is a file, the way a linked worktree records it. */
-async function linkedWorktree(): Promise<string> {
+async function linkedWorktree(manifest: unknown = veraManifest): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "vera-linked-worktree-"));
     await writeFile(join(root, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
     await mkdir(join(root, "clients"), { recursive: true });
+    await writeFile(join(root, "package.json"), JSON.stringify(manifest));
     return root;
 }
+
+const veraManifest = { name: "vera", scripts: { "dev:tui": "bun run scripts/dev-tui.ts" } };
 
 test("a worktree started without its own runtime is warned about", async () => {
     const root = await linkedWorktree();
     try {
         expect(worktreeRuntimeNotice(join(root, "clients"), {}))
             .toContain("bun run dev:tui");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a worktree of another repo is not warned about", async () => {
+    const manifests: unknown[] = [
+        { name: "vera-hq", scripts: { test: "bun test" } },
+        { name: "vera", scripts: { test: "bun test" } },
+        { name: "other", scripts: { "dev:tui": "bun run dev" } },
+        "not an object",
+        null,
+    ];
+    for (const manifest of manifests) {
+        const root = await linkedWorktree(manifest);
+        try {
+            expect(worktreeRuntimeNotice(join(root, "clients"), {})).toBeUndefined();
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    }
+});
+
+test("a worktree without a readable manifest is not warned about", async () => {
+    const root = await linkedWorktree();
+    try {
+        await writeFile(join(root, "package.json"), "{ not json");
+        expect(worktreeRuntimeNotice(root, {})).toBeUndefined();
+        await rm(join(root, "package.json"));
+        expect(worktreeRuntimeNotice(root, {})).toBeUndefined();
     } finally {
         await rm(root, { recursive: true, force: true });
     }
