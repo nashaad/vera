@@ -466,6 +466,11 @@
     min-width: 0;
 }
 
+/* When the bar runs short, the approval pill keeps only its icon; its title still names the mode. */
+.composer-bar:is([data-fit="compact"], [data-fit="tight"]) .approval-picker :is(.pill-label, .pill-sub) {
+    display: none;
+}
+
 .approval-picker .approval-menu {
     width: calc(var(--vera-space) * 80);
     max-height: min(calc(var(--vera-space) * 110), var(--popover-room));

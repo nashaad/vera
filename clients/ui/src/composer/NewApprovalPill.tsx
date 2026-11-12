@@ -38,6 +38,7 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
         ...modeChoices(modeOptions([]), mode, (picked) => pick(picked)),
     ];
 
+    const label = mode === undefined ? "Default approvals" : modeLabel(mode);
     return (
         <div className="approval-picker" ref={root}>
             <button
@@ -46,12 +47,12 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
                 data-mode={mode}
                 aria-haspopup="menu"
                 aria-expanded={open}
-                title="Choose how tool calls are approved"
+                title={`${label}\nChoose how tool calls are approved`}
                 disabled={disabled}
                 onClick={() => setOpen(!open)}
             >
                 <HandIcon className="pill-icon" />
-                <span className="pill-label">{mode === undefined ? "Default approvals" : modeLabel(mode)}</span>
+                <span className="pill-label">{label}</span>
             </button>
             {open ? <ApprovalMenu choices={choices} style={placed} /> : null}
         </div>

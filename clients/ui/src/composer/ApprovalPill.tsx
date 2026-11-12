@@ -50,7 +50,8 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
         if (closeMenu) setOpen(false);
     };
 
-    const title = wasRefused
+    const label = approval === undefined ? "Approvals" : modeLabel(approval.mode);
+    const hint = wasRefused
         ? REFUSED
         : waiting
             ? PENDING
@@ -66,12 +67,12 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                 data-mode={approval?.mode}
                 aria-haspopup="menu"
                 aria-expanded={open}
-                title={title}
+                title={`${label}\n${hint}`}
                 disabled={disabled}
                 onClick={() => setOpen(!open)}
             >
                 <HandIcon className="pill-icon" />
-                <span className="pill-label">{approval === undefined ? "Approvals" : modeLabel(approval.mode)}</span>
+                <span className="pill-label">{label}</span>
                 {waiting ? <span className="pill-sub">after this turn</span> : null}
             </button>
             {open && approval !== undefined ? (

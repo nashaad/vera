@@ -477,6 +477,11 @@ The effort pill next to it shows the effort level and is hidden when the model
 has only one. It opens a slider from least to most effort, with the level's
 description under it and a button that goes back to the model's default.
 
+When the composer is too narrow for every pill, the approval pill shows only its
+hand icon, and if that is not enough the effort pill hides, so the model's name
+keeps its room. Hover the approval pill to see its mode. Both come back when the
+composer widens.
+
 The Models browser has four tabs:
 
 - `Shortlist` and `All models` list models with their WA score, blended price

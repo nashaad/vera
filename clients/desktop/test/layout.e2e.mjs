@@ -53,12 +53,24 @@ async function assertNarrowFits(app, page) {
     }
     // A pill shrinks before its text does, so the text has to stay inside its own pill.
     const spilled = await page.locator(".composer-bar .pill-button :is(.pill-label, .pill-sub)").evaluateAll((labels) =>
-        labels.filter((label) => {
+        labels.filter((label) => label.getClientRects().length > 0).filter((label) => {
             const inner = label.getBoundingClientRect();
             const outer = label.closest(".pill-button").getBoundingClientRect();
             return inner.left < outer.left - 0.5 || inner.right > outer.right + 0.5;
         }).map((label) => label.textContent));
     if (spilled.length > 0) throw new Error(`Pill text runs out of its pill: ${spilled.join(", ")}.`);
+    // Short of room, the approval pill keeps only its icon and then the effort pill goes, so the
+    // model's name is cut short only once both have given way.
+    const fit = await composerFit(page);
+    if (fit === undefined) throw new Error("The composer bar has no fit.");
+    const approvalText = await page.locator(".composer-bar .approval-picker .pill-button").innerText();
+    if ((fit === "full") !== (approvalText.trim() !== "")) throw new Error(`The approval pill shows "${approvalText}" at fit ${fit}.`);
+    const modelCut = await page.locator(".composer-bar .model-pill .pill-label").evaluate((label) => label.scrollWidth > label.clientWidth);
+    if (modelCut && fit !== "tight") throw new Error(`The model name is cut short at fit ${fit}.`);
+    if (fit === "tight" && await page.locator(".composer-bar .effort-picker").isVisible()) throw new Error("The effort pill shows at fit tight.");
+    const approvalTitle = await page.locator(".composer-bar .approval-picker .pill-button").getAttribute("title");
+    const approvalLabel = await page.locator(".composer-bar .approval-picker .pill-label").evaluate((label) => label.textContent);
+    if (approvalTitle.split("\n")[0] !== approvalLabel) throw new Error(`The approval pill's title does not name the mode: ${approvalTitle}.`);
 
     // Each popover opens whole: no pane covers or clips it and it stays inside the window.
     const popovers = [
@@ -78,6 +90,15 @@ async function assertNarrowFits(app, page) {
         await page.waitForSelector(popover, { state: "detached", timeout: 5_000 });
         if (hidden) throw new Error(`${popover} is cut off at the narrow width.`);
     }
+
+    // With room again, every pill comes back.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 800));
+    await page.waitForFunction(() => document.querySelector(".composer-bar")?.dataset.fit === "full", null, { timeout: 5_000 })
+        .catch(async () => { throw new Error(`The composer bar stays at fit ${await composerFit(page)} in a wide window.`); });
+}
+
+async function composerFit(page) {
+    return page.locator(".composer-bar").evaluate((bar) => bar.dataset.fit);
 }
 
 async function dragSessionsToPanel(page) {

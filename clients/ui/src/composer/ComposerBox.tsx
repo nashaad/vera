@@ -1,7 +1,8 @@
-import { useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { ArrowUpIcon, PlusIcon, SquareIcon } from "../components/Icons.tsx";
 import { pastedImagePaths } from "./images.ts";
+import { useComposerFit } from "./useComposerFit.ts";
 
 export type SendButtonMode = "send" | "stop";
 
@@ -42,6 +43,8 @@ export function ComposerBox({
     barEnd,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
+    const bar = useRef<HTMLDivElement>(null);
+    useComposerFit(bar);
     const stop = buttonMode === "stop";
 
     const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
@@ -87,7 +90,7 @@ export function ComposerBox({
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
             />
-            <div className="composer-bar">
+            <div className="composer-bar" ref={bar}>
                 <button
                     type="button"
                     className="round-button"

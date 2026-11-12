@@ -25,6 +25,11 @@
     color: var(--vera-text-dim);
 }
 
+/* The tightest bar drops the effort pill so the model name keeps its room. */
+.composer-bar[data-fit="tight"] .effort-picker {
+    display: none;
+}
+
 /* model menu */
 
 .model-picker .model-menu {
