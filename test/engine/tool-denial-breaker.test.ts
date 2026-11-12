@@ -109,7 +109,7 @@ function drain(channel: ReturnType<typeof createInProcessChannel>): void {
     })();
 }
 
-test("a tool the policy keeps refusing stops being offered, and switching tools ends the turn", async () => {
+test("a refused tool stays offered, and a second refused tool ends the turn", async () => {
     const { harness: h } = await harness(
         [
             toolCall("b1", "bash", { command: "touch one" }),
@@ -126,14 +126,12 @@ test("a tool the policy keeps refusing stops being offered, and switching tools 
     drain(h.channel);
     const message = await runTurn(h.adapter, "test", h.state);
 
-    // Three refusals of bash withhold it; the fourth request no longer
-    // describes it, which is the whole of what the model is told.
+    // Three refusals of bash trip the breaker; the list of offered tools never
+    // changes, so every request keeps describing bash and write.
     expect(h.requests).toHaveLength(6);
-    for (const request of h.requests.slice(0, 3)) {
+    for (const request of h.requests) {
         expect(offeredNames(request)).toContain("bash");
-    }
-    for (const request of h.requests.slice(3)) {
-        expect(offeredNames(request)).not.toContain("bash");
+        expect(offeredNames(request)).toContain("write");
     }
 
     const trips = h.events.filter(
@@ -178,6 +176,7 @@ test("a call of a withheld tool is refused rather than run, and ends the turn", 
     const message = await runTurn(h.adapter, "test", h.state);
 
     expect(h.requests).toHaveLength(4);
+    expect(offeredNames(h.requests.at(-1)!)).toContain("bash");
     const denials = h.events.filter((event) => event.type === "tool_denied");
     expect(denials.at(-1)).toMatchObject({ denialClass: "denial-breaker" });
     expect(message.stopReason).toBe("error");
@@ -269,7 +268,36 @@ test("denials a person typed are not counted", async () => {
     expect(message.stopReason).toBe("stop");
 });
 
-test("a third refusal spread across a working turn costs only that tool", async () => {
+test("the tool list is identical on every request of a turn with three refusals", async () => {
+    const { harness: h } = await harness(
+        [
+            toolCall("b1", "bash", { command: "touch one" }),
+            toolCall("b2", "bash", { command: "touch two" }),
+            toolCall("b3", "bash", { command: "touch three" }),
+            DONE,
+        ],
+        "readonly",
+    );
+    h.channel.client.send({ type: "prompt", content: "go" });
+    drain(h.channel);
+    const message = await runTurn(h.adapter, "test", h.state);
+
+    expect(h.requests).toHaveLength(4);
+    for (const request of h.requests.slice(1)) {
+        expect(offeredNames(request)).toEqual(offeredNames(h.requests[0]!));
+    }
+    expect(
+        h.events.filter((event) => event.type === "tool_breaker_tripped"),
+    ).toEqual([{
+        type: "tool_breaker_tripped",
+        tool: "bash",
+        denials: 3,
+        action: "withheld",
+    }]);
+    expect(message.stopReason).toBe("stop");
+});
+
+test("a third refusal spread across a working turn keeps the tool offered", async () => {
     const reads = (count: number, from: number) =>
         Array.from(
             { length: count },
@@ -306,7 +334,7 @@ test("a third refusal spread across a working turn costs only that tool", async 
             action: "withheld",
         },
     ]);
-    expect(offeredNames(h.requests.at(-1)!)).not.toContain("bash");
+    expect(offeredNames(h.requests.at(-1)!)).toContain("bash");
     expect(offeredNames(h.requests.at(-1)!)).toContain("read");
     expect(message.stopReason).toBe("stop");
 });

@@ -1369,7 +1369,6 @@ export async function runTurn(
                     });
                 }
             }
-            const tools = denialBreaker.filterOffered(scopedTools);
             const requestSnapshot = {
                 ...(turnSettings.provider === undefined
                     ? {}
@@ -1382,7 +1381,7 @@ export async function runTurn(
                 messages: state.modelContext?.(
                     compactionContextForSettings(turnSettings, activeModel),
                 ) ?? state.messages,
-                tools,
+                tools: scopedTools,
                 workspace: state.toolRuntime.workspace,
                 ...(state.scratchDir === undefined
                     ? {}
