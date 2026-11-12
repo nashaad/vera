@@ -1,8 +1,10 @@
-import { Fragment, memo, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useMemo, useRef, useState, type MouseEvent } from "react";
 
-import { CheckIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
+import { SESSION_COMMANDS } from "../commands/session-commands.ts";
+import { CheckIcon, ChevronRightIcon, CopyIcon, MoreIcon } from "../components/Icons.tsx";
 import { relativeTime } from "../protocol/sessions.ts";
 import { useDesktopFlags } from "../state/useDesktopFlags.ts";
+import { useWorkbench } from "../workbench/context.tsx";
 import { type FileChange, latestChecklist } from "./changes.ts";
 import { copyText } from "./copyText.ts";
 import { DiffRollup } from "./DiffRollup.tsx";
@@ -48,9 +50,11 @@ export interface TranscriptProps {
     readonly status?: AgentRunStatus;
     // Set while a failed model request waits to be tried again.
     readonly retry?: RetryState;
+    // Only the open session's own transcript, since the menu's commands act on that session.
+    readonly replyMenu?: boolean;
 }
 
-export function Transcript({ blocks, running, folder, status = "working", retry }: TranscriptProps) {
+export function Transcript({ blocks, running, folder, status = "working", retry, replyMenu = false }: TranscriptProps) {
     const { showReasoning } = useDesktopFlags();
     const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
     const renders = useMemo<readonly TurnRender[]>(() => {
@@ -73,6 +77,7 @@ export function Transcript({ blocks, running, folder, status = "working", retry 
                         live={live}
                         waiting={live && status === "waiting"}
                         retry={live ? retry : undefined}
+                        replyMenu={replyMenu}
                     />
                 );
             })}
@@ -89,6 +94,7 @@ interface TurnViewProps {
     readonly live: boolean;
     readonly waiting: boolean;
     readonly retry: RetryState | undefined;
+    readonly replyMenu: boolean;
 }
 
 // Characters of text the turn has written so far, for the status line's token estimate.
@@ -97,7 +103,7 @@ function writtenCharacters(turn: Turn): number {
     return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer);
 }
 
-const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry }: TurnViewProps) {
+const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry, replyMenu }: TurnViewProps) {
     const [open, setOpen] = useState(true);
     const seconds = turnSeconds(turn);
     const showWork = open || live;
@@ -143,7 +149,7 @@ const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, li
                     {...(retry === undefined ? {} : { retry })}
                 />
             ) : null}
-            {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} /> : null}
+            {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} replyMenu={replyMenu} /> : null}
         </div>
     );
 });
@@ -197,7 +203,7 @@ function turnText(turn: Turn): string {
     return turn.work.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
 }
 
-function TurnActions({ turn }: { readonly turn: Turn }) {
+function TurnActions({ turn, replyMenu }: { readonly turn: Turn; readonly replyMenu: boolean }) {
     const [copied, setCopied] = useState(false);
     const text = turnText(turn);
     const at = turn.user?.at ?? turn.work[0]?.at;
@@ -213,7 +219,24 @@ function TurnActions({ turn }: { readonly turn: Turn }) {
                     {copied ? <CheckIcon /> : <CopyIcon />}
                 </button>
             )}
+            {replyMenu ? <ReplyMenuButton text={text} /> : null}
             <span className="when" title={exactWhen(at)}>{formatWhen(at)}</span>
         </div>
+    );
+}
+
+function ReplyMenuButton({ text }: { readonly text: string }) {
+    const { openMenu } = useWorkbench();
+    const open = (event: MouseEvent<HTMLButtonElement>): void => {
+        const box = event.currentTarget.getBoundingClientRect();
+        openMenu([
+            ...(text === "" ? [] : [{ kind: "item" as const, label: "Quote in Reply", command: SESSION_COMMANDS.quote, args: text }]),
+            { kind: "item", label: "Rewind or Fork…", command: SESSION_COMMANDS.rewind },
+        ], { x: box.left, y: box.bottom });
+    };
+    return (
+        <button type="button" className="icon-button" title="More" aria-label="Reply menu" aria-haspopup="menu" onClick={open}>
+            <MoreIcon />
+        </button>
     );
 }

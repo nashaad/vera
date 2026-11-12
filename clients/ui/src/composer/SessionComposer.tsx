@@ -36,6 +36,8 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     const [autoSend, setAutoSend] = useState(false);
     const lastSent = useRef<SentPrompt | undefined>(undefined);
     const withdrawing = useRef<string | undefined>(undefined);
+    const input = useRef<HTMLTextAreaElement>(null);
+    const [landed, setLanded] = useState(0);
     // A New Chat prompt waits here until the session has switched to the model chosen for it.
     const modelGate = useRef<ModelGate | undefined>(undefined);
     const attached = watch.phase === "attached";
@@ -69,18 +71,27 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
         setText((current) => (current.length === 0 ? last.text : current));
     }, [watch.refused]);
 
-    // A prompt a rewind or fork gave back lands in the box to edit.
+    // A prompt a rewind or fork gave back, or a quoted reply, lands in the box to edit.
     useEffect(() => {
         const land = (): void => {
             const draft = takeDraft(agentId);
             if (draft === undefined) return;
             setText((current) => (current.trim().length === 0 ? draft : `${current}\n${draft}`));
+            setLanded((count) => count + 1);
         };
         land();
         return subscribeDrafts((target) => {
             if (target === agentId) land();
         });
     }, [agentId]);
+
+    // Runs after a closing menu hands focus back to its button, so the box keeps it.
+    useEffect(() => {
+        const box = input.current;
+        if (landed === 0 || box === null) return;
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+    }, [landed]);
 
     // A prompt taken back out of the queue lands in the box to edit.
     useEffect(() => {
@@ -212,6 +223,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
                 onKeyDown={onKeyDown}
                 slash={slash.view}
                 onBlur={slash.onBlur}
+                inputRef={input}
                 buttonMode={stopping ? "stop" : "send"}
                 buttonEnabled={stopping ? attached : attached && !empty && ready.kind === "ready"}
                 onPress={() => (stopping ? send(abortCommand()) : submit())}

@@ -78,6 +78,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                             status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
                             {...(watch.retry === undefined ? {} : { retry: watch.retry })}
                             {...(folder === undefined ? {} : { folder })}
+                            replyMenu
                         />
                     )}
                     {watch.phase === "closed" || watch.phase === "failed" ? (

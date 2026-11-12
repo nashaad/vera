@@ -1,4 +1,4 @@
-import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 import { ArrowUpIcon, PlusIcon, SquareIcon } from "../components/Icons.tsx";
 import { pastedImagePaths } from "./images.ts";
@@ -28,6 +28,7 @@ export interface ComposerBoxProps {
     // The slash command menu, while it is open, and what the box does when it loses focus.
     readonly slash?: SlashMenuView;
     readonly onBlur?: () => void;
+    readonly inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 export function ComposerBox({
@@ -47,6 +48,7 @@ export function ComposerBox({
     barEnd,
     slash,
     onBlur,
+    inputRef,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
     const box = useRef<HTMLDivElement>(null);
@@ -89,6 +91,7 @@ export function ComposerBox({
             onDrop={onDrop}
         >
             <textarea
+                ref={inputRef}
                 className="composer-input"
                 rows={2}
                 autoFocus

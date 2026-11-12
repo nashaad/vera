@@ -1,7 +1,9 @@
 import { showToast } from "../overlays/toasts.ts";
 import { activeSession } from "../session/activeSession.ts";
 import { conversationText } from "../session/conversationText.ts";
+import { offerDraft } from "../session/drafts.ts";
 import { cyclePaneLayout, setPaneLayout, type PaneLayout } from "../session/paneLayout.ts";
+import { quoteReply } from "../session/quote.ts";
 import { openSessionSheet, type SessionSheet } from "../session/sessionSheets.ts";
 import type { CommandRegistry } from "./registry.ts";
 
@@ -11,6 +13,7 @@ export const SESSION_COMMANDS = {
     subagents: "session.subagents",
     tasks: "session.tasks",
     copy: "session.copyConversation",
+    quote: "session.quote",
     cycleLayout: "session.cycleLayout",
     setLayout: "session.setLayout",
     rename: "session.rename",
@@ -53,6 +56,16 @@ export function registerSessionCommands(registry: CommandRegistry): () => void {
                     () => showToast("Conversation copied", "success"),
                     () => showToast("The conversation could not be copied", "danger"),
                 );
+            },
+        }),
+        registry.register({
+            id: SESSION_COMMANDS.quote,
+            title: "Quote in Reply",
+            needsArgs: true,
+            run: (args) => {
+                const session = activeSession();
+                if (session === undefined || typeof args !== "string" || args.trim() === "") return;
+                offerDraft(session.agentId, quoteReply(args));
             },
         }),
         registry.register({ id: SESSION_COMMANDS.cycleLayout, title: "Cycle Agent Panes", run: () => cyclePaneLayout() }),
