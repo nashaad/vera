@@ -1,0 +1,9 @@
+/* The frame shared by window-wide sheets; each sheet's own styles live in its feature's file. */
+
+.overlay-sheet[data-wide="true"] {
+    width: min(calc(var(--vera-space) * 170), 92%);
+}
+
+.overlay-sheet-body {
+    min-height: 0;
+}

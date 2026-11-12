@@ -1,3 +1,4 @@
+import { openOverlay } from "../overlays/store.ts";
 import type { BannerState, Tone } from "../state/connection.ts";
 import { ErrorIcon, InfoIcon, WarningIcon } from "./Icons.tsx";
 
@@ -44,9 +45,16 @@ export function HostBanner({ banner, onAnswer, onReconnect }: HostBannerProps) {
                         </button>
                     </>
                 ) : (
-                    <button type="button" className="button" onClick={onReconnect}>
-                        Reconnect
-                    </button>
+                    <>
+                        <button type="button" className="button" onClick={onReconnect}>
+                            {banner.kind === "disconnected" ? "Reconnect" : "Try again"}
+                        </button>
+                        {banner.kind === "disconnected" ? null : (
+                            <button type="button" className="button" onClick={() => openOverlay("doctor")}>
+                                Run doctor
+                            </button>
+                        )}
+                    </>
                 )}
             </div>
         </section>

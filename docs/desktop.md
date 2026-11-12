@@ -32,8 +32,9 @@ full-width title bar and no status bar.
   home path. The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
 - A banner under the main header appears when there is no connection or the
-  startup check has a question. A lost connection, a host that did not start and
-  a missing install each offer Reconnect. The banner shows the reason; long
+  startup check has a question. A lost connection offers Reconnect. A host that
+  did not start and a missing install offer Try again and Run doctor, which opens
+  the health check described under Sheets. The banner shows the reason; long
   reasons scroll inside it.
 
 While attached, the app asks the host for its identity and session count every
@@ -75,14 +76,43 @@ session.
 - A session page opens when you pick a row in the Sessions view, on Work, on
   Search or on a workspace or device page. Its title is the session name. It is
   described under Session view.
-- Customize is a placeholder with its title, a line of description and an empty
-  state. It does not read the home's customizations.
+- Customize shows what Vera loads for a session in one folder: skills, agents,
+  extensions, instruction files and memory files. A menu picks the folder; it
+  starts on the folder of the session last open. The page reads through one
+  top-level session in that folder, preferring a running one, and names it under
+  the toolbar. Reading through a session that has stopped starts it again. With
+  no session in the folder the page says so and offers New chat here. Pills
+  filter by kind with a count on each, a search box matches names and
+  descriptions, and Reload reads again. Items are grouped as This folder, Your
+  home, Extensions, Included with Vera, Built in and Other. A card shows the name, the description, the kind
+  and badges such as Current for the session's agent, Manual only for a skill
+  Vera does not load on its own, and an extension's state. An extension the host
+  could not load shows its error. Picking a card opens a sheet with its facts
+  and the file's text, and Show in Finder (Open folder on other platforms) when
+  the item has a file. Customize does not add, remove, install or edit anything.
 - Settings has a list of sections on the left with a search box that filters
-  them by name, and the chosen section on the right. Approvals is described
-  under Approvals and questions and Providers under Models. Devices says that no
-  other device can reach the host, since it listens on a local socket, and lists
-  this window as the one active connection with the time it attached. Other
-  clients attached to the same host are not listed.
+  them by name and keywords, and the chosen section on the right. It opens on
+  Appearance.
+  - Appearance picks the theme and sets text size, code size and density (each
+    Small or Compact, Default, Large or Comfortable) and Reduce motion. These four
+    are kept in the desktop's browser storage under the home's
+    `machine/desktop/chromium`, not in `config.json`, so other clients do not use
+    them.
+  - Agents lists the agents a session in the folder of the last open session can
+    run as, with their scope and description, read the same way as Customize.
+    It does not change them; Choose Agent does.
+  - Approvals is described under Approvals and questions and Providers under
+    Models.
+  - Workspaces lists the folders of the listed sessions, the most recently
+    active first, each with its path, session count and last activity, and Open,
+    New chat here and Show in Finder.
+  - Git & PRs lists the same folders with each one's current branch and says that
+    Vera has no git or pull request settings yet.
+  - Devices says that no other device can reach the host, since it listens on a
+    local socket, and lists this window as the one active connection with the
+    time it attached. Other clients attached to the same host are not listed.
+  - Keyboard lists every shortcut by group with a search box. Shortcuts cannot
+    be changed.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 The row of the current page is filled. Work shows a count of sessions waiting on
@@ -94,9 +124,47 @@ History holds the last 50 pages. Opening a page other than the current one drops
 the forward pages, as a browser does, and opening the current page adds nothing.
 
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
-Settings. The Go menu holds New Chat, Back, Forward and Settings with the same
-shortcuts. Search, Work and Customize have commands (`go.search`, `go.work`,
-`go.customize`) and no shortcut. On other platforms the modifier is Ctrl.
+Settings. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
+Devices and Settings. Search, Work, Customize and Devices have no shortcut; the
+command palette reaches them. On other platforms the modifier is Ctrl.
+
+## Command palette and sheets
+
+Cmd+K or Cmd+Shift+P opens the command palette. It lists every command that
+needs no argument, grouped as Go, Window, Session, Theme and Help, with each
+command's shortcut. Typing filters the list by fuzzy match and marks the matched
+letters. Up and Down move, Enter runs the command and Escape closes the
+palette. Cmd+P opens Go to Session, the same list over sessions, each with its
+folder and age and a dot while it is working or waiting on you; Enter opens the
+session. Both are in the View menu.
+
+Cmd+/ opens Keyboard Shortcuts, a sheet with every shortcut by group and a
+filter box. The Help menu holds it and the sheets below. Each sheet closes with
+Escape, its close button or a click outside it.
+
+- Choose Agent, in the View menu, lists the agents the open session can run as,
+  with the current one checked. A click or its number key switches the session
+  to that agent. With no session open it says to open one.
+- Choose Theme lists the three themes with a swatch; a click or a number key
+  applies one.
+- Session Diagnostics lists the open session's facts (id, title, folder, model,
+  queued prompts, open requests) and the host's (connection, process id, build,
+  protocol, home, platform). Copy puts them on the clipboard as text.
+- Check Vera's Health checks the connection, the protocol version, the session
+  list, extensions and providers from what this window knows, with Run again.
+  For a full check it suggests `vera doctor` in a terminal and copies it.
+- Extensions lists the extensions the host could not load, with each error, and
+  opens Customize. Turning extensions on or off and installing them is not
+  available from the window.
+- Configuration Files lists Vera's configuration files and what each holds, and
+  shows the Vera home in Finder. Editing them is done with `/configure` in the
+  terminal UI.
+- Model Failures and Standing Nudges say the window cannot read them yet and
+  name the terminal commands that do: `/failure-report` and `/diagnostics` for
+  failures, `/nudges` for nudges.
+
+Copying a conversation, the diagnostics or the doctor command, and switching
+agents, show a short notice in the window's corner that fades on its own.
 
 ## Layout
 
@@ -482,7 +550,8 @@ Three themes ship as data files:
 
 View > Theme lists Dark, Light and High contrast, with the current theme
 checked; the same choices are the commands `theme.dark`, `theme.light` and
-`theme.highContrast`. Switching applies the token values and a `data-theme`
+`theme.highContrast`, View > Choose Theme… opens a sheet with the three, and
+Settings > Appearance lists them with a swatch. Switching applies the token values and a `data-theme`
 attribute to the root element at once and remembers the choice for the next
 launch. The saved theme is applied by a script in the page head that runs before
 the stylesheet loads, so the first paint already uses it.
@@ -517,6 +586,10 @@ bun test test/desktop
 node clients/desktop/test/attach.e2e.mjs
 node clients/desktop/test/layout.e2e.mjs
 node clients/desktop/test/compose.e2e.mjs
+node clients/desktop/test/approve.e2e.mjs
+node clients/desktop/test/models.e2e.mjs
+node clients/desktop/test/tools.e2e.mjs
+node clients/desktop/test/pages.e2e.mjs
 ```
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
@@ -544,6 +617,31 @@ reply, queues a message during a running turn, takes it back with Up, queues it
 again and releases it with Enter, stops a turn from the stop button, and sends a
 message with an attached PNG, checking the provider received the image. It
 stops the host it started.
+
+The approve test runs a local provider that asks to run one shell command per
+prompt in a session started in ask mode. It allows the first request with the 1
+key from an empty composer and checks the key did not reach the composer, denies
+the second from the card and checks the command did not run, and changes the
+session's mode from the approval-mode pill.
+
+The models test serves two local models with the second off the shortlist. From
+New Chat it searches for a model, adds it to the shortlist, picks it and sends;
+in the session it searches for the other model and sends on it, picks the first
+shortlist row with its number key, lowers its effort, then selects a model in the
+Models browser and probes it.
+
+The tools test runs a local provider that writes a scratch checklist, writes a
+file and edits it. It checks the turn's edits roll up into one card, opens the
+change from Review, reads the checklist's progress in the Plan view, waits for
+the context pill to fill in, rewinds the newest prompt back into the composer
+and compacts from the session menu.
+
+The pages test finds a session by a word said in it from Search, watches a slow
+turn finish in Work while another page is open, opens a folder's Workspace page
+from the sidebar and checks its session count, checks Devices, reads Vera's help
+skill on Customize and opens its detail, runs Settings from the command palette,
+finds the palette's keys in Settings > Keyboard and the shortcuts sheet, and
+opens a session from Go to Session.
 
 `bun test test/desktop` also covers turning history and live updates into the
 transcript, paging and its cap, and the session pipe in the app.

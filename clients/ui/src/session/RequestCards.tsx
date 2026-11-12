@@ -28,6 +28,8 @@ export function RequestCards({ requests, send }: RequestCardsProps) {
     useEffect(() => {
         if (first === undefined) return undefined;
         const onKey = (event: KeyboardEvent): void => {
+            // Number keys belong to an open sheet, not to the cards under it.
+            if (document.querySelector("[aria-modal='true']") !== null) return;
             if (!requestKeysAllowed(event, focusedElement())) return;
             const action = requestKeyAction(first, event.key);
             if (action === undefined) return;

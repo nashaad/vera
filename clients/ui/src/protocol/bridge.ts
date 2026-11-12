@@ -4,7 +4,8 @@ import type { ThemeName } from "../theme/tokens.ts";
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
 // The session page shows one session and, beside it, at most one of its subagents.
-export type SessionPane = "main" | "companion";
+// The probe pane is a short attach that reads a folder's catalogs for Customize.
+export type SessionPane = "main" | "companion" | "probe";
 
 export type DesktopEvent =
     | { readonly type: "phase"; readonly phase: DesktopPhase }
@@ -125,6 +126,19 @@ export interface SessionSearchAnswer {
 
 export type SessionSearchResult = SessionSearchAnswer | HostRequestFailure;
 
+export interface ExtensionFailure {
+    // The manifest id, or the configured path when the manifest did not load.
+    readonly extensionId: string;
+    readonly message: string;
+}
+
+export interface ExtensionFailuresAnswer {
+    readonly ok: true;
+    readonly failures: readonly ExtensionFailure[];
+}
+
+export type ExtensionFailuresResult = ExtensionFailuresAnswer | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -152,6 +166,8 @@ export interface DesktopBridge {
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // Searches what was said in the home's sessions; titles are not searched.
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
+    // Extensions the host tried to load at start and could not.
+    readExtensionFailures(): Promise<ExtensionFailuresResult>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // Opens the native folder picker; undefined when cancelled.

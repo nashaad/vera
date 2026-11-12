@@ -7,6 +7,7 @@ import type {
     CreateSessionResult,
     DesktopBridge,
     DesktopEvent,
+    ExtensionFailuresResult,
     HostModelsResult,
     ModelOperationKind,
     ModelOperationResult,
@@ -72,6 +73,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
     searchSessions: async (request: SessionSearchRequest) =>
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
+    readExtensionFailures: async () =>
+        (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);

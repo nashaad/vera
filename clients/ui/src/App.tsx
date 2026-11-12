@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
+import { Overlays } from "./overlays/Overlays.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
@@ -36,6 +37,7 @@ export function App() {
                             {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
                         />
                     ) : <div className="workbench" />}
+                    <Overlays commands={commands} />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>

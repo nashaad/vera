@@ -1,6 +1,16 @@
 import type { ReactNode } from "react";
 
-import { LaptopIcon, LayersIcon, ShieldIcon, type IconProps } from "../../components/Icons.tsx";
+import {
+    AgentIcon,
+    BranchIcon,
+    EyeIcon,
+    FolderIcon,
+    KeyIcon,
+    LaptopIcon,
+    LayersIcon,
+    ShieldIcon,
+    type IconProps,
+} from "../../components/Icons.tsx";
 
 export interface SettingsSection {
     readonly id: string;
@@ -13,6 +23,20 @@ export interface SettingsSection {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+    {
+        id: "appearance",
+        name: "Appearance",
+        Icon: EyeIcon,
+        terms: "theme dark light contrast color text size font code density compact motion animation",
+        file: "This window's own storage, not the Vera home",
+    },
+    {
+        id: "agents",
+        name: "Agents",
+        Icon: AgentIcon,
+        terms: "agent default persona subagent tools skills posture",
+        file: "agents/*.md in the folder and the Vera home",
+    },
     {
         id: "approvals",
         name: "Approvals",
@@ -28,10 +52,31 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         file: "config.json and the model catalog cache in the Vera home",
     },
     {
+        id: "workspaces",
+        name: "Workspaces",
+        Icon: FolderIcon,
+        terms: "workspace folder project directory repository",
+        file: "Read from the sessions the host lists",
+    },
+    {
+        id: "git",
+        name: "Git & PRs",
+        Icon: BranchIcon,
+        terms: "git branch commit pull request pr worktree",
+        file: "Not served by the host yet",
+    },
+    {
         id: "devices",
         name: "Devices",
         Icon: LaptopIcon,
         terms: "device machine computer session trusted remote pair client sign out",
         file: "Read from the host this window is attached to",
+    },
+    {
+        id: "keyboard",
+        name: "Keyboard",
+        Icon: KeyIcon,
+        terms: "keyboard shortcut key binding hotkey accelerator",
+        file: "Built into this window",
     },
 ];

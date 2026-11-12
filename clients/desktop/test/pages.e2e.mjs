@@ -1,7 +1,8 @@
 // Pages test for the desktop shell. Run with: node clients/desktop/test/pages.e2e.mjs
 // One session says a rare word; Search finds it, Work shows a slow turn finishing
-// while another page is open, the Workspace page counts the folder's sessions and
-// Devices describes this machine.
+// while another page is open, the Workspace page counts the folder's sessions,
+// Devices describes this machine, Customize lists what the folder's session can use,
+// and the command palette and shortcuts sheet open from their keys.
 
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -60,6 +61,14 @@ const provider = createServer((request, response) => {
 const trial = startTrial();
 let failed = false;
 let page;
+
+async function press(app, key, modifiers) {
+    await app.evaluate(({ BrowserWindow }, { key, modifiers }) => {
+        const contents = BrowserWindow.getAllWindows()[0].webContents;
+        contents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers });
+        contents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers });
+    }, { key, modifiers });
+}
 
 async function openPage(kind) {
     await page.locator(`[data-page="${kind}"]`).first().click();
@@ -126,6 +135,41 @@ try {
     await openPage("devices");
     await page.locator(".list-row-title", { hasText: "This Mac" }).click();
     await page.locator(".device-state", { hasText: "Connected" }).waitFor({ timeout: 10_000 });
+
+    // Customize reads the catalogs through the folder's session; Vera's own help skill is always there.
+    await openPage("customize");
+    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 20_000 });
+    await page.locator(".customize-card[data-name=\"vera-help\"]").click();
+    await page.waitForSelector("[data-overlay=\"customize-detail\"]", { timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("[data-overlay=\"customize-detail\"]", { state: "detached", timeout: 10_000 });
+
+    // The command palette runs a command by name.
+    const modifier = process.platform === "darwin" ? "meta" : "control";
+    await press(app, "K", [modifier]);
+    const palette = page.locator("input[aria-label=\"Command palette\"]");
+    await palette.waitFor({ timeout: 10_000 });
+    await palette.fill("settings");
+    await page.locator(".palette-row[data-command=\"go.settings\"]").waitFor({ timeout: 10_000 });
+    await palette.press("Enter");
+    await page.waitForSelector("main[data-page=\"settings\"]", { timeout: 10_000 });
+    if (await page.locator("[data-overlay=\"palette\"]").count() !== 0) throw new Error("The palette stayed open after running a command.");
+
+    // Settings > Keyboard and the shortcuts sheet list the palette's keys.
+    await page.locator(".rail-row", { hasText: "Keyboard" }).click();
+    await page.locator(".settings-col").getByText("Command Palette", { exact: true }).first().waitFor({ timeout: 10_000 });
+    await press(app, "/", [modifier]);
+    const sheet = page.locator("[data-overlay=\"shortcuts\"]");
+    await sheet.getByText("Command Palette", { exact: true }).first().waitFor({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await sheet.waitFor({ state: "detached", timeout: 10_000 });
+
+    // Go to Session opens the session by name.
+    await press(app, "P", [modifier]);
+    const finder = page.locator("input[aria-label=\"Go to session\"]");
+    await finder.waitFor({ timeout: 10_000 });
+    await page.locator(".palette-row[data-session]").first().click();
+    await page.waitForSelector(`text=${REPLY}`, { timeout: 15_000 });
     console.log("pages e2e passed");
 } catch (error) {
     failed = true;

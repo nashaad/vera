@@ -24,5 +24,6 @@ export const CHANNELS = {
     modelOperate: "vera:model-operate",
     sessionsSearch: "vera:sessions-search",
     folderReveal: "vera:folder-reveal",
+    extensionFailures: "vera:extension-failures",
     event: "vera:event",
 } as const;

@@ -1,11 +1,16 @@
 import { useState } from "react";
 
 import { SearchIcon } from "../components/Icons.tsx";
+import { AgentsSection } from "./settings/AgentsSection.tsx";
+import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { ApprovalsSection } from "./settings/ApprovalsSection.tsx";
 import { DevicesSection } from "./settings/DevicesSection.tsx";
+import { GitSection } from "./settings/GitSection.tsx";
+import { KeyboardSection } from "./settings/KeyboardSection.tsx";
 import { ProvidersSection } from "./settings/ProvidersSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
+import { WorkspacesSection } from "./settings/WorkspacesSection.tsx";
 
 // Settings: a rail of sections beside the chosen one. The rail search hides sections that do not match.
 export function SettingsPage() {
@@ -45,9 +50,14 @@ export function SettingsPage() {
             <div className="settings-main">
                 <div className="settings-col">
                     {current === undefined ? null : <div className="where">{current.file}</div>}
+                    {current?.id === "appearance" ? <AppearanceSection /> : null}
+                    {current?.id === "agents" ? <AgentsSection /> : null}
                     {current?.id === "approvals" ? <ApprovalsSection /> : null}
                     {current?.id === "providers" ? <ProvidersSection /> : null}
+                    {current?.id === "workspaces" ? <WorkspacesSection /> : null}
+                    {current?.id === "git" ? <GitSection /> : null}
                     {current?.id === "devices" ? <DevicesSection /> : null}
+                    {current?.id === "keyboard" ? <KeyboardSection /> : null}
                 </div>
             </div>
         </div>

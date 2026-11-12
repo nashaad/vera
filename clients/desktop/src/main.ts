@@ -29,6 +29,7 @@ import {
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
+import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { branchSession, closeSession, idArgument } from "./session-requests.ts";
@@ -59,6 +60,7 @@ const pipe = new HostPipe(sendEvent);
 const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
     main: new SessionPipe(sendEvent, "main"),
     companion: new SessionPipe(sendEvent, "companion"),
+    probe: new SessionPipe(sendEvent, "probe"),
 };
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
@@ -106,7 +108,7 @@ function shutdown(): void {
 }
 
 function paneArgument(value: unknown): SessionPipe | undefined {
-    return value === "main" || value === "companion" ? sessionPanes[value] : undefined;
+    return value === "main" || value === "companion" || value === "probe" ? sessionPanes[value] : undefined;
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
@@ -286,6 +288,8 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return false;
     return (await shell.openPath(folder)) === "";
 });
+ipcMain.handle(CHANNELS.extensionFailures, (event) =>
+    fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;
     const color = parseWindowBackground(value);

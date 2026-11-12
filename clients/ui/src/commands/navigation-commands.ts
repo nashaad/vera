@@ -7,6 +7,7 @@ export const NAVIGATION_COMMANDS = {
     work: "go.work",
     customize: "go.customize",
     settings: "go.settings",
+    devices: "go.devices",
     back: "go.back",
     forward: "go.forward",
 } as const;
@@ -17,6 +18,7 @@ const PAGES: ReadonlyArray<readonly [string, string, PageKind]> = [
     [NAVIGATION_COMMANDS.work, "Work", "work"],
     [NAVIGATION_COMMANDS.customize, "Customize", "customize"],
     [NAVIGATION_COMMANDS.settings, "Settings", "settings"],
+    [NAVIGATION_COMMANDS.devices, "Devices", "devices"],
 ];
 
 export function registerNavigationCommands(

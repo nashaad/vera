@@ -4,6 +4,7 @@ import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
 import { THEME_COMMANDS } from "../../clients/ui/src/commands/theme-commands.ts";
 import { THEME_NAMES, type ThemeName } from "../../clients/ui/src/theme/tokens.ts";
 import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
+import { acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
 
 function key(code: string, overrides: Partial<ShortcutInput> = {}): ShortcutInput {
     return {
@@ -34,16 +35,16 @@ test("@core page shortcuts open New Chat and Settings and walk back and forward"
     expect(shortcutCommand(key("KeyN", { meta: true, alt: true }), "darwin")).toBeUndefined();
 });
 
-test("the Go menu carries each page shortcut with its accelerator", () => {
+test("the Go menu carries each page shortcut with its accelerator, and every page", () => {
     const run: string[] = [];
     const go = buildMenuTemplate("darwin", (id) => run.push(id)).find((entry) => entry.label === "Go");
     if (!Array.isArray(go?.submenu)) throw new Error("There is no Go menu.");
-    const items = go.submenu.filter((entry) => entry.type !== "separator");
-    expect(items.map((entry) => [entry.id, entry.label, entry.accelerator])).toEqual(
+    const keyed = go.submenu.filter((entry) => entry.accelerator !== undefined);
+    expect(keyed.map((entry) => [entry.id, entry.label, entry.accelerator])).toEqual(
         GO_SHORTCUTS.map((shortcut) => [shortcut.command, shortcut.label, shortcut.accelerator]),
     );
-    for (const entry of items) (entry.click as () => void)();
-    expect(run).toEqual(GO_SHORTCUTS.map((shortcut) => shortcut.command));
+    for (const entry of go.submenu) if (entry.type !== "separator") (entry.click as () => void)();
+    expect(run).toEqual(["go.newChat", "go.back", "go.forward", "go.search", "go.work", "go.customize", "go.devices", "go.settings"]);
 });
 
 test("the other platform's modifier, extra modifiers, repeats and key releases do not trigger a toggle", () => {
@@ -54,7 +55,40 @@ test("the other platform's modifier, extra modifiers, repeats and key releases d
     expect(shortcutCommand(key("KeyB", { meta: true, isAutoRepeat: true }), "darwin")).toBeUndefined();
     expect(shortcutCommand(key("KeyB", { meta: true, type: "keyUp" }), "darwin")).toBeUndefined();
     expect(shortcutCommand(key("KeyB"), "darwin")).toBeUndefined();
-    expect(shortcutCommand(key("KeyK", { meta: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("KeyY", { meta: true }), "darwin")).toBeUndefined();
+});
+
+test("@core the palette opens on Cmd+K and Shift+Cmd+P, sessions on Cmd+P, and the key sheet on Cmd+/", () => {
+    expect(shortcutCommand(key("KeyK", { meta: true }), "darwin")).toBe("palette.commands");
+    expect(shortcutCommand(key("KeyP", { meta: true, shift: true }), "darwin")).toBe("palette.commands");
+    expect(shortcutCommand(key("KeyP", { meta: true }), "darwin")).toBe("palette.sessions");
+    expect(shortcutCommand(key("Slash", { control: true }), "linux")).toBe("help.shortcuts");
+    expect(shortcutCommand(key("KeyK", { meta: true, shift: true }), "darwin")).toBeUndefined();
+});
+
+test("accelerators read as macOS symbols in menu order, and as words elsewhere", () => {
+    expect(acceleratorKeys("CmdOrCtrl+Shift+P", "darwin")).toEqual(["⇧", "⌘", "P"]);
+    expect(acceleratorKeys("CmdOrCtrl+Alt+B", "darwin")).toEqual(["⌥", "⌘", "B"]);
+    expect(acceleratorKeys("CmdOrCtrl+Shift+P", "linux")).toEqual(["Ctrl", "Shift", "P"]);
+});
+
+test("the View menu opens the palette and the Help menu lists the keys", () => {
+    const template = buildMenuTemplate("darwin", () => {});
+    const view = template.find((entry) => entry.label === "View");
+    const ids = Array.isArray(view?.submenu) ? view.submenu.map((entry) => entry.id) : [];
+    expect(ids.slice(0, 2)).toEqual(["palette.commands", "palette.sessions"]);
+    const help = template.find((entry) => entry.role === "help");
+    const helpItems = Array.isArray(help?.submenu) ? help.submenu.filter((entry) => entry.type !== "separator") : [];
+    expect(helpItems[0]?.accelerator).toBe("CmdOrCtrl+/");
+    expect(helpItems.map((entry) => entry.id)).toEqual([
+        "help.shortcuts",
+        "help.diagnostics",
+        "help.doctor",
+        "help.extensions",
+        "help.configure",
+        "help.failures",
+        "help.nudges",
+    ]);
 });
 
 test("the View menu carries each toggle with its accelerator, plus Reset Layout", () => {
@@ -99,4 +133,14 @@ test("@core the View menu has a Theme submenu of radio items that run the theme 
 test("the menu has a File menu with Quit off macOS and the app menu on it", () => {
     expect(buildMenuTemplate("darwin", () => {})[0]).toEqual({ role: "appMenu" });
     expect(buildMenuTemplate("linux", () => {})[0]?.label).toBe("File");
+});
+
+test("shortcut groups merge a command's accelerators and list page keys by where they work", () => {
+    const groups = shortcutGroups("darwin");
+    const help = groups.find((group) => group.title === "Help");
+    const palette = help?.rows.find((row) => row.label === "Command Palette");
+    expect(palette?.chords).toEqual([["⌘", "K"], ["⇧", "⌘", "P"]]);
+    const composer = groups.find((group) => group.title === "Composer");
+    expect(composer?.rows.map((row) => row.chords[0]?.[0])).toContain("↑");
+    expect(groups.map((group) => group.title).slice(0, 4)).toEqual(["Window", "Go", "Session", "Help"]);
 });

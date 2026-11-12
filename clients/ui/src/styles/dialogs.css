@@ -1,0 +1,273 @@
+/* Window-wide sheets: the choosers, diagnostics, doctor and configuration. Frame styles are in overlays.css. */
+
+.dialog-text {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+}
+
+.dialog-text code,
+.dialog-row-detail code,
+.dialog-pick-meta code {
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    color: var(--vera-text-muted);
+}
+
+.dialog-note {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.dialog-note[data-tone="danger"] {
+    color: var(--vera-danger);
+    border-color: color-mix(in srgb, var(--vera-danger) 45%, transparent);
+}
+
+.dialog-note[data-tone="muted"] {
+    color: var(--vera-text-dim);
+}
+
+.dialog-key {
+    flex: 0 0 auto;
+    min-width: calc(var(--vera-space) * 3);
+    padding: calc(var(--vera-space) / 4) calc(var(--vera-space) * 1);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    text-align: center;
+    color: var(--vera-text-disabled);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-sm);
+}
+
+.dialog-picks {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    padding: 0;
+    list-style: none;
+}
+
+.dialog-pick {
+    display: flex;
+    gap: calc(var(--vera-space) * 3);
+    align-items: flex-start;
+    width: 100%;
+    margin-bottom: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 3);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    background: none;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    cursor: pointer;
+}
+
+.dialog-pick:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+    border-color: var(--vera-border-input);
+}
+
+.dialog-pick[data-selected="true"] {
+    background: var(--vera-surface-selected);
+    border-color: var(--vera-accent);
+}
+
+.dialog-pick:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.dialog-pick:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
+}
+
+.dialog-pick-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: calc(var(--vera-space) / 2);
+    min-width: 0;
+}
+
+.dialog-pick-name {
+    display: flex;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: var(--vera-font-size-body);
+    color: var(--vera-text);
+}
+
+.dialog-pick-desc,
+.dialog-pick-meta {
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text-dim);
+}
+
+.dialog-pick-check {
+    flex: 0 0 auto;
+    color: var(--vera-accent);
+}
+
+.dialog-swatches {
+    display: flex;
+    flex: 0 0 auto;
+    overflow: hidden;
+    border-radius: var(--vera-radius);
+}
+
+.dialog-swatches span {
+    display: block;
+    width: calc(var(--vera-space) * 1.75);
+    height: calc(var(--vera-space) * 4.5);
+}
+
+.dialog-rows {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    padding: 0;
+    list-style: none;
+}
+
+.dialog-row {
+    display: flex;
+    gap: calc(var(--vera-space) * 2.5);
+    align-items: flex-start;
+    padding: calc(var(--vera-space) * 2.5) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.dialog-row-icon {
+    flex: 0 0 auto;
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-danger);
+}
+
+.dialog-row-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: calc(var(--vera-space) / 2);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.dialog-row-name {
+    font-size: var(--vera-font-size-body);
+    color: var(--vera-text);
+}
+
+.dialog-row-detail {
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text-dim);
+}
+
+.dialog-facts {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--vera-font-size-label);
+}
+
+.dialog-facts th,
+.dialog-facts td {
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    text-align: left;
+    vertical-align: top;
+    border-bottom: thin solid var(--vera-border);
+    overflow-wrap: anywhere;
+}
+
+.dialog-facts th[scope="row"] {
+    width: 34%;
+    font-weight: 400;
+    color: var(--vera-text-dim);
+}
+
+.dialog-facts td {
+    color: var(--vera-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.dialog-facts-section th {
+    padding-top: calc(var(--vera-space) * 3);
+    font-size: var(--vera-font-size-label);
+    font-weight: 500;
+    color: var(--vera-text-muted);
+    border-bottom: thin solid var(--vera-border-input);
+}
+
+.dialog-checks {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dialog-check {
+    display: flex;
+    gap: calc(var(--vera-space) * 2.5);
+    align-items: flex-start;
+    padding: calc(var(--vera-space) * 2.5) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.dialog-check-icon {
+    flex: 0 0 auto;
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+}
+
+.dialog-check[data-result="ok"] .dialog-check-icon {
+    color: var(--vera-success);
+}
+
+.dialog-check[data-result="warn"] .dialog-check-icon {
+    color: var(--vera-warning);
+}
+
+.dialog-check[data-result="fail"] .dialog-check-icon {
+    color: var(--vera-danger);
+}
+
+.dialog-check-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: calc(var(--vera-space) / 2);
+    min-width: 0;
+}
+
+.dialog-check-name {
+    font-size: var(--vera-font-size-body);
+    color: var(--vera-text);
+}
+
+.dialog-check-detail {
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text-dim);
+    overflow-wrap: anywhere;
+}
+
+.dialog-foot-note {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--vera-font-size-label);
+    color: var(--vera-text-dim);
+}
+
+.dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    margin-bottom: calc(var(--vera-space) * 2);
+}

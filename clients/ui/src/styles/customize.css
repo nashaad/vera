@@ -1,0 +1,189 @@
+/* The Customize page: the folder menu, kind pills, scope groups and the card grid. */
+
+.customize-folder {
+    position: relative;
+    display: inline-flex;
+}
+
+.customize-folder .folder-menu {
+    top: calc(100% + var(--vera-space) * 1.5);
+    bottom: auto;
+    left: 0;
+    max-height: calc(var(--vera-space) * 90);
+    overflow-y: auto;
+}
+
+.customize-source {
+    margin: calc(var(--vera-space) * -3) 0 calc(var(--vera-space) * 4);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.customize-note {
+    margin: 0 0 calc(var(--vera-space) * 3);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+}
+
+.customize-note[data-tone="danger"] {
+    color: var(--vera-danger);
+}
+
+.customize-empty {
+    margin: calc(var(--vera-space) * 4) 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size);
+}
+
+.customize-empty-action {
+    display: block;
+    margin-top: calc(var(--vera-space) * 3);
+}
+
+.customize-count {
+    margin-left: calc(var(--vera-space) * 1);
+    color: var(--vera-text-disabled);
+}
+
+.customize-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(var(--vera-space) * 2.5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.customize-card {
+    display: flex;
+    gap: calc(var(--vera-space) * 3);
+    align-items: flex-start;
+    width: 100%;
+    height: 100%;
+    padding: calc(var(--vera-space) * 3);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    background: none;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    cursor: pointer;
+}
+
+.customize-card:hover {
+    background: var(--vera-surface-hover);
+    border-color: var(--vera-border-input);
+}
+
+.customize-card:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.customize-glyph {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 8.5);
+    height: calc(var(--vera-space) * 8.5);
+    color: var(--vera-text-dim);
+    background: var(--vera-surface-raised);
+    border-radius: var(--vera-radius);
+}
+
+.customize-glyph-icon {
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+}
+
+.customize-card-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.customize-card-name {
+    overflow: hidden;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customize-card-desc {
+    display: -webkit-box;
+    margin-top: calc(var(--vera-space) / 2);
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size);
+    line-height: 1.5;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.customize-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+    margin-top: calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.customize-badge {
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-badge-text);
+    font-size: var(--vera-font-size-label);
+    background: var(--vera-badge);
+    border-radius: var(--vera-radius-sm);
+}
+
+.customize-badge[data-tone="danger"] {
+    color: var(--vera-danger);
+    background: color-mix(in srgb, var(--vera-danger) 15%, transparent);
+}
+
+.customize-code {
+    font-family: var(--vera-font-code);
+}
+
+.customize-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 3);
+    margin: 0;
+    font-size: var(--vera-font-size-label);
+}
+
+.customize-facts dt {
+    color: var(--vera-text-muted);
+}
+
+.customize-facts dd {
+    margin: 0;
+    color: var(--vera-text);
+    overflow-wrap: anywhere;
+}
+
+.customize-facts dd.customize-code {
+    font-family: var(--vera-font-code);
+}
+
+.customize-content {
+    max-height: calc(var(--vera-space) * 90);
+    margin: calc(var(--vera-space) * 3) 0 0;
+    padding: calc(var(--vera-space) * 2.5);
+    overflow: auto;
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--vera-surface-code);
+    border-radius: var(--vera-radius);
+}

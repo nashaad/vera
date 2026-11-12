@@ -7,8 +7,13 @@ interface BranchState {
     readonly name: string | undefined;
 }
 
-// The branch of a folder's repository; undefined while loading, when there is none, or for another folder.
-export function useBranch(bridge: DesktopBridge | undefined, folder: string | undefined): string | undefined {
+export interface BranchLookup {
+    readonly done: boolean;
+    readonly name: string | undefined;
+}
+
+// Tells a folder with no repository apart from one still being read.
+export function useBranchLookup(bridge: DesktopBridge | undefined, folder: string | undefined): BranchLookup {
     const [state, setState] = useState<BranchState | undefined>(undefined);
     useEffect(() => {
         if (bridge === undefined || folder === undefined) return undefined;
@@ -23,5 +28,11 @@ export function useBranch(bridge: DesktopBridge | undefined, folder: string | un
             live = false;
         };
     }, [bridge, folder]);
-    return state !== undefined && state.folder === folder ? state.name : undefined;
+    if (state === undefined || state.folder !== folder) return { done: false, name: undefined };
+    return { done: true, name: state.name };
+}
+
+// The branch of a folder's repository; undefined while loading, when there is none, or for another folder.
+export function useBranch(bridge: DesktopBridge | undefined, folder: string | undefined): string | undefined {
+    return useBranchLookup(bridge, folder).name;
 }

@@ -7,14 +7,15 @@ export interface PageProps {
     readonly lede: string;
     readonly Icon: (props: IconProps) => ReactNode;
     readonly children?: ReactNode;
+    readonly wide?: boolean;
 }
 
 // The frame every page but New Chat shares: a heading, one line about the page, then its body.
-export function Page({ title, lede, Icon, children }: PageProps) {
+export function Page({ title, lede, Icon, children, wide = false }: PageProps) {
     return (
         <div className="page-scroll">
             <div className="page">
-                <div className="page-inner">
+                <div className="page-inner" data-wide={wide}>
                     <h1 className="page-title">
                         <Icon className="page-title-icon" />
                         {title}

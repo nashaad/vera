@@ -85,6 +85,10 @@
     margin: 0 auto;
 }
 
+.page-inner[data-wide="true"] {
+    max-width: calc(var(--vera-space) * 275);
+}
+
 .page-title {
     display: flex;
     gap: calc(var(--vera-space) * 2.25);

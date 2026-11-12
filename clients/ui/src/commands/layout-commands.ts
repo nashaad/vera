@@ -64,6 +64,7 @@ export function registerLayoutCommands(
         registry.register({
             id: LAYOUT_COMMANDS.viewMoveTo,
             title: "Move View",
+            needsArgs: true,
             run: (args) => {
                 const view = textArg(args, "view");
                 const index = indexArg(args);
@@ -78,31 +79,37 @@ export function registerLayoutCommands(
         registry.register({
             id: LAYOUT_COMMANDS.viewHide,
             title: "Hide View",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setViewHidden", view: textArg(args, "view"), hidden: true }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.viewShow,
             title: "Show View",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setViewHidden", view: textArg(args, "view"), hidden: false }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.viewCollapse,
             title: "Collapse View",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setViewCollapsed", view: textArg(args, "view"), collapsed: true }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.viewExpand,
             title: "Expand View",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setViewCollapsed", view: textArg(args, "view"), collapsed: false }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.viewReset,
             title: "Reset View Location",
+            needsArgs: true,
             run: (args) => dispatch({ type: "resetView", view: textArg(args, "view") }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.containerMoveTo,
             title: "Move View Container",
+            needsArgs: true,
             run: (args) => {
                 const index = indexArg(args);
                 dispatch({
@@ -116,21 +123,25 @@ export function registerLayoutCommands(
         registry.register({
             id: LAYOUT_COMMANDS.containerHide,
             title: "Hide View Container",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setContainerHidden", container: textArg(args, "container"), hidden: true }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.containerShow,
             title: "Show View Container",
+            needsArgs: true,
             run: (args) => dispatch({ type: "setContainerHidden", container: textArg(args, "container"), hidden: false }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.containerActivate,
             title: "Activate View Container",
+            needsArgs: true,
             run: (args) => dispatch({ type: "activateContainer", container: textArg(args, "container") }),
         }),
         registry.register({
             id: LAYOUT_COMMANDS.containerReset,
             title: "Reset View Container Location",
+            needsArgs: true,
             run: (args) => dispatch({ type: "resetContainer", container: textArg(args, "container") }),
         }),
     ];
