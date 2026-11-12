@@ -2,9 +2,10 @@ import { useCallback, useRef, useState } from "react";
 
 import { HandIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
-import { modeLabel, modeOptions } from "../session/permissions.ts";
+import { useFullAccessOffered } from "../session/fullAccess.ts";
+import { modeLabel, offeredModeOptions } from "../session/permissions.ts";
 import { ApprovalMenu, modeChoices, type ApprovalChoice } from "./ApprovalMenu.tsx";
-import { resolveModeArgument } from "./slash/args.ts";
+import { FULL_ACCESS_OFF, resolveModeArgument } from "./slash/args.ts";
 import { PILL_DONE, usePillRequests } from "./slash/pillRequests.ts";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
 
@@ -22,6 +23,7 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
     const close = useCallback(() => setOpen(false), []);
     useMenuDismiss(open, root, close);
     const placed = usePopoverPlacement(open, root);
+    const fullAccess = useFullAccessOffered();
 
     const pick = (next: string | undefined): void => {
         onPick(next);
@@ -33,7 +35,8 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
             setOpen(true);
             return PILL_DONE;
         }
-        const resolved = resolveModeArgument([], argument);
+        const resolved = resolveModeArgument([], argument, fullAccess);
+        if (resolved.kind === "off") return { done: false, message: FULL_ACCESS_OFF };
         if (resolved.kind === "unknown") return { done: false, message: `Permission modes: ${resolved.modes.join(", ")}` };
         onPick(resolved.mode);
         return PILL_DONE;
@@ -48,7 +51,7 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
             selected: mode === undefined,
             onSelect: () => pick(undefined),
         },
-        ...modeChoices(modeOptions([]), mode, (picked) => pick(picked)),
+        ...modeChoices(offeredModeOptions([], fullAccess, mode), mode, (picked) => pick(picked)),
     ];
 
     const label = mode === undefined ? "Default approvals" : modeLabel(mode);

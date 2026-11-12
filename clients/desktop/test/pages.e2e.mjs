@@ -182,6 +182,34 @@ try {
     await page.keyboard.press("Escape");
     await sheet.waitFor({ state: "detached", timeout: 10_000 });
 
+    // Full access stays out of the approval menus until Settings > Approvals turns it on, and turning it on asks first.
+    const approvalModes = async () => {
+        await press(app, "N", [modifier]);
+        const pill = page.locator(".home-composer .approval-picker .pill-button");
+        await pill.waitFor({ timeout: 10_000 });
+        await pill.click();
+        await page.locator(".approval-menu").waitFor({ timeout: 5_000 });
+        const names = await page.locator(".approval-menu .approval-item-name").allInnerTexts();
+        await page.keyboard.press("Escape");
+        await page.locator(".approval-menu").waitFor({ state: "detached", timeout: 5_000 });
+        return names;
+    };
+    if ((await approvalModes()).includes("Full access")) throw new Error("New Chat offers Full access before it was turned on.");
+    await press(app, ",", [modifier]);
+    await page.locator(".rail-row", { hasText: "Approvals" }).click();
+    const offer = page.getByRole("switch", { name: "Offer Full access" });
+    await offer.waitFor({ timeout: 10_000 });
+    if (await offer.getAttribute("aria-checked") !== "false") throw new Error("Offer Full access starts on.");
+    await offer.click();
+    const ask = page.locator(".setting-confirm");
+    await ask.getByRole("button", { name: "Cancel" }).click();
+    await ask.waitFor({ state: "detached", timeout: 5_000 });
+    if (await offer.getAttribute("aria-checked") !== "false") throw new Error("Cancel turned Full access on.");
+    await offer.click();
+    await ask.getByRole("button", { name: "Offer Full access" }).click();
+    await until("Full access on", async () => await offer.getAttribute("aria-checked") === "true");
+    if (!(await approvalModes()).includes("Full access")) throw new Error("New Chat does not offer Full access after it was turned on.");
+
     // Go to Session opens the session by name.
     await press(app, "P", [modifier]);
     const finder = page.locator("input[aria-label=\"Go to session\"]");

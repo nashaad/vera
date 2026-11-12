@@ -47,7 +47,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Approvals",
         group: "Settings",
         Icon: ShieldIcon,
-        terms: "permission approve deny allow mode grant always",
+        terms: "permission approve deny allow mode grant always full access",
         file: "config.json and preferences.json in the Vera home",
     },
     {

@@ -4,8 +4,9 @@ import { HandIcon, WarningIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import {
     defaultModeCommand,
+    FULL_ACCESS,
     modeLabel,
-    modeOptions,
+    offeredModeOptions,
     removeGrantCommand,
     removePreferenceCommand,
     sessionModeCommand,
@@ -14,8 +15,9 @@ import {
 } from "../session/permissions.ts";
 import { ApprovalMenu, modeChoices } from "./ApprovalMenu.tsx";
 import { ApprovalStanding } from "./ApprovalStanding.tsx";
+import { useFullAccessOffered } from "../session/fullAccess.ts";
 import { freshRequestId } from "./requests.ts";
-import { resolveModeArgument } from "./slash/args.ts";
+import { FULL_ACCESS_OFF, resolveModeArgument } from "./slash/args.ts";
 import { PILL_DONE, usePillRequests } from "./slash/pillRequests.ts";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
 
@@ -52,6 +54,7 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
         if (closeMenu) setOpen(false);
     };
 
+    const fullAccess = useFullAccessOffered();
     // /permissions changes the default for every session, as it does in the terminal.
     usePillRequests("approval", (argument) => {
         if (disabled || approval === undefined) return { done: false, message: "The session has not reported its approval mode yet" };
@@ -59,7 +62,8 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
             setOpen(true);
             return PILL_DONE;
         }
-        const resolved = resolveModeArgument(approval.modes, argument);
+        const resolved = resolveModeArgument(approval.modes, argument, fullAccess);
+        if (resolved.kind === "off") return { done: false, message: FULL_ACCESS_OFF };
         if (resolved.kind === "unknown") return { done: false, message: `Permission modes: ${resolved.modes.join(", ")}` };
         dispatch("mode", (id) => defaultModeCommand(id, resolved.mode), false);
         return PILL_DONE;
@@ -91,19 +95,23 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                 {waiting ? <span className="pill-sub">after this turn</span> : null}
             </button>
             {open && approval !== undefined ? (
-                <ApprovalMenu style={placed} choices={modeChoices(modeOptions(approval.modes), approval.mode, (mode) => dispatch("mode", (id) => sessionModeCommand(id, mode), true))}>
-                    <div className="menu-separator" />
-                    <button
-                        type="button"
-                        role="menuitem"
-                        className="menu-item approval-item"
-                        onClick={() => dispatch("mode", (id) => defaultModeCommand(id, approval.mode), true)}
-                    >
-                        <span className="menu-check" />
-                        <span className="approval-item-body">
-                            <span className="approval-item-name">Make this the default for new sessions</span>
-                        </span>
-                    </button>
+                <ApprovalMenu style={placed} choices={modeChoices(offeredModeOptions(approval.modes, fullAccess, approval.mode), approval.mode, (mode) => dispatch("mode", (id) => sessionModeCommand(id, mode), true))}>
+                    {approval.mode === FULL_ACCESS && !fullAccess ? null : (
+                        <>
+                            <div className="menu-separator" />
+                            <button
+                                type="button"
+                                role="menuitem"
+                                className="menu-item approval-item"
+                                onClick={() => dispatch("mode", (id) => defaultModeCommand(id, approval.mode), true)}
+                            >
+                                <span className="menu-check" />
+                                <span className="approval-item-body">
+                                    <span className="approval-item-name">Make this the default for new sessions</span>
+                                </span>
+                            </button>
+                        </>
+                    )}
                     <ApprovalStanding
                         heading="This session allows"
                         entries={approval.grants}

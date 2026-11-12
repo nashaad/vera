@@ -545,12 +545,14 @@ The approval pill at the left of the composer's bar shows the session's mode
 and opens a menu:
 
 - The modes: `Ask for approval`, `Approve for me` (a reviewer clears the safe
-  calls and asks you about the rest), `Read only` and `Full access`, then any
-  mode defined in the home. Picking one changes this session. A change made
-  while a turn runs applies when the turn ends, and the pill says
+  calls and asks you about the rest) and `Read only`, then any mode defined in
+  the home. `Full access` is listed too once Settings > Approvals offers it, and
+  always for a session already in it. Picking one changes this session. A change
+  made while a turn runs applies when the turn ends, and the pill says
   `after this turn` until then.
 - `Make this the default for new sessions` saves the session's mode as the
-  home's default.
+  home's default. It is left out for a session in `Full access` while Full
+  access is not offered.
 - `This session allows` lists what Allow similar has allowed, and
   `Every session allows` lists what Always has allowed, each with an `x` that
   removes it.
@@ -559,8 +561,13 @@ When Vera refuses a change, the pill's menu says so. On New Chat the pill says
 `Default approvals` and starts the new session in the home's default mode until
 you pick another; the pick applies to that session only.
 
-Settings > Approvals names the default mode and the standing permissions and
-says where to change them: the window reads both only through a session's pill.
+Settings > Approvals has the `Offer Full access` switch, off at first. Turning
+it on asks you to confirm, then lists `Full access` in both approval pills and
+lets `/permissions full_access` choose it; while it is off, `/permissions`
+says to turn it on first. Turning it off does not ask. The switch is kept in the
+window's storage under the home. The page also names the default mode and the
+standing permissions and says where to change them: the window reads both only
+through a session's pill.
 
 ## Models
 

@@ -152,6 +152,26 @@
     min-width: 0;
 }
 
+.setting-confirm {
+    margin: calc(var(--vera-space) * 2.5) 0;
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 3.5);
+    background: var(--vera-surface-raised);
+    border: thin solid color-mix(in srgb, var(--vera-danger) 40%, var(--vera-border));
+    border-radius: var(--vera-radius-lg);
+}
+
+.setting-confirm-text {
+    margin: 0 0 calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.setting-confirm-actions {
+    display: flex;
+    gap: calc(var(--vera-space) * 2);
+    justify-content: flex-end;
+}
+
 .setting-name {
     color: var(--vera-text);
     font-size: var(--vera-font-size-body);

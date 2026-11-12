@@ -189,13 +189,19 @@ describe("slash arguments", () => {
     });
 
     test("@core /permissions takes a mode id, spaced id or label, and lists the modes otherwise", () => {
-        expect(resolveModeArgument([], "readonly")).toEqual({ kind: "set", mode: "readonly" });
-        expect(resolveModeArgument([], "full access")).toEqual({ kind: "set", mode: "full_access" });
-        expect(resolveModeArgument([], "Approve for me")).toEqual({ kind: "set", mode: "auto" });
-        expect(resolveModeArgument(["scout_only"], "scout only")).toEqual({ kind: "set", mode: "scout_only" });
-        expect(resolveModeArgument([], "reckless")).toEqual({
+        expect(resolveModeArgument([], "readonly", false)).toEqual({ kind: "set", mode: "readonly" });
+        expect(resolveModeArgument([], "full access", true)).toEqual({ kind: "set", mode: "full_access" });
+        expect(resolveModeArgument([], "Approve for me", false)).toEqual({ kind: "set", mode: "auto" });
+        expect(resolveModeArgument(["scout_only"], "scout only", false)).toEqual({ kind: "set", mode: "scout_only" });
+        expect(resolveModeArgument([], "reckless", true)).toEqual({
             kind: "unknown",
             modes: ["ask", "auto", "readonly", "full_access"],
         });
+    });
+
+    test("@core /permissions refuses Full access while the window does not offer it", () => {
+        expect(resolveModeArgument([], "full_access", false)).toEqual({ kind: "off" });
+        expect(resolveModeArgument([], "Full access", false)).toEqual({ kind: "off" });
+        expect(resolveModeArgument([], "reckless", false)).toEqual({ kind: "unknown", modes: ["ask", "auto", "readonly"] });
     });
 });

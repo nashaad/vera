@@ -5,9 +5,11 @@ import {
     describePredicate,
     modeLabel,
     modeOptions,
+    offeredModeOptions,
     removeGrantCommand,
     sessionModeCommand,
 } from "../../clients/ui/src/session/permissions.ts";
+import { readFullAccessOffered, storeFullAccessOffered } from "../../clients/ui/src/session/fullAccess.ts";
 import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcript.ts";
 import { parseSessionLine } from "../../clients/ui/src/session/wire.ts";
 
@@ -51,6 +53,26 @@ describe("permissions", () => {
         const message = parseSessionLine(JSON.stringify({ type: "permissions_rejected", requestId: "p2", reason: "invalid", seq: 5 }));
         if (message === undefined) throw new Error("expected a message");
         expect(reduceWatch(initialWatch("a1"), message).approvalRefused).toBe("p2");
+    });
+
+    test("@core the approval menus list Full access only when offered or already in use", () => {
+        const listed = (fullAccess: boolean, current: string | undefined) =>
+            offeredModeOptions(["review_all"], fullAccess, current).map((option) => option.mode);
+        expect(listed(false, "ask")).toEqual(["ask", "auto", "readonly", "review_all"]);
+        expect(listed(false, undefined)).toEqual(["ask", "auto", "readonly", "review_all"]);
+        expect(listed(true, "ask")).toEqual(["ask", "auto", "readonly", "full_access", "review_all"]);
+        expect(listed(false, "full_access")).toEqual(["ask", "auto", "readonly", "full_access", "review_all"]);
+    });
+
+    test("the Full access setting is off unless stored on", () => {
+        const kept = new Map<string, string>();
+        const storage = { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => void kept.set(key, value) };
+        expect(readFullAccessOffered(storage)).toBe(false);
+        storeFullAccessOffered(true, storage);
+        expect(readFullAccessOffered(storage)).toBe(true);
+        storeFullAccessOffered(false, storage);
+        expect(readFullAccessOffered(storage)).toBe(false);
+        expect(readFullAccessOffered(undefined)).toBe(false);
     });
 
     test("custom modes follow the built-in ones", () => {

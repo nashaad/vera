@@ -1,7 +1,7 @@
 // Reads the text after /model, /effort and /permissions into a choice, or says there is none.
 import { allModels, matchesQuery } from "../../models/catalog.ts";
 import type { EffortLevel, ModelChoice, ModelEntry, ModelSettings } from "../../models/settings.ts";
-import { modeOptions } from "../../session/permissions.ts";
+import { FULL_ACCESS, modeOptions } from "../../session/permissions.ts";
 
 export type ModelArgument =
     | { readonly kind: "pick"; readonly choice: ModelChoice }
@@ -42,11 +42,18 @@ export function resolveEffortArgument(levels: readonly EffortLevel[], text: stri
 
 export type ModeArgument =
     | { readonly kind: "set"; readonly mode: string }
+    // Full access was named while the window setting that offers it is off.
+    | { readonly kind: "off" }
     | { readonly kind: "unknown"; readonly modes: readonly string[] };
 
-export function resolveModeArgument(modes: readonly string[], text: string): ModeArgument {
+export const FULL_ACCESS_OFF = "Full access is off. Turn it on in Settings > Approvals first";
+
+export function resolveModeArgument(modes: readonly string[], text: string, fullAccess: boolean): ModeArgument {
     const typed = text.trim().replaceAll(" ", "_");
     const options = modeOptions(modes);
     const found = options.find((option) => same(option.mode, typed) || same(option.label, text.trim()));
-    return found === undefined ? { kind: "unknown", modes: options.map((option) => option.mode) } : { kind: "set", mode: found.mode };
+    if (found?.mode === FULL_ACCESS && !fullAccess) return { kind: "off" };
+    if (found !== undefined) return { kind: "set", mode: found.mode };
+    const listed = options.filter((option) => option.mode !== FULL_ACCESS || fullAccess);
+    return { kind: "unknown", modes: listed.map((option) => option.mode) };
 }

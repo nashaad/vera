@@ -29,11 +29,13 @@ export interface ModeOption {
     readonly warn: boolean;
 }
 
+export const FULL_ACCESS = "full_access";
+
 export const BUILT_IN_MODES: readonly ModeOption[] = [
     { mode: "ask", label: "Ask for approval", description: "Ask before every command and every change outside the read-only tools", warn: false },
     { mode: "auto", label: "Approve for me", description: "A reviewer clears the safe calls; you decide the rest", warn: false },
     { mode: "readonly", label: "Read only", description: "Allow reads and deny every change", warn: false },
-    { mode: "full_access", label: "Full access", description: "Run anything your user account can, with no approvals", warn: true },
+    { mode: FULL_ACCESS, label: "Full access", description: "Run anything your user account can, with no approvals", warn: true },
 ];
 
 export function modeLabel(mode: string): string {
@@ -46,6 +48,11 @@ export function modeOptions(modes: readonly string[]): readonly ModeOption[] {
         .filter((mode) => !BUILT_IN_MODES.some((option) => option.mode === mode))
         .map((mode) => ({ mode, label: modeLabel(mode), description: "A mode defined in this home", warn: false }));
     return [...BUILT_IN_MODES, ...custom];
+}
+
+// What an approval menu lists. Full access needs the window setting, except as the mode already in use, so the menu can still mark it.
+export function offeredModeOptions(modes: readonly string[], fullAccess: boolean, current: string | undefined): readonly ModeOption[] {
+    return modeOptions(modes).filter((option) => option.mode !== FULL_ACCESS || fullAccess || current === FULL_ACCESS);
 }
 
 type Fields = Record<string, unknown>;
