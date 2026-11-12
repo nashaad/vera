@@ -27,6 +27,7 @@ import {
 } from "../engine/protocol.ts";
 import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
+import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import { availableModels, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../engine/model-settings.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
@@ -44,6 +45,11 @@ import { copySessionMessageAttachments, createSessionBranch } from "../store/ses
 import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
+import {
+    EXTENSION_CONFIG_NOTICE_KEY,
+    extensionConfigNoticeText,
+    type ExtensionConfigChange,
+} from "./extension-config-watch.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
@@ -1373,6 +1379,11 @@ export class AgentRegistry {
                         entry.markLoopReady();
                         const reason = blockLatch?.check();
                         if (reason !== undefined) this.haltInProcess(entry, reason);
+                        if (agent.attached) {
+                            for (const change of this.options.readExtensionConfigDrift?.() ?? []) {
+                                publishExtensionConfigChange(inbound, change);
+                            }
+                        }
                     },
                     hasPendingDeliveryTurn: () =>
                         entry.inbox?.hasAdmittedPending() === true,
@@ -1583,6 +1594,18 @@ export class AgentRegistry {
             });
             this.trackDelivery(inbox.pump());
         }
+        agent.onAttachmentChanged((attached) => {
+            if (!attached || entry.inbound === undefined) return;
+            const changes = this.options.readExtensionConfigDrift?.() ?? [];
+            if (changes.length === 0) return;
+            // The attach replays its checkpoint and update window after this callback.
+            queueMicrotask(() => {
+                if (entry.inbound === undefined) return;
+                for (const change of changes) {
+                    publishExtensionConfigChange(entry.inbound, change);
+                }
+            });
+        });
         const pendingDeliveries = store.pendingDeliveries();
         for (const delivery of pendingDeliveries) {
             events.emit({
@@ -1789,6 +1812,16 @@ export class AgentRegistry {
         return registrySubagent.trackDelivery(this, task);
     }
 
+    /** Sends one notice per changed extension to every session listening in this process. */
+    publishExtensionConfigChanges(changes: readonly ExtensionConfigChange[]): void {
+        for (const entry of this.agents.values()) {
+            if (entry.inbound === undefined) continue;
+            for (const change of changes) {
+                publishExtensionConfigChange(entry.inbound, change);
+            }
+        }
+    }
+
     reserveId(id: string): void {
         return registryLifecycle.reserveId(this, id);
     }
@@ -1796,4 +1829,19 @@ export class AgentRegistry {
     requireOpen(): void {
         return registryLifecycle.requireOpen(this);
     }
+}
+
+function publishExtensionConfigChange(
+    inbound: InboundCommandRouter,
+    change: ExtensionConfigChange,
+): void {
+    inbound.publishNotice({
+        key: EXTENSION_CONFIG_NOTICE_KEY,
+        text: extensionConfigNoticeText(change),
+        facts: {
+            operation: change.operation,
+            id: change.id,
+            needs_restart: change.needsRestart,
+        },
+    });
 }

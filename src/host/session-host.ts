@@ -20,6 +20,7 @@ import {
 import { defaultEventLogPath, eventLogRoot } from "../engine/events.ts";
 import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
 import { workerExtensionConfigs } from "../extensions/host-set.ts";
+import { createExtensionConfigWatch } from "./extension-config-watch.ts";
 import { adapterCacheFingerprint } from "../providers/routing.ts";
 import { ModelFailureLedger } from "../store/model-failures.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
@@ -81,6 +82,13 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         },
     };
     const { extensions, sessionIdentity, extensionLoadFailures } = await startSessionExtensions(options);
+    const extensionConfigWatch = options.sessionWorker === true || options.poolHost !== true
+        ? createExtensionConfigWatch({
+            configPath,
+            config: options.config,
+            currentConfig,
+        })
+        : undefined;
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
     const sessionImportNotes = new SessionImportNotes((sessionId) => join(sessionDirectory, `${sessionId}.jsonl`));
@@ -206,6 +214,9 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         },
         permissionPreferences,
         extensionTools: [...extensionTools, skillScriptTool],
+        ...(extensionConfigWatch === undefined
+            ? {}
+            : { readExtensionConfigDrift: () => extensionConfigWatch.drift() }),
         trustNotices: {
             tools: extensions.installedUnreviewedTools(),
             store: new TrustNoticeStore(defaultTrustNoticePath(home)),
@@ -239,6 +250,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         onSessionsClosed: (members): Promise<void> =>
             indexClosedMembers(registry, members, storedSessionIndex),
     });
+    extensionConfigWatch?.start((changes) => registry.publishExtensionConfigChanges(changes));
     const localExtensionSessions = createExtensionHostServices({
         registry,
         currentConfig,
@@ -279,6 +291,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     };
     let storageStarted = false;
     const stopMaintenance = (): void => {
+        extensionConfigWatch?.stop();
         if (parkIdleTimer !== undefined) {
             clearInterval(parkIdleTimer);
             parkIdleTimer = undefined;

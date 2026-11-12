@@ -22,12 +22,15 @@ import {
     type TuiExtensionsListKey,
     type TuiExtensionsListState,
 } from "../extensions-list.ts";
-import { appendTuiError, appendTuiNotice, appendTuiNoticeCard, tuiNoticeCardLines } from "../state.ts";
+import { appendTuiError, appendTuiNotice, appendTuiNoticeCard, tuiNoticeCardLines, type TuiState } from "../state.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 
 const EXTENSION_NOTICE_KEY = "extensions";
+
+/** The host sends this after config.json changes its extension set. */
+export const EXTENSION_CONFIG_NOTICE_KEY = "extensions_config";
 
 const HOST_RESTART_NOTICE =
     "The TUI side reloads now; restart the host for the host side.";
@@ -193,11 +196,44 @@ function reconnectHint(operation: "enable" | "disable" | "remove"): string {
     return `Use Reconnect host (Ctrl+P) to ${operation === "enable" ? "load" : "unload"} it.`;
 }
 
+const RECONNECT_PREFIX = "Use Reconnect host (Ctrl+P)";
+
 function multipleChangesSummary(changes: readonly string[]): string {
     const summary = `${changes.length} extension changes`;
-    const needsReconnect = changes.some((change) => change.endsWith(reconnectHint("enable"))
-        || change.endsWith(reconnectHint("disable")));
+    const needsReconnect = changes.some((change) => change.includes(RECONNECT_PREFIX));
     return needsReconnect ? `${summary}. Use Reconnect host (Ctrl+P) to apply them.` : summary;
+}
+
+/** Folds a host notice about config.json into the extensions card and reloads the client half. */
+export function applyExtensionConfigNotice(
+    rt: TuiRuntime,
+    update: { readonly key: string; readonly text?: string },
+): boolean {
+    if (update.key !== EXTENSION_CONFIG_NOTICE_KEY) return false;
+    const folded = foldExtensionConfigNotice(rt.state, update.text);
+    if (folded !== undefined) rt.state = folded;
+    reloadClientExtensionsForList(rt);
+    renderState(rt);
+    return true;
+}
+
+/** Returns the state with the line on the extensions card, or undefined when it is already there. */
+export function foldExtensionConfigNotice(
+    state: TuiState,
+    text: string | undefined,
+): TuiState | undefined {
+    const line = text?.trimEnd();
+    if (line === undefined || line.length === 0) return undefined;
+    const changes = tuiNoticeCardLines(state, EXTENSION_NOTICE_KEY, HOST_RESTART_NOTICE);
+    // A replayed notice repeats a line the card already holds.
+    if (changes.includes(line)) return undefined;
+    const next = [...changes, line];
+    return appendTuiNoticeCard(
+        state,
+        [...next, HOST_RESTART_NOTICE].join("\n"),
+        next.length === 1 ? line : multipleChangesSummary(next),
+        EXTENSION_NOTICE_KEY,
+    );
 }
 
 function reloadClientExtensionsForList(rt: TuiRuntime): void {

@@ -24,6 +24,7 @@ import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import { historyUserPrompts, historyWindowFirstUserText } from "../../shared/history-window.ts";
 import { cancelExtensionReveal, failExtensionReveal } from "./extension-reveal.ts";
 import { renderedExtensionNotice } from "../extension-notice.ts";
+import { applyExtensionConfigNotice } from "./extensions-ops.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -32,6 +33,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
         while (!rt.shuttingDown && generation === rt.clientGeneration) {
             const received = await source.receive();
             if (receiveCustomizationSources(source, received)) continue;
+            if (
+                received.type === "notice"
+                && applyExtensionConfigNotice(rt, received)
+            ) continue;
             const update = renderedExtensionNotice(
                 received,
                 (extensionId, notice) => rt.clientExtensionRegistry?.renderNotice(extensionId, notice),
