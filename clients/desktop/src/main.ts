@@ -10,10 +10,12 @@ import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
+import { SessionPipe } from "./session-pipe.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { parseWindowBackground } from "./window-background.ts";
 
 const MAX_SEND_BYTES = 1_048_576;
+const MAX_AGENT_ID_CHARS = 256;
 const TRAFFIC_LIGHT_INSET_X = 14;
 const TRAFFIC_LIGHT_SIZE = 14;
 const TITLE_BAR_HEIGHT_RANGE = { min: 24, max: 96 };
@@ -31,6 +33,7 @@ let stopping = false;
 let activeTheme: ThemeName = DEFAULT_THEME;
 
 const pipe = new HostPipe(sendEvent);
+const sessions = new SessionPipe(sendEvent);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 
 function sendEvent(event: DesktopEvent): void {
@@ -40,12 +43,16 @@ function sendEvent(event: DesktopEvent): void {
 
 function receiveEvent(event: DesktopEvent): void {
     sendEvent(event);
-    if (event.type === "ready") pipe.connect(event.socketPath);
+    if (event.type === "ready") {
+        pipe.connect(event.socketPath);
+        sessions.connect(event.socketPath);
+    }
 }
 
 function startBoot(): void {
     boot?.cancel();
     pipe.close();
+    sessions.close();
     boot = new BootSession(selectedVeraHome(), receiveEvent);
     boot.start();
 }
@@ -63,6 +70,7 @@ function shutdown(): void {
     boot?.cancel();
     boot = undefined;
     pipe.close();
+    sessions.close();
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
@@ -129,6 +137,17 @@ ipcMain.on(CHANNELS.answer, (event, payload: unknown) => {
 ipcMain.on(CHANNELS.send, (event, text: unknown) => {
     if (!fromWindow(event) || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
     pipe.send(text);
+});
+ipcMain.on(CHANNELS.sessionWatch, (event, agentId: unknown) => {
+    if (!fromWindow(event) || typeof agentId !== "string" || agentId.length === 0 || agentId.length > MAX_AGENT_ID_CHARS) return;
+    sessions.watch(agentId);
+});
+ipcMain.on(CHANNELS.sessionSend, (event, text: unknown) => {
+    if (!fromWindow(event) || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
+    sessions.send(text);
+});
+ipcMain.on(CHANNELS.sessionUnwatch, (event) => {
+    if (fromWindow(event)) sessions.unwatch();
 });
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {

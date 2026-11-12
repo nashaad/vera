@@ -2,6 +2,7 @@ import { BlocksIcon, GearIcon, SearchIcon } from "../components/Icons.tsx";
 import { HomePage } from "./HomePage.tsx";
 import { EmptyState, Page } from "./Page.tsx";
 import type { Route } from "./routes.ts";
+import { SessionPage } from "./SessionPage.tsx";
 import { WorkPage } from "./WorkPage.tsx";
 
 export interface MainPageProps {
@@ -15,6 +16,8 @@ export function MainPage({ route, platform }: MainPageProps) {
             return <HomePage platform={platform} />;
         case "work":
             return <WorkPage />;
+        case "session":
+            return <SessionPage key={route.agentId} route={route} />;
         case "search":
             return (
                 <Page title="Search" lede="Find a session by its title or by what was said in it." Icon={SearchIcon}>

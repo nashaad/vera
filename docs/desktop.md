@@ -43,7 +43,7 @@ connection, ends the attachment and shows the banner.
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
-pages are New Chat, Search, Work, Customize and Settings.
+pages are New Chat, Search, Work, Customize, Settings and a session.
 
 - New Chat is the home page. It has a greeting and lists the sidebar, the right
   pane and the panel, each with the shortcut that shows or hides it. It has no
@@ -51,6 +51,8 @@ pages are New Chat, Search, Work, Customize and Settings.
 - Work lists sessions in two sections: Needs you, for sessions stopped at an
   approval or a question, and Running. A section appears only when it has a
   session. With neither, the page says that nothing is waiting on you.
+- A session page opens when you pick a row in the Sessions view or on Work. Its
+  title is the session name. It is described under Session view.
 - Search, Customize and Settings are placeholders. Each shows its title, a line
   of description and an empty state. Search lists sessions in the sidebar only,
   Customize does not read the home's customizations, and Settings names the View
@@ -94,7 +96,8 @@ Three views ship with the app:
   across launches. Each row has a dot, the session name, and the time since its
   last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
   `1y`). A session that is running or waiting has a filled blue dot and shows no
-  time. The other rows have an outlined dot. It is read-only.
+  time. The other rows have an outlined dot. Picking a row opens that session,
+  and the row of the open session is filled.
 - Host, in the right pane inside the Vera container, shows the connection state
   and tiles for the session count, host build, protocol version, host process id
   and home path. The home path is shortened, with the user's home directory
@@ -158,6 +161,47 @@ every default. If it names a view or container that is not registered, that
 entry is ignored and the rest applies; when the view is registered again it
 returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
+
+## Session view
+
+A session page shows that session's conversation. It watches the session
+without joining it: there is no composer, and the app sends nothing that could
+answer an approval or a question. A session that is running keeps updating as
+it works.
+
+The conversation is split into turns, one for each message you sent. The first
+message is shown as a box across the column; later ones as a bubble on the
+right. Under each message:
+
+- `Worked for 12s` with a chevron, from the first to the last timestamped step
+  of the turn. It folds the turn's work away.
+- Each thought shows as `Thought` and its length in seconds, and opens to show
+  its text. A thought still being written shows three dots and its latest line.
+- Tool calls that follow one another are grouped. One call shows its phrase,
+  such as `Read host.ts`, `Ran git status`, `Searched for outrider in vera-hq`
+  or `Searched sessions for outrider`. Several calls show `Ran 3 commands` when
+  they are all one tool, and `Used 4 tools` otherwise. A group opens to a card
+  with one row per call; a row opens to the command or arguments and the output,
+  and a failed call is marked. A group still running shows a dot instead of the
+  chevron.
+- Replies render a small part of Markdown: headings, paragraphs, lists, bold,
+  italic, inline code, links and fenced code. Fenced code has its language and a
+  copy button. Links are shown with their address on hover and are not opened.
+  Raw HTML is never rendered.
+- Notices from Vera, such as errors, show as a strip in the column.
+- The end of each turn has a copy button and the time since its last step
+  (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact date and
+  time.
+
+The page stays at the bottom as new steps arrive unless you have scrolled up.
+It opens with the newest page of history; `Show earlier messages` at the top
+loads the page before it. The page keeps at most 2,000 steps loaded. Past that,
+the button is replaced by a line saying earlier messages are past what the view
+keeps loaded.
+
+When the host is not running, the page says so. When the host closes the
+session, or the connection drops, the page keeps what it showed and adds a
+strip with the reason.
 
 ## Finding the host
 
@@ -251,6 +295,9 @@ Sessions and the theme are still there, resets its location, toggles the sidebar
 the right pane and the panel with the shortcuts, toggles the right pane from the
 main header button, moves a container through its menu, and resets the layout
 from the View menu. It stops the host it started.
+
+`bun test test/desktop` also covers turning history and live updates into the
+transcript, paging and its cap, and the session pipe in the app.
 
 The desktop and the shared UI are not part of the packed release; `pack:release`
 copies neither directory.

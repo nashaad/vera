@@ -4,7 +4,14 @@ export interface PageRoute {
     readonly kind: PageKind;
 }
 
-export type Route = PageRoute;
+export interface SessionRoute {
+    readonly kind: "session";
+    readonly agentId: string;
+    // The name the session had when it was opened; the header shows it.
+    readonly title: string;
+}
+
+export type Route = PageRoute | SessionRoute;
 
 export interface RouterState {
     readonly history: readonly Route[];
@@ -30,6 +37,7 @@ export const PAGE_TITLES: Readonly<Record<PageKind, string>> = {
 };
 
 export function sameRoute(left: Route, right: Route): boolean {
+    if (left.kind === "session") return right.kind === "session" && left.agentId === right.agentId;
     return left.kind === right.kind;
 }
 
@@ -62,5 +70,5 @@ export function reduceRouter(state: RouterState, action: RouterAction): RouterSt
 }
 
 export function routeTitle(route: Route): string {
-    return PAGE_TITLES[route.kind];
+    return route.kind === "session" ? route.title : PAGE_TITLES[route.kind];
 }

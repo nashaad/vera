@@ -14,6 +14,9 @@ export type DesktopEvent =
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
     | { readonly type: "frame"; readonly text: string }
+    // One line from the watch connection of the session being viewed.
+    | { readonly type: "session_frame"; readonly agentId: string; readonly text: string }
+    | { readonly type: "session_closed"; readonly agentId: string; readonly reason: string }
     | { readonly type: "disconnected"; readonly reason: string }
     | { readonly type: "failed"; readonly message: string }
     // A native menu item or shortcut asking the page to run one of its commands.
@@ -30,6 +33,11 @@ export interface DesktopBridge {
     reconnect(): void;
     answer(id: string, yes: boolean): void;
     send(text: string): void;
+    // Opens the one watch connection for a session, closing any earlier one.
+    watchSession(agentId: string): void;
+    // Sends one request line on the watch connection, such as a history page request.
+    sendSession(text: string): void;
+    unwatchSession(): void;
     // Tells the shell how tall the drawn title bar is so native window controls can center in it.
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.

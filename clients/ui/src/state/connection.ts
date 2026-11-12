@@ -85,6 +85,8 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
         case "disconnected":
             return lost(state, event.reason);
         case "frame":
+        case "session_frame":
+        case "session_closed":
         case "command":
             return state;
     }

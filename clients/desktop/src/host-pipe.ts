@@ -75,7 +75,7 @@ export class HostPipe {
     }
 }
 
-function describeFailure(error: NodeJS.ErrnoException): string {
+export function describeFailure(error: NodeJS.ErrnoException): string {
     return error.code === "ENOENT" || error.code === "ECONNREFUSED"
         ? "The host is not running."
         : error.message;

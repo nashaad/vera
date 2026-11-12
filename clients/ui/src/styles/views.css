@@ -245,6 +245,12 @@
 .session-row {
     position: relative;
     display: flex;
+    width: 100%;
+    font: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
     gap: calc(var(--vera-space) * 2.25);
     align-items: center;
     height: calc(var(--vera-row-height) - var(--vera-space) / 2);
@@ -257,6 +263,11 @@
 .session-row:hover {
     color: var(--vera-text);
     background: var(--vera-surface-hover);
+}
+
+.session-row[data-active="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
 }
 
 .session-row[data-nested="true"] {

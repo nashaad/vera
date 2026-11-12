@@ -29,12 +29,6 @@
     font-weight: 400;
 }
 
-.greeting-mark {
-    color: var(--vera-accent);
-    font-size: calc(var(--vera-font-size) * 22 / 13);
-    line-height: 1;
-}
-
 .home-keys {
     margin: 0;
     padding: 0;
@@ -170,12 +164,22 @@
 
 .work-row {
     display: flex;
+    width: 100%;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    background: none;
+    cursor: pointer;
     gap: calc(var(--vera-space) * 3);
     align-items: flex-start;
     margin-bottom: calc(var(--vera-space) * 2);
     padding: calc(var(--vera-space) * 3);
     border: thin solid var(--vera-border);
     border-radius: var(--vera-radius-lg);
+}
+
+.work-row:hover {
+    background: var(--vera-surface-hover);
 }
 
 .work-row .session-dot {

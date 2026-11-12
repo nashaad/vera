@@ -3,6 +3,7 @@ import { folderName } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
+import { useRouter } from "./router.tsx";
 
 interface Bucket {
     readonly id: string;
@@ -24,16 +25,25 @@ function detail(row: SessionRow, now: number): string {
 }
 
 function WorkRow({ row, now }: { readonly row: SessionRow; readonly now: number }) {
+    const { navigate } = useRouter();
     return (
-        <li className="work-row" data-session={row.id} data-status={row.status}>
-            <span className="session-dot" data-running="true" aria-hidden="true" />
-            <span className="work-row-body">
-                <span className="work-row-name">
-                    <span className="work-row-title">{row.name}</span>
-                    <span className="work-row-folder" title={row.workspace}>{folderName(row.workspace)}</span>
+        <li>
+            <button
+                type="button"
+                className="work-row"
+                data-session={row.id}
+                data-status={row.status}
+                onClick={() => navigate({ kind: "session", agentId: row.id, title: row.name })}
+            >
+                <span className="session-dot" data-running="true" aria-hidden="true" />
+                <span className="work-row-body">
+                    <span className="work-row-name">
+                        <span className="work-row-title">{row.name}</span>
+                        <span className="work-row-folder" title={row.workspace}>{folderName(row.workspace)}</span>
+                    </span>
+                    <span className="work-row-detail">{detail(row, now)}</span>
                 </span>
-                <span className="work-row-detail">{detail(row, now)}</span>
-            </span>
+            </button>
         </li>
     );
 }

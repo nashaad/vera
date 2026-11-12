@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { ChevronRightIcon } from "../components/Icons.tsx";
+import { useRouter } from "../pages/router.tsx";
 import { groupSessions, type SessionGroup } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
@@ -11,18 +12,26 @@ function isRunning(row: SessionRow): boolean {
 
 function Row({ row, nested, now }: { readonly row: SessionRow; readonly nested: boolean; readonly now: number }) {
     const running = isRunning(row);
+    const { route, navigate } = useRouter();
+    const active = route.kind === "session" && route.agentId === row.id;
     return (
-        <li
-            className="session-row"
-            data-session={row.id}
-            data-live={row.live}
-            data-status={row.status}
-            data-nested={nested}
-            title={row.name}
-        >
-            <span className="session-dot" data-running={running} aria-hidden="true" />
-            <span className="session-name">{row.name}</span>
-            <span className="session-time">{running ? "" : relativeTime(row.updatedAt, now)}</span>
+        <li>
+            <button
+                type="button"
+                className="session-row"
+                data-session={row.id}
+                data-live={row.live}
+                data-status={row.status}
+                data-nested={nested}
+                data-active={active}
+                aria-current={active ? "page" : undefined}
+                title={row.name}
+                onClick={() => navigate({ kind: "session", agentId: row.id, title: row.name })}
+            >
+                <span className="session-dot" data-running={running} aria-hidden="true" />
+                <span className="session-name">{row.name}</span>
+                <span className="session-time">{running ? "" : relativeTime(row.updatedAt, now)}</span>
+            </button>
         </li>
     );
 }

@@ -24,10 +24,7 @@ export function HomePage({ platform }: { readonly platform: string }) {
         <div className="page-scroll">
             <div className="home">
                 <div className="home-inner">
-                    <h1 className="greeting">
-                        <span className="greeting-mark" aria-hidden="true">✳</span>
-                        Where to, captain?
-                    </h1>
+                    <h1 className="greeting">Where to, captain?</h1>
                     <ul className="home-keys">
                         {HINTS.map(({ title, detail, command, Icon }) => (
                             <li key={command} className="home-key" data-command={command}>
