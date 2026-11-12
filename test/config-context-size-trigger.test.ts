@@ -53,7 +53,7 @@ test("an absent context size events key stays undefined", () => {
 test("context size events reject values outside the window", () => {
     for (const value of [[0], [-0.2], [1.1], ["0.5"], [null], 0.5, null, {}]) {
         expect(() => loadVeraConfig({ path: eventsPath(value) })).toThrow(
-            "context_size_events must be an array of numbers above 0 and at most 1.",
+            "context_size_events: expected an array of numbers above 0 and at most 1",
         );
     }
 });

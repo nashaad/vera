@@ -9,6 +9,7 @@ import {
     veraConfigProblem,
     type VeraConfig,
 } from "../config.ts";
+import { collectConfigProblem, describeConfigProblem } from "../config/diagnostic.ts";
 import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
@@ -157,11 +158,17 @@ function loadProjectList(path: string): readonly string[] {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
         throw new VeraConfigError(path, "it is not a JSON object");
     }
-    const patterns = parseSkillPatterns(
-        (raw as Record<string, unknown>).disabled_skills,
+    const { value: patterns, problem } = collectConfigProblem(() =>
+        parseSkillPatterns((raw as Record<string, unknown>).disabled_skills)
     );
     if (patterns === undefined) {
-        throw new VeraConfigError(path, "disabled_skills is not a valid list");
+        throw new VeraConfigError(
+            path,
+            problem === undefined
+                ? "disabled_skills is not a valid list"
+                : describeConfigProblem(problem),
+            problem?.field ?? "disabled_skills",
+        );
     }
     return patterns;
 }

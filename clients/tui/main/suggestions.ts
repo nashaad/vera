@@ -22,11 +22,14 @@ export function pooledModelNames(rt: TuiRuntime): readonly string[] {
     return names;
 }
 
-export function activeCompletion(rt: TuiRuntime): {
+export function activeCompletion(
+    rt: TuiRuntime,
+    text: string = rt.composer.plainText,
+): {
     prefix: string;
     values: readonly string[];
 } | undefined {
-    const argument = rt.commandRegistry.argumentPrefix(rt.composer.plainText);
+    const argument = rt.commandRegistry.argumentPrefix(text);
     if (argument !== undefined) {
         return {
             prefix: argument.prefix,
@@ -37,7 +40,7 @@ export function activeCompletion(rt: TuiRuntime): {
     }
     const mentions = visibleMentions(rt);
     if (mentions.length === 0) return undefined;
-    const mention = /(?:^|\s)(@\S*)$/.exec(rt.composer.plainText);
+    const mention = /(?:^|\s)(@\S*)$/.exec(text);
     if (mention === null) return undefined;
     return {
         prefix: mention[1] ?? "",
@@ -46,21 +49,23 @@ export function activeCompletion(rt: TuiRuntime): {
 }
 
 export function renderCommandSuggestions(rt: TuiRuntime): void {
+    // Each plainText read copies the composer's text out of the native buffer.
+    const text = rt.composer.plainText;
     const hint = tuiCommandArgumentHint(
         rt.commandRegistry.registeredCommands(),
-        rt.composer.plainText,
+        text,
     );
     setTextContent(rt.slashArgumentHint, hint ?? "");
     rt.slashArgumentHint.visible = hint !== undefined;
     rt.slashArgumentHint.left = hint === undefined
         ? 0
-        : Bun.stringWidth(rt.composer.plainText);
+        : Bun.stringWidth(text);
     const extensionBottomRows = rt.experimentalTuiHost.bottomInsetRows();
     positionCommandSuggestions(rt);
-    if (rt.composer.plainText.length === 0) {
+    if (text.length === 0) {
         rt.commandSuggestionIndex = 0;
     }
-    const completing = activeCompletion(rt);
+    const completing = activeCompletion(rt, text);
     if (completing !== undefined) {
         rt.argumentSuggestions = tuiArgumentSuggestions(
             completing.values,
@@ -92,18 +97,18 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         return;
     }
     rt.argumentSuggestions = [];
-    const suggestions = availableCommandSuggestions(rt, rt.composer.plainText);
-    if (rt.composer.plainText !== "/") {
+    const suggestions = availableCommandSuggestions(rt, text);
+    if (text !== "/") {
         rt.commandSuggestionMoved = false;
     }
     rt.commandSuggestionIndex = Math.min(
         rt.commandSuggestionIndex,
         Math.max(0, suggestions.length - 1),
     );
-    const selected = rt.composer.plainText === "/"
+    const selected = text === "/"
         ? rt.commandSuggestionIndex
         : -1;
-    const grouped = rt.composer.plainText === "/";
+    const grouped = text === "/";
     const suggestionWidth = tuiCommandSuggestionWidth(
         rt.renderer.width,
         rt.composerHorizontalInset,
@@ -138,7 +143,7 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         : 1;
     const suggester = suggestions.length > 0
         ? undefined
-        : activeComposeSuggester(rt);
+        : activeComposeSuggester(rt, text);
     if (suggester !== undefined) {
         setTextContent(rt.commandSuggestionsText, new StyledText([
             fg(TUI_MUTED)(
@@ -153,7 +158,10 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         && overlaysClearOfSuggestions(rt);
 }
 
-export function activeComposeSuggester(rt: TuiRuntime):
+export function activeComposeSuggester(
+    rt: TuiRuntime,
+    text: string = rt.composer.plainText,
+):
     | {
         readonly id: string;
         readonly source: string;
@@ -164,7 +172,7 @@ export function activeComposeSuggester(rt: TuiRuntime):
 {
     return findActiveComposeSuggester(
         rt.clientExtensionRegistry?.composeSuggesters() ?? [],
-        rt.composer.plainText,
+        text,
         focusedAgentState(rt).agent?.name ?? "default",
         rt.dismissedComposeSuggesters,
     );

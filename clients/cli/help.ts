@@ -27,6 +27,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera unblock <agent-id>", docs: "sessions.md", description: "Clear the block on a session and the sessions blocked with it; asks you to confirm" },
     { usage: "vera doctor", docs: "runtime-and-worktrees.md", description: "Check the resident host, Vera process health, leftover tmux sockets, and providers; stops leftovers after asking; does not stop SDK instances or live tmux servers" },
     { usage: "vera doctor --yes", description: "Stop leftovers without asking first; does not stop SDK instances or live tmux servers" },
+    { usage: "vera doctor --config [--yes]", description: "Check only Vera's config file; with --yes, set aside what it fails on after saving a backup, without asking" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
     { usage: "vera prune", docs: "runtime-and-worktrees.md", description: "List this home's Vera processes and stop them one at a time" },
     { usage: "vera models refresh", docs: "models.md", description: "Fetch each provider's model list now; a running host adopts it without restart" },

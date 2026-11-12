@@ -1048,11 +1048,20 @@ test("Vera config loads an engine model fallback", () => {
 });
 
 test("Vera config rejects an unreachable or circular fallback", () => {
-    for (const fallback of [
-        { model: "primary/model", after_failures: 2 },
-        { model: "backup/model", after_failures: 4 },
-        { model: "backup/model", after_failures: 1.5 },
-    ]) {
+    for (const [fallback, reason] of [
+        [
+            { model: "primary/model", after_failures: 2 },
+            "fallback.model: must differ from model",
+        ],
+        [
+            { model: "backup/model", after_failures: 4 },
+            "fallback.after_failures: expected a whole number from 1 to 3, found 4",
+        ],
+        [
+            { model: "backup/model", after_failures: 1.5 },
+            "fallback.after_failures: expected a whole number from 1 to 3, found 1.5",
+        ],
+    ] as const) {
         const path = temporaryConfigPath();
         writeFileSync(path, JSON.stringify({
             schema_version: 1,
@@ -1060,9 +1069,7 @@ test("Vera config rejects an unreachable or circular fallback", () => {
             fallback,
         }));
 
-        expect(() => loadVeraConfig({ path })).toThrow(
-            "optional fallback with a different model and after_failures from 1 to 3",
-        );
+        expect(() => loadVeraConfig({ path })).toThrow(reason);
     }
 });
 
@@ -1095,7 +1102,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter, openai-codex, ollama, omlx, cerebras, deepseek, or a name declared in providers, a non-empty model string",
+        "model: expected a non-empty string",
     );
 });
 
@@ -1122,7 +1129,7 @@ test("Vera config rejects an empty reasoning effort", () => {
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "optional non-empty reasoning_effort string",
+        "reasoning_effort: expected a non-empty string",
     );
 });
 
@@ -1135,7 +1142,7 @@ test("Vera config rejects an unknown approval mode", () => {
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "optional approval_mode ask, auto, or full_access",
+        "approval_mode: expected ask, auto, full_access or a name in permission_modes",
     );
 });
 
@@ -2149,4 +2156,95 @@ test("Vera config rejects a star anywhere but the end of a skill pattern", () =>
 
         expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
     }
+});
+
+function configRefusal(extra: Record<string, unknown>): VeraConfigError {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "stub/example-model",
+        ...extra,
+    }));
+    try {
+        loadVeraConfig({ path });
+    } catch (error) {
+        if (error instanceof VeraConfigError) return error;
+        throw error;
+    }
+    throw new Error("the config loaded");
+}
+
+test("@core a config error names the extension entry and what is wrong with it", () => {
+    const missing = configRefusal({
+        extensions: [{ path: "/opt/a" }, { enabled: true }],
+    });
+    expect(missing.field).toBe("extensions[1]");
+    expect(missing.message).toContain("not a Vera config");
+    expect(missing.message).toContain("extensions[1]: path is missing; it must be an absolute path");
+
+    const relative = configRefusal({ extensions: [{ path: "rel/tool" }] });
+    expect(relative.field).toBe("extensions[0]");
+    expect(relative.message).toContain(
+        'extensions[0]: path must be an absolute path, found "rel/tool"',
+    );
+});
+
+test("a config error names the field and the reason for each kind of check", () => {
+    const cases: ReadonlyArray<readonly [Record<string, unknown>, string, string]> = [
+        [{ approval_mode: "bogus" }, "approval_mode",
+            "approval_mode: expected ask, auto, full_access or a name in permission_modes"],
+        [{ model: "" }, "model", "model: expected a non-empty string"],
+        [{ model: 5 }, "model", "model: expected a non-empty string, found 5"],
+        [{ provider: 7 }, "provider", "provider: expected a provider Vera ships or a name declared in providers"],
+        [{ schema_version: 9 }, "schema_version", "schema_version: expected 1, found 9"],
+        [{ context_limit: -1 }, "context_limit", "context_limit: expected a positive whole number of tokens"],
+        [{ hooks: "x" }, "hooks", "hooks: expected a list of hooks"],
+        [{ hooks: [{ phase: "nope" }] }, "hooks[0]", "hooks[0]: Unknown command hook phase: nope"],
+        [{ extensions: [{ path: "/a", enabled: "yes" }] }, "extensions[0]",
+            'extensions[0]: enabled must be true or false, found "yes"'],
+        [{ disabled_skills: ["ok", "*-data"] }, "disabled_skills[1]", "disabled_skills[1]: expected a skill name"],
+        [{ tui: { sidebar: 3 } }, "tui.sidebar", "tui.sidebar: expected an object, found 3"],
+        [{ fallback: { model: "stub/example-model", after_failures: 2 } }, "fallback.model",
+            "fallback.model: must differ from model"],
+        [{ fallback: { model: "other/model", after_failures: 9 } }, "fallback.after_failures",
+            "fallback.after_failures: expected a whole number from 1 to 3, found 9"],
+        [{ subagent: { model: 5 } }, "subagent.model", "subagent.model: expected a non-empty string, found 5"],
+        [{ providers: { lab: { protocol: "nope" } } }, "providers.lab.protocol",
+            'providers.lab.protocol: expected openai-chat or anthropic-messages, found "nope"'],
+        [{ model_assignments: { sloth: "x/y" } }, "model_assignments.sloth",
+            "model_assignments.sloth: is not a slot; expected"],
+    ];
+    for (const [extra, field, text] of cases) {
+        const error = configRefusal(extra);
+        expect([JSON.stringify(extra), error.field]).toEqual([JSON.stringify(extra), field]);
+        expect([JSON.stringify(extra), error.message]).toEqual([
+            JSON.stringify(extra),
+            expect.stringContaining(text),
+        ]);
+    }
+});
+
+test("a config that is not JSON says so and names no field", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, "{ \"schema_version\": 1,");
+    let refusal: unknown;
+    try {
+        loadVeraConfig({ path });
+    } catch (error) {
+        refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(VeraConfigError);
+    expect((refusal as VeraConfigError).field).toBeUndefined();
+    expect((refusal as VeraConfigError).message).toContain("it is not valid JSON");
+});
+
+test("an absent optional key is not reported", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "stub/example-model",
+        reviewer: {},
+        tui: {},
+    }));
+    expect(() => loadVeraConfig({ path })).not.toThrow();
 });

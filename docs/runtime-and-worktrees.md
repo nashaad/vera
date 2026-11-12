@@ -93,6 +93,7 @@ that host and reports the PID and builds. It does not replace the daily host.
 | --- | --- |
 | `vera` | Start daily Vera without killing existing processes. |
 | `vera doctor` | Inspect this home and clean eligible leftovers after confirmation, or with `--yes`. |
+| `vera doctor --config` | Check only `config.json`. With `--yes`, set aside what it fails on after saving a backup, without asking. |
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
 | `vera host stop` | Stop this home's host after its running turns end. New turns are refused meanwhile. |
 | `vera host stop --force` | Cut the running turns and stop this home's host now. |
@@ -138,9 +139,17 @@ starts a host:
    whether to keep the fresh folder; answer no to stop that host and put the
    stash back.
 
+A fault that none of these steps can fix is reported as it is, in the box, and
+the check stops there: a `config.json` that fails to load, a home or runtime
+folder that is a file, or a home whose `runtime/host.sock` path is longer than a
+Unix socket allows. Each names its cause and the way out; see
+[Vera does not start](troubleshooting.md#vera-does-not-start).
+
 Each step prints a line in a box on stderr. When every check passes, `vera`
-prints nothing. Without a terminal, every question is answered yes, so Vera
-still starts.
+prints nothing. A question the check asks in a terminal is drawn as a card and
+answered with one key: `y` for yes, `n`, Enter or Escape for no. Where a
+question is marked `[Y]`, Enter means yes. Without a terminal, every question
+is answered yes, so Vera still starts.
 
 A command run from inside a Vera session does not stop the host it runs under;
 the check reports that and asks you to run `vera` from a terminal outside Vera.
@@ -177,9 +186,11 @@ If the command finds a process it cannot prove belongs to this home, it changes
 nothing, prints the process and the reason, and exits 1. A process whose start
 time cannot be read is one of these.
 
-Before it stops anything, reset asks `Back up and reset? [y/N]`. Answer `y` to
-continue. `--yes` or `-y` skips the question. Without a terminal and without
-`--yes`, reset refuses and changes nothing.
+Before it stops anything, reset asks `Back up and reset?`. In a terminal the
+question is a card answered with one key: `y` continues, and `n`, Enter or
+Escape cancel. Without a terminal it reads `[y/N]` on a line. `--yes` or `-y`
+skips the question. Without a terminal and without `--yes`, reset refuses and
+changes nothing.
 
 Reset then copies the runtime records to `runtime/backups/reset-<time>/` under
 the home. The copy holds the host lock, the `workers/`, `relaunch/` and

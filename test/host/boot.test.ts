@@ -133,3 +133,41 @@ test("a home on a Windows drive fails its check", async () => {
     await bootResidentHost({ ...deps, full: true });
     expect(rendered[0]![0]).toEqual({ label: "Vera home", status: "failed", detail: "on a Windows drive" });
 });
+
+test("a start blocker is reported as it is, without a repair, a restart or a stash offer", async () => {
+    const blocker = new Error("Vera cannot start: the host socket path is 120 bytes and the limit is 103.\nStart Vera from a shorter home.");
+    const { deps, calls, rendered } = harness(
+        { ...clean, orphans: 2, startBlocker: { label: "Host socket path", error: blocker } },
+        [host(1)],
+        { stash: true },
+    );
+    await expect(bootResidentHost({ ...deps, full: true })).rejects.toBe(blocker);
+    expect(calls).toEqual(["inspect"]);
+    const failed = rendered[0]!.find((check) => check.label === "Host socket path");
+    expect(failed).toEqual({
+        label: "Host socket path",
+        status: "failed",
+        detail: "Vera cannot start: the host socket path is 120 bytes and the limit is 103.",
+    });
+});
+
+test("a start blocker does not stop a host that already answers", async () => {
+    const blocker = new Error("config is refused");
+    const { deps, calls } = harness(
+        { ...clean, hostAnswers: true, lock: "live", startBlocker: { label: "Config", error: blocker } },
+        [host(6)],
+    );
+    expect((await bootResidentHost(deps)).pid).toBe(6);
+    expect(calls).toEqual(["inspect", "start:default"]);
+});
+
+test("the stash offer names why the runtime folder could not start", async () => {
+    const questions: string[] = [];
+    const { deps } = harness(clean, [], { stash: true });
+    await expect(bootResidentHost({
+        ...deps,
+        start: async () => { throw new Error("session worker 2 exited with code 3"); },
+        confirm: async (question) => { questions.push(question.text); return false; },
+    })).rejects.toBeInstanceOf(BootFailedError);
+    expect(questions[0]).toContain("Vera could not start with its current runtime folder: session worker 2 exited with code 3");
+});

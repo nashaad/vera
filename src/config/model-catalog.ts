@@ -1,6 +1,7 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
 import type { VeraProviderId } from "../config.ts";
 import { isVeraProviderId } from "../providers/builtin-id.ts";
+import { configProblem, expectedValue, keyValue } from "./diagnostic.ts";
 
 export type CatalogProviderId = VeraProviderId;
 
@@ -49,20 +50,35 @@ export function parseModelCatalogConfig(
             reviewer_profiles: {},
         };
     }
-    if (
-        !Array.isArray(modelsValue)
-        || !isRecord(routesValue)
-        || !isRecord(reviewersValue)
-    ) {
-        return undefined;
+    if (!Array.isArray(modelsValue)) {
+        return configProblem("models", catalogPartProblem("a list of models", modelsValue));
+    }
+    if (!isRecord(routesValue)) {
+        return configProblem(
+            "model_routes",
+            catalogPartProblem("an object of routes", routesValue),
+        );
+    }
+    if (!isRecord(reviewersValue)) {
+        return configProblem(
+            "reviewer_profiles",
+            catalogPartProblem("an object of reviewer profiles", reviewersValue),
+        );
     }
 
     const models: VeraCatalogModel[] = [];
     const modelNames = new Set<string>();
-    for (const value of modelsValue) {
-        const model = parseCatalogModel(value, customProviderIds);
-        if (model === undefined || modelNames.has(model.name)) {
+    for (const [index, value] of modelsValue.entries()) {
+        const field = `models[${index}]`;
+        const model = parseCatalogModel(value, customProviderIds, field);
+        if (model === undefined) {
             return undefined;
+        }
+        if (modelNames.has(model.name)) {
+            return configProblem(
+                field,
+                `name ${JSON.stringify(model.name)} is already used by an earlier model`,
+            );
         }
         modelNames.add(model.name);
         models.push(model);
@@ -70,23 +86,41 @@ export function parseModelCatalogConfig(
 
     const routes: Record<string, readonly string[]> = {};
     for (const [name, value] of Object.entries(routesValue)) {
-        if (
-            !isConfigName(name)
-            || !Array.isArray(value)
-            || value.length === 0
-            || !value.every((entry) =>
-                typeof entry === "string" && modelNames.has(entry)
-            )
-        ) {
-            return undefined;
+        const field = `model_routes.${name}`;
+        if (!isConfigName(name)) {
+            return configProblem(
+                "model_routes",
+                `route name ${JSON.stringify(name)} must use lowercase letters, digits, - and _`,
+            );
+        }
+        if (!Array.isArray(value) || value.length === 0) {
+            return configProblem(
+                field,
+                expectedValue("a non-empty list of model names", value),
+            );
+        }
+        const unknown = value.find((entry) =>
+            typeof entry !== "string" || !modelNames.has(entry)
+        );
+        if (unknown !== undefined) {
+            return configProblem(
+                field,
+                `${JSON.stringify(unknown)} is not a name in models`,
+            );
         }
         routes[name] = [...value] as string[];
     }
 
     const reviewerProfiles: Record<string, VeraReviewerProfileConfig> = {};
     for (const [name, value] of Object.entries(reviewersValue)) {
-        const profile = parseReviewerProfile(value, routes);
-        if (!isConfigName(name) || profile === undefined) {
+        if (!isConfigName(name)) {
+            return configProblem(
+                "reviewer_profiles",
+                `profile name ${JSON.stringify(name)} must use lowercase letters, digits, - and _`,
+            );
+        }
+        const profile = parseReviewerProfile(value, routes, `reviewer_profiles.${name}`);
+        if (profile === undefined) {
             return undefined;
         }
         reviewerProfiles[name] = profile;
@@ -97,6 +131,12 @@ export function parseModelCatalogConfig(
         model_routes: routes,
         reviewer_profiles: reviewerProfiles,
     };
+}
+
+function catalogPartProblem(expected: string, actual: unknown): string {
+    return actual === undefined
+        ? `expected ${expected}; models, model_routes and reviewer_profiles are set together`
+        : expectedValue(expected, actual);
 }
 
 export function resolveModelRoute(
@@ -174,93 +214,101 @@ export interface ResolvedCompactionProfile {
     readonly retained_user_turns?: number;
 }
 
+interface CompactionNumber {
+    readonly key: keyof VeraCompactionConfig & string;
+    readonly expected: string;
+    readonly valid: (value: number) => boolean;
+}
+
+const isFraction = (value: number): boolean =>
+    Number.isFinite(value) && value > 0 && value <= 1;
+const isCount = (value: number): boolean =>
+    Number.isSafeInteger(value) && value >= 1;
+
+const COMPACTION_NUMBERS: readonly CompactionNumber[] = [
+    {
+        key: "timeout_ms",
+        expected: "a whole number from 1000 to 600000",
+        valid: (value) =>
+            Number.isSafeInteger(value) && value >= 1_000 && value <= 600_000,
+    },
+    { key: "trigger_fraction", expected: "a number above 0 and up to 1", valid: isFraction },
+    { key: "trigger_tokens", expected: "a whole number of tokens, 1 or more", valid: isCount },
+    { key: "target_tokens", expected: "a whole number of tokens, 1 or more", valid: isCount },
+    { key: "target_fraction", expected: "a number above 0 and up to 1", valid: isFraction },
+    {
+        key: "unknown_target_fraction",
+        expected: "a number above 0 and up to 1",
+        valid: isFraction,
+    },
+    {
+        key: "retained_user_turns",
+        expected: "a whole number, 0 or more",
+        valid: (value) => Number.isSafeInteger(value) && value >= 0,
+    },
+    { key: "min_summary_tokens", expected: "a whole number of tokens, 1 or more", valid: isCount },
+    { key: "max_attempts", expected: "a whole number, 1 or more", valid: isCount },
+    { key: "summary_word_cap", expected: "a whole number of words, 1 or more", valid: isCount },
+    {
+        key: "assumed_window_tokens",
+        expected: "a whole number of tokens, 1 or more",
+        valid: isCount,
+    },
+];
+
 export function parseCompactionConfig(
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
 ): VeraCompactionConfig | undefined {
     if (!isRecord(value)) {
-        return undefined;
+        return configProblem("compaction", expectedValue("an object", value));
     }
     const strategy = value.strategy;
     const models = value.models;
-    const timeout = value.timeout_ms;
-    const triggerFraction = value.trigger_fraction;
-    const triggerTokens = value.trigger_tokens;
-    const targetTokens = value.target_tokens;
-    const targetFraction = value.target_fraction;
-    const unknownTargetFraction = value.unknown_target_fraction;
-    const retainedTurns = value.retained_user_turns;
-    const minSummaryTokens = value.min_summary_tokens;
-    const maxAttempts = value.max_attempts;
-    const summaryWordCap = value.summary_word_cap;
-    const assumedWindow = value.assumed_window_tokens;
     // One without the other is a typo, not a numbers-only block.
     if ((strategy === undefined) !== (models === undefined)) {
-        return undefined;
+        return configProblem(
+            "compaction",
+            `${strategy === undefined ? "strategy" : "models"} is missing; strategy and models are set together`,
+        );
     }
-    if (
-        (strategy !== undefined
-            && (typeof strategy !== "string" || !isStrategyId(strategy)))
-        || (models !== undefined && !isRecord(models))
-        || (timeout !== undefined
-            && (typeof timeout !== "number"
-                || !Number.isSafeInteger(timeout)
-                || timeout < 1_000
-                || timeout > 600_000))
-        || (triggerFraction !== undefined
-            && (typeof triggerFraction !== "number"
-                || !Number.isFinite(triggerFraction)
-                || triggerFraction <= 0
-                || triggerFraction > 1))
-        || (triggerTokens !== undefined
-            && (typeof triggerTokens !== "number"
-                || !Number.isSafeInteger(triggerTokens)
-                || triggerTokens < 1))
-        || (targetTokens !== undefined
-            && (typeof targetTokens !== "number"
-                || !Number.isSafeInteger(targetTokens)
-                || targetTokens < 1))
-        || (targetFraction !== undefined
-            && (typeof targetFraction !== "number"
-                || !Number.isFinite(targetFraction)
-                || targetFraction <= 0
-                || targetFraction > 1))
-        || (unknownTargetFraction !== undefined
-            && (typeof unknownTargetFraction !== "number"
-                || !Number.isFinite(unknownTargetFraction)
-                || unknownTargetFraction <= 0
-                || unknownTargetFraction > 1))
-        || (retainedTurns !== undefined
-            && (typeof retainedTurns !== "number"
-                || !Number.isSafeInteger(retainedTurns)
-                || retainedTurns < 0))
-        || (minSummaryTokens !== undefined
-            && (typeof minSummaryTokens !== "number"
-                || !Number.isSafeInteger(minSummaryTokens)
-                || minSummaryTokens < 1))
-        || (maxAttempts !== undefined
-            && (typeof maxAttempts !== "number"
-                || !Number.isSafeInteger(maxAttempts)
-                || maxAttempts < 1))
-        || (summaryWordCap !== undefined
-            && (typeof summaryWordCap !== "number"
-                || !Number.isSafeInteger(summaryWordCap)
-                || summaryWordCap < 1))
-        || (assumedWindow !== undefined
-            && (typeof assumedWindow !== "number"
-                || !Number.isSafeInteger(assumedWindow)
-                || assumedWindow < 1))
-    ) {
-        return undefined;
+    if (strategy !== undefined && (typeof strategy !== "string" || !isStrategyId(strategy))) {
+        return configProblem(
+            "compaction.strategy",
+            expectedValue("a name like publisher/strategy", strategy),
+        );
+    }
+    if (models !== undefined && !isRecord(models)) {
+        return configProblem(
+            "compaction.models",
+            expectedValue("an object of slot names to routes", models),
+        );
+    }
+    const numbers: Record<string, number> = {};
+    for (const entry of COMPACTION_NUMBERS) {
+        const number = value[entry.key];
+        if (number === undefined) continue;
+        if (typeof number !== "number" || !entry.valid(number)) {
+            return configProblem(
+                `compaction.${entry.key}`,
+                expectedValue(entry.expected, number),
+            );
+        }
+        numbers[entry.key] = number;
     }
     const slots: Record<string, string> = {};
     for (const [slot, route] of Object.entries(models ?? {})) {
-        if (
-            !isConfigName(slot)
-            || typeof route !== "string"
-            || routes[route] === undefined
-        ) {
-            return undefined;
+        if (!isConfigName(slot)) {
+            return configProblem(
+                "compaction.models",
+                `slot name ${JSON.stringify(slot)} must use lowercase letters, digits, - and _`,
+            );
+        }
+        if (typeof route !== "string" || routes[route] === undefined) {
+            return configProblem(
+                `compaction.models.${slot}`,
+                expectedValue("a name in model_routes", route),
+            );
         }
         slots[slot] = route;
     }
@@ -268,35 +316,7 @@ export function parseCompactionConfig(
         ...(strategy === undefined
             ? {}
             : { strategy: strategy as string, models: slots }),
-        ...(timeout === undefined ? {} : { timeout_ms: timeout }),
-        ...(triggerFraction === undefined
-            ? {}
-            : { trigger_fraction: triggerFraction }),
-        ...(triggerTokens === undefined
-            ? {}
-            : { trigger_tokens: triggerTokens }),
-        ...(targetTokens === undefined
-            ? {}
-            : { target_tokens: targetTokens }),
-        ...(targetFraction === undefined
-            ? {}
-            : { target_fraction: targetFraction }),
-        ...(unknownTargetFraction === undefined
-            ? {}
-            : { unknown_target_fraction: unknownTargetFraction }),
-        ...(retainedTurns === undefined
-            ? {}
-            : { retained_user_turns: retainedTurns }),
-        ...(minSummaryTokens === undefined
-            ? {}
-            : { min_summary_tokens: minSummaryTokens }),
-        ...(maxAttempts === undefined ? {} : { max_attempts: maxAttempts }),
-        ...(summaryWordCap === undefined
-            ? {}
-            : { summary_word_cap: summaryWordCap }),
-        ...(assumedWindow === undefined
-            ? {}
-            : { assumed_window_tokens: assumedWindow }),
+        ...numbers,
     };
 }
 
@@ -355,28 +375,49 @@ export function derivedModelName(
 export function parseCatalogModel(
     value: unknown,
     customProviderIds: ReadonlySet<string> = new Set(),
+    field = "models",
 ): VeraCatalogModel | undefined {
     if (!isRecord(value)) {
-        return undefined;
+        return configProblem(field, expectedValue("an object", value));
     }
     const provider = value.provider;
     const model = value.model;
     const effort = value.reasoning_effort;
+    if (!isProvider(provider, customProviderIds)) {
+        return configProblem(
+            field,
+            keyValue("provider", "a provider Vera ships or a name declared in providers", provider),
+        );
+    }
+    if (typeof model !== "string" || model.trim().length === 0) {
+        return configProblem(
+            field,
+            keyValue("model", "a non-empty string", model),
+        );
+    }
+    if (effort !== undefined && !isReasoningEffort(effort)) {
+        return configProblem(
+            field,
+            keyValue("reasoning_effort", "a non-empty string", effort),
+        );
+    }
     if (
-        !isProvider(provider, customProviderIds)
-        || typeof model !== "string"
-        || model.trim().length === 0
-        || (effort !== undefined && !isReasoningEffort(effort))
-        || (value.name !== undefined
-            && (typeof value.name !== "string" || !isConfigName(value.name)))
+        value.name !== undefined
+        && (typeof value.name !== "string" || !isConfigName(value.name))
     ) {
-        return undefined;
+        return configProblem(
+            field,
+            `name must use lowercase letters, digits, - and _, found ${JSON.stringify(value.name)}`,
+        );
     }
     const name = typeof value.name === "string"
         ? value.name
         : derivedModelName(provider, model.trim(), effort);
     if (!isConfigName(name)) {
-        return undefined;
+        return configProblem(
+            field,
+            `no usable name can be derived from ${JSON.stringify(model)}; set name`,
+        );
     }
     return {
         name,
@@ -389,25 +430,37 @@ export function parseCatalogModel(
 function parseReviewerProfile(
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
+    field: string,
 ): VeraReviewerProfileConfig | undefined {
     if (!isRecord(value)) {
-        return undefined;
+        return configProblem(field, expectedValue("an object", value));
     }
     const route = value.model_route;
     const policy = value.policy;
     const timeout = value.timeout_ms;
+    if (route !== undefined && (typeof route !== "string" || routes[route] === undefined)) {
+        return configProblem(
+            field,
+            keyValue("model_route", "a name in model_routes", route),
+        );
+    }
+    if (typeof policy !== "string" || policy.trim().length === 0) {
+        return configProblem(
+            field,
+            keyValue("policy", "a non-empty string", policy),
+        );
+    }
     if (
-        (route !== undefined
-            && (typeof route !== "string" || routes[route] === undefined))
-        || typeof policy !== "string"
-        || policy.trim().length === 0
-        || (timeout !== undefined
-            && (typeof timeout !== "number"
-                || !Number.isInteger(timeout)
-                || timeout < 1_000
-                || timeout > 600_000))
+        timeout !== undefined
+        && (typeof timeout !== "number"
+            || !Number.isInteger(timeout)
+            || timeout < 1_000
+            || timeout > 600_000)
     ) {
-        return undefined;
+        return configProblem(
+            field,
+            keyValue("timeout_ms", "a whole number from 1000 to 600000", timeout),
+        );
     }
     return {
         ...(route === undefined ? {} : { model_route: route as string }),

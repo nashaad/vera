@@ -138,7 +138,9 @@ export function updateTuiThinkingWindow(
 export function animateTuiThinkingWindow(node: BoxRenderable, frame: number): void {
     const parts = windowParts.get(node);
     if (parts === undefined) return;
-    parts.gutter.mark = tuiBrailleSpinner(frame).padEnd(LIVE_THINKING_ELLIPSIS.length);
+    const mark = tuiBrailleSpinner(frame).padEnd(LIVE_THINKING_ELLIPSIS.length);
+    if (parts.gutter.mark === mark) return;
+    parts.gutter.mark = mark;
     parts.gutter.requestRender();
 }
 

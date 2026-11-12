@@ -84,7 +84,9 @@ and runs a Vera process, `vera doctor` shows it as the resident host and
 
 A supervised host that finds a damaged lockfile at start, with a socket that
 does not answer, prints the message once and keeps waiting. It starts when the lockfile is fixed or deleted. A host
-started any other way prints the message and exits with status 1.
+started any other way prints the message and the command `vera host reset`, which
+backs up the runtime records, stops this home's Vera processes and clears the lock
+after asking, and exits with status 1.
 
 A socket file existing on disk does not prove the host is answering.
 
@@ -119,6 +121,108 @@ held by the host.
 
 See [Manage connections](first-run-setup.md#manage-connections) for refresh,
 credentials, and sign-in controls.
+
+## Vera does not start
+
+When Vera cannot start, it names the cause and one way to get running. In a
+terminal it draws a card and asks for one key before it changes anything: `y`
+for yes, `n`, Escape or Ctrl+C for no, and Enter for the choice shown in capitals,
+which is `N` unless the card marks `Y`. With `vera -p`, a pipe or CI
+it asks nothing: it prints the cause and the one command to run as plain lines,
+and changes nothing. Paths under your home folder show as `~/...` on a card, and
+`NO_COLOR` turns its colours off.
+
+### config.json is refused
+
+The message names the field and the reason:
+
+```text
+Vera config at ~/.vera/config.json could not be read: it is valid JSON but not a Vera config. extensions[5]: path is missing; it must be an absolute path.
+```
+
+In a terminal the same facts are a card:
+
+```text
+            V  E  R  A
+╭──────────────────────────────────────────────╮
+│ ✗ Vera can't start                           │
+│                                              │
+│   file    ~/.vera/config.json                │
+│   field   extensions[5]                      │
+│   reason  path is missing; it must be an     │
+│           absolute path                      │
+│                                              │
+│   Set aside extensions[5] and start Vera?    │
+│   A backup is saved first.                   │
+│   Once Vera starts, ask it to fix the entry  │
+│   from the backup.                           │
+│                                              │
+│   [y] set aside and start      [N] quit      │
+╰──────────────────────────────────────────────╯
+```
+
+Without a terminal the question is one line:
+
+```text
+Set aside extensions[5] ({"enabled":true}) and start Vera? A copy of the whole file is saved first. [y/N]
+```
+
+Yes saves a copy of the whole file next to it as `config.json.<date>-<time>.bak`
+(readable only by you), removes only that entry or key, prints what it removed
+and where the copy is, and reads the file again. If another field fails, Vera
+offers that one next. No leaves the file alone and prints
+`Fix or remove <path> and run Vera again.`
+
+Removing one entry cannot repair a file that is not JSON or one without
+`schema_version`, `model` or `provider`. For those Vera offers to move the file
+to the `.bak` name and start first-run setup. The file is kept there.
+
+Without a terminal Vera prints the command instead:
+
+```text
+vera doctor --config --yes
+```
+
+It does what yes does, without asking, for each failure in turn. When
+`VERA_HOME` selects the home, the printed command starts with
+`VERA_HOME=<home>`. `vera doctor --config` checks only the config file and says
+whether it loads. Only the home's `config.json` is set aside. A failure in a
+project's `.vera/config.json` names that file for you to edit.
+
+### The host socket path is too long
+
+A Unix socket path holds at most 103 bytes on macOS and 107 on Linux. Vera's
+socket is `runtime/host.sock` under the home, so on macOS a home path longer
+than 85 bytes cannot start a host. Vera stops at once and says so:
+
+```text
+Vera cannot start: the host socket path is 120 bytes and the limit is 103.
+The path is <home>/runtime/host.sock.
+Start Vera from a shorter home, for example: VERA_HOME=/tmp/vera vera
+```
+
+In a terminal the same text is a card with `reason` and `socket` rows and the
+`VERA_HOME=` line on its own line to copy.
+
+The shorter home is the default `~/.vera` when its socket fits and is not the
+home in trouble, and `/tmp/vera` otherwise. It has its own config and sessions;
+nothing in the long home is moved or deleted.
+
+### The home is a file
+
+When the home, or its `runtime` folder, is a file or sits under one, Vera names
+the path and gives a `VERA_HOME=` example for another home instead of printing
+`ENOTDIR`.
+
+### The host stopped while starting
+
+A host that dies while starting leaves its cause in
+`runtime/host-startup-failure.json`. The launcher shows it as
+`The Vera host stopped while starting: <cause>` instead of
+`Resident host did not start before its deadline`. After the host has exited
+during startup twice in a row, Vera stops respawning it and the message says
+what the host reported. The offer to start on a fresh runtime folder names the
+same cause.
 
 ## config.json stopped loading
 

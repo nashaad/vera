@@ -13,6 +13,7 @@ import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
 import { clearTranscriptAnchorPadding, destroyTranscriptEntryNode, ensureTranscriptLayout, renderTranscriptEntries, setTranscriptWindowAround, shiftTranscriptEntrySlots, shiftTranscriptWindowForPrepend, takeTip, transcriptFollowsBottom, transcriptNodeTop } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
+import { updateLinesViewIfChanged } from "../lines-view.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { setTextContent } from "../text-content.ts";
@@ -627,14 +628,15 @@ export function refreshTimedSurfaces(rt: TuiRuntime): void {
         rt.resumeOverlay.blink(Date.now());
     }
     if (rt.workTab !== undefined) {
-        rt.workTabView.update(
+        updateLinesViewIfChanged(
+            rt.workTabView,
             workTabViewState(rt.workTab, rt.workTabView.contentWidth()),
         );
     }
     applyWorkspaceRail(rt);
     drawWorkspaceSidebar(rt);
     if (rt.searchOverlay !== undefined) {
-        rt.searchOverlayView.update(searchOverlayViewState(
+        updateLinesViewIfChanged(rt.searchOverlayView, searchOverlayViewState(
             rt.searchOverlay,
             rt.searchOverlayView.contentWidth(),
         ));

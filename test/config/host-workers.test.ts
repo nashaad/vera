@@ -24,11 +24,16 @@ test("invalid host worker settings use the config error format", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-host-config-"));
     const path = join(root, "config.json");
     try {
-        for (const host of [null, [], "pool", 1, { workers: null }, { workers: false }, { workers: "1" },
+        for (const host of [null, [], "pool", 1]) {
+            writeFileSync(path, JSON.stringify({ schema_version: 1, model: "crow", host }));
+            expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
+            expect(() => loadVeraConfig({ path })).toThrow("host: expected an object");
+        }
+        for (const host of [{ workers: null }, { workers: false }, { workers: "1" },
             { workers: -1 }, { workers: 0.5 }, { workers: Number.MAX_SAFE_INTEGER + 1 }]) {
             writeFileSync(path, JSON.stringify({ schema_version: 1, model: "crow", host }));
             expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
-            expect(() => loadVeraConfig({ path })).toThrow("host must be an object with workers set to a non-negative integer");
+            expect(() => loadVeraConfig({ path })).toThrow("host.workers: expected a non-negative whole number");
         }
     } finally {
         rmSync(root, { recursive: true, force: true });

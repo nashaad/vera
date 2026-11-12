@@ -9,17 +9,21 @@ interface Clock {
     readonly coalescer: ReturnType<typeof createRenderCoalescer>;
     readonly renders: () => number;
     readonly tick: () => void;
+    readonly delays: number[];
 }
 
-function testClock(): Clock {
+function testClock(intervalMs?: () => number): Clock {
+    const delays: number[] = [];
     let pending: (() => void) | undefined;
     let renders = 0;
     const coalescer = createRenderCoalescer({
         render: () => {
             renders += 1;
         },
-        setTimer: (run) => {
+        intervalMs,
+        setTimer: (run, ms) => {
             pending = run;
+            delays.push(ms);
             return 1;
         },
         clearTimer: () => {
@@ -34,8 +38,21 @@ function testClock(): Clock {
             pending = undefined;
             run?.();
         },
+        delays,
     };
 }
+
+test("a blurred stream repaints once a second and a focused one at 250 ms", () => {
+    let focused = false;
+    const clock = testClock(() => (focused ? 250 : 1000));
+    clock.coalescer.request("assistant_delta");
+    expect(clock.delays).toEqual([1000]);
+    clock.tick();
+
+    focused = true;
+    clock.coalescer.request("assistant_delta");
+    expect(clock.delays).toEqual([1000, 250]);
+});
 
 test("a burst of deltas paints once", () => {
     const clock = testClock();

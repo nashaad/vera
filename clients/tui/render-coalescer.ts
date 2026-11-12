@@ -14,7 +14,7 @@ export function isCoalescedUpdate(type: string): boolean {
 
 export interface RenderCoalescerOptions {
     readonly render: () => void;
-    readonly intervalMs?: number;
+    readonly intervalMs?: () => number;
     readonly setTimer?: (run: () => void, ms: number) => unknown;
     readonly clearTimer?: (timer: unknown) => void;
 }
@@ -28,7 +28,7 @@ export interface RenderCoalescer {
 export function createRenderCoalescer(
     options: RenderCoalescerOptions,
 ): RenderCoalescer {
-    const intervalMs = options.intervalMs ?? STREAM_RENDER_INTERVAL_MS;
+    const intervalMs = options.intervalMs ?? (() => STREAM_RENDER_INTERVAL_MS);
     const setTimer = options.setTimer
         ?? ((run, ms) => setTimeout(run, ms));
     const clearTimer = options.clearTimer
@@ -64,7 +64,7 @@ export function createRenderCoalescer(
                 timer = setTimer(() => {
                     timer = undefined;
                     flush();
-                }, intervalMs);
+                }, intervalMs());
             }
         },
         flush,
