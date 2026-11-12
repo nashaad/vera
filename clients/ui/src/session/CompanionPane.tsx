@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 import { AgentIcon, ArrowRightIcon, XIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -6,6 +6,7 @@ import { useRouter } from "../pages/router.tsx";
 import { useViewEnvironment } from "../views/env.tsx";
 import { closeCompanion } from "./paneLayout.ts";
 import { Transcript } from "./Transcript.tsx";
+import { usePinnedScroll } from "./usePinnedScroll.ts";
 import { useSessionWatch } from "./useSessionWatch.ts";
 
 export interface CompanionPaneProps {
@@ -22,19 +23,7 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
     const row = connection.sessionRows?.find((candidate) => candidate.id === agentId);
     const title = watch.title ?? row?.name ?? "Subagent";
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
-    const scroller = useRef<HTMLDivElement>(null);
-    const pinned = useRef(true);
-
-    useEffect(() => {
-        const element = scroller.current;
-        if (element !== null && pinned.current) element.scrollTop = element.scrollHeight;
-    }, [blocks.length, watch.live]);
-
-    const onScroll = (): void => {
-        const element = scroller.current;
-        if (element === null) return;
-        pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-    };
+    const scroller = usePinnedScroll();
 
     const goTo = (): void => {
         closeCompanion();
@@ -61,7 +50,7 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
                     <XIcon />
                 </button>
             </header>
-            <div className="transcript-scroll" ref={scroller} onScroll={onScroll}>
+            <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll}>
                 <div className="transcript">
                     <div className="transcript-inner">
                         {blocks.length === 0 ? (

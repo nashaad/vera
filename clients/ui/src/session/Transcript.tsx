@@ -91,7 +91,7 @@ const TurnView = memo(function TurnView({ turn, rollups, folder, first, live, sh
     const seconds = turnSeconds(turn);
     const showWork = open || live;
     return (
-        <>
+        <div className="turn">
             {turn.user === undefined ? null : first ? (
                 <div className="user-turn">{turn.user.text}</div>
             ) : (
@@ -115,7 +115,7 @@ const TurnView = memo(function TurnView({ turn, rollups, folder, first, live, sh
             {turn.answer === undefined ? null : <Markdown text={turn.answer.text} />}
             {live && showRetry ? <RetryLine /> : null}
             {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} /> : null}
-        </>
+        </div>
     );
 });
 

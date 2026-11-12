@@ -435,3 +435,20 @@
     background: var(--vera-link);
     border-radius: 50%;
 }
+
+/* Margins stay inside each turn, so a turn keeps its height when it starts or stops being skipped; a change would shift the scroll position. */
+.turn {
+    display: flow-root;
+    content-visibility: auto;
+    contain-intrinsic-size: auto calc(var(--vera-space) * 150);
+}
+
+/* A turn skipped before its first draw shows as an empty placeholder for a frame, and new turns arrive off-screen. */
+.turn:nth-last-child(-n + 3 of .turn) {
+    content-visibility: visible;
+}
+
+/* Turn margins do not collapse into each other, so the gap comes from the earlier turn alone. */
+.turn + .turn > :first-child {
+    margin-top: 0;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -11,6 +11,7 @@ import { RequestCards } from "../session/RequestCards.tsx";
 import { SessionRail } from "../session/SessionRail.tsx";
 import { companionFor } from "../session/subagents.ts";
 import { Transcript } from "../session/Transcript.tsx";
+import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -37,11 +38,10 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const rightPaneShown = useIsShown("rightPane");
     const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
     const folder = row === undefined || row.workspace.length === 0 ? route.workspace : row.workspace;
-    const scroller = useRef<HTMLDivElement>(null);
+    const scroller = usePinnedScroll();
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const companion = panes.layout === "single" ? undefined : companionFor(route.agentId, panes.companion, connection.sessionRows);
     const running = watch.status !== "idle";
-    const pinned = useRef(true);
     const title = watch.title ?? row?.name ?? route.title;
 
     useEffect(() => {
@@ -49,17 +49,6 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     }, [bridge, route.agentId, title, folder, watch, send]);
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
-    // Stays at the bottom while new blocks arrive, unless the reader scrolled up.
-    useEffect(() => {
-        const element = scroller.current;
-        if (element !== null && pinned.current) element.scrollTop = element.scrollHeight;
-    }, [blocks.length, watch.live, watch.requests]);
-
-    const onScroll = (): void => {
-        const element = scroller.current;
-        if (element === null) return;
-        pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-    };
 
     const showMessage = blocks.length === 0 && (watch.phase === "failed" || watch.phase === "closed" || watch.phase === "attaching");
     const body = showMessage ? (
@@ -68,7 +57,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
             text={watch.phase === "attaching" ? "Opening the session." : watch.error ?? "The session closed."}
         />
     ) : (
-        <div className="transcript-scroll" ref={scroller} onScroll={onScroll} data-session={route.agentId} data-phase={watch.phase}>
+        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase}>
             <div className="transcript">
                 <div className="transcript-inner">
                     {watch.hasOlder && watch.history.length >= MAX_HISTORY_BLOCKS ? (
