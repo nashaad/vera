@@ -1,0 +1,32 @@
+.banner {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 3);
+    align-items: center;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 4);
+    background: var(--vera-surface-raised);
+}
+
+.banner-icon {
+    color: var(--tone);
+}
+
+.banner-text {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.banner-title {
+    font-weight: 600;
+}
+
+.banner-detail {
+    max-height: calc(var(--vera-row-height) * 3);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    color: var(--vera-text-muted);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+}

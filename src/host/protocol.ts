@@ -274,7 +274,8 @@ export interface CutStopWaitRequest {
 
 export interface CreateAgentRequest {
     readonly type: "create_agent";
-    readonly workspace: string;
+    // Omitted for a chat: the host creates the session's own folder and works in it.
+    readonly workspace?: string;
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
     readonly startup_profile?: StartupProfile;
@@ -1204,8 +1205,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (
         value?.type === "create_agent"
-        && typeof value.workspace === "string"
-        && value.workspace.length > 0
+        && (value.workspace === undefined
+            || (typeof value.workspace === "string" && value.workspace.length > 0))
         && (value.approval_mode === undefined
             || isApprovalMode(value.approval_mode))
         && (value.lifetime === undefined
@@ -1216,7 +1217,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     ) {
         return {
             type: "create_agent",
-            workspace: value.workspace,
+            ...(value.workspace === undefined
+                ? {}
+                : { workspace: value.workspace as string }),
             ...(value.approval_mode === undefined
                 ? {}
                 : { approval_mode: value.approval_mode }),

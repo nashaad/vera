@@ -1,0 +1,65 @@
+/* The page rows at the top of the sidebar. */
+
+.sidebar-nav {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    padding: var(--vera-space) calc(var(--vera-space) * 2) 0;
+}
+
+.nav-row {
+    display: flex;
+    gap: calc(var(--vera-space) * 2.5);
+    align-items: center;
+    width: 100%;
+    height: var(--vera-row-height);
+    padding: 0 calc(var(--vera-space) * 2);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.nav-row:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.nav-row[data-active="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.nav-row:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.nav-icon {
+    flex: 0 0 auto;
+}
+
+.nav-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-count {
+    flex: 0 0 auto;
+    min-width: calc(var(--vera-space) * 4.25);
+    height: calc(var(--vera-space) * 4.25);
+    padding: 0 calc(var(--vera-space) * 1.25);
+    color: var(--vera-badge-text);
+    font-size: calc(var(--vera-font-size) * 11 / 13);
+    line-height: calc(var(--vera-space) * 4.25);
+    text-align: center;
+    background: var(--vera-badge);
+    border-radius: var(--vera-radius-xl);
+}

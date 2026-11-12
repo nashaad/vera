@@ -50,6 +50,7 @@ your first conversation.
 
 - [Switch and search conversations](session-switching.md)
 - [Conversations](screen.md)
+- [Desktop app](desktop.md)
 - [Saved conversations](sessions.md)
 - [Queue messages while work runs](queued-messages.md)
 - [Browse workspace changes](workspace-diff.md)

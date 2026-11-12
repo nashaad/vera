@@ -58,6 +58,26 @@ assignment. If eco is unavailable, fix that assignment and retry.
 Selecting explorer with `/agent` instead changes the current conversation's
 instructions and tools. It leaves the conversation model unchanged.
 
+## Use the chat agent
+
+Chat is an included role for conversations that are not about a project. It
+has no instructions of its own. Its tools are `web_search`, `web_fetch`,
+`read`, `list`, `write`, and `edit`, so it can look things up on the web and
+keep files in the conversation's own folder.
+
+A conversation started without a project folder is a chat. The host creates
+its folder beside the session file, as `<session-id>.jsonl.files`, works in
+it, and starts the conversation on the chat agent. If no agent named `chat`
+exists, or selecting it fails, the conversation starts on the default agent.
+`/agent default` leaves chat, and `/agent chat` returns to it. A `chat` agent
+in your own or a project's agents folder replaces the included one.
+
+Moving a chat to the trash moves its folder with it. Resuming a chat
+recreates its folder when it is missing. Branching or forking a chat copies the
+folder, so the branch and its source change files independently; a branch that
+is temporary keeps working in the source's folder. Delegated children of a chat
+work in the same folder and are not chats themselves.
+
 ## Allow models for subagents
 
 Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may

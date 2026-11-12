@@ -39,6 +39,7 @@ function projectSession(agent: RegisteredAgentSummary): VeraClientSession {
         id: agent.id,
         ...(agent.title === undefined ? {} : { title: agent.title }),
         workspace: agent.workspace,
+        ...(agent.chat === true ? { chat: true as const } : {}),
         kind: agent.kind,
         status: agent.status,
         live: agent.live,

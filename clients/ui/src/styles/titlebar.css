@@ -1,0 +1,100 @@
+/* The sidebar's top row and the main header share one height and sit under the window controls. */
+
+.app {
+    --header-height: calc(var(--vera-row-height) + var(--vera-space) * 1.75);
+    --traffic-room: calc(var(--vera-space) * 0);
+}
+
+.app[data-platform="darwin"] {
+    --traffic-room: calc(var(--vera-space) * 20);
+}
+
+.titlebar,
+.sidebar-top {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    height: var(--header-height);
+    -webkit-app-region: drag;
+    user-select: none;
+}
+
+.titlebar {
+    padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) * 4);
+}
+
+.titlebar[data-sidebar="hidden"] {
+    padding-left: max(var(--traffic-room), calc(var(--vera-space) * 3));
+}
+
+.sidebar-top {
+    gap: calc(var(--vera-space) * 1.5);
+    padding: 0 calc(var(--vera-space) * 2.5) 0 max(var(--traffic-room), calc(var(--vera-space) * 3));
+}
+
+.titlebar-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 6);
+    height: calc(var(--vera-space) * 6);
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+    transition: color var(--vera-motion), background var(--vera-motion);
+    -webkit-app-region: no-drag;
+}
+
+.header-button:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.header-button[data-lit="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.header-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.header-button:disabled {
+    cursor: default;
+    opacity: 0.32;
+}
+
+.header-button:disabled:hover {
+    color: var(--vera-text-dim);
+    background: transparent;
+}
+
+.titlebar-controls {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+}
+
+.title-tools {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1);
+    align-items: center;
+    -webkit-app-region: no-drag;
+}

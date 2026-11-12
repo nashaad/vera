@@ -1,0 +1,12 @@
+/* The Workspace page: one folder, its stats and its sessions. */
+
+.workspace-note {
+    margin: calc(var(--vera-space) * -2) 0 calc(var(--vera-space) * 4);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size);
+}
+
+.list-row[data-nested="true"] {
+    width: calc(100% - var(--vera-space) * 4.5);
+    margin-left: calc(var(--vera-space) * 4.5);
+}

@@ -1,0 +1,85 @@
+/* A session and one subagent share the page side by side or one above the other. */
+
+.session-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.agent-panes {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.agent-panes[data-layout="stack"] {
+    flex-direction: column;
+}
+
+.agent-panes > .transcript-scroll,
+.agent-panes > .agent-companion {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+}
+
+.agent-panes[data-layout="split"] > .agent-companion {
+    border-left: thin solid var(--vera-border);
+}
+
+.agent-panes[data-layout="stack"] > .agent-companion {
+    border-top: thin solid var(--vera-border);
+}
+
+.agent-companion {
+    display: flex;
+    flex-direction: column;
+    background: var(--vera-surface);
+}
+
+.companion-head {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2) calc(var(--vera-space) * 1) calc(var(--vera-space) * 4);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.companion-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.companion-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.companion-state {
+    flex: 0 0 auto;
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-accent);
+    border: thin solid color-mix(in srgb, var(--vera-accent) 40%, transparent);
+    border-radius: var(--vera-radius-xl);
+}
+
+.session-rail {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1);
+    align-self: flex-start;
+    margin: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 2) 0 0;
+    padding: calc(var(--vera-space) * 1);
+    background: var(--vera-surface-raised);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+}

@@ -11,6 +11,8 @@ export interface CreateSessionBranchOptions {
     readonly position: "before" | "at";
     readonly entryId?: string;
     readonly hideInheritedMessages?: boolean;
+    /** Recorded in place of the source's cwd, for a branch that owns a copy of the source's chat folder. */
+    readonly cwd?: string;
 }
 
 export interface CreatedSessionBranch {
@@ -58,7 +60,7 @@ export async function createSessionBranch(
         : headId;
     const destination = await SessionStore.create(options.destinationPath, {
         sessionId: options.sessionId,
-        cwd: options.source.header.cwd,
+        cwd: options.cwd ?? options.source.header.cwd,
         origin: {
             sessionId: options.source.header.id,
             entryId: originEntryId,

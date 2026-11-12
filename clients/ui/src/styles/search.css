@@ -1,0 +1,50 @@
+/* The Search page: the query field, its filters and the matches. */
+
+.search-field {
+    flex: 1 1 calc(var(--vera-space) * 65);
+    display: flex;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    height: calc(var(--vera-space) * 8);
+    padding: 0 calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-xl);
+}
+
+.search-field:focus-within {
+    border-color: var(--vera-border-input);
+}
+
+.search-field input {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--vera-text);
+    font: inherit;
+    font-size: calc(var(--vera-font-size) * 13.5 / 13);
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
+.search-field input::-webkit-search-cancel-button {
+    appearance: none;
+}
+
+.search-field input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.search-mark {
+    padding: 0 calc(var(--vera-space) / 2);
+    color: var(--vera-text);
+    background: color-mix(in srgb, var(--vera-warning) 28%, transparent);
+    border-radius: var(--vera-radius-sm);
+}
+
+.search-note {
+    margin: calc(var(--vera-space) * -2) 0 calc(var(--vera-space) * 3);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
+}

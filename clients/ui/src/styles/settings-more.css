@@ -1,0 +1,295 @@
+/* Settings > Appearance, Workspaces, Git & PRs and Keyboard. */
+
+.appearance-themes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: calc(var(--vera-space) * 3);
+    margin-bottom: calc(var(--vera-space) * 2);
+}
+
+.appearance-theme {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    text-align: left;
+    background: transparent;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    cursor: pointer;
+}
+
+.appearance-theme:hover {
+    color: var(--vera-text);
+    border-color: var(--vera-border-input);
+}
+
+.appearance-theme[aria-pressed="true"] {
+    color: var(--vera-text);
+    border-color: var(--vera-accent);
+}
+
+.appearance-theme:focus-visible,
+.appearance-seg button:focus-visible,
+.appearance-switch:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.appearance-preview {
+    display: block;
+    height: calc(var(--vera-space) * 16);
+    padding: calc(var(--vera-space) * 2.5);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.appearance-preview-line {
+    display: block;
+    width: 60%;
+    height: calc(var(--vera-space) * 1.5);
+    margin-bottom: calc(var(--vera-space) * 1.5);
+    border-radius: var(--vera-radius-xl);
+}
+
+.appearance-preview-line.short {
+    width: 35%;
+}
+
+.appearance-preview-dot {
+    display: block;
+    width: calc(var(--vera-space) * 2.5);
+    height: calc(var(--vera-space) * 2.5);
+    border-radius: 50%;
+}
+
+.appearance-theme-name {
+    color: inherit;
+}
+
+.appearance-seg {
+    display: inline-flex;
+    gap: calc(var(--vera-space) * 0.5);
+    padding: calc(var(--vera-space) * 0.5);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-xl);
+}
+
+.appearance-seg button {
+    height: calc(var(--vera-space) * 6);
+    padding: 0 calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-dim);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-xl);
+    cursor: pointer;
+}
+
+.appearance-seg button:hover {
+    color: var(--vera-text);
+}
+
+.appearance-seg button[aria-pressed="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.appearance-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 9);
+    height: calc(var(--vera-space) * 5);
+    padding: 0;
+    background: var(--vera-surface-selected);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius-xl);
+    cursor: pointer;
+}
+
+.appearance-switch[aria-checked="true"] {
+    background: var(--vera-accent);
+    border-color: var(--vera-accent);
+}
+
+.appearance-switch-knob {
+    position: absolute;
+    top: calc(var(--vera-space) * 0.5);
+    left: calc(var(--vera-space) * 0.5);
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    background: var(--vera-text-muted);
+    border-radius: 50%;
+    transition: transform var(--vera-motion);
+}
+
+.appearance-switch[aria-checked="true"] .appearance-switch-knob {
+    transform: translateX(calc(var(--vera-space) * 4));
+    background: var(--vera-accent-text);
+}
+
+/* Workspaces and Git & PRs rows. */
+
+.workspaces-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.workspaces-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 3);
+    padding: calc(var(--vera-space) * 2.5) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.workspaces-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.workspaces-name {
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.workspaces-path {
+    display: block;
+    margin-top: calc(var(--vera-space) / 2);
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspaces-summary {
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.workspaces-note {
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-danger);
+    font-size: var(--vera-font-size-label);
+}
+
+.workspaces-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 2);
+    justify-content: flex-end;
+}
+
+/* Keyboard. */
+
+.keyboard-search {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    max-width: calc(var(--vera-space) * 80);
+    margin-bottom: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.25);
+    color: var(--vera-text-disabled);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.keyboard-search:focus-within {
+    border-color: var(--vera-border-input);
+}
+
+.keyboard-search-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.keyboard-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
+.keyboard-search input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.keyboard-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.keyboard-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 3);
+    padding: calc(var(--vera-space) * 2) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.keyboard-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.keyboard-chords {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+}
+
+.keyboard-chord {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1);
+}
+
+.keyboard-or {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.keyboard-cap {
+    min-width: calc(var(--vera-space) * 4.5);
+    padding: calc(var(--vera-space) * 0.5) calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-muted);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    text-align: center;
+    background: var(--vera-surface-raised);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-sm);
+}
+
+/* Settings > Data. */
+.data-value {
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.data-path {
+    overflow-wrap: anywhere;
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+}

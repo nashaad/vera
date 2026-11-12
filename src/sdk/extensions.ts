@@ -1190,6 +1190,8 @@ export interface VeraClientSession {
     readonly id: string;
     readonly title?: string;
     readonly workspace: string;
+    /** Present when the session works in its own folder rather than a project folder. */
+    readonly chat?: true;
     readonly kind: "interactive" | "background";
     readonly status:
         | "idle"

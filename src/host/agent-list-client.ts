@@ -78,6 +78,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         && (agent.name === undefined || typeof agent.name === "string")
         && typeof agent.workspace === "string"
         && agent.workspace.length > 0
+        && (agent.chat === undefined || agent.chat === true)
         && typeof agent.session_path === "string"
         && agent.session_path.length > 0
         && (agent.kind === "interactive" || agent.kind === "background")

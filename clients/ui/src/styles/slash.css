@@ -1,0 +1,54 @@
+/* The slash command menu above the composer. useSlashPlacement sets its left, width and bottom. */
+
+.slash-menu {
+    box-sizing: border-box;
+    min-width: 0;
+    margin-bottom: calc(var(--vera-space) * 1.5);
+    max-height: min(calc(var(--vera-space) * 90), var(--popover-room));
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.slash-menu .menu-label {
+    padding: calc(var(--vera-space) * 1.25) calc(var(--vera-space) * 2) calc(var(--vera-space));
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.slash-item {
+    gap: calc(var(--vera-space) * 2);
+    min-width: 0;
+    padding-right: calc(var(--vera-space) * 2);
+}
+
+.slash-name {
+    flex: 0 0 auto;
+    color: var(--vera-text);
+}
+
+.slash-hint {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+}
+
+.slash-description {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    text-overflow: ellipsis;
+}
+
+.slash-tag {
+    flex: 0 0 auto;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.slash-item[data-unsupported="true"] .slash-name {
+    color: var(--vera-text-disabled);
+}

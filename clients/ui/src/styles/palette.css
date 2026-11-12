@@ -1,0 +1,276 @@
+/* The command palette, the session switcher, the keyboard shortcuts sheet and toasts. */
+
+.sheet-scrim.palette-scrim {
+    align-items: flex-start;
+    padding-top: calc(var(--vera-space) * 29);
+}
+
+.palette {
+    display: flex;
+    flex-direction: column;
+    width: min(calc(var(--vera-space) * 160), 92%);
+    max-height: 71%;
+    overflow: hidden;
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border-input);
+    border-radius: calc(var(--vera-radius-lg) + var(--vera-space) * 0.75);
+    box-shadow: var(--vera-shadow);
+}
+
+.palette-input {
+    flex: 0 0 auto;
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4.5);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.palette-input input {
+    width: 100%;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-chat);
+}
+
+.palette-input input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.palette-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: calc(var(--vera-space) / 2) calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 1.5);
+}
+
+.palette-foot {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 3.5);
+    padding: calc(var(--vera-space) * 2.25) calc(var(--vera-space) * 4);
+    border-top: thin solid var(--vera-border);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.palette-foot span {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+}
+
+.palette-group {
+    padding: calc(var(--vera-space) * 2.25) calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 1.25);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.palette-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    width: 100%;
+    min-height: calc(var(--vera-space) * 8.5);
+    padding: 0 calc(var(--vera-space) * 2.5);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    text-align: left;
+    cursor: pointer;
+}
+
+.palette-row[aria-selected="true"] {
+    background: var(--vera-surface-selected);
+    color: var(--vera-text);
+}
+
+.palette-row:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.palette-row-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.palette-hit {
+    color: var(--vera-link);
+    font-weight: 600;
+}
+
+.palette-row-detail {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.palette-row-age {
+    flex: 0 0 auto;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.palette-row-keys {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) / 2);
+    margin-left: auto;
+}
+
+.palette-dot {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 1.75);
+    height: calc(var(--vera-space) * 1.75);
+    border: thin solid var(--vera-text-disabled);
+    border-radius: 50%;
+}
+
+.palette-dot[data-status="working"] {
+    background: var(--vera-link);
+    border-color: var(--vera-link);
+}
+
+.palette-dot[data-status="waiting"] {
+    background: var(--vera-warning);
+    border-color: var(--vera-warning);
+}
+
+.palette-empty {
+    padding: calc(var(--vera-space) * 9) calc(var(--vera-space) * 4);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-body);
+    text-align: center;
+}
+
+/* keyboard shortcuts */
+
+.shortcuts-search {
+    width: 100%;
+    margin-bottom: calc(var(--vera-space) * 4);
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-body);
+}
+
+.shortcuts-search:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.shortcuts-groups {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(var(--vera-space) * 5) calc(var(--vera-space) * 6);
+}
+
+.shortcuts-group-title {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-label);
+    font-weight: 500;
+}
+
+.shortcuts-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--vera-space) * 2);
+    min-height: var(--vera-row-height);
+    border-bottom: thin solid var(--vera-border);
+    font-size: var(--vera-font-size-body);
+}
+
+.shortcuts-label {
+    color: var(--vera-text-dim);
+}
+
+.shortcuts-chords {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) / 2);
+}
+
+.shortcuts-or {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+/* toasts */
+
+.toasts {
+    position: fixed;
+    right: calc(var(--vera-space) * 4.5);
+    bottom: calc(var(--vera-space) * 4.5);
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: calc(var(--vera-space) * 2);
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.25);
+    max-width: calc(var(--vera-space) * 95);
+    padding: calc(var(--vera-space) * 2.25) calc(var(--vera-space) * 3);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    box-shadow: var(--vera-shadow);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-body);
+    text-align: left;
+    cursor: pointer;
+    animation: palette-toast-in var(--vera-motion) ease-out;
+}
+
+.toast-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--vera-text-dim);
+}
+
+.toast[data-tone="success"] .toast-icon {
+    color: var(--vera-success);
+}
+
+.toast[data-tone="warning"] .toast-icon {
+    color: var(--vera-warning);
+}
+
+.toast[data-tone="danger"] .toast-icon {
+    color: var(--vera-danger);
+}
+
+.toast-text {
+    min-width: 0;
+}
+
+@keyframes palette-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(calc(var(--vera-space) * 1));
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}

@@ -1,0 +1,392 @@
+/* The model and effort pills in the composer bar, the model menu and the effort popover. */
+
+.model-pills {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+}
+
+.pill-button .pill-chevron {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+}
+
+.model-picker,
+.effort-picker {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+}
+
+.effort-pill .effort-label {
+    color: var(--vera-text-dim);
+}
+
+/* The tightest bar drops the effort pill so the model name keeps its room. */
+.composer-bar[data-fit="tight"] .effort-picker {
+    display: none;
+}
+
+/* model menu */
+
+.model-picker .model-menu {
+    width: calc(var(--vera-space) * 69);
+    max-height: min(calc(var(--vera-space) * 110), var(--popover-room));
+    overflow-y: auto;
+    user-select: text;
+}
+
+/* The search runs edge to edge, so it cancels the menu's padding. */
+.model-search {
+    display: flex;
+    margin: calc(var(--vera-space) * -1.5) calc(var(--vera-space) * -1.5) calc(var(--vera-space) * 1.5);
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.model-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    color: var(--vera-text);
+    font: inherit;
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
+.model-search input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.model-label {
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2) calc(var(--vera-space) * 0.75);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.model-empty,
+.model-note {
+    margin: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    white-space: normal;
+}
+
+.model-note {
+    color: var(--vera-warning);
+}
+
+.model-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1);
+}
+
+.model-menu .model-item {
+    display: flex;
+    flex: 1 1 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    min-width: 0;
+    width: 100%;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    white-space: normal;
+}
+
+.model-row .model-item {
+    width: auto;
+    padding-block: calc(var(--vera-space) * 1.25);
+}
+
+.model-row .model-item-text {
+    flex-direction: row;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: baseline;
+}
+
+.model-row .model-item-name {
+    flex: 0 1 auto;
+}
+
+.model-row .model-item-sub {
+    flex: 0 2 auto;
+}
+
+.model-item-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.model-item-name {
+    overflow: hidden;
+    color: var(--vera-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-item-sub {
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-menu .model-item[aria-disabled="true"] {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.model-menu .model-item[aria-disabled="true"] .model-item-name {
+    color: var(--vera-text-disabled);
+}
+
+.model-check {
+    color: var(--vera-menu-check);
+}
+
+.model-hint {
+    flex: none;
+    min-width: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-align: right;
+}
+
+.model-item-sub.model-item-desc {
+    overflow: visible;
+    white-space: normal;
+}
+
+.model-count {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.model-chevron {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+}
+
+.model-pin {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 6);
+    height: calc(var(--vera-space) * 6);
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.model-pin:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.model-pin:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.model-pin-icon {
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.model-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 8);
+    height: calc(var(--vera-space) * 4.5);
+    background: var(--vera-border-input);
+    border-radius: calc(var(--vera-space) * 2.25);
+}
+
+.model-switch i {
+    position: absolute;
+    top: calc(var(--vera-space) * 0.5);
+    left: calc(var(--vera-space) * 0.5);
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    background: var(--vera-text-dim);
+    border-radius: 50%;
+}
+
+/* effort popover */
+
+.effort-picker .effort-pop {
+    --effort-knob: calc(var(--vera-space) * 5);
+    width: calc(var(--vera-space) * 65.5);
+    padding: calc(var(--vera-space) * 4.25) calc(var(--vera-space) * 4.5) calc(var(--vera-space) * 4.75);
+}
+
+.effort-head {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    margin-bottom: calc(var(--vera-space) * 0.5);
+}
+
+.effort-bolt {
+    flex: none;
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+    color: var(--vera-text-dim);
+}
+
+.effort-level {
+    display: inline-flex;
+    flex: 1 1 auto;
+    gap: var(--vera-space);
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    color: var(--vera-slider-value);
+    font-size: var(--vera-font-size-body);
+    white-space: nowrap;
+}
+
+.effort-chevron {
+    flex: none;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.effort-reset {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+    transition: color var(--vera-motion);
+}
+
+.effort-reset svg {
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+}
+
+.effort-reset:hover:not(:disabled) {
+    color: var(--vera-text);
+}
+
+.effort-reset:disabled {
+    cursor: default;
+}
+
+.effort-reset[data-absent="true"] {
+    visibility: hidden;
+}
+
+.effort-reset:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.effort-model {
+    margin-bottom: calc(var(--vera-space) * 3);
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.effort-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: calc(var(--vera-space) * 5.5);
+}
+
+.effort-rail,
+.effort-fill {
+    position: absolute;
+    top: calc(var(--vera-space) * 1.5);
+    bottom: calc(var(--vera-space) * 1.5);
+    left: 0;
+    border-radius: calc(var(--vera-space) * 1.5);
+}
+
+.effort-rail {
+    right: 0;
+    background: var(--vera-slider-rail);
+}
+
+.effort-fill {
+    width: calc(var(--effort-knob) / 2 + var(--effort-at) * (100% - var(--effort-knob)));
+    background: var(--vera-slider-fill);
+    transition: width var(--vera-motion);
+}
+
+.effort-stop {
+    position: absolute;
+    left: calc(var(--effort-knob) / 2 + var(--stop-at) * (100% - var(--effort-knob)));
+    width: var(--vera-space);
+    height: var(--vera-space);
+    background: var(--vera-slider-stop);
+    border-radius: 50%;
+    transform: translateX(-50%);
+}
+
+.effort-knob {
+    position: absolute;
+    left: calc(var(--effort-knob) / 2 + var(--effort-at) * (100% - var(--effort-knob)));
+    width: var(--effort-knob);
+    height: var(--effort-knob);
+    background: var(--vera-slider-knob);
+    border-radius: 50%;
+    box-shadow: var(--vera-shadow-knob);
+    transform: translateX(-50%);
+    transition: left var(--vera-motion);
+}
+
+.effort-track:has(.effort-input:focus-visible) .effort-knob {
+    outline: calc(var(--vera-space) / 2) solid var(--vera-focus);
+}
+
+/* Stops and the knob sit half a knob in from each end of the rail, which is where the native thumb's center travels. */
+.effort-input {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0;
+    appearance: none;
+}
+
+.effort-input::-webkit-slider-thumb {
+    width: var(--effort-knob);
+    height: var(--effort-knob);
+    appearance: none;
+}

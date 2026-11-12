@@ -267,6 +267,7 @@ export interface RegisteredAgentSummary {
     readonly id: string;
     readonly name?: string;
     readonly workspace: string;
+    readonly chat?: true;
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
@@ -476,7 +477,8 @@ export type CloseDescendantTreeResult =
 
 export interface CreateRegisteredAgentOptions {
     readonly id?: string;
-    readonly workspace: string;
+    /** Omitted for a chat: the session works in its own folder beside the session file. */
+    readonly workspace?: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
     readonly ephemeral?: boolean;

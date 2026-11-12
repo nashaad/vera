@@ -57,14 +57,14 @@ export class AgentBranchCommitError extends Error {
 
 export function createAgentThroughHost(
     socketPath: string,
-    workspace: string,
+    workspace: string | undefined,
     approvalMode?: string,
     lifetime?: "ephemeral" | "durable",
     startupProfile: StartupProfile = "default",
 ): Promise<ReadyAgent> {
     return requestAgentStart(socketPath, {
         type: "create_agent",
-        workspace,
+        ...(workspace === undefined ? {} : { workspace }),
         ...(approvalMode === undefined
             ? {}
             : { approval_mode: approvalMode }),
@@ -237,7 +237,7 @@ export async function branchAgentThroughHost(
 
 interface CreateAgentMessage {
     readonly type: "create_agent";
-    readonly workspace: string;
+    readonly workspace?: string;
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
     readonly startup_profile?: StartupProfile;

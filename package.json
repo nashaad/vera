@@ -19,6 +19,11 @@
     "tui": "bun run pack:release && bun run clients/tui/main.ts",
     "dev:sweep": "bun scripts/dev-sweep.ts",
     "dev:tui": "bun run scripts/dev-tui.ts",
+    "dev:desktop": "bun run scripts/dev-desktop.ts",
+    "desktop:build": "bun run clients/desktop/build.ts",
+    "desktop:tour": "bun run desktop:build && node clients/desktop/tour/tour.mjs",
+    "desktop:bench": "bun run desktop:build && node clients/desktop/bench/stream.mjs",
+    "typecheck:desktop": "tsc --noEmit -p clients/desktop/tsconfig.json",
     "dev:load": "bun dev/load/run.ts",
     "factory:home": "bun run scripts/synthesize-factory-home.ts",
     "records:compact": "bun run scripts/compact-context-records.ts",
@@ -30,7 +35,7 @@
     "test": "bun test",
     "test:core": "bun test --bail --test-name-pattern @core && bun test --bail test/locked",
     "test:soak": "bun test ./dev/soak/memory-soak.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p clients/ui/tsconfig.json && tsc --noEmit -p test/desktop/tsconfig.json"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -16,17 +16,21 @@ test("session trash stages a complete recoverable bundle before removal", async 
     const root = await mkdtemp(join(tmpdir(), "vera-session-trash-test-"));
     const sessionPath = join(root, "session.jsonl");
     const attachmentsPath = `${sessionPath}.attachments`;
+    const filesPath = `${sessionPath}.files`;
     const eventLogPath = join(root, "events.jsonl");
     const captured: Record<string, string> = {};
     await writeFile(sessionPath, "session");
     await mkdir(attachmentsPath);
     await writeFile(join(attachmentsPath, "image.png"), "image");
+    await mkdir(join(filesPath, "drafts"), { recursive: true });
+    await writeFile(join(filesPath, "drafts", "one.md"), "draft");
     await writeFile(eventLogPath, "events");
 
     try {
         await trashSessionArtifacts({
             sessionPath,
             attachmentsPath,
+            filesPath,
             eventLogPath,
         }, {
             moveToTrash: async ([bundle]) => {
@@ -36,6 +40,10 @@ test("session trash stages a complete recoverable bundle before removal", async 
                 );
                 captured.image = await readFile(
                     join(bundle!, "attachments", "image.png"),
+                    "utf8",
+                );
+                captured.draft = await readFile(
+                    join(bundle!, "files", "drafts", "one.md"),
                     "utf8",
                 );
                 captured.events = await readFile(
@@ -48,11 +56,13 @@ test("session trash stages a complete recoverable bundle before removal", async 
         expect(captured).toEqual({
             session: "session",
             image: "image",
+            draft: "draft",
             events: "events",
         });
         await expect(stat(sessionPath)).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(attachmentsPath))
             .rejects.toMatchObject({ code: "ENOENT" });
+        await expect(stat(filesPath)).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(eventLogPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
         await rm(root, { recursive: true, force: true });
@@ -73,6 +83,7 @@ test("a trash adapter failure leaves every original artifact intact", async () =
         await expect(trashSessionArtifacts({
             sessionPath,
             attachmentsPath,
+            filesPath: `${sessionPath}.files`,
             eventLogPath,
         }, {
             moveToTrash: () => Promise.reject(new Error("trash unavailable")),
@@ -102,6 +113,7 @@ test("a partial original cleanup failure restores removed sidecars", async () =>
         await expect(trashSessionArtifacts({
             sessionPath,
             attachmentsPath,
+            filesPath: `${sessionPath}.files`,
             eventLogPath,
         }, {
             moveToTrash: async () => undefined,

@@ -1,0 +1,63 @@
+.host-view {
+    display: grid;
+    gap: calc(var(--vera-space) * 2.5);
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+}
+
+.kicker {
+    display: flex;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    margin: 0;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.dot {
+    width: calc(var(--vera-space) * 2);
+    height: calc(var(--vera-space) * 2);
+    background: var(--tone);
+    border-radius: 50%;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(var(--vera-space) * 1.5);
+    margin: 0;
+}
+
+.stat {
+    padding: calc(var(--vera-space) * 1.75) calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 2);
+    background: var(--vera-surface-raised);
+    border-radius: var(--vera-radius);
+}
+
+.stat-wide {
+    grid-column: 1 / -1;
+}
+
+.stat-label {
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.stat-value {
+    margin: 0;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-chat);
+}
+
+.stat-path {
+    overflow-wrap: anywhere;
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size);
+}
+
+.meta {
+    margin: 0;
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    overflow-wrap: anywhere;
+}

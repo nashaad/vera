@@ -5,6 +5,7 @@ import {
     readFile,
     realpath,
     rm,
+    stat,
     symlink,
     writeFile,
 } from "node:fs/promises";
@@ -557,6 +558,80 @@ test("edit rejects empty old_string and unsupported fields", async () => {
             "edits[0] does not allow replace_all",
         );
     } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("bash reports a working folder that no longer exists", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-gone-"));
+    const runtime = new ToolRuntime(workspace);
+    try {
+        await rm(workspace, { recursive: true });
+
+        const result = await executeToolCall(
+            toolCall("call_bash", "bash", { command: "echo hi" }),
+            runtime,
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toBe(
+            `The working folder ${workspace} does not exist.`,
+        );
+        await expect(stat(workspace)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+        await runtime.close();
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("file tools report a working folder that no longer exists and do not recreate it", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-gone-"));
+    const runtime = new ToolRuntime(workspace);
+    try {
+        await writeFile(join(workspace, "kept.txt"), "kept\n");
+        await rm(workspace, { recursive: true });
+        const expected = `The working folder ${workspace} does not exist.`;
+        const calls: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
+            ["read", { path: "kept.txt" }],
+            ["list", { path: "." }],
+            ["grep", { pattern: "kept", path: "." }],
+            ["write", { path: "nested/new.txt", content: "new\n" }],
+            ["write", { path: "new.txt", content: "new\n" }],
+            ["edit", {
+                path: "kept.txt",
+                edits: [{ old_string: "kept", new_string: "lost" }],
+            }],
+        ];
+
+        for (const [name, input] of calls) {
+            const result = await executeToolCall(
+                toolCall(`call_${name}`, name, input),
+                runtime,
+            );
+            expect(result.isError).toBe(true);
+            expect(result.content[0]?.text).toBe(expected);
+        }
+
+        await expect(stat(workspace)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+        await runtime.close();
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a path missing inside an existing working folder keeps its own error", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-present-"));
+    const runtime = new ToolRuntime(workspace);
+    try {
+        const result = await executeToolCall(
+            toolCall("call_read", "read", { path: "absent.txt" }),
+            runtime,
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Path not found: absent.txt");
+    } finally {
+        await runtime.close();
         await rm(workspace, { recursive: true, force: true });
     }
 });
