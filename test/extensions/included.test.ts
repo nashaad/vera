@@ -73,6 +73,11 @@ test("included host extensions start with a bounded Explorer and no command hook
                 posture: "readonly",
                 forbiddenAccess: ["auto", "full_access"],
             });
+        expect(registry.agents().find((entry) => entry.name === "chat"))
+            .toMatchObject({
+                tools: ["web_search", "web_fetch", "read", "list", "write", "edit"],
+                instructions: "",
+            });
         expect(registry.preToolUseHooks()).toEqual([]);
         expect(registry.postToolUseHooks()).toEqual([]);
         expect(registry.turnFinishedHooks().map((hook) => hook.extensionId))
@@ -195,6 +200,7 @@ for (const mode of ["override", "disabled-copy", "disabled-builtin"] as const) {
 test("core and shipped extensions load from their own folders", () => {
     const core = includedExtensions().filter((extension) => extension.core).map((extension) => extension.id);
     const shipped = includedExtensions().filter((extension) => !extension.core).map((extension) => extension.id);
+    expect(core).toContain("vera.chat");
     expect(core).toContain("vera.customize");
     expect(core).toContain("vera.session-identity");
     expect(shipped).toContain("vera.btw");

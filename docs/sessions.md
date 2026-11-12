@@ -146,7 +146,10 @@ cut in one of them is not marked.
 
 ## Where history is stored
 
-Session files live in `~/.vera/runtime/sessions/`. One host owns the home's
+Session files live in `~/.vera/runtime/sessions/`. A conversation started
+without a project folder, a chat, keeps its files in a folder beside its session
+file, named after it with `.files` added. See
+[Use the chat agent](agents.md#use-the-chat-agent). One host owns the home's
 runtime directory at a time. Replacing that host preserves conversation
 identity; **Reconnect host** (Ctrl+P) returns to the same conversation.
 

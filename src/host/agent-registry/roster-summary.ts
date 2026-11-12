@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
 import { entryIsLive, importedSessionSummary, type RegisteredAgentEntry, type RegisteredAgentSummary } from "./support.ts";
 import { storeListedTitle } from "./session-title.ts";
+import { isChatFolder } from "../../store/chat-folder.ts";
 
 interface CachedSummary {
     readonly inputs: readonly unknown[];
@@ -40,6 +41,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
         id: entry.agent.id,
         name: entry.identity?.name,
         workspace: entry.agent.workspace,
+        ...(isChatFolder(entry.store.path, entry.agent.workspace) ? { chat: true as const } : {}),
         session_path: entry.store.path,
         kind: entry.kind,
         status,

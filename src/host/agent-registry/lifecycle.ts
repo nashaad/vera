@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { SessionIdentity } from "../../sdk/extensions.ts";
 import { storedStartupProfile } from "../../startup-profile.ts";
+import { chatFolderPath, isChatFolder } from "../../store/chat-folder.ts";
 import { completedBranchDelta, copySessionMessageAttachments, createSessionBranch } from "../../store/session-branch.ts";
 import { SessionStore, defaultSessionPath, openSessionForRecovery, readSessionHeader } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
@@ -14,6 +15,7 @@ import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { announceSessionEnd } from "./session-end.ts";
+import { copyChatFolder, createChatFolder, restoreChatFolder, selectChatAgent } from "./chat.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
 import type { TrashReservation, TrashRestartPlan } from "./trash.ts";
 
@@ -249,25 +251,35 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
         }
         reg.reserveId(id);
         let createdPath: string | undefined;
+        let createdFolder: string | undefined;
         let ephemeralDirectory: string | undefined;
         try {
-            const workspace = await resolveAgentWorkspace(options.workspace);
+            const workspace = options.workspace === undefined
+                ? undefined
+                : await resolveAgentWorkspace(options.workspace);
             const startupProfile = storedStartupProfile(
                 options.startupProfile ?? "default",
             );
             ephemeralDirectory = options.ephemeral === true
                 ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
                 : undefined;
+            const sessionPath = options.sessionPath
+                ?? (ephemeralDirectory === undefined
+                    ? undefined
+                    : join(ephemeralDirectory, `${id}.jsonl`))
+                ?? reg.options.sessionPathForId?.(id)
+                ?? defaultSessionPath(id);
+            let cwd = workspace;
+            if (cwd === undefined) {
+                const folder = await createChatFolder(sessionPath);
+                if (folder.created) createdFolder = chatFolderPath(sessionPath);
+                cwd = folder.cwd;
+            }
             const store = await SessionStore.create(
-                options.sessionPath
-                    ?? (ephemeralDirectory === undefined
-                        ? undefined
-                        : join(ephemeralDirectory, `${id}.jsonl`))
-                    ?? reg.options.sessionPathForId?.(id)
-                    ?? defaultSessionPath(id),
+                sessionPath,
                 {
                     sessionId: id,
-                    cwd: workspace,
+                    cwd,
                     ...(startupProfile === undefined
                         ? {}
                         : { contextAssemblyMode: startupProfile }),
@@ -287,7 +299,7 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                 }
             }
             reg.requireOpen();
-            return await reg.start(
+            const agent = await reg.start(
                 store,
                 kind,
                 options.eventLogPath,
@@ -295,13 +307,21 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                 clientPromptRefusal,
                 options.ephemeral === true,
             );
+            if (workspace === undefined) await selectChatAgent(reg, id);
+            return agent;
         } catch (error) {
             await abandonStart(reg, id);
             if (ephemeralDirectory !== undefined) {
                 await rm(ephemeralDirectory, { recursive: true, force: true })
                     .catch(() => {});
-            } else if (createdPath !== undefined) {
-                await rm(createdPath, { force: true }).catch(() => {});
+            } else {
+                if (createdPath !== undefined) {
+                    await rm(createdPath, { force: true }).catch(() => {});
+                }
+                if (createdFolder !== undefined) {
+                    await rm(createdFolder, { recursive: true, force: true })
+                        .catch(() => {});
+                }
             }
             throw error;
         } finally {
@@ -318,6 +338,7 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
             const store = await SessionStore.open(sessionPath);
             const blocked = reg.blockRefusalFor(store.header.id);
             if (blocked !== undefined) throw new UserFacingError(blocked);
+            await restoreChatFolder(sessionPath, store.header.cwd);
             const storedProvider = store.modelSettings()?.provider;
             if (
                 store.header.delegation !== undefined
@@ -382,6 +403,7 @@ export async function branch(reg: AgentRegistry, options: BranchRegisteredAgentO
         const id = options.id ?? randomUUID();
         let createdPath: string | undefined;
         let stagingPath: string | undefined;
+        let copiedFolder: string | undefined;
         let publishedAttachments: PublishedBranchAttachments | undefined;
         // reserveId throws when another call owns the id; cleanup must not close that agent.
         let reserved = false;
@@ -401,11 +423,22 @@ export async function branch(reg: AgentRegistry, options: BranchRegisteredAgentO
                     dirname(destinationPath),
                     `.${basename(destinationPath)}.${randomUUID()}.branch`,
                 );
+            // An ephemeral branch is a short side session and keeps working in the source's folder.
+            let cwd: string | undefined;
+            if (
+                options.ephemeral !== true
+                && isChatFolder(source.store.path, source.store.header.cwd)
+            ) {
+                const copy = await copyChatFolder(source.store.header.cwd, destinationPath);
+                copiedFolder = chatFolderPath(destinationPath);
+                cwd = copy.cwd;
+            }
             const created = await createSessionBranch({
                 source: source.store,
                 destinationPath: stagingPath,
                 sessionId: id,
                 position: options.position,
+                ...(cwd === undefined ? {} : { cwd }),
                 ...(options.entryId === undefined
                     ? {}
                     : { entryId: options.entryId }),
@@ -475,6 +508,10 @@ export async function branch(reg: AgentRegistry, options: BranchRegisteredAgentO
             if (publishedAttachments !== undefined) {
                 await removePublishedBranchAttachments(publishedAttachments);
             }
+            if (copiedFolder !== undefined) {
+                await rm(copiedFolder, { recursive: true, force: true })
+                    .catch(() => {});
+            }
             throw error;
         } finally {
             if (reserved) {
@@ -521,6 +558,7 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
                 await reg.trashArtifacts({
                     sessionPath: entry.store.path,
                     attachmentsPath: `${entry.store.path}.attachments`,
+                    filesPath: chatFolderPath(entry.store.path),
                     eventLogPath: entry.eventLogPath,
                 });
             } catch {

@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { chatFolderPath } from "../../store/chat-folder.ts";
 import { readSessionHeader } from "../../store/session-store.ts";
 import type { SessionEndpoint, RoutedSession } from "../pool/router.ts";
 import type { SessionHost } from "./types.ts";
@@ -164,6 +165,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                 await host.registry.trashArtifacts({
                     sessionPath: plan.sessionPath,
                     attachmentsPath: `${plan.sessionPath}.attachments`,
+                    filesPath: chatFolderPath(plan.sessionPath),
                     eventLogPath: plan.eventLogPath,
                 });
                 return true;

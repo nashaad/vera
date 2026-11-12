@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+
 import type {
     ModelTool,
     ToolCallContent,
@@ -73,6 +75,14 @@ const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
 const hostToolNames = new Set(["skill_script"]);
+const workingFolderTools = new Set([
+    "bash",
+    "read",
+    "list",
+    "grep",
+    "write",
+    "edit",
+]);
 
 export function isBuiltInToolName(name: string): boolean {
     return toolRegistry.has(name) || hostToolNames.has(name);
@@ -240,7 +250,33 @@ export async function executeToolHandler(
         signal.throwIfAborted();
         return await tool.execute(toolCall.input, runtime, signal);
     } catch (error) {
-        return errorOutput(error instanceof Error ? error.message : String(error));
+        return errorOutput(
+            await toolFailureMessage(error, toolCall.name, runtime.workspace),
+        );
+    }
+}
+
+// Runs only after a failure, so a tool call that succeeds costs no extra stat.
+async function toolFailureMessage(
+    error: unknown,
+    toolName: string,
+    workspace: string,
+): Promise<string> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+        !workingFolderTools.has(toolName)
+        || !(error instanceof Error)
+        || (error as NodeJS.ErrnoException).code !== "ENOENT"
+    ) {
+        return message;
+    }
+    try {
+        await stat(workspace);
+        return message;
+    } catch (statError) {
+        return (statError as NodeJS.ErrnoException).code === "ENOENT"
+            ? `The working folder ${workspace} does not exist.`
+            : message;
     }
 }
 

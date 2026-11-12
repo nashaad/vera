@@ -3,6 +3,7 @@ import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { basename } from "node:path";
 import { belongsToSessionShard, type SessionShard } from "../shard.ts";
 import { orderByExtension, type WorkerExtensionServices } from "../pool/extension-catalog.ts";
+import { chatFolderPath } from "../../store/chat-folder.ts";
 
 import type { ExtensionRegistry } from "../../extensions/registry.ts";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
@@ -168,6 +169,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             return {
                 sessionPath,
                 attachmentsPath: `${sessionPath}.attachments`,
+                filesPath: chatFolderPath(sessionPath),
                 ...(eventLogPathForId === undefined || workspace === undefined
                     ? {} : { eventLogPath: eventLogPathForId(targetId, workspace) }),
             };

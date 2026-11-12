@@ -298,7 +298,7 @@ test("a lost create reply must not let another worker open the same session", as
     let firstReady = true;
     host.inspect = async (sessionPath) => ({ id, sessionPath });
     first.create = async (options) => {
-        firstSessions.set(id, { id, workspace: options.workspace, sessionPath: path });
+        firstSessions.set(id, { id, workspace: options.workspace ?? "/work", sessionPath: path });
         firstReady = false;
         throw new Error("control connection closed before the create reply");
     };

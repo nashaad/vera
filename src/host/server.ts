@@ -1771,7 +1771,9 @@ function receiveConnection(
             clearDeadline();
             finished = true;
             startAgent("create", () => createAgent({
-                workspace: request.workspace,
+                ...(request.workspace === undefined
+                    ? {}
+                    : { workspace: request.workspace }),
                 ...(request.approval_mode === undefined
                     ? {}
                     : { approvalMode: request.approval_mode }),

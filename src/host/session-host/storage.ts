@@ -11,6 +11,7 @@ import {
 } from "../../store/session-facts.ts";
 import type { HostLog } from "../host-log.ts";
 
+import { isChatFolder } from "../../store/chat-folder.ts";
 import { readSessionIndexMetadata } from "../../store/session-store.ts";
 import {
     type AgentRegistry,
@@ -199,6 +200,7 @@ export async function indexStoredSession(
         sessions.set(header.id, {
             id: header.id,
             workspace: header.cwd,
+            ...(isChatFolder(path, header.cwd) ? { chat: true as const } : {}),
             session_path: path,
             kind: header.delegation?.kind === "subagent"
                 ? "background"

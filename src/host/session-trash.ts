@@ -11,6 +11,7 @@ import { join } from "node:path";
 export interface SessionArtifacts {
     readonly sessionPath: string;
     readonly attachmentsPath: string;
+    readonly filesPath: string;
     readonly eventLogPath?: string;
 }
 
@@ -78,6 +79,7 @@ async function existingArtifacts(
             ? []
             : [{ path: artifacts.eventLogPath, stagedName: "events.jsonl" }]),
         { path: artifacts.attachmentsPath, stagedName: "attachments" },
+        { path: artifacts.filesPath, stagedName: "files" },
     ];
     const existing = [];
     for (const candidate of candidates) {
