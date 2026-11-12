@@ -15,7 +15,7 @@ import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
 import { IDLE_KEYS_HINT, QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
-import { syncStatusTimer } from "./animation-level.ts";
+import { activityAnimationNow, animationLevelNow, syncStatusTimer } from "./animation-level.ts";
 import { paneHeaderText, quitArmedNow, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-nodes.ts";
@@ -36,23 +36,23 @@ export function renderStatus(rt: TuiRuntime): void {
     const statusState = focusedAgentState(rt);
     if (anyOverlayOpen(rt) || rt.sessionSwitchPending) rt.modelPrefixPending = false;
     if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.browseFeedback?.status === "working") {
-        rt.settingsPickerView.animateFeedback(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
+        rt.settingsPickerView.animateFeedback(transcriptShimmerFrame(Date.now()), activityAnimationNow(rt) !== "off");
     }
     if (rt.settingsPicker?.kind === "session") {
-        rt.settingsPickerView.animateSessionTitles(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
+        rt.settingsPickerView.animateSessionTitles(transcriptShimmerFrame(Date.now()), activityAnimationNow(rt) !== "off");
     }
     if (rt.animationsPreviewOpen) {
-        rt.animationsPreviewView.update(rt.animationLevel, Date.now());
+        rt.animationsPreviewView.update(animationLevelNow(rt), Date.now());
     }
     rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);
     if (rt.transcriptWorking.visible) {
         setTextContent(rt.transcriptWorking, renderTuiActivityAnimation(
-            rt.activityAnimation === "off" ? "off" : "shimmer",
+            activityAnimationNow(rt) === "off" ? "off" : "shimmer",
             transcriptShimmerFrame(Date.now()),
             workingLineText(rt, rt.transcriptWorking.width),
             { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT },
         ));
-        if (rt.activityAnimation !== "off") {
+        if (activityAnimationNow(rt) !== "off") {
             animateLiveToolHeaders(rt, transcriptShimmerFrame(Date.now()));
             animateLiveThinking(rt, Math.floor(Date.now() / 80));
         }
@@ -135,7 +135,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 provider: statusState.compactionProvider,
                 model: statusState.compactionModel,
             },
-            rt.animationLevel > 0,
+            animationLevelNow(rt) > 0,
         );
     } else if (statusState.working) {
         const modelActivity = statusState.modelActivity;
@@ -393,7 +393,7 @@ export function renderStatus(rt: TuiRuntime): void {
     const agentHeader = agentSection[0] ?? "";
     const animatedAgentHeader = runningNames.length === 0
         ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-        : rt.activityAnimation === "off"
+        : activityAnimationNow(rt) === "off"
         ? new StyledText([fg(TUI_MUTED)(agentHeader)])
         : renderTuiSpokes(
             activityFrame(rt),
@@ -519,6 +519,6 @@ function activityBarChunks(
     const now = Date.now();
     const quietMs = quietSince === undefined ? 0 : Math.max(0, now - quietSince);
     const kind = tuiActivityKind(activity, reasoning, quietMs);
-    const cells = renderTuiActivityBar(kind, rt.animationLevel, now, { active: TUI_ACCENT, dim: TUI_ELEMENT });
+    const cells = renderTuiActivityBar(kind, animationLevelNow(rt), now, { active: TUI_ACCENT, dim: TUI_ELEMENT });
     return cells.map((cell): TuiStatusChunk => ({ text: cell.glyph, tone: "accent", color: cell.color }));
 }

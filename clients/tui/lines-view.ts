@@ -108,6 +108,16 @@ export interface LinesView {
     update(state: LinesViewState): void;
 }
 
+// Keyed on the state and on the geometry it lays out into. update() rebuilds every node.
+const lastLinesViewKey = new WeakMap<LinesView, string>();
+
+export function updateLinesViewIfChanged(view: LinesView, state: LinesViewState): void {
+    const key = JSON.stringify([state, view.contentWidth(), view.visibleRows()]);
+    if (lastLinesViewKey.get(view) === key) return;
+    lastLinesViewKey.set(view, key);
+    view.update(state);
+}
+
 export interface LinesViewOptions {
     readonly panelBackground?: boolean;
     readonly railDivider?: boolean;
