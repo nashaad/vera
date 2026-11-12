@@ -125,6 +125,17 @@ export function parseModelSettingsReply(value: Fields): ModelSettingsReply | und
     return { requestId, settings, pending: value.pending === true };
 }
 
+// The session answers a model or effort change before the host adds the catalog: that answer lists no
+// models and a bare entry for the current one, and the full reply follows. Taking it as is would hide
+// the effort pill for a frame, so a reply with an empty catalog keeps the lists already shown.
+export function mergeModelSettingsReply(previous: ModelSettingsReply | undefined, reply: ModelSettingsReply): ModelSettingsReply {
+    if (previous === undefined || reply.settings.catalog.length > 0 || previous.settings.catalog.length === 0) return reply;
+    return {
+        ...reply,
+        settings: { ...reply.settings, shortlist: previous.settings.shortlist, catalog: previous.settings.catalog },
+    };
+}
+
 export function parseModelRefusal(value: Fields): ModelRefusal | undefined {
     const requestId = str(value.requestId);
     if (requestId === undefined) return undefined;

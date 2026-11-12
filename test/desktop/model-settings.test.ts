@@ -130,4 +130,21 @@ describe("model settings", () => {
         expect(watched.models?.settings.model).toBe("flash");
         expect(watched.modelRefused).toEqual({ requestId: "r2", reason: "unavailable" });
     });
+
+    test("@core a reply with an empty catalog keeps the lists the watch already has", () => {
+        const full = parseSessionLine(JSON.stringify({ type: "model_settings", requestId: "r1", settings: wireSettings, pending: false, seq: 4 }));
+        const bare = { ...wireSettings, reasoningEffort: "low", availableModels: [], pooled: [{ provider: "deepseek", model: "flash", label: "flash", available: false, levels: [] }] };
+        const effort = parseSessionLine(JSON.stringify({ type: "model_settings", requestId: "r2", settings: bare, pending: false, seq: 5 }));
+        if (full === undefined || effort === undefined) throw new Error("replies did not parse");
+        const watched = reduceWatch(reduceWatch(initialWatch("a1"), full), effort);
+        const settings = watched.models?.settings;
+        expect(settings?.effort).toBe("low");
+        expect(settings?.shortlist.map((entry) => entry.model)).toEqual(["flash", "old"]);
+        expect(settings?.catalog.map((entry) => entry.model)).toEqual(["flash", "big", "tiny"]);
+        if (settings !== undefined) expect(findModel(settings, settings)?.levels.length).toBe(2);
+
+        const fresh = parseSessionLine(JSON.stringify({ type: "model_settings", requestId: "r3", settings: { ...wireSettings, availableModels: [{ provider: "glm", model: "big", label: "Big", levels: [] }] }, pending: false, seq: 6 }));
+        if (fresh === undefined) throw new Error("reply did not parse");
+        expect(reduceWatch(watched, fresh).models?.settings.catalog.map((entry) => entry.model)).toEqual(["big"]);
+    });
 });

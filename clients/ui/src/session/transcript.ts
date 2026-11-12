@@ -1,3 +1,4 @@
+import { mergeModelSettingsReply } from "../models/settings.ts";
 import type { AgentRunStatus, Block, NoticeTone, Presentation, SessionWatch, ToolCall, ToolState } from "./model.ts";
 import { MAX_HISTORY_BLOCKS, MAX_IMAGE_REPLIES } from "./model.ts";
 import { foldLive, keyFor, retryAfter } from "./live.ts";
@@ -213,7 +214,7 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
         case "permissions_rejected":
             return { ...state, approvalRefused: message.requestId };
         case "model_settings":
-            return { ...state, models: message.reply };
+            return { ...state, models: mergeModelSettingsReply(state.models, message.reply) };
         case "model_settings_rejected":
             return { ...state, modelRefused: message.refusal };
         case "context":
