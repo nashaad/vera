@@ -178,7 +178,7 @@ async function main() {
             giveCrowEffortLevels(trial.home);
         }
 
-        app = await trial.launch();
+        app = await trial.launch({ visible: true });
         const page = await app.firstWindow();
         await page.waitForSelector(".app", { timeout: 45_000 });
         await app.evaluate(({ dialog, BrowserWindow }, chosen) => {

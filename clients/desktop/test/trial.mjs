@@ -12,6 +12,8 @@ const require = createRequire(join(root, "clients", "desktop", "package.json"));
 const { _electron: electron } = require("playwright-core");
 const electronPath = require("electron");
 
+export const OUT_OF_SIGHT = ["-r", join(root, "clients", "desktop", "test", "out-of-sight.cjs")];
+
 export function startTrial() {
     const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
     const home = join(trialRoot, ".vera");
@@ -19,10 +21,11 @@ export function startTrial() {
         || execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
     const apps = [];
 
-    async function launch() {
+    // The tour and the bench pass visible: true; every other run stays out of sight.
+    async function launch({ visible = false } = {}) {
         const app = await electron.launch({
             executablePath: electronPath,
-            args: [join(root, "clients", "desktop")],
+            args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
             cwd: root,
             env: {
                 ...process.env,
@@ -35,6 +38,12 @@ export function startTrial() {
             timeout: 60_000,
         });
         apps.push(app);
+        if (!visible) {
+            await app.firstWindow();
+            const hidden = await app.evaluate(({ app: electronApp, BrowserWindow }) => electronApp.dock?.isVisible() !== true
+                && BrowserWindow.getAllWindows().every((window) => window.getOpacity() === 0));
+            if (!hidden) throw new Error("A trial window is visible; out-of-sight.cjs did not load.");
+        }
         return app;
     }
 

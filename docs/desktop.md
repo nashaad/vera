@@ -659,6 +659,9 @@ temp directory. `--seeds <n>` sets the number of turns before the stream
 (default 30), `--label <name>` names the run, and `--out <dir>` picks the output
 folder. It stops the host it started.
 
+Each test's window is transparent, has no Dock icon and takes no clicks or
+keys, so the tests can run while the desk is in use.
+
 The attach test launches Electron against a throwaway home. It checks the
 sidebar footer and its tooltip, the session count, that there are no theme
 buttons in the window, that the

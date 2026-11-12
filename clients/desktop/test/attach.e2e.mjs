@@ -7,6 +7,8 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { OUT_OF_SIGHT } from "./trial.mjs";
+
 const root = new URL("../../..", import.meta.url).pathname;
 const require = createRequire(join(root, "clients", "desktop", "package.json"));
 const { _electron: electron } = require("playwright-core");
@@ -118,7 +120,7 @@ async function missingCliCase() {
     const missing = join(trialRoot, "missing-cli.ts");
     const probe = await electron.launch({
         executablePath: electronPath,
-        args: [join(root, "clients", "desktop")],
+        args: [...OUT_OF_SIGHT, join(root, "clients", "desktop")],
         cwd: root,
         env: {
             ...process.env,
@@ -147,7 +149,7 @@ try {
     await missingCliCase();
     app = await electron.launch({
         executablePath: electronPath,
-        args: [join(root, "clients", "desktop")],
+        args: [...OUT_OF_SIGHT, join(root, "clients", "desktop")],
         cwd: root,
         env: {
             ...process.env,
