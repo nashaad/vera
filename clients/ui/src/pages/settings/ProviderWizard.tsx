@@ -8,7 +8,7 @@ interface ProviderWizardProps {
     readonly onClose: () => void;
 }
 
-// The steps are shown for orientation only; this window does not run them yet.
+// The steps are shown for orientation only; this window does not run them.
 export function ProviderWizard({ onClose }: ProviderWizardProps) {
     const closeButton = useRef<HTMLButtonElement>(null);
 
@@ -48,7 +48,7 @@ export function ProviderWizard({ onClose }: ProviderWizardProps) {
                 </ol>
                 <div className="wizard-body">
                     <p className="wizard-note">
-                        Adding a provider from this window is not available yet. Run <code>vera</code> in a terminal and use{" "}
+                        This window does not add providers. Run <code>vera</code> in a terminal and use{" "}
                         <code>/provider</code>; it walks through the same steps and the provider appears here.
                     </p>
                 </div>

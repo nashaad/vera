@@ -70,7 +70,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse }: ModelMenuPr
             </label>
             {rows.searching ? null : (
                 <>
-                    <button type="button" className="menu-item model-item" aria-disabled="true" title="Not available yet">
+                    <button type="button" className="menu-item model-item" aria-disabled="true" title="The host does not serve this">
                         <span className="model-item-name">Auto</span>
                     </button>
                     <div className="menu-separator" />
@@ -123,7 +123,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse }: ModelMenuPr
             {nothingMatches ? <p className="model-empty">No model matches</p> : null}
             {reason === undefined ? null : <p className="model-note">{reason}</p>}
             <div className="menu-separator" />
-            <button type="button" className="menu-item model-item" aria-disabled="true" title="Not available yet">
+            <button type="button" className="menu-item model-item" aria-disabled="true" title="The host does not serve this">
                 <span className="model-item-text">
                     <span className="model-item-name">Fast</span>
                     <span className="model-item-sub">Answer sooner; think less between tool calls</span>

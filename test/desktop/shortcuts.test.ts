@@ -44,7 +44,7 @@ test("the Go menu carries each page shortcut with its accelerator, and every pag
         GO_SHORTCUTS.map((shortcut) => [shortcut.command, shortcut.label, shortcut.accelerator]),
     );
     for (const entry of go.submenu) if (entry.type !== "separator") (entry.click as () => void)();
-    expect(run).toEqual(["go.newChat", "go.back", "go.forward", "go.search", "go.work", "go.customize", "go.devices", "go.settings"]);
+    expect(run).toEqual(["go.newChat", "go.back", "go.forward", "go.search", "go.work", "go.customize", "go.devices", "go.settings", "go.tour", "go.coverage"]);
 });
 
 test("the other platform's modifier, extra modifiers, repeats and key releases do not trigger a toggle", () => {

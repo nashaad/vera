@@ -100,6 +100,16 @@
     letter-spacing: calc(var(--vera-font-size) * -0.22 / 13);
 }
 
+.page-head {
+    display: flex;
+    gap: calc(var(--vera-space) * 3);
+    align-items: flex-start;
+}
+
+.page-head .page-title {
+    flex: 1 1 auto;
+}
+
 .page-title-icon {
     flex: 0 0 auto;
     width: calc(var(--vera-space) * 4.75);

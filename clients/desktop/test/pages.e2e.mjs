@@ -144,6 +144,19 @@ try {
     await page.keyboard.press("Escape");
     await page.waitForSelector("[data-overlay=\"customize-detail\"]", { state: "detached", timeout: 10_000 });
 
+    // Discover has no catalog to list, and says so.
+    await page.locator(".customize-seg button", { hasText: "Discover" }).click();
+    await page.locator(".empty-state-title", { hasText: "Nothing to browse" }).waitFor({ timeout: 10_000 });
+
+    // Coverage lists what the window does, and the Tour opens the session by its status.
+    await openPage("tour");
+    await page.locator(".page-head .ghost-btn", { hasText: "Coverage" }).click();
+    await page.waitForSelector("main[data-page=\"coverage\"] .coverage-row", { timeout: 10_000 });
+    await page.locator(".page-head .ghost-btn", { hasText: "Tour" }).click();
+    const sessionCard = page.locator(".tour-card[data-card=\"completed\"]:not([disabled]), .tour-card[data-card=\"idle\"]:not([disabled])");
+    await sessionCard.first().click({ timeout: 10_000 });
+    await page.waitForSelector(`text=${REPLY}`, { timeout: 15_000 });
+
     // The command palette runs a command by name.
     const modifier = process.platform === "darwin" ? "meta" : "control";
     await press(app, "K", [modifier]);
@@ -154,6 +167,11 @@ try {
     await palette.press("Enter");
     await page.waitForSelector("main[data-page=\"settings\"]", { timeout: 10_000 });
     if (await page.locator("[data-overlay=\"palette\"]").count() !== 0) throw new Error("The palette stayed open after running a command.");
+
+    // Settings > Data counts this home's sessions.
+    await page.locator(".rail-row", { hasText: "Data" }).click();
+    await page.locator(".setting", { hasText: "Desktop folder" }).waitFor({ timeout: 10_000 });
+    await until("the session count", async () => /\b1\b/.test(await page.locator(".setting", { hasText: "Sessions" }).first().innerText()));
 
     // Settings > Keyboard and the shortcuts sheet list the palette's keys.
     await page.locator(".rail-row", { hasText: "Keyboard" }).click();

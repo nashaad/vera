@@ -487,3 +487,11 @@ export function ColumnsIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function PlayIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 5.5v13l10.5-6.5z" />
+        </Icon>
+    );
+}

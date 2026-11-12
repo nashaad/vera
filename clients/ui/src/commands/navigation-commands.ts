@@ -8,6 +8,8 @@ export const NAVIGATION_COMMANDS = {
     customize: "go.customize",
     settings: "go.settings",
     devices: "go.devices",
+    tour: "go.tour",
+    coverage: "go.coverage",
     back: "go.back",
     forward: "go.forward",
 } as const;
@@ -19,6 +21,8 @@ const PAGES: ReadonlyArray<readonly [string, string, PageKind]> = [
     [NAVIGATION_COMMANDS.customize, "Customize", "customize"],
     [NAVIGATION_COMMANDS.settings, "Settings", "settings"],
     [NAVIGATION_COMMANDS.devices, "Devices", "devices"],
+    [NAVIGATION_COMMANDS.tour, "Tour", "tour"],
+    [NAVIGATION_COMMANDS.coverage, "Coverage", "coverage"],
 ];
 
 export function registerNavigationCommands(

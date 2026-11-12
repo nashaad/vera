@@ -1,6 +1,6 @@
 import { folderName } from "../protocol/sessionGroups.ts";
 
-export type PageKind = "home" | "search" | "work" | "customize" | "settings" | "devices";
+export type PageKind = "home" | "search" | "work" | "customize" | "settings" | "devices" | "tour" | "coverage";
 
 export interface PageRoute {
     readonly kind: Exclude<PageKind, "home">;
@@ -50,6 +50,8 @@ export const PAGE_TITLES: Readonly<Record<PageKind, string>> = {
     customize: "Customize",
     settings: "Settings",
     devices: "Devices",
+    tour: "Tour",
+    coverage: "Coverage",
 };
 
 export function sameRoute(left: Route, right: Route): boolean {

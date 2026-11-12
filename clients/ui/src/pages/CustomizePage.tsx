@@ -29,6 +29,9 @@ type FailureState =
 
 const KIND_PILLS: readonly KindFilter[] = ["all", "skills", "agents", "extensions", "instructions", "memory"];
 
+// Discover has no catalog behind it: the host serves only what is installed, so it shows an unavailable state.
+type CustomizeMode = "yours" | "discover";
+
 function desktopBridge(): DesktopBridge | undefined {
     return typeof window === "undefined" ? undefined : window.veraDesktop;
 }
@@ -174,6 +177,8 @@ export function CustomizePage() {
     const [kind, setKind] = useState<KindFilter>("all");
     const [query, setQuery] = useState("");
     const [picked, setPicked] = useState<CustomizeItem | undefined>(undefined);
+    const [mode, setMode] = useState<CustomizeMode>("yours");
+    const yours = mode === "yours";
 
     const attached = connection.phase === "attached";
     const probe = useCatalogProbe(bridge, target?.id, attached, reload);
@@ -184,6 +189,22 @@ export function CustomizePage() {
     const counts = kindCounts(items);
     const sections = groupByScope(visibleItems(items, kind, query));
     const folderLabel = folder === undefined ? undefined : folderName(folder);
+
+    function discoverBody() {
+        return (
+            <EmptyState title="Nothing to browse">
+                <span>
+                    Vera has no catalog of installable extensions or skills. Install an extension from a folder with{" "}
+                    <span className="customize-code">{"/extension install <path>"}</span> in the terminal, then open Yours to see it.
+                </span>
+                <span className="customize-empty-action">
+                    <button type="button" className="ghost-btn" onClick={() => setMode("yours")}>
+                        Open Yours
+                    </button>
+                </span>
+            </EmptyState>
+        );
+    }
 
     function body() {
         if (!attached) {
@@ -262,11 +283,21 @@ export function CustomizePage() {
         >
             <div className="toolbar">
                 <FolderMenu folder={folder} folders={folders} onPick={setChosen} />
-                <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)} disabled={target === undefined}>
-                    <RefreshIcon />
-                    Reload
-                </button>
-                {attached && probe.phase === "ready" ? (
+                <div className="customize-seg" role="group" aria-label="Customize view">
+                    <button type="button" aria-pressed={yours} onClick={() => setMode("yours")}>
+                        Yours
+                    </button>
+                    <button type="button" aria-pressed={!yours} onClick={() => setMode("discover")}>
+                        Discover
+                    </button>
+                </div>
+                {yours ? (
+                    <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)} disabled={target === undefined}>
+                        <RefreshIcon />
+                        Reload
+                    </button>
+                ) : null}
+                {yours && attached && probe.phase === "ready" ? (
                     <label className="search-field">
                         <SearchIcon />
                         <input
@@ -279,14 +310,14 @@ export function CustomizePage() {
                     </label>
                 ) : null}
             </div>
-            {target === undefined || !attached ? null : <p className="customize-source">Read through {target.name}</p>}
-            {probe.phase === "ready" ? probe.warnings.map((warning, index) => (
+            {yours && target !== undefined && attached ? <p className="customize-source">Read through {target.name}</p> : null}
+            {yours && probe.phase === "ready" ? probe.warnings.map((warning, index) => (
                 <p key={`${index}:${warning}`} className="customize-note">{warning}</p>
             )) : null}
-            {failures.phase === "failed" ? (
+            {yours && failures.phase === "failed" ? (
                 <p className="customize-note">Extension failures could not be read: {failures.reason}</p>
             ) : null}
-            {body()}
+            {yours ? body() : discoverBody()}
             {picked === undefined ? null : <CustomizeDetail item={picked} onClose={() => setPicked(undefined)} />}
         </Page>
     );

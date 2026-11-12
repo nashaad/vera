@@ -20,7 +20,7 @@ export function SetupCard({ request, answered, onRespond }: SetupCardProps) {
                 <p>{request.reason}</p>
                 {request.waiting > 1 ? <p>{request.waiting} actions are waiting on this</p> : null}
                 <p className="request-muted">
-                    This window cannot open this setup yet. Dismiss it here and finish the setup from the terminal.
+                    This window cannot open this setup. Dismiss it here and finish the setup from the terminal.
                 </p>
             </div>
             <div className="request-actions">

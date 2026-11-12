@@ -85,7 +85,7 @@ export function ProvidersSection() {
                 <button type="button" className="button" onClick={() => setAdding(true)}>Add a provider</button>
             </div>
             <h2 className="settings-sec">Fallback</h2>
-            <SettingRow name="Fall back after failures" description="Not available in this window yet." />
+            <SettingRow name="Fall back after failures" description="Not available in this window." />
             {adding ? <ProviderWizard onClose={closeWizard} /> : null}
         </>
     );

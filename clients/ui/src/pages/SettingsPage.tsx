@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { SearchIcon } from "../components/Icons.tsx";
 import { AgentsSection } from "./settings/AgentsSection.tsx";
 import { AppearanceSection } from "./settings/AppearanceSection.tsx";
+import { DataSection } from "./settings/DataSection.tsx";
 import { ApprovalsSection } from "./settings/ApprovalsSection.tsx";
 import { DevicesSection } from "./settings/DevicesSection.tsx";
 import { GitSection } from "./settings/GitSection.tsx";
@@ -32,18 +33,19 @@ export function SettingsPage() {
                         onChange={(event) => setQuery(event.target.value)}
                     />
                 </label>
-                {matches.length > 0 ? <div className="rail-group">Settings</div> : null}
-                {matches.map((section) => (
-                    <button
-                        key={section.id}
-                        type="button"
-                        className="rail-row"
-                        aria-current={section.id === selected ? "page" : undefined}
-                        onClick={() => setSelected(section.id)}
-                    >
-                        <section.Icon className="rail-icon" />
-                        <span>{section.name}</span>
-                    </button>
+                {matches.map((section, index) => (
+                    <Fragment key={section.id}>
+                        {matches[index - 1]?.group !== section.group ? <div className="rail-group">{section.group}</div> : null}
+                        <button
+                            type="button"
+                            className="rail-row"
+                            aria-current={section.id === selected ? "page" : undefined}
+                            onClick={() => setSelected(section.id)}
+                        >
+                            <section.Icon className="rail-icon" />
+                            <span>{section.name}</span>
+                        </button>
+                    </Fragment>
                 ))}
                 {matches.length === 0 ? <p className="rail-empty">No settings match</p> : null}
             </nav>
@@ -58,6 +60,7 @@ export function SettingsPage() {
                     {current?.id === "git" ? <GitSection /> : null}
                     {current?.id === "devices" ? <DevicesSection /> : null}
                     {current?.id === "keyboard" ? <KeyboardSection /> : null}
+                    {current?.id === "data" ? <DataSection /> : null}
                 </div>
             </div>
         </div>

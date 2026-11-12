@@ -280,3 +280,16 @@
     border: thin solid var(--vera-border);
     border-radius: var(--vera-radius-sm);
 }
+
+/* Settings > Data. */
+.data-value {
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.data-path {
+    overflow-wrap: anywhere;
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+}

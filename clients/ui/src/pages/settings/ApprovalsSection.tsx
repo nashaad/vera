@@ -13,7 +13,7 @@ export function ApprovalsSection() {
                 name="Standing permissions"
                 description="What Always has allowed in every session, and what Allow similar has allowed in one. Each session's approval pill lists them with a button to remove each."
             />
-            <p className="settings-note">This window cannot read these settings without a session yet.</p>
+            <p className="settings-note">This window cannot read these settings without a session.</p>
         </>
     );
 }

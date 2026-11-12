@@ -44,8 +44,8 @@ connection, ends the attachment and shows the banner.
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
-pages are New Chat, Search, Work, Customize, Settings, Devices, a workspace and a
-session.
+pages are New Chat, Search, Work, Customize, Settings, Devices, Tour, Coverage, a
+workspace and a session.
 
 - New Chat is the home page. It has a greeting, a composer that starts a new
   session, and under it the sidebar, the right pane and the panel, each with the
@@ -90,9 +90,25 @@ session.
   could not load shows its error. Picking a card opens a sheet with its facts
   and the file's text, and Show in Finder (Open folder on other platforms) when
   the item has a file. Customize does not add, remove, install or edit anything.
+  Yours and Discover switch the page's view; it opens on Yours, which is
+  everything above. Discover says that Vera has no catalog of extensions or
+  skills to install, names `/extension install <path>` in the terminal, and
+  offers Open Yours.
+- Tour lists every screen, sheet and session state in the window as cards, one
+  click from each. Session cards open the newest session that is working,
+  waiting on you, finished or idle, and say None right now when there is none.
+  Page cards open a page and sheet cards open a sheet. A Theme menu at the
+  bottom switches the theme. Nothing on the Tour is staged; every card opens
+  the real screen on the host the window is attached to.
+- Coverage lists the steps of a session and, for each behavior in it, whether
+  the window does it, does part of it, leaves it to the terminal, or cannot do
+  it because the host does not serve it, with a note naming where to do it
+  instead. A bar and a percentage sum it up, and pills filter by status.
+  Tour and Coverage each have a button beside the title that opens the other.
 - Settings has a list of sections on the left with a search box that filters
   them by name and keywords, and the chosen section on the right. It opens on
-  Appearance.
+  Appearance. The sections sit under two headings: Settings, and Desktop for
+  what the window keeps itself.
   - Appearance picks the theme and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable) and Reduce motion. These four
     are kept in the desktop's browser storage under the home's
@@ -107,16 +123,20 @@ session.
     active first, each with its path, session count and last activity, and Open,
     New chat here and Show in Finder.
   - Git & PRs lists the same folders with each one's current branch and says that
-    Vera has no git or pull request settings yet.
+    Vera has no git or pull request settings.
   - Devices says that no other device can reach the host, since it listens on a
     local socket, and lists this window as the one active connection with the
     time it attached. Other clients attached to the same host are not listed.
   - Keyboard lists every shortcut by group with a search box. Shortcuts cannot
     be changed.
+  - Data, under Desktop, counts the sessions the host lists, shows the
+    desktop's folder `machine/desktop` in the home with Show in Finder (Open
+    folder on other platforms), and has Reset for the appearance and for the
+    layout.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 The row of the current page is filled. Work shows a count of sessions waiting on
-you. Devices and Settings open from the buttons in the sidebar's footer.
+you. Tour, Devices and Settings open from the buttons in the sidebar's footer.
 
 Back and forward sit in the sidebar's top row, or in the main header when the
 sidebar is hidden. Each is disabled when there is no page in its direction.
@@ -125,8 +145,9 @@ the forward pages, as a browser does, and opening the current page adds nothing.
 
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
 Settings. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
-Devices and Settings. Search, Work, Customize and Devices have no shortcut; the
-command palette reaches them. On other platforms the modifier is Ctrl.
+Devices, Settings, Tour and Coverage. Search, Work, Customize, Devices, Tour and
+Coverage have no shortcut; the command palette reaches them. On other platforms
+the modifier is Ctrl.
 
 ## Command palette and sheets
 
@@ -159,7 +180,7 @@ Escape, its close button or a click outside it.
 - Configuration Files lists Vera's configuration files and what each holds, and
   shows the Vera home in Finder. Editing them is done with `/configure` in the
   terminal UI.
-- Model Failures and Standing Nudges say the window cannot read them yet and
+- Model Failures and Standing Nudges say the window cannot read them and
   name the terminal commands that do: `/failure-report` and `/diagnostics` for
   failures, `/nudges` for nudges.
 
@@ -415,7 +436,7 @@ with. It opens a menu:
 - A search box at the top. Typing filters the shortlist and adds the matching
   models that are not on it, each with a pin button that adds it to the
   shortlist.
-- `Auto` and `Fast` are shown but not available yet.
+- `Auto` and `Fast` are shown but disabled, since the host does not serve them.
 - `Shortlist`: your shortlisted models with their provider and default
   effort. Keys 1 to 4 pick the first four while the search box is empty, and
   Up, Down and Enter move through the rows. A model its provider no longer
@@ -445,8 +466,8 @@ The Models browser has four tabs:
   window and model id, with `Run this model`, the shortlist button and
   `Probe it`, which sends one short request and says whether the model passed.
 - `Defaults` shows the model and effort new sessions start with, and the
-  subagent and reviewer defaults. Choosing a model per job is not available
-  from the window yet.
+  subagent and reviewer defaults. The host does not serve a model choice per
+  job, so the window cannot set one.
 - `Help` explains the marks.
 
 Settings > Providers lists the providers the home is connected to, with how
@@ -455,7 +476,7 @@ provider's models again. `Forget` asks first, then removes the provider's saved
 connection and what Vera learned about its models. `Add a provider` explains
 that connecting one is done in the terminal with `vera` and `/provider`; the
 provider appears here once connected. Fallback after failures is not available
-from the window yet.
+from the window.
 
 ## Session tools
 
@@ -477,7 +498,7 @@ The session menu (the `…` button) has:
 - `Rewind or Fork…`, which lists your prompts, newest first. `Rewind here`
   shows how many messages stay and how many are set aside, and `Rewind` sets
   them aside and puts that prompt back in the composer to edit. A prompt with
-  images cannot be rewound yet. `Fork from here` starts a new session from that
+  images cannot be rewound. `Fork from here` starts a new session from that
   point, opens it, and puts the prompt in its composer. Rewind waits until the
   turn ends; when the host refuses, the sheet says why and offers `Back`.
 - `Compact…`, which shows the current use and runs a compaction. The sheet
@@ -639,9 +660,11 @@ and compacts from the session menu.
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page
 from the sidebar and checks its session count, checks Devices, reads Vera's help
-skill on Customize and opens its detail, runs Settings from the command palette,
-finds the palette's keys in Settings > Keyboard and the shortcuts sheet, and
-opens a session from Go to Session.
+skill on Customize and opens its detail, checks that Discover says there is
+nothing to browse, goes from Tour to Coverage and back and opens the session
+from its Tour card, runs Settings from the command palette, counts the session
+in Settings > Data, finds the palette's keys in Settings > Keyboard and the
+shortcuts sheet, and opens a session from Go to Session.
 
 `bun test test/desktop` also covers turning history and live updates into the
 transcript, paging and its cap, and the session pipe in the app.

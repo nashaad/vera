@@ -177,7 +177,7 @@ function BoundaryRow({ boundary, busy, onRewind, onFork }: BoundaryRowProps) {
                     type="button"
                     className="session-button session-button-danger"
                     disabled={busy || boundary.hasImages}
-                    title={boundary.hasImages ? "Prompts with images cannot be rewound yet." : undefined}
+                    title={boundary.hasImages ? "Prompts with images cannot be rewound." : undefined}
                     onClick={onRewind}
                 >
                     Rewind here

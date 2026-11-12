@@ -48,7 +48,7 @@ export function TasksSheet({ session, onClose }: SheetProps) {
                     </section>
                     <section className="tasks-section" aria-labelledby="tasks-shell-heading">
                         <h3 id="tasks-shell-heading" className="tasks-heading">Shell processes</h3>
-                        <p className="view-empty">The host does not list background shell processes yet.</p>
+                        <p className="view-empty">The host does not list background shell processes.</p>
                     </section>
                 </div>
             </div>

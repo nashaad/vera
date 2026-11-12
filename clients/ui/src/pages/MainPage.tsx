@@ -1,3 +1,4 @@
+import { CoveragePage } from "./CoveragePage.tsx";
 import { CustomizePage } from "./CustomizePage.tsx";
 import { DevicesPage } from "./DevicesPage.tsx";
 import { HomePage } from "./HomePage.tsx";
@@ -5,6 +6,7 @@ import type { Route } from "./routes.ts";
 import { SearchPage } from "./SearchPage.tsx";
 import { SessionPage } from "./SessionPage.tsx";
 import { SettingsPage } from "./SettingsPage.tsx";
+import { TourPage } from "./TourPage.tsx";
 import { WorkPage } from "./WorkPage.tsx";
 import { WorkspacePage } from "./WorkspacePage.tsx";
 import { useTrackFinished } from "../state/finished.ts";
@@ -33,5 +35,9 @@ export function MainPage({ route, platform }: MainPageProps) {
             return <CustomizePage />;
         case "settings":
             return <SettingsPage />;
+        case "tour":
+            return <TourPage />;
+        case "coverage":
+            return <CoveragePage />;
     }
 }

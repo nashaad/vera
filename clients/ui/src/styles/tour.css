@@ -1,0 +1,102 @@
+.tour-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(var(--vera-space) * 2.5);
+}
+
+.tour-card {
+    display: flex;
+    gap: calc(var(--vera-space) * 3);
+    align-items: flex-start;
+    width: 100%;
+    padding: calc(var(--vera-space) * 3);
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    background: transparent;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+    transition: background var(--vera-motion), border-color var(--vera-motion);
+}
+
+.tour-card:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+}
+
+.tour-card:disabled {
+    cursor: default;
+}
+
+.tour-card:disabled .tour-card-name {
+    color: var(--vera-text-disabled);
+}
+
+.tour-card:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.tour-glyph {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 8.5);
+    height: calc(var(--vera-space) * 8.5);
+    color: var(--vera-text-dim);
+    background: var(--vera-surface-raised);
+    border-radius: var(--vera-radius);
+}
+
+.tour-glyph-icon {
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+}
+
+.tour-card-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.tour-card-name {
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
+
+.tour-card-desc {
+    margin-top: calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+}
+
+.tour-card-chevron {
+    flex: 0 0 auto;
+    align-self: center;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    color: var(--vera-text-disabled);
+}
+
+.tour-button-icon {
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.tour-select {
+    height: calc(var(--vera-space) * 7.5);
+    padding: 0 calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+}
+
+.tour-select:focus-visible {
+    outline: thin solid var(--vera-focus);
+}

@@ -36,7 +36,7 @@ export function GitSection() {
                 </ul>
             )}
             <p className="settings-note">
-                Vera does not have git or pull request settings yet. Branch names are read from each folder.
+                Vera does not have git or pull request settings. Branch names are read from each folder.
             </p>
         </>
     );

@@ -187,3 +187,35 @@
     background: var(--vera-surface-code);
     border-radius: var(--vera-radius);
 }
+
+/* Customize: the Yours / Discover control in the toolbar. */
+.customize-seg {
+    display: inline-flex;
+    gap: calc(var(--vera-space) * 0.5);
+}
+
+.customize-seg button {
+    height: calc(var(--vera-space) * 6);
+    padding: 0 calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-dim);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.customize-seg button:hover {
+    color: var(--vera-text);
+}
+
+.customize-seg button[aria-pressed="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.customize-seg button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
+}

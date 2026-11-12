@@ -53,7 +53,7 @@ export function ExtensionsSheet({ onClose }: ExtensionsSheetProps) {
                 </button>
             )}
         >
-            <p className="dialog-text">Turning extensions on or off and installing them is not available from this window yet.</p>
+            <p className="dialog-text">This window does not turn extensions on or off or install them; /extensions and /extension install do that in the terminal.</p>
             {outcome === undefined ? <p className="dialog-text">Reading extensions…</p> : null}
             {outcome?.kind === "unreadable" ? <p className="dialog-note" data-tone="danger" role="alert">{outcome.reason}</p> : null}
             {outcome?.kind === "loaded" ? <p className="dialog-text">Every configured extension loaded.</p> : null}

@@ -50,7 +50,7 @@ export function KeyboardSection() {
                     </ul>
                 </section>
             ))}
-            <p className="settings-note">Shortcuts cannot be changed yet.</p>
+            <p className="settings-note">Shortcuts cannot be changed.</p>
         </>
     );
 }

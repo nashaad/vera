@@ -8,7 +8,7 @@ export function FilesView(_props: ViewProps) {
     const folder = session.folder;
     return (
         <div className="right-unavailable">
-            <p className="view-empty">The host does not serve a file tree yet.</p>
+            <p className="view-empty">The host does not serve a file tree.</p>
             {folder === undefined || folder === "" ? null : (
                 <p className="right-path" title={folder}>{shortenPath(folder)}</p>
             )}

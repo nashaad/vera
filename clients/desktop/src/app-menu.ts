@@ -43,6 +43,9 @@ export function buildMenuTemplate(
             plain(NAVIGATION_COMMANDS.customize, "Customize"),
             plain(NAVIGATION_COMMANDS.devices, "Devices"),
             settings,
+            { type: "separator" },
+            plain(NAVIGATION_COMMANDS.tour, "Tour"),
+            plain(NAVIGATION_COMMANDS.coverage, "Coverage"),
         ].filter(
             (entry): entry is MenuItemConstructorOptions => entry !== undefined,
         ),

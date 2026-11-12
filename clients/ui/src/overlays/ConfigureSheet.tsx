@@ -52,7 +52,7 @@ export function ConfigureSheet({ onClose }: ConfigureSheetProps) {
     return (
         <OverlaySheet title="Configuration Files" Icon={FileIcon} onClose={onClose} name="configure">
             <p className="dialog-text">
-                Editing configuration from this window is not available yet. Use <code>/configure</code> in a terminal to open a file in your editor.
+                This window does not edit configuration. Use <code>/configure</code> in a terminal to open a file in your editor.
             </p>
             <ul className="dialog-rows">
                 {CONFIG_FILES.map((file) => (

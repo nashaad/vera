@@ -16,8 +16,8 @@ export function DefaultsTab({ settings }: DefaultsTabProps) {
                 </div>
             ))}
             <div className="models-section-title">Assignment slots</div>
-            <div className="models-slots" aria-disabled="true" title="Not available yet">
-                Choosing a model per job is not available yet.
+            <div className="models-slots" aria-disabled="true" title="The host does not serve this">
+                The host does not serve a model choice per job.
             </div>
         </div>
     );
