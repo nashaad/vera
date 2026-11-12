@@ -1,8 +1,9 @@
-import { BoxRenderable, fg, StyledText, TextRenderable, type RenderContext } from "@opentui/core";
+import { BoxRenderable, fg, parseColor, StyledText, TextRenderable, type RenderContext } from "@opentui/core";
 
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 import { activeTuiKeymap, TUI_KEYMAP, tuiChordLabel, tuiKeyChordLabel, type TuiKeyScope } from "./keymap.ts";
 import { TUI_ACCENT, TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./palette.ts";
+import { setTextContent } from "./text-content.ts";
 
 export interface TuiKeysCardRow {
     readonly chord: string;
@@ -165,12 +166,14 @@ export function createTuiKeysCardView(renderer: RenderContext): TuiKeysCardView 
                 if (index < layout.lines.length - 1) chunks.push(fg(muted)("\n"));
             });
             chunks.push(fg(muted)(`\n\n${tuiKeysCardFooter(turn)}`));
-            box.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
+            // The background setter compares color objects by identity, so an unchanged color still requests a frame.
+            const background = TUI_HUD?.background ?? TUI_PANEL;
+            if (!box.backgroundColor.equals(parseColor(background))) box.backgroundColor = background;
             // The height getter reads the last layout, which is 0 before the first open.
             const textHeight = layout.lines.length + 4;
             text.height = textHeight;
             box.height = textHeight + 2;
-            text.content = new StyledText(chunks);
+            setTextContent(text, new StyledText(chunks));
         },
     };
 }
