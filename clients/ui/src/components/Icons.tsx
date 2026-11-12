@@ -1,0 +1,61 @@
+import type { ReactNode } from "react";
+
+export interface IconProps {
+    readonly className?: string;
+}
+
+function Icon({ className, children }: IconProps & { readonly children: ReactNode }) {
+    return (
+        <svg
+            className={className === undefined ? "icon" : `icon ${className}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            {children}
+        </svg>
+    );
+}
+
+export function InfoIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5" />
+            <path d="M12 8h.01" />
+        </Icon>
+    );
+}
+
+export function WarningIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M12 4 3 19h18L12 4Z" />
+            <path d="M12 10v4" />
+            <path d="M12 17h.01" />
+        </Icon>
+    );
+}
+
+export function ErrorIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="m9 9 6 6" />
+            <path d="m15 9-6 6" />
+        </Icon>
+    );
+}
+
+export function RemoteIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="m8 7-5 5 5 5" />
+            <path d="m16 7 5 5-5 5" />
+        </Icon>
+    );
+}

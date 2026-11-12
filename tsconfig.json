@@ -11,6 +11,7 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
       "vera/sdk/inspect-report": ["src/sdk/inspect-report.ts"]
@@ -40,5 +41,5 @@
     "scripts/**/*.ts",
     "dev/model/**/*.ts"
   ],
-  "exclude": ["python/vera/_bun"]
+  "exclude": ["python/vera/_bun", "test/desktop"]
 }

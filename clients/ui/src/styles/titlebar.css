@@ -1,0 +1,19 @@
+.titlebar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    height: calc(var(--vera-row-height) + var(--vera-space));
+    padding: 0 calc(var(--vera-space) * 20);
+    color: var(--vera-text-muted);
+    background: var(--vera-titlebar);
+    border-bottom: thin solid var(--vera-border);
+    -webkit-app-region: drag;
+    user-select: none;
+}
+
+.titlebar-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

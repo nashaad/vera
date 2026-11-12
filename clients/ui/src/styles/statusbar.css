@@ -1,0 +1,58 @@
+.statusbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: stretch;
+    min-height: calc(var(--vera-row-height) * 0.75);
+    color: var(--vera-text-muted);
+    background: var(--vera-titlebar);
+    border-top: thin solid var(--vera-border);
+    font-size: var(--vera-font-size-code);
+}
+
+.statusbar-remote {
+    display: flex;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+    padding: 0 calc(var(--vera-space) * 3);
+    color: var(--vera-accent-text);
+    background: var(--tone);
+    font-weight: 600;
+}
+
+.statusbar-item {
+    display: flex;
+    align-items: center;
+    padding: 0 calc(var(--vera-space) * 2.5);
+    white-space: nowrap;
+}
+
+.statusbar-home {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--vera-font-code);
+}
+
+.theme-group {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: stretch;
+}
+
+.theme-button {
+    padding: 0 calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.theme-button:hover {
+    background: var(--vera-surface-hover);
+}
+
+.theme-button[aria-pressed="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+    font-weight: 600;
+}

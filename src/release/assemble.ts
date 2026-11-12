@@ -1,9 +1,13 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { bundleRelease } from "./bundle.ts";
 import { packedAnnexRoot } from "./layout.ts";
 import { writeSelfContainedWrappers } from "./wrappers.ts";
+
+// Desktop and the shared UI install their own dependencies and stay out of the
+// release until a released client uses them.
+const EXCLUDED_CLIENT_DIRECTORIES = new Set(["desktop", "ui"]);
 
 const RUNTIME_ENTRIES = [
     "clients",
@@ -31,7 +35,8 @@ export async function assembleRunnableRelease(
         if (!existsSync(from)) {
             throw new Error(`Release source is missing ${entry} at ${from}`);
         }
-        copyInto(from, join(releaseRoot, entry));
+        if (entry === "clients") copyClients(from, join(releaseRoot, entry));
+        else copyInto(from, join(releaseRoot, entry));
     }
     // docs/site is the website build project, not reading material.
     rmSync(join(releaseRoot, "docs", "site"), { recursive: true, force: true });
@@ -57,6 +62,14 @@ export async function assembleRunnableRelease(
     symlinkSync("../../src/sdk", join(sdkPackage, "sdk"));
     await bundleRelease(releaseRoot, sourceRoot);
     writeSelfContainedWrappers(releaseRoot);
+}
+
+function copyClients(from: string, to: string): void {
+    mkdirSync(to, { recursive: true });
+    for (const name of readdirSync(from)) {
+        if (EXCLUDED_CLIENT_DIRECTORIES.has(name)) continue;
+        copyInto(join(from, name), join(to, name));
+    }
 }
 
 function copyInto(from: string, to: string): void {
