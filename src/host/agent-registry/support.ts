@@ -193,6 +193,7 @@ import type {
     SessionIdentity,
     SessionIdentityProvider,
 } from "../../sdk/extensions.ts";
+import type { ExtensionConfigChange } from "../extension-config-watch.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { workspaceKey } from "../../workspace-key.ts";
 import type {
@@ -425,6 +426,8 @@ export interface AgentRegistryOptions {
         readonly store: TrustNoticeStore;
     };
     readonly workerExtensions?: () => readonly VeraExtensionConfig[];
+    /** Extension fields the running host loaded at startup; read when a client attaches. */
+    readonly readExtensionConfigDrift?: () => readonly ExtensionConfigChange[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],

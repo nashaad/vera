@@ -25,6 +25,7 @@ import type {
 import { isTimelineCommand, type TimelineCommand } from "./protocol.ts";
 import type { EngineCommand } from "./timeline-control.ts";
 import type { DeliveryDiscardReason } from "./host-protocol.ts";
+import type { NoticeFacts } from "./notice-facts.ts";
 import type {
     ModelSettingsPatch,
     ModelTurnSettings,
@@ -1681,6 +1682,21 @@ export class InboundCommandRouter {
     /** Re-sends the current model settings to attached clients without a request. */
     publishModelSettings(): void {
         this.sendModelSettings(randomUUID());
+    }
+
+    /** Sends one notice to attached clients without a request. */
+    publishNotice(notice: {
+        readonly key: string;
+        readonly text: string;
+        readonly facts?: NoticeFacts;
+    }): void {
+        this.events.emit({
+            type: "notice",
+            key: notice.key,
+            count: 1,
+            text: notice.text,
+            ...(notice.facts === undefined ? {} : { facts: notice.facts }),
+        });
     }
 
     private sendModelSettings(requestId: string): void {

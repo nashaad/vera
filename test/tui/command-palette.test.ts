@@ -8,7 +8,8 @@ import {
     updateTuiCommandPaletteCommands,
     type TuiCommandPaletteState,
 } from "../../clients/tui/command-palette.ts";
-import type { TuiPaletteEntry } from "../../clients/tui/commands.ts";
+import { createBuiltinTuiCommandRegistry, type TuiPaletteEntry } from "../../clients/tui/commands.ts";
+import { tuiKeyChord } from "../../clients/tui/keymap.ts";
 
 const commands = [{
     name: "rename",
@@ -261,6 +262,31 @@ test("palette terms match in either order and tolerate extra spaces", async () =
     for (const query of ["mod switch", "  switch   mod  "]) {
         const state = await editedPalette(commands, [...query].map((key) => key === " " ? "space" : key));
         expect(state.commands.map((entry) => entry.name)).toEqual(["model"]);
+    }
+});
+
+test("the palette shows no bare prefix key", async () => {
+    const setup = await createTestRenderer({ width: 120, height: 50 });
+    const view = createTuiCommandPaletteView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(startTuiCommandPalette(
+        createBuiltinTuiCommandRegistry().registeredPaletteActions(),
+    ));
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n").map((line) => line.trimEnd());
+        const prefixKeys = [
+            "model_prefix_open",
+            "model_prefix_keys",
+            "model_prefix_sidebar",
+            "model_prefix_detach",
+        ].map(tuiKeyChord);
+        for (const line of lines) {
+            expect(prefixKeys.some((key) => line.endsWith(` ${key}`))).toBe(false);
+        }
+    } finally {
+        setup.renderer.destroy();
     }
 });
 

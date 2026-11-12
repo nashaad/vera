@@ -67,6 +67,12 @@ restarts the host while this client is still connected. Until then the row
 shows the new status, but the host still runs what it loaded at startup. The
 transcript collects changes in one note; Ctrl+T collapses or expands it.
 
+Editing `config.json` directly takes the same path. The running host notices
+the change within a second and leaves the same note, naming the extension and
+the restart. Enabling an extension works the same way: its client side loads
+now and its host side loads at the next start. Sessions started before that
+restart keep the tools the host loaded at startup.
+
 For credentials, use exact `{env:NAME}` references in extension configuration.
 See [Extension credentials](extension-credentials.md).
 
