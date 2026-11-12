@@ -111,13 +111,17 @@ Edit to send a shipped provider's requests to another URL.
 entries are affected. It removes the provider's models, unsets affected
 defaults, and clears conversation selections using that provider.
 
-Credentials supplied through the host environment must be unset there.
+Credentials supplied through the host environment must be removed from
+`machine/env` in the Vera home.
 
 ## Keys supplied by the environment
 
-Supported built-in connections can read exported keys, including
-`OPENROUTER_API_KEY` and `CEREBRAS_API_KEY`. Export the key before starting the
-host. A running host retains its own environment.
+Supported built-in connections can read keys from the host environment,
+including `OPENROUTER_API_KEY` and `CEREBRAS_API_KEY`. The host's environment is
+`machine/env` in the Vera home, not the shell you launch from. The first host
+start copies every exported `*_API_KEY` into that file; after that, add a key
+to the file and restart the host. See
+[Where the host runs and what it sees](runtime-and-worktrees.md#where-the-host-runs-and-what-it-sees).
 
 A key entered through the provider screen is stored by Vera, outside project
 configuration.

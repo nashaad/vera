@@ -8,6 +8,7 @@ import {
     packedAnnexRoot,
     RELEASE_ANNEX_NAME,
     checkoutPackRoot,
+    sourceCheckoutRoot,
     releaseBinaryPath,
 } from "../release/layout.ts";
 import { defaultVeraHomeDirectory } from "../profile-paths.ts";
@@ -63,7 +64,7 @@ export function annexLaunch(options: AnnexLaunchOptions): AnnexLaunch {
             assets: options.assets ?? packedAnnexRoot(options.root),
         };
     }
-    const checkoutRoot = options.checkoutRoot ?? process.cwd();
+    const checkoutRoot = options.checkoutRoot ?? sourceCheckoutRoot();
     const checkoutAssets = join(checkoutPackRoot(checkoutRoot), "annex");
     if (
         options.assets === undefined

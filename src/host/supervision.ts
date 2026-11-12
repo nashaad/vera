@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
     VERA_HOME_ENV,
+    veraHomeDirectory,
     veraRuntimeDirectory,
 } from "../profile-paths.ts";
+import { hostLaunchEnvironment } from "./host-environment.ts";
 
 export const SUPERVISED_HOST_ENV = "VERA_SUPERVISED";
 
@@ -60,18 +62,14 @@ export interface SupervisionPlistInput {
     readonly entrypoint?: string;
     readonly logDirectory: string;
     readonly workingDirectory: string;
-    readonly veraHome?: string;
-    readonly path?: string;
+    readonly environment?: Readonly<Record<string, string>>;
 }
 
 export function renderSupervisionPlist(input: SupervisionPlistInput): string {
     const environment: Record<string, string> = {
+        ...input.environment,
         [SUPERVISED_HOST_ENV]: "1",
     };
-    if (input.veraHome !== undefined) {
-        environment[VERA_HOME_ENV] = input.veraHome;
-    }
-    if (input.path !== undefined) environment.PATH = input.path;
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -144,6 +142,7 @@ export function installHostSupervision(
     const env = options.env ?? process.env;
     const paths = supervisionPaths(options.home);
     const run = options.run ?? launchctl;
+    const veraHome = resolve(env[VERA_HOME_ENV]?.trim() || veraHomeDirectory(options.home ?? homedir()));
     const logDirectory = join(veraRuntimeDirectory(env), "logs");
     mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
     mkdirSync(dirname(paths.plistPath), { recursive: true });
@@ -155,9 +154,8 @@ export function installHostSupervision(
             executable: options.executable ?? process.execPath,
             ...(options.entrypoint === undefined ? {} : { entrypoint: options.entrypoint }),
             logDirectory,
-            workingDirectory: options.home ?? homedir(),
-            veraHome: env[VERA_HOME_ENV]?.trim() || undefined,
-            path: env.PATH,
+            workingDirectory: veraHome,
+            environment: hostLaunchEnvironment(veraHome, { source: env }),
         }),
         { encoding: "utf8", mode: 0o644 },
     );

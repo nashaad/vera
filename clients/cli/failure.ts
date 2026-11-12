@@ -6,6 +6,7 @@ import {
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../../src/host/lockfile.ts";
+import { HostEnvironmentFileError } from "../../src/host/host-environment.ts";
 import { HostHomeUnusableError, HostSocketPathTooLongError } from "../../src/host/startup-failure.ts";
 import { VeraProfileError } from "../../src/profile-paths.ts";
 import { RetainedReleaseMissingError } from "../../src/release/dispatch-error.ts";
@@ -28,7 +29,11 @@ export function renderCliFailure(error: unknown): string {
     if (error instanceof HostLockUnreadableError) {
         return error.message;
     }
-    if (error instanceof HostSocketPathTooLongError || error instanceof HostHomeUnusableError) {
+    if (
+        error instanceof HostSocketPathTooLongError
+        || error instanceof HostHomeUnusableError
+        || error instanceof HostEnvironmentFileError
+    ) {
         return error.message;
     }
     if (error instanceof RetainedReleaseMissingError) {

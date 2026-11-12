@@ -53,6 +53,7 @@ import { forceStopResidentHost, gracefulStopResidentHost } from "../../src/host/
 import { homeFilesystemProblem } from "../../src/host/home-filesystem.ts";
 import { targetPidIsAncestor } from "../../src/host/process-ancestry.ts";
 import { acquireHostStartupClaim, HostStartupInProgressError } from "../../src/host/startup-claim.ts";
+import { hostEnvironmentProblem, hostLaunchEnvironment } from "../../src/host/host-environment.ts";
 
 export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
@@ -154,7 +155,7 @@ async function inspectHome(): Promise<BootInspection> {
     const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
     const problem = activeReleaseProblem();
     const homeProblem = homeFilesystemProblem(discovery.home);
-    const blocker = configBlocker();
+    const blocker = configBlocker() ?? environmentBlocker(discovery.home);
     return {
         ...(blocker === undefined ? {} : { startBlocker: blocker }),
         home: discovery.home,
@@ -187,6 +188,11 @@ function configBlocker(): BootInspection["startBlocker"] {
         };
     }
     return undefined;
+}
+
+function environmentBlocker(home: string): BootInspection["startBlocker"] {
+    const error = hostEnvironmentProblem(home);
+    return error === undefined ? undefined : { label: "Host env file", error };
 }
 
 // The host's output is discarded, so a start that timed out names the cause the host left behind.
@@ -373,8 +379,11 @@ function spawnDetachedResidentHost(pool = false, mode: HostMode = "default", rel
     }
     const spawnedAt = Date.now();
     const spec = residentHostSpawnSpec(releaseRoot ?? childReleaseRoot(), pool, mode);
+    const home = resolve(selectedVeraHome());
     const child = spawn(spec.command, [...spec.args], {
         argv0: "vera-host",
+        cwd: home,
+        env: hostLaunchEnvironment(home),
         detached: true,
         stdio: "ignore",
     });

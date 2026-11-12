@@ -112,7 +112,7 @@ test("a provider with no credentials names the command that fixes it", () => {
     expect(() => createConfiguredModelAdapter(
         { schema_version: 1, provider: "openrouter", model: "any/model", approval_mode: "ask" },
         { authStorage: storage({}), env: NO_ENV },
-    )).toThrow(/model pane \(ctrl\+e\) or set OPENROUTER_API_KEY/);
+    )).toThrow(/model pane \(ctrl\+e\) or add OPENROUTER_API_KEY to the host env file/);
 });
 
 test("the registry, the adapter map, and the config ids list the same providers", () => {

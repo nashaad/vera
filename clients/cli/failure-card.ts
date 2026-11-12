@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 
 import { VeraConfigError } from "../../src/config.ts";
 import { BootFailedError } from "../../src/host/boot.ts";
+import { HostEnvironmentFileError } from "../../src/host/host-environment.ts";
 import {
     HostBuildMismatchError,
     HostLockUnreadableError,
@@ -47,6 +48,21 @@ export function failureCard(error: unknown): StartupCard | undefined {
                 "",
                 "That home has its own config and sessions; the files in"
                     + ` ${dirname(dirname(error.socketPath))} stay where they are.`,
+            ],
+        };
+    }
+    if (error instanceof HostEnvironmentFileError) {
+        return {
+            kind: "error",
+            title: TITLE,
+            rows: [
+                { label: "file", value: error.path },
+                { label: "line", value: String(error.line) },
+                { label: "reason", value: error.reason },
+            ],
+            body: [
+                "The host starts with the variables in this file. Each line is NAME=value,"
+                    + " a # comment, or blank. Fix that line and start Vera again.",
             ],
         };
     }

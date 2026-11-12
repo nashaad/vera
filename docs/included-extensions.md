@@ -198,18 +198,18 @@ a `dataset` and a `token` such as `{env:AXIOM_TOKEN}`, or `jsonl`, which writes
 to the extension's profile directory. `vera -p` print mode loads the entry
 too and sends its model-call events, but no session-end event; it reads the
 entry on every run, so it needs no restart. Restart the host after adding or
-changing the entry: Ctrl+P, then Reconnect host. The restarted host must see
-the token's environment variable, or the extension does not load. The
+changing the entry: Ctrl+P, then Reconnect host. The token's variable must be
+in `machine/env` in the Vera home, or the extension does not load. The
 example's README lists the events it sends and some Axiom queries.
 
 #### Set up Telemetry
 
 This sends model calls to an Axiom dataset named `crow-nest`. Create the
-dataset and an API token that can only ingest into it, then export the token
-in the shell that starts Vera:
+dataset and an API token that can only ingest into it, then add the token to
+`machine/env` in the Vera home:
 
 ```sh
-export AXIOM_TOKEN=xaat-...
+echo 'AXIOM_TOKEN=xaat-...' >> ~/.vera/machine/env
 ```
 
 Add an entry to `extensions` in the home's `config.json`, with `path` set to

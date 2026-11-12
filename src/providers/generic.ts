@@ -85,7 +85,7 @@ function genericApiKey(options: GenericProviderOptions): string | undefined {
     if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
     if (credential === "api_key") {
         throw new UserFacingError(
-            `No credentials for provider ${options.provider.id}. Connect it from the model pane (ctrl+e)${envVar === undefined ? "" : ` or set ${envVar}`}.`,
+            `No credentials for provider ${options.provider.id}. Connect it from the model pane (ctrl+e)${envVar === undefined ? "" : ` or add ${envVar} to the host env file`}.`,
         );
     }
     if (credential === "oauth") {

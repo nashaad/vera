@@ -9,7 +9,7 @@ export class EnvReferenceError extends Error {
     constructor(extensionId: string, variable: string, path: string) {
         super(
             `Extension ${extensionId} references ${variable} at config.${path}, `
-            + `which is not set in the environment`,
+            + `which is not set in the host env file (machine/env in the Vera home)`,
         );
         this.name = "EnvReferenceError";
         this.extensionId = extensionId;

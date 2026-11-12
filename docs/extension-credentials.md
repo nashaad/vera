@@ -41,8 +41,11 @@ Vera resolves references from the host environment just before loading the
 extension. The extension receives the resolved configuration; diagnostics
 that display stored configuration retain the reference.
 
-A running host retains its own environment. Exporting a new value in another
-terminal does not change that process's environment.
+The host environment is `machine/env` in the Vera home, not the shell you
+launch from. When that file is first created, every variable an `{env:NAME}`
+reference names is copied from the launching shell. A reference added later
+needs its variable added to the file, then a host restart. See
+[Where the host runs and what it sees](runtime-and-worktrees.md#where-the-host-runs-and-what-it-sees).
 
 ## Diagnose a missing variable
 
@@ -54,8 +57,8 @@ variable and its configuration path, without including the resolved secret.
 grep host_startup_extension_failed ~/.vera/runtime/logs/host.jsonl
 ```
 
-Set the named variable in the environment used to start the host, then reload
-through the required host restart.
+Add the named variable to `machine/env` in the Vera home, then restart the
+host.
 
 ## Literal credentials and unsupported references
 

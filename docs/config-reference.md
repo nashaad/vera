@@ -84,6 +84,7 @@ Vera screen or command to manage them.
 | `runtime/logs/` | Diagnostic logs. Vera deletes logs older than seven days; `log_max_age_days` in `config.json` changes that. |
 | `runtime/annex.json` | The port this home's usage page keeps. See [Usage and cost](usage.md). |
 | `runtime/` | Host socket, databases, and caches. |
+| `machine/env` | The resident host's environment variables, one `NAME=value` per line. See [Where the host runs and what it sees](runtime-and-worktrees.md#where-the-host-runs-and-what-it-sees). |
 | `machine/` | Credentials and live process records. |
 | `pool.json` | Saved model catalog data. |
 | `preferences.json` | Saved permission answers. |

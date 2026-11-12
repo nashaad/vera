@@ -11,6 +11,7 @@ import type { CardPresenter } from "../clients/cli/startup-prompt.ts";
 import { withoutAnswerHint } from "../clients/cli/startup-confirm.ts";
 import { HostBootLoopError } from "../clients/host/boot-failures.ts";
 import { loadOptionalVeraConfig, VeraConfigError } from "../src/config.ts";
+import { HostEnvironmentFileError } from "../src/host/host-environment.ts";
 import { HostHomeUnusableError, HostSocketPathTooLongError } from "../src/host/startup-failure.ts";
 
 let home: string;
@@ -169,6 +170,15 @@ test("an unusable home card shows the folder and the reason", () => {
     ]);
     expect(card.body).toContain("Fix that, or start Vera from another home, for example:");
     expect(card.body).toContainEqual({ command: "VERA_HOME=/tmp/vera vera" });
+});
+
+test("a bad host env line names the file, the line and the reason", () => {
+    const card = failureCard(new HostEnvironmentFileError("/h/machine/env", 2, "\"export AXIOM_TOKEN\" is not a variable name"))!;
+    expect(card.rows).toEqual([
+        { label: "file", value: "/h/machine/env" },
+        { label: "line", value: "2" },
+        { label: "reason", value: "\"export AXIOM_TOKEN\" is not a variable name" },
+    ]);
 });
 
 test("a boot loop card carries the host's reason as a row", () => {

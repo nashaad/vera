@@ -5,7 +5,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { canonicalPath } from "../canonical-path.ts";
 
@@ -47,6 +47,7 @@ import { stopRecordedWorkers } from "../host/pool/stop-worker.ts";
 import { assertWorkerStopped, readRecordedWorkers } from "../host/pool/worker-records.ts";
 import { acquireStopStartupClaim } from "../host/stop-claim.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
+import { hostLaunchEnvironment } from "../host/host-environment.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
 
@@ -471,9 +472,12 @@ export async function defaultEnsureHost(
     }
     const previous = await readHostLockRecordFile(lockPath);
     const pool = options.pool ?? previous?.worker_count !== undefined;
-    await stopLeftoverPoolWorkers(veraHomeDirectory());
+    const home = resolve(veraHomeDirectory());
+    await stopLeftoverPoolWorkers(home);
     const child = spawn(join(releaseRoot, RELEASE_HOST_NAME), pool ? ["--pool"] : [], {
         argv0: "vera-host",
+        cwd: home,
+        env: hostLaunchEnvironment(home),
         detached: true,
         stdio: "ignore",
     });
