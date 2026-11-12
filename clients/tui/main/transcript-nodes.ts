@@ -328,15 +328,19 @@ export function destroyTranscriptEntryNode(rt: TuiRuntime, index: number): void 
     delete rt.entryNodeKinds[index];
 }
 
+// Entries are direct children of the scroll content: a wrapper box would make
+// every entry one visible subtree for OpenTUI's viewport culling.
 export function transcriptWindowChildIndex(rt: TuiRuntime, index: number): number {
-    return 1 + index - rt.materializedEntryStart;
+    const topSpacer = rt.transcript.content.getChildren()
+        .indexOf(rt.transcriptWindowTopSpacer);
+    return topSpacer + 1 + index - rt.materializedEntryStart;
 }
 
 export function addTranscriptEntryNode(rt: TuiRuntime, 
     node: TextRenderable | MarkdownRenderable | BoxRenderable,
     index: number,
 ): void {
-    rt.transcriptEntryWindow.add(node, transcriptWindowChildIndex(rt, index));
+    rt.transcript.add(node, transcriptWindowChildIndex(rt, index));
 }
 
 export function updateTranscriptSpacers(rt: TuiRuntime, 
