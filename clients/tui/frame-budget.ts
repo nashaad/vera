@@ -15,5 +15,9 @@ export const STATUS_STATIC_INTERVAL_MS = 1_000;
 // Status line tick while nothing on it is running.
 export const STATUS_IDLE_INTERVAL_MS = 1_000;
 
+// Status tick and stream repaint while the terminal reports focus-out: no animation, one frame a second.
+export const STATUS_BLURRED_INTERVAL_MS = 1_000;
+export const STREAM_BLURRED_RENDER_INTERVAL_MS = 1_000;
+
 // Minimum gap between refreshes of timed surfaces such as the resume caret and workspace rail.
 export const TIMED_SURFACE_REFRESH_INTERVAL_MS = 100;

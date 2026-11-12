@@ -350,6 +350,7 @@ import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, trackTranscriptScroll, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
+import { setTerminalFocused, streamRenderIntervalMs } from "./main/terminal-focus.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -2563,7 +2564,7 @@ export async function startTui(
         const focus = parseTerminalFocusEvent(
             typeof chunk === "string" ? chunk : chunk.toString("utf8"),
         );
-        if (focus !== undefined) rt.terminalFocused = focus === "focus_in";
+        if (focus !== undefined) setTerminalFocused(rt, focus === "focus_in");
     };
     process.stdin.on("data", rt.watchTerminalFocus);
 
@@ -2625,7 +2626,10 @@ export async function startTui(
             });
     });
 
-    rt.renderCoalescer = createRenderCoalescer({ render: (() => renderState(rt)) });
+    rt.renderCoalescer = createRenderCoalescer({
+        render: (() => renderState(rt)),
+        intervalMs: () => streamRenderIntervalMs(rt),
+    });
 
     rt.renderer.on(CliRenderEvents.FRAME, () => {
         settleTranscriptScrollState(rt);

@@ -1,6 +1,8 @@
 import type { TuiAnimationLevel } from "../activity-bar.ts";
+import type { TuiActivityAnimation } from "../activity-pulse.ts";
 import {
     STATUS_ANIMATING_INTERVAL_MS,
+    STATUS_BLURRED_INTERVAL_MS,
     STATUS_IDLE_INTERVAL_MS,
     STATUS_STATIC_INTERVAL_MS,
     TIMED_SURFACE_REFRESH_INTERVAL_MS,
@@ -12,11 +14,21 @@ import type { TuiRuntime } from "./runtime.ts";
 
 // The status line only needs frame-rate ticks while something on it moves.
 export function statusTimerInterval(rt: TuiRuntime): number {
+    if (rt.terminalFocused === false) return STATUS_BLURRED_INTERVAL_MS;
     if (!statusAnimates(rt)) return STATUS_IDLE_INTERVAL_MS;
     // With effects off the tick only refreshes text such as elapsed time.
     return rt.animationLevel === 0 && rt.activityAnimation === "off"
         ? STATUS_STATIC_INTERVAL_MS
         : STATUS_ANIMATING_INTERVAL_MS;
+}
+
+// A blurred terminal draws every animation in its static state.
+export function animationLevelNow(rt: TuiRuntime): TuiAnimationLevel {
+    return rt.terminalFocused === false ? 0 : rt.animationLevel;
+}
+
+export function activityAnimationNow(rt: TuiRuntime): TuiActivityAnimation {
+    return rt.terminalFocused === false ? "off" : rt.activityAnimation;
 }
 
 function statusAnimates(rt: TuiRuntime): boolean {

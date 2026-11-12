@@ -1,11 +1,17 @@
 import { expect, test } from "bun:test";
 
-import { statusTimerInterval, syncStatusTimer } from "../../clients/tui/main/animation-level.ts";
+import {
+    activityAnimationNow,
+    animationLevelNow,
+    statusTimerInterval,
+    syncStatusTimer,
+} from "../../clients/tui/main/animation-level.ts";
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
 
 const IDLE_MS = 1000;
 const EFFECTS_OFF_MS = 1000;
 const FAST_MS = 250;
+const BLURRED_MS = 1000;
 
 function runtime(overrides: Record<string, unknown> = {}): TuiRuntime {
     return {
@@ -116,4 +122,20 @@ test("picker shimmer only runs with activity effects on and live work", () => {
         activityAnimation: "off",
         settingsPicker: { kind: "model", browseFeedback: { status: "working" } },
     }))).toBe(IDLE_MS);
+});
+
+test("a blurred terminal ticks once a second and draws animations static", () => {
+    const blurred = { terminalFocused: false, state: { working: true } };
+    expect(statusTimerInterval(runtime(blurred))).toBe(BLURRED_MS);
+    expect(statusTimerInterval(runtime({ ...blurred, workspaceSidebar: { sessions: [{ status: "working" }] } })))
+        .toBe(BLURRED_MS);
+    expect(animationLevelNow(runtime(blurred))).toBe(0);
+    expect(activityAnimationNow(runtime(blurred))).toBe("off");
+});
+
+test("focus or a terminal that never reports focus keeps the live rate", () => {
+    expect(statusTimerInterval(runtime({ terminalFocused: true, state: { working: true } }))).toBe(FAST_MS);
+    expect(statusTimerInterval(runtime({ state: { working: true } }))).toBe(FAST_MS);
+    expect(animationLevelNow(runtime())).toBe(1);
+    expect(activityAnimationNow(runtime())).toBe("shimmer");
 });
