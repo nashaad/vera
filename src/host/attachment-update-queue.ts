@@ -1,5 +1,9 @@
 import { AsyncQueue, type FailAsyncQueueOptions } from "../engine/async-queue.ts";
 import type { AgentUpdate } from "../engine/protocol.ts";
+import {
+    ReasoningProgressCoalescer,
+    type ReasoningProgressOptions,
+} from "./reasoning-progress.ts";
 
 /** The server's bound on updates waiting for one client, counted from push until taken. */
 export const MAX_ATTACHMENT_QUEUE_BYTES = 16 * 1_024 * 1_024;
@@ -23,6 +27,11 @@ export const CLIENT_ATTACHMENT_QUEUE_LIMITS: AttachmentQueueLimits = {
 export interface AttachmentPushOptions {
     /** The attach-time replay is sent before the client can fall behind, so it is not counted. */
     readonly counted?: boolean;
+}
+
+export interface AttachmentFilter {
+    /** Replaces reasoning text with `assistant_thinking_progress` counts for this attachment. */
+    readonly reasoningProgress?: boolean | ReasoningProgressOptions;
 }
 
 export class AttachmentQueueOverflowError extends Error {
@@ -75,13 +84,48 @@ export class AttachmentUpdateQueue {
     private failed = false;
     private pendingHistory: PendingUpdate | undefined;
     private firstHistory = true;
+    private readonly reasoning: ReasoningProgressCoalescer | undefined;
 
-    constructor(limits: AttachmentQueueLimits = {}) {
+    constructor(limits: AttachmentQueueLimits = {}, filter: AttachmentFilter = {}) {
         this.maxBytes = limits.maxBytes ?? Infinity;
         this.maxUpdates = limits.maxUpdates ?? Infinity;
+        const progress = filter.reasoningProgress;
+        this.reasoning = progress === undefined || progress === false
+            ? undefined
+            : new ReasoningProgressCoalescer(
+                (characters, seq, counted) => this.enqueue(
+                    { type: "assistant_thinking_progress", characters, seq },
+                    { counted },
+                ),
+                progress === true ? {} : progress,
+            );
+    }
+
+    /** True when reasoning text is replaced by counts, so the caller need not copy it. */
+    get hidesReasoning(): boolean {
+        return this.reasoning !== undefined;
     }
 
     push(update: AgentUpdate, options: AttachmentPushOptions = {}): void {
+        if (this.failed) return;
+        if (this.reasoning !== undefined) {
+            if (update.type === "assistant_thinking") {
+                this.reasoning.add(update.text.length, update.seq, options.counted !== false);
+                return;
+            }
+            // Counts go out before the update that follows them, so order holds.
+            this.reasoning.flush();
+            if (this.failed) return;
+        }
+        this.enqueue(update, options);
+    }
+
+    flushReasoning(): void {
+        if (this.failed) return;
+        this.reasoning?.flush();
+    }
+
+    private enqueue(update: AgentUpdate, options: AttachmentPushOptions): void {
         if (this.failed) return;
         if (update.type === "history") {
             // A newer page replaces one still waiting; the first page and unsent prompts are kept.
@@ -126,6 +170,10 @@ export class AttachmentUpdateQueue {
     }
 
     fail(error: unknown, options?: FailAsyncQueueOptions): void {
+        if (this.failed) return;
+        if (options?.discardBuffered !== true) this.reasoning?.flush();
+        this.reasoning?.dispose();
+        // Flushing can overflow the queue and fail it first.
         if (this.failed) return;
         this.failed = true;
         if (options?.discardBuffered === true) {

@@ -646,7 +646,7 @@ function createAttachedClient(
                 }
                 if (frame.kind === "unknown") {
                     if (frame.seq !== undefined) {
-                        acceptSequence(frame.seq, false);
+                        acceptSequence(frame.seq, "update");
                         if (pendingUpdateCount === 0) {
                             lastDeliveredSequence = frame.seq;
                         }
@@ -655,7 +655,7 @@ function createAttachedClient(
                 }
                 const update = frame.update;
                 if (update.type === "prompt_admission") {
-                    acceptSequence(update.seq, false);
+                    acceptSequence(update.seq, "update");
                 }
                 if ((update.type === "prompt_admission" || update.type === "prompt_rejected")
                     && update.requestId !== undefined) {
@@ -680,7 +680,12 @@ function createAttachedClient(
                     failed = true;
                 }
                 if ("seq" in update) {
-                    acceptSequence(update.seq, update.type === "history");
+                    acceptSequence(
+                        update.seq,
+                        update.type === "history"
+                            ? "history"
+                            : update.type === "assistant_thinking_progress" ? "progress" : "update",
+                    );
                 }
                 pendingUpdateCount += 1;
                 updates.push(update);
@@ -690,17 +695,24 @@ function createAttachedClient(
         }
     }
 
-    function acceptSequence(seq: number, isHistory: boolean): void {
+    // A progress update stands for the reasoning deltas up to its seq, so it may skip numbers.
+    function acceptSequence(seq: number, kind: "history" | "progress" | "update"): void {
         if (lastReadSequence === undefined) {
-            if (!isHistory) {
+            if (kind !== "history") {
                 throw new Error(
                     "Host sent an agent update before its history checkpoint",
                 );
             }
-        } else if (isHistory) {
+        } else if (kind === "history") {
             if (awaitingFirstSequencedReplay
                 ? seq < lastReadSequence
                 : seq !== lastReadSequence) {
+                throw new Error(
+                    "Host sent a non-contiguous agent update sequence",
+                );
+            }
+        } else if (kind === "progress") {
+            if (seq <= lastReadSequence) {
                 throw new Error(
                     "Host sent a non-contiguous agent update sequence",
                 );

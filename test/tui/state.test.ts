@@ -4595,3 +4595,13 @@ test("a stored tool row carries its entry id", () => {
     expect(tool?.kind).toBe("tool");
     expect(tool?.kind === "tool" ? tool.entryId : undefined).toBe("m-1#0");
 });
+
+test("the TUI state tolerates a reasoning progress update without showing it", () => {
+    const state = createTuiState();
+    const next = applyAgentUpdate(state, {
+        type: "assistant_thinking_progress",
+        characters: 40,
+        seq: 3,
+    });
+    expect(next.entries).toEqual(state.entries);
+});

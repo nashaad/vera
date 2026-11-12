@@ -11,6 +11,8 @@ export const HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE =
     "agent.attachment-release.v1";
 export const HOST_CAPABILITY_AGENT_CONTEXT_SYNC = "agent.context-sync.v1";
 export const HOST_CAPABILITY_AGENT_HISTORY_PAGING = "agent.history-paging.v1";
+export const HOST_CAPABILITY_AGENT_REASONING_PROGRESS =
+    "agent.reasoning-progress.v1";
 export const HOST_CAPABILITY_HARNESS_MESSAGES = "harness-messages.v1";
 export const HOST_CAPABILITY_PROMPT_QUEUE_RELEASE = "prompt-queue.release.v1";
 export const HOST_CAPABILITY_PROMPT_QUEUE_WITHDRAW =
@@ -34,6 +36,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
     HOST_CAPABILITY_PROMPT_QUEUE_WITHDRAW,
@@ -49,8 +52,13 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_RESTART_RECORDS,
 ] as const;
 
-/** What a client requests. Attach is pages only, so this includes history paging. */
-export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES;
+/**
+ * What a client requests. Attach is pages only, so this includes history paging. Reasoning
+ * progress replaces reasoning text, so a client asks for it by name and is not in this list.
+ */
+export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES.filter(
+    (capability) => capability !== HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+);
 
 export function parseHostCapabilities(
     value: unknown,
