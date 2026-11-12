@@ -16,6 +16,7 @@ import {
     liftCloneHome,
     quarantineUnknownHomeEntries,
     resolveLinkedWorktreeRoot,
+    stopOtherBuildHost,
 } from "./dev-tui.ts";
 
 const args = process.argv.slice(2);
@@ -59,6 +60,9 @@ console.log(`Build: ${buildId}`);
 console.log(`CLI: ${join(root, "clients", "cli", "main.ts")}`);
 
 if (homeOnly) process.exit(0);
+
+const stopped = await stopOtherBuildHost(home, buildId, process.stderr);
+if (stopped !== 0) process.exit(stopped);
 
 if (!skipBuild) {
     const built = spawnSync(process.execPath, [join(root, "clients", "desktop", "build.ts")], {

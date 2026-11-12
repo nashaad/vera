@@ -531,7 +531,7 @@ function dailyHostAppearsRunning(sourceHome: string): boolean {
 }
 
 /** A client refuses a host from another build, so a leftover one is stopped rather than left to block the launch. */
-async function stopOtherBuildHost(
+export async function stopOtherBuildHost(
     destinationHome: string,
     buildId: string,
     stderr: { write(text: string): unknown },
