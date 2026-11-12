@@ -319,6 +319,8 @@ loads the page before it. The page keeps at most 2,000 steps loaded. Past that,
 the button is replaced by a line saying earlier messages are past what the view
 keeps loaded.
 
+A reply that is still being written updates about four times a second, and about once a second while the window is hidden, minimized or not focused. It catches up as soon as the window is back.
+
 When the host is not running, the page says so. When the host closes the
 session, or the connection drops, the page keeps what it showed and adds a
 strip with the reason.

@@ -91,6 +91,7 @@ export function describeEvent(event: DesktopEvent): OutputLine | undefined {
         case "missing_cli":
             return { kind: "error", text: event.message };
         case "frame":
+        case "window_shown":
         case "command":
             return undefined;
     }

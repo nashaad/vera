@@ -18,6 +18,8 @@ export type DesktopEvent =
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
     | { readonly type: "frame"; readonly text: string }
+    // False while the window is hidden or minimized.
+    | { readonly type: "window_shown"; readonly shown: boolean }
     // One line from the watch connection of a session being viewed.
     | { readonly type: "session_frame"; readonly pane: SessionPane; readonly agentId: string; readonly text: string }
     | { readonly type: "session_closed"; readonly pane: SessionPane; readonly agentId: string; readonly reason: string }

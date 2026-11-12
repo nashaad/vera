@@ -142,6 +142,11 @@ function createWindow(): BrowserWindow {
         },
     });
     created.once("ready-to-show", () => created.show());
+    const sendShown = (): void => sendEvent({ type: "window_shown", shown: created.isVisible() && !created.isMinimized() });
+    created.on("show", sendShown);
+    created.on("hide", sendShown);
+    created.on("minimize", sendShown);
+    created.on("restore", sendShown);
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     created.webContents.on("will-navigate", (event) => event.preventDefault());

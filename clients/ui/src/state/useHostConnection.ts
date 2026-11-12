@@ -4,9 +4,8 @@ import type { DesktopEvent } from "../protocol/bridge.ts";
 import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
 import { HostProtocolClient, sessionCount } from "../protocol/client.ts";
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
+import { HOST_POLL_MS } from "./frameBudget.ts";
 import { describeEvent, type OutputLog } from "./outputLog.ts";
-
-const POLL_MS = 3_000;
 
 export interface HostConnection {
     readonly state: UiState;
@@ -90,7 +89,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
         const timer = setInterval(() => {
             const client = clientRef.current;
             if (client !== undefined) refresh(client, generationRef.current);
-        }, POLL_MS);
+        }, HOST_POLL_MS);
         return () => clearInterval(timer);
     }, [state.phase]);
 

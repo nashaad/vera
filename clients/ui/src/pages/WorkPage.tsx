@@ -4,11 +4,10 @@ import { BellIcon, ChevronRightIcon } from "../components/Icons.tsx";
 import { folderName } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
 import { type FinishedEntry, useFinished } from "../state/finished.ts";
+import { NOW_TICK_MS } from "../state/frameBudget.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
 import { useRouter } from "./router.tsx";
-
-const NOW_TICK_MS = 60_000;
 
 export interface WorkRowView {
     readonly id: string;
