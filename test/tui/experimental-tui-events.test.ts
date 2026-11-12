@@ -1,14 +1,13 @@
 import { expect, test } from "bun:test";
 
 import { createTuiExperimentalEventBus } from "../../clients/tui/experimental-tui-events.ts";
-import { STREAM_RENDER_INTERVAL_MS } from "../../clients/tui/frame-budget.ts";
 
 test("experimental TUI events repaint after async listener settlement", async () => {
-    let repaints = 0;
+    const requests: string[] = [];
     let settled = false;
     const bus = createTuiExperimentalEventBus(
         () => {},
-        () => { repaints += 1; },
+        (updateType) => { requests.push(updateType); },
     );
     bus.events.on("fixture", "agent_event", async () => {
         await Promise.resolve();
@@ -20,60 +19,46 @@ test("experimental TUI events repaint after async listener settlement", async ()
     await Promise.resolve();
     await Promise.resolve();
     expect(settled).toBe(true);
-    expect(repaints).toBe(1);
+    expect(requests).toEqual(["turn_finished"]);
 });
 
-test("experimental TUI events preserve transcript serialization failures", () => {
+test("experimental TUI transcript listeners fire only when a message changes", () => {
     const bus = createTuiExperimentalEventBus(() => {}, () => {});
-    const transcript = [{ role: "user", text: "hello" }] as unknown as Array<{
-        role: "user";
-        text: string;
-        loop?: unknown;
-    }>;
-    transcript[0]!.loop = transcript;
+    let fired = 0;
+    bus.events.on("fixture", "transcript_changed", () => { fired += 1; });
 
-    expect(() => bus.transcriptChanged(transcript)).toThrow();
+    bus.transcriptChanged([{ role: "user", text: "where is the compass" }]);
+    bus.transcriptChanged([{ role: "user", text: "where is the compass" }]);
+    expect(fired).toBe(1);
+
+    bus.transcriptChanged([
+        { role: "user", text: "where is the compass" },
+        { role: "assistant", text: "the crow" },
+    ]);
+    bus.transcriptChanged([
+        { role: "user", text: "where is the compass" },
+        { role: "assistant", text: "the crow has it" },
+    ]);
+    expect(fired).toBe(3);
 });
 
-test("experimental TUI stream deltas repaint once per render interval", async () => {
-    let repaints = 0;
+test("experimental TUI stream deltas pass their update type to the client's render clock", async () => {
+    const requests: string[] = [];
     const bus = createTuiExperimentalEventBus(
         () => {},
-        () => { repaints += 1; },
+        (updateType) => { requests.push(updateType); },
     );
     bus.events.on("fixture", "agent_event", () => {});
-
-    for (let index = 0; index < 200; index += 1) {
-        bus.agentEvent({ type: "assistant_delta", text: "chunk" });
-        bus.agentEvent({ type: "assistant_thinking", text: "chunk" });
-    }
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(repaints).toBe(0);
-
-    await Bun.sleep(STREAM_RENDER_INTERVAL_MS * 3);
-    expect(repaints).toBe(1);
-    bus.clear();
-});
-
-test("experimental TUI events other than stream deltas repaint at once", async () => {
-    let repaints = 0;
-    const bus = createTuiExperimentalEventBus(
-        () => {},
-        () => { repaints += 1; },
-    );
-    bus.events.on("fixture", "agent_event", () => {});
-    bus.events.on("fixture", "conversation_changed", () => {});
 
     bus.agentEvent({ type: "assistant_delta", text: "chunk" });
-    bus.agentEvent({ type: "tool_started", tool: "read" });
+    bus.agentEvent({ type: "assistant_thinking", text: "chunk" });
     await Promise.resolve();
     await Promise.resolve();
-    expect(repaints).toBe(1);
+    expect(requests).toEqual(["assistant_delta", "assistant_thinking"]);
 
-    bus.conversationChanged();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(repaints).toBe(2);
+    bus.agentEvent({ type: "assistant_delta", text: "chunk" });
     bus.clear();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(requests).toHaveLength(2);
 });

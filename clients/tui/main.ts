@@ -1043,6 +1043,9 @@ export async function startTui(
         onRenderRequested: () => {
             if (rt.clientSurfaceReady) renderState(rt);
         },
+        requestUpdateRender: (updateType) => {
+            if (rt.clientSurfaceReady) rt.renderCoalescer.request(updateType);
+        },
         appendTranscriptRenderable: (node) => rt.appendTranscriptRenderable(node),
         openDocument: (document) => rt.openInspectDocument(document),
         requestSecret: (request, signal) => requestExtensionSecret(rt, request, signal),

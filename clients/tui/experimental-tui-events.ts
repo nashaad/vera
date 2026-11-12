@@ -4,7 +4,6 @@ import type {
     VeraExperimentalTuiKey,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
-import { createRenderCoalescer } from "./render-coalescer.ts";
 
 export type TuiExperimentalEventName =
     | "conversation_changed"
@@ -43,12 +42,10 @@ interface EventListeners {
 
 export function createTuiExperimentalEventBus(
     onFailure: (extensionId: string, message: string) => void,
-    onRenderRequested: () => void,
+    requestRender: (updateType: string) => void,
 ): TuiExperimentalEventBus {
     let lastTranscript: VeraExperimentalTuiContext["transcript"] = [];
     let closed = false;
-    // Stream deltas repaint on the render coalescer's interval, not once per chunk.
-    const repaint = createRenderCoalescer({ render: onRenderRequested });
     const listeners: EventListeners = {
         conversation_changed: new Set(),
         transcript_changed: new Set(),
@@ -82,10 +79,10 @@ export function createTuiExperimentalEventBus(
             try {
                 void Promise.resolve(registered.listener(...args))
                     .catch((error) => reportFailure(registered, error))
-                    .then(() => repaint.request(updateType));
+                    .then(() => { if (!closed) requestRender(updateType); });
             } catch (error) {
                 reportFailure(registered, error);
-                repaint.request(updateType);
+                requestRender(updateType);
             }
         }
     }
@@ -104,9 +101,7 @@ export function createTuiExperimentalEventBus(
         events,
         currentTranscript: () => lastTranscript,
         transcriptChanged(transcript): void {
-            const signature = JSON.stringify(transcript);
-            const previousSignature = JSON.stringify(lastTranscript);
-            if (signature === previousSignature) return;
+            if (sameTranscript(transcript, lastTranscript)) return;
             lastTranscript = transcript;
             fire("transcript_changed", transcript);
         },
@@ -114,8 +109,19 @@ export function createTuiExperimentalEventBus(
         agentEvent: (event) => fire("agent_event", event),
         clear(): void {
             closed = true;
-            repaint.stop();
             for (const set of Object.values(listeners)) set.clear();
         },
     };
+}
+
+function sameTranscript(
+    next: VeraExperimentalTuiContext["transcript"],
+    previous: VeraExperimentalTuiContext["transcript"],
+): boolean {
+    if (next.length !== previous.length) return false;
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (next[index]!.role !== previous[index]!.role) return false;
+        if (next[index]!.text !== previous[index]!.text) return false;
+    }
+    return true;
 }

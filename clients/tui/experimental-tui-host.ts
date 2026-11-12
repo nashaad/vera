@@ -55,6 +55,7 @@ import type {
     VeraExperimentalTuiDocument,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
+import { createRenderCoalescer } from "./render-coalescer.ts";
 
 export interface TuiExperimentalHostOptions {
     readonly requestSecret?: (request: VeraExperimentalTuiSecretRequest, signal: AbortSignal) => Promise<string | undefined>;
@@ -64,6 +65,8 @@ export interface TuiExperimentalHostOptions {
     readonly transcript: () => VeraExperimentalTuiContext["transcript"];
     readonly onFailure: (extensionId: string, message: string) => void;
     readonly onRenderRequested: () => void;
+    // Extension event repaints join the client's own frame clock when given; stream deltas only mark it dirty.
+    readonly requestUpdateRender?: (updateType: string) => void;
     readonly appendTranscriptRenderable?: (
         node: Renderable,
     ) => VeraExtensionDisposer;
@@ -133,9 +136,12 @@ export function createTuiExperimentalHost(
         composerAdornment,
         overlay,
     } = slotRegistry;
+    const eventRepaint = options.requestUpdateRender === undefined
+        ? createRenderCoalescer({ render: options.onRenderRequested })
+        : undefined;
     const eventBus: TuiExperimentalEventBus = createTuiExperimentalEventBus(
         options.onFailure,
-        options.onRenderRequested,
+        options.requestUpdateRender ?? ((updateType) => eventRepaint!.request(updateType)),
     );
 
     const adapter: ClientExtensionExperimentalTuiAdapter = {
@@ -571,6 +577,7 @@ export function createTuiExperimentalHost(
             }
             rawViews.clear();
             eventBus.clear();
+            eventRepaint?.stop();
             try {
                 slotRegistry.destroy();
             } catch (error) {
