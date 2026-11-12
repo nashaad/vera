@@ -2,7 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { entriesToBlocks, beginOlder, initialWatch, reduceWatch, watchClosed } from "../../clients/ui/src/session/transcript.ts";
 import { MAX_HISTORY_BLOCKS, type Block, type SessionWatch } from "../../clients/ui/src/session/model.ts";
-import { historyPageRequest, parseSessionLine, type SessionMessage } from "../../clients/ui/src/session/wire.ts";
+import {
+    abortCommand,
+    historyPageRequest,
+    parseSessionLine,
+    promptCommand,
+    releaseQueuedCommand,
+    withdrawQueuedCommand,
+    type SessionMessage,
+} from "../../clients/ui/src/session/wire.ts";
 import { toolTitle } from "../../clients/ui/src/session/toolTitle.ts";
 
 function line(value: unknown): SessionMessage {
@@ -290,5 +298,56 @@ describe("watch phases", () => {
         const closed = watchClosed(reduceWatch(initialWatch("a1"), line({ type: "attached" })), "Connection lost.");
         expect(closed.phase).toBe("closed");
         expect(closed.error).toBe("Connection lost.");
+    });
+});
+
+describe("prompt queue", () => {
+    test("history carries the queue and a queue update replaces it", () => {
+        let watch = reduceWatch(initialWatch("a"), line({
+            type: "history",
+            entries: [],
+            promptQueue: { prompts: [{ content: "next", state: "held" }], draining: false },
+        }));
+        expect(watch.queue).toEqual([{ content: "next", state: "held" }]);
+        watch = reduceWatch(watch, line({
+            type: "prompt_queue",
+            seq: 3,
+            queue: { prompts: [{ content: "next", state: "released" }, { content: "then" }], draining: true },
+        }));
+        expect(watch.queue).toEqual([{ content: "next", state: "released" }, { content: "then", state: "held" }]);
+    });
+
+    test("a history without a queue clears it", () => {
+        const queued = reduceWatch(initialWatch("a"), line({
+            type: "prompt_queue",
+            queue: { prompts: [{ content: "x", state: "held" }], draining: false },
+        }));
+        expect(reduceWatch(queued, line({ type: "history", entries: [] })).queue).toEqual([]);
+    });
+
+    test("a withdrawn prompt is kept for the composer", () => {
+        const watch = reduceWatch(initialWatch("a"), line({ type: "prompt_withdrawn", requestId: "w1", content: "redo", seq: 4 }));
+        expect(watch.withdrawn).toEqual({ requestId: "w1", content: "redo" });
+    });
+
+    test("a rejected admission and a prompt rejection both mark the prompt refused", () => {
+        expect(parseSessionLine(JSON.stringify({ type: "prompt_admission", requestId: "p1", content: "hi", status: "accepted", seq: 1 }))).toBeUndefined();
+        const rejected = reduceWatch(initialWatch("a"), line({
+            type: "prompt_admission", requestId: "p2", content: "hi", status: "rejected", reason: "No model is set.", seq: 2,
+        }));
+        expect(rejected.refused).toEqual({ requestId: "p2", content: "hi", reason: "No model is set." });
+        const bare = reduceWatch(initialWatch("a"), line({ type: "prompt_rejected", reason: "Busy." }));
+        expect(bare.refused).toEqual({ reason: "Busy." });
+    });
+
+    test("command lines are single JSON lines", () => {
+        expect(JSON.parse(promptCommand("hi", "p1"))).toEqual({ type: "prompt", content: "hi", requestId: "p1" });
+        expect(JSON.parse(abortCommand())).toEqual({ type: "abort" });
+        expect(JSON.parse(releaseQueuedCommand("all"))).toEqual({ type: "release_queued_prompts", mode: "all" });
+        expect(JSON.parse(withdrawQueuedCommand("w1"))).toEqual({ type: "withdraw_queued_prompt", requestId: "w1" });
+        for (const text of [promptCommand("a\nb", "p"), abortCommand()]) {
+            expect(text.endsWith("\n")).toBe(true);
+            expect(text.slice(0, -1).includes("\n")).toBe(false);
+        }
     });
 });

@@ -45,9 +45,9 @@ connection, ends the attachment and shows the banner.
 The main area shows one page at a time. Its title is in the main header. The
 pages are New Chat, Search, Work, Customize, Settings and a session.
 
-- New Chat is the home page. It has a greeting and lists the sidebar, the right
-  pane and the panel, each with the shortcut that shows or hides it. It has no
-  composer yet.
+- New Chat is the home page. It has a greeting, a composer that starts a new
+  session, and under it the sidebar, the right pane and the panel, each with the
+  shortcut that shows or hides it. The composer is described under Composer.
 - Work lists sessions in two sections: Needs you, for sessions stopped at an
   approval or a question, and Running. A section appears only when it has a
   session. With neither, the page says that nothing is waiting on you.
@@ -164,10 +164,10 @@ returns to where you last put it. A file that cannot be read is moved to
 
 ## Session view
 
-A session page shows that session's conversation. It watches the session
-without joining it: there is no composer, and the app sends nothing that could
-answer an approval or a question. A session that is running keeps updating as
-it works.
+A session page shows that session's conversation, with a composer under it for
+your next message. The app watches the session without joining it, so closing
+the window leaves the session running. It does not answer approvals or
+questions yet. A session that is running keeps updating as it works.
 
 The conversation is split into turns, one for each message you sent. The first
 message is shown as a box across the column; later ones as a bubble on the
@@ -202,6 +202,58 @@ keeps loaded.
 When the host is not running, the page says so. When the host closes the
 session, or the connection drops, the page keeps what it showed and adds a
 strip with the reason.
+
+## Composer
+
+The composer is a box for your message with a row of chips above it and a bar
+below it. The chips show where the session runs: `This Mac`, the folder by its
+last path segment, and the folder's git branch when it has one. Hovering a chip
+shows the full value. The branch is read from the folder's `.git` without
+running git; a detached checkout shows the short commit id. The bar has a round
+`+` button at the left that attaches images and the send button at the right.
+
+In a session:
+
+- Enter sends the message and Shift+Enter adds a line. The box is disabled
+  until the session is attached; its placeholder says `Opening the session`,
+  or `Not connected to this session` when the watch has ended.
+- While a turn runs, a message you send waits in the queue instead, and the
+  placeholder says `Queue a message for when this turn ends`. A strip above the
+  composer shows how many messages are queued and the first one, with a button
+  that releases the oldest.
+- With the box empty: Escape releases the oldest queued message, Enter releases
+  all of them, and Up takes the newest one back out of the queue into the box
+  to edit. Releasing a message ends the running turn so the message goes next.
+- With the box empty and a turn running, the send button becomes a stop button,
+  and Enter with nothing queued stops the turn too.
+- When the host refuses a message, the box gets its text back if you have not
+  typed since, and a line above the box says why.
+
+On New Chat the folder chip is a menu: the folders of your eight most recent
+sessions, newest first, then `Open folder…`, which opens the system folder
+picker. It starts on the folder of your most recent session, and says
+`Choose folder` when there is none. Sending creates a session in that folder
+with the host's default model and settings, opens its page, and sends the
+message as soon as the page is attached. The page title is the first line of
+the message until the session is named.
+
+Images:
+
+- The `+` button opens the system file picker for PNG, JPEG, GIF and WebP
+  files. You can also drop image files on the box, paste an image, or paste one
+  line of absolute image paths, such as a path copied from Finder.
+- A pasted image that is not a file yet is written to
+  `machine/desktop/pasted-images` under the home, up to 20 MB, and files there
+  are deleted after an hour, the next time an image is pasted.
+- Each image shows as a chip, `Image 1`, `Image 2` and so on, with an `x` that
+  removes it. A message holds up to eight images. The host copies each image
+  into the session; while it does, the chip says `attaching` and the message
+  cannot be sent. An image the host refuses is removed, and a line above the box
+  names it and gives the reason.
+- A message needs text; images go with it.
+- On New Chat the images are attached once the new session is open, and the
+  message is sent when they are all attached. If one is refused, the message
+  stays in the box.
 
 ## Finding the host
 
@@ -276,6 +328,7 @@ bun run typecheck:desktop
 bun test test/desktop
 node clients/desktop/test/attach.e2e.mjs
 node clients/desktop/test/layout.e2e.mjs
+node clients/desktop/test/compose.e2e.mjs
 ```
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
@@ -295,6 +348,14 @@ Sessions and the theme are still there, resets its location, toggles the sidebar
 the right pane and the panel with the shortcuts, toggles the right pane from the
 main header button, moves a container through its menu, and resets the layout
 from the View menu. It stops the host it started.
+
+The compose test runs a local provider that streams fixed replies and points a
+throwaway home's only model at it. It starts a session from New Chat in a folder
+picked through a stubbed folder picker, checks the message and the streamed
+reply, queues a message during a running turn, takes it back with Up, queues it
+again and releases it with Enter, stops a turn from the stop button, and sends a
+message with an attached PNG, checking the provider received the image. It
+stops the host it started.
 
 `bun test test/desktop` also covers turning history and live updates into the
 transcript, paging and its cap, and the session pipe in the app.

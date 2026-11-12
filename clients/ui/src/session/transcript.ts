@@ -1,5 +1,5 @@
 import type { AgentRunStatus, Block, NoticeTone, SessionWatch, ToolCall, ToolState } from "./model.ts";
-import { MAX_HISTORY_BLOCKS } from "./model.ts";
+import { MAX_HISTORY_BLOCKS, MAX_IMAGE_REPLIES } from "./model.ts";
 import { foldLive } from "./live.ts";
 import { toolTitle } from "./toolTitle.ts";
 import type { LiveMessage, PageInfo, SessionMessage, ToolResultEntry, WireEntry } from "./wire.ts";
@@ -99,6 +99,8 @@ export function initialWatch(agentId: string): SessionWatch {
         status: "idle",
         hasOlder: false,
         loadingOlder: false,
+        queue: [],
+        images: [],
     };
 }
 
@@ -115,6 +117,7 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
                 live: [],
                 status: message.status ?? "idle",
                 loadingOlder: false,
+                queue: message.queue ?? [],
                 ...cursorOf(message.page),
             };
         case "history_page":
@@ -123,6 +126,16 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
             return { ...state, loadingOlder: false };
         case "session_title":
             return { ...state, title: message.title };
+        case "prompt_queue":
+            return { ...state, queue: message.queue };
+        case "prompt_withdrawn":
+            return { ...state, withdrawn: { requestId: message.requestId, content: message.content } };
+        case "image_reply":
+            return { ...state, images: [...state.images, message.reply].slice(-MAX_IMAGE_REPLIES) };
+        case "prompt_refused": {
+            const { type: _type, ...refused } = message;
+            return { ...state, refused };
+        }
         default:
             return { ...state, live: foldLive(state.live, message), status: statusAfter(state.status, message) };
     }

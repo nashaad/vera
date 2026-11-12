@@ -27,6 +27,8 @@ function reduce(state: SessionWatch, action: WatchAction): SessionWatch {
 export interface SessionWatchHandle {
     readonly watch: SessionWatch;
     readonly loadOlder: () => void;
+    // Writes one command line on the watch connection; dropped until it is connected.
+    readonly send: (line: string) => void;
 }
 
 let pageRequests = 0;
@@ -64,5 +66,6 @@ export function useSessionWatch(
         dispatch({ type: "older" });
         bridge.sendSession(historyPageRequest(`page-${pageRequests}`, olderBefore));
     }, [bridge, ready, olderBefore]);
-    return { watch, loadOlder };
+    const send = useCallback((line: string) => bridge.sendSession(line), [bridge]);
+    return { watch, loadOlder, send };
 }

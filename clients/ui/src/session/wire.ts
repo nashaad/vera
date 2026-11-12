@@ -1,4 +1,4 @@
-import type { AgentRunStatus } from "./model.ts";
+import type { AgentRunStatus, ImageReply, QueuedPrompt } from "./model.ts";
 
 // Wire shapes the session view reads. Fields the view never uses are left out.
 // An entry the view does not show parses as "other", so entry indexes stay put.
@@ -81,6 +81,7 @@ export interface HistoryMessage {
     readonly entries: readonly WireEntry[];
     readonly status?: AgentRunStatus;
     readonly page?: PageInfo;
+    readonly queue?: readonly QueuedPrompt[];
 }
 
 export interface HistoryPageMessage {
@@ -155,6 +156,31 @@ export type LiveMessage =
     | StatusMessage
     | AgentFailedMessage;
 
+export interface PromptQueueMessage {
+    readonly type: "prompt_queue";
+    readonly queue: readonly QueuedPrompt[];
+}
+
+export interface PromptWithdrawnMessage {
+    readonly type: "prompt_withdrawn";
+    readonly requestId: string;
+    readonly content: string;
+}
+
+// From `prompt_admission` with status rejected, or from `prompt_rejected`.
+export interface PromptRefusedMessage {
+    readonly type: "prompt_refused";
+    readonly requestId?: string;
+    readonly content?: string;
+    readonly reason: string;
+}
+
+// An `image_attached` or `image_attachment_rejected` reply to this client's `attach_image`.
+export interface ImageReplyMessage {
+    readonly type: "image_reply";
+    readonly reply: ImageReply;
+}
+
 export type SessionMessage =
     | AttachedMessage
     | AttachFailedMessage
@@ -162,6 +188,10 @@ export type SessionMessage =
     | HistoryPageMessage
     | HistoryPageFailedMessage
     | SessionTitleMessage
+    | PromptQueueMessage
+    | PromptWithdrawnMessage
+    | PromptRefusedMessage
+    | ImageReplyMessage
     | LiveMessage;
 
 type Fields = Record<string, unknown>;
@@ -177,6 +207,27 @@ export function parseSessionLine(text: string): SessionMessage | undefined {
 
 export function historyPageRequest(requestId: string, before: string): string {
     return `${JSON.stringify({ type: "history_page", request_id: requestId, before })}\n`;
+}
+
+export function promptCommand(content: string, requestId: string, attachmentIds: readonly string[] = []): string {
+    const images = attachmentIds.length === 0 ? {} : { attachmentIds };
+    return `${JSON.stringify({ type: "prompt", content, requestId, ...images })}\n`;
+}
+
+export function attachImageCommand(requestId: string, path: string): string {
+    return `${JSON.stringify({ type: "attach_image", requestId, path })}\n`;
+}
+
+export function abortCommand(): string {
+    return `${JSON.stringify({ type: "abort" })}\n`;
+}
+
+export function releaseQueuedCommand(mode: "one" | "all"): string {
+    return `${JSON.stringify({ type: "release_queued_prompts", mode })}\n`;
+}
+
+export function withdrawQueuedCommand(requestId: string): string {
+    return `${JSON.stringify({ type: "withdraw_queued_prompt", requestId })}\n`;
 }
 
 function parseJson(text: string): unknown {
@@ -201,6 +252,34 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
             return parseHistoryPageFailed(value);
         case "session_title":
             return { type: "session_title", title: str(value.title) };
+        case "prompt_queue": {
+            const queue = isRecord(value.queue) ? queueOf(value.queue.prompts) : undefined;
+            return queue === undefined ? undefined : { type: "prompt_queue", queue };
+        }
+        case "prompt_withdrawn": {
+            const requestId = str(value.requestId);
+            const content = str(value.content);
+            if (requestId === undefined || content === undefined) return undefined;
+            return { type: "prompt_withdrawn", requestId, content };
+        }
+        case "prompt_admission":
+            return value.status === "rejected"
+                ? refused(str(value.requestId), str(value.content), str(value.reason))
+                : undefined;
+        case "prompt_rejected":
+            return refused(str(value.requestId), undefined, str(value.reason));
+        case "image_attached": {
+            const requestId = str(value.requestId);
+            const attachmentId = isRecord(value.attachment) ? str(value.attachment.id) : undefined;
+            if (requestId === undefined || attachmentId === undefined) return undefined;
+            return { type: "image_reply", reply: { requestId, outcome: "attached", attachmentId } };
+        }
+        case "image_attachment_rejected": {
+            const requestId = str(value.requestId);
+            if (requestId === undefined) return undefined;
+            const error = str(value.error) ?? "The image could not be attached.";
+            return { type: "image_reply", reply: { requestId, outcome: "rejected", error } };
+        }
         default:
             return parseLive(type, value);
     }
@@ -214,7 +293,14 @@ function parseAttachFailed(value: Fields): AttachFailedMessage | undefined {
 function parseHistory(value: Fields): HistoryMessage | undefined {
     const entries = entriesOf(value.entries);
     if (entries === undefined) return undefined;
-    return { type: "history", entries, status: statusOf(value.status), page: pageOf(value.page) };
+    const queue = isRecord(value.promptQueue) ? queueOf(value.promptQueue.prompts) : undefined;
+    return {
+        type: "history",
+        entries,
+        status: statusOf(value.status),
+        page: pageOf(value.page),
+        ...(queue === undefined ? {} : { queue }),
+    };
 }
 
 function parseHistoryPage(value: Fields): HistoryPageMessage | undefined {
@@ -301,6 +387,25 @@ function parseEntry(raw: unknown): WireEntry {
         default:
             return OTHER;
     }
+}
+
+function refused(requestId: string | undefined, content: string | undefined, reason: string | undefined): PromptRefusedMessage {
+    return {
+        type: "prompt_refused",
+        ...(requestId === undefined ? {} : { requestId }),
+        ...(content === undefined ? {} : { content }),
+        reason: reason ?? "Vera did not take that message.",
+    };
+}
+
+function queueOf(value: unknown): QueuedPrompt[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const out: QueuedPrompt[] = [];
+    for (const item of value) {
+        if (!isRecord(item) || typeof item.content !== "string") continue;
+        out.push({ content: item.content, state: item.state === "released" ? "released" : "held" });
+    }
+    return out;
 }
 
 function entriesOf(value: unknown): WireEntry[] | undefined {

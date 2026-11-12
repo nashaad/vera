@@ -1,0 +1,399 @@
+/* The composer in New Chat and in a session, and the queue strip above it. */
+
+.session-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.composer-wrap {
+    flex: 0 0 auto;
+    padding: 0 calc(var(--vera-space) * 4) calc(var(--vera-space) * 3.5);
+}
+
+.composer-inner {
+    width: 100%;
+    max-width: calc(var(--vera-space) * 180);
+    margin: 0 auto;
+}
+
+.composer-inner.wide {
+    max-width: calc(var(--vera-space) * 190);
+}
+
+.home-composer {
+    margin-bottom: calc(var(--vera-space) * 6);
+}
+
+/* context chips */
+
+.context-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+    margin-bottom: calc(var(--vera-space) * 2);
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+    height: calc(var(--vera-space) * 6.5);
+    max-width: calc(var(--vera-space) * 50);
+    padding: 0 calc(var(--vera-space) * 2.25);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
+    white-space: nowrap;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chip .chip-icon {
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+    color: var(--vera-text-disabled);
+}
+
+.chip .chip-chevron {
+    width: calc(var(--vera-space) * 2.5);
+    height: calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-disabled);
+}
+
+.chip-button {
+    cursor: pointer;
+    background: transparent;
+    transition: background var(--vera-motion), color var(--vera-motion), border-color var(--vera-motion);
+}
+
+.chip-button:hover,
+.chip-button[aria-expanded="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+    border-color: var(--vera-border-input);
+}
+
+.chip-ghost {
+    border-color: transparent;
+    color: var(--vera-text-dim);
+}
+
+.chip-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+/* folder menu */
+
+.folder-picker {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+}
+
+.folder-menu {
+    position: absolute;
+    bottom: calc(100% + var(--vera-space) * 1.5);
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    width: calc(var(--vera-space) * 72);
+    padding: calc(var(--vera-space) * 1.5);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius-lg);
+    box-shadow: var(--vera-shadow);
+}
+
+.folder-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.folder-item:hover {
+    background: var(--vera-surface-selected);
+}
+
+.folder-item:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.folder-item-name,
+.folder-item-path {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-item-path {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.folder-sep {
+    height: 0;
+    margin: calc(var(--vera-space) * 1.5) 0;
+    border-top: thin solid var(--vera-border);
+}
+
+/* attached images */
+
+.context-chips.attached {
+    margin-top: calc(var(--vera-space) * -0.5);
+}
+
+.chip-file {
+    padding-right: calc(var(--vera-space) * 1);
+    color: var(--vera-text-muted);
+}
+
+.chip-file[data-attaching="true"] {
+    color: var(--vera-text-disabled);
+}
+
+.chip-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 4.25);
+    height: calc(var(--vera-space) * 4.25);
+    padding: 0;
+    color: var(--vera-text-disabled);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.chip-x:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.chip-x:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.chip-x .chip-x-icon {
+    width: calc(var(--vera-space) * 2.75);
+    height: calc(var(--vera-space) * 2.75);
+}
+
+/* the box */
+
+.composer-notice {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    padding: 0 calc(var(--vera-space) * 1);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.composer {
+    display: flex;
+    flex-direction: column;
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 3) calc(var(--vera-space) * 2);
+    background: var(--vera-surface-panel);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius-xl);
+}
+
+.composer:focus-within {
+    border-color: color-mix(in srgb, var(--vera-border-input) 60%, var(--vera-text-disabled));
+}
+
+.composer[data-dropping="true"] {
+    border-color: var(--vera-focus);
+    background: var(--vera-surface-hover);
+}
+
+.composer-input {
+    display: block;
+    width: 100%;
+    min-height: calc(var(--vera-font-size-chat) * 3 + var(--vera-space));
+    max-height: calc(var(--vera-space) * 55);
+    margin: 0;
+    padding: calc(var(--vera-space) / 2);
+    color: var(--vera-text);
+    font-family: inherit;
+    font-size: var(--vera-font-size-chat);
+    line-height: 1.5;
+    background: transparent;
+    border: 0;
+    outline: none;
+    resize: none;
+    field-sizing: content;
+}
+
+.composer-input::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.composer-input:disabled {
+    cursor: default;
+}
+
+.composer-bar {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    margin-top: calc(var(--vera-space) * 1.5);
+}
+
+.round-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 7);
+    height: calc(var(--vera-space) * 7);
+    padding: 0;
+    color: var(--vera-text-dim);
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.round-button:hover:not(:disabled) {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.round-button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.round-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.round-button .round-icon {
+    width: calc(var(--vera-space) * 3.75);
+    height: calc(var(--vera-space) * 3.75);
+}
+
+.composer-bar .grow {
+    flex: 1 1 auto;
+}
+
+.send-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 7.5);
+    height: calc(var(--vera-space) * 7.5);
+    padding: 0;
+    color: var(--vera-accent-text);
+    background: var(--vera-text);
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.send-button:disabled {
+    color: var(--vera-text-dim);
+    background: var(--vera-border-input);
+    cursor: default;
+}
+
+.send-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.send-button .send-icon {
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+}
+
+/* queue strip, above the composer inside the transcript column */
+
+.queue-strip {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2.5);
+    margin: 0 0 calc(var(--vera-space) * 3.5);
+    padding: calc(var(--vera-space) * 2.25) calc(var(--vera-space) * 3);
+    color: var(--vera-text-muted);
+    font-size: calc(var(--vera-font-size) * 13.5 / 13);
+    border: thin dashed var(--vera-border-input);
+    border-radius: var(--vera-radius-lg);
+}
+
+.queue-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    color: var(--vera-text-dim);
+}
+
+.queue-body {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: baseline;
+    gap: calc(var(--vera-space) * 2.25);
+    min-width: 0;
+}
+
+.queue-count {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.queue-first {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-disabled);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.queue-release {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) * 1.5);
+    height: calc(var(--vera-space) * 6.5);
+    padding: 0 calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font-size: calc(var(--vera-font-size) * 12.5 / 13);
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.queue-release:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.queue-release:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}

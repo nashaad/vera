@@ -11,5 +11,10 @@ export const CHANNELS = {
     theme: "vera:theme",
     layoutLoad: "vera:layout-load",
     layoutSave: "vera:layout-save",
+    sessionCreate: "vera:session-create",
+    folderChoose: "vera:folder-choose",
+    branchRead: "vera:branch-read",
+    imagesChoose: "vera:images-choose",
+    imagePaste: "vera:image-paste",
     event: "vera:event",
 } as const;

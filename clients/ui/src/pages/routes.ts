@@ -9,6 +9,8 @@ export interface SessionRoute {
     readonly agentId: string;
     // The name the session had when it was opened; the header shows it.
     readonly title: string;
+    // The folder a session made on New Chat was created in, shown until the session list carries it.
+    readonly workspace?: string;
 }
 
 export type Route = PageRoute | SessionRoute;

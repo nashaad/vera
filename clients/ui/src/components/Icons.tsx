@@ -240,3 +240,75 @@ export function CopyIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function LaptopIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="4" y="5" width="16" height="11" rx="2" />
+            <path d="M2 19h20" />
+        </Icon>
+    );
+}
+
+export function BranchIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="7" cy="5.5" r="2.5" />
+            <circle cx="7" cy="18.5" r="2.5" />
+            <circle cx="17" cy="9" r="2.5" />
+            <path d="M7 8v8M17 11.5c0 3-4 2.5-6 4.5" />
+        </Icon>
+    );
+}
+
+export function ArrowUpIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M12 19V5" />
+            <path d="m6 11 6-6 6 6" />
+        </Icon>
+    );
+}
+
+export function SquareIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+        </Icon>
+    );
+}
+
+export function ListIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 6h13M8 12h13M8 18h13" />
+            <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+        </Icon>
+    );
+}
+
+export function PlusIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M12 5v14M5 12h14" />
+        </Icon>
+    );
+}
+
+export function XIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M6 6l12 12M18 6L6 18" />
+        </Icon>
+    );
+}
+
+export function ImageIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2.5" />
+            <circle cx="8.5" cy="9.5" r="1.5" />
+            <path d="m4 17 5-5 4 4 3-2 4 4" />
+        </Icon>
+    );
+}

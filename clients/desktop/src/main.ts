@@ -1,15 +1,18 @@
-import { app, BrowserWindow, ipcMain, Menu, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
+import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
-import type { DesktopEvent } from "../../ui/src/protocol/bridge.ts";
+import type { CreateSessionResult, DesktopEvent } from "../../ui/src/protocol/bridge.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
+import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
+import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { parseWindowBackground } from "./window-background.ts";
@@ -31,6 +34,8 @@ let window: BrowserWindow | undefined;
 let boot: BootSession | undefined;
 let stopping = false;
 let activeTheme: ThemeName = DEFAULT_THEME;
+// Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
+let hostSocketPath: string | undefined;
 
 const pipe = new HostPipe(sendEvent);
 const sessions = new SessionPipe(sendEvent);
@@ -44,13 +49,17 @@ function sendEvent(event: DesktopEvent): void {
 function receiveEvent(event: DesktopEvent): void {
     sendEvent(event);
     if (event.type === "ready") {
+        hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
         sessions.connect(event.socketPath);
+    } else if (event.type === "disconnected" || event.type === "failed") {
+        hostSocketPath = undefined;
     }
 }
 
 function startBoot(): void {
     boot?.cancel();
+    hostSocketPath = undefined;
     pipe.close();
     sessions.close();
     boot = new BootSession(selectedVeraHome(), receiveEvent);
@@ -69,6 +78,7 @@ function shutdown(): void {
     stopping = true;
     boot?.cancel();
     boot = undefined;
+    hostSocketPath = undefined;
     pipe.close();
     sessions.close();
 }
@@ -163,6 +173,41 @@ ipcMain.on(CHANNELS.theme, (event, name: unknown) => {
     if (!fromWindow(event) || typeof name !== "string" || !isThemeName(name) || name === activeTheme) return;
     activeTheme = name;
     installMenu();
+});
+ipcMain.handle(CHANNELS.sessionCreate, async (event, workspace: unknown): Promise<CreateSessionResult> => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
+    if (typeof workspace !== "string" || !isAbsolute(workspace)) return { ok: false, reason: "Choose a folder first." };
+    try {
+        const ready = await createAgentThroughHost(hostSocketPath, workspace);
+        return { ok: true, agentId: ready.id, workspace: ready.workspace };
+    } catch (error) {
+        if (error instanceof AgentStartError && error.reason !== undefined) {
+            return { ok: false, reason: error.reason };
+        }
+        return { ok: false, reason: "Vera could not start a session in that folder." };
+    }
+});
+ipcMain.handle(CHANNELS.folderChoose, async (event): Promise<string | undefined> => {
+    if (!fromWindow(event) || window === undefined) return undefined;
+    const result = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });
+    return result.canceled ? undefined : result.filePaths[0];
+});
+ipcMain.handle(CHANNELS.imagesChoose, async (event): Promise<readonly string[]> => {
+    if (!fromWindow(event) || window === undefined) return [];
+    const result = await dialog.showOpenDialog(window, {
+        properties: ["openFile", "multiSelections"],
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
+    });
+    return result.canceled ? [] : result.filePaths;
+});
+ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unknown): Promise<string | undefined> => {
+    if (!fromWindow(event) || !(data instanceof Uint8Array) || typeof mediaType !== "string") return undefined;
+    return savePastedImage(pastedImageDirectory(selectedVeraHome()), data, mediaType).catch(() => undefined);
+});
+ipcMain.handle(CHANNELS.branchRead, async (event, folder: unknown): Promise<string | undefined> => {
+    if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return undefined;
+    return readBranch(folder);
 });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;

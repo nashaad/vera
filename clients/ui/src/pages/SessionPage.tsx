@@ -1,9 +1,12 @@
 import { useEffect, useRef } from "react";
 
+import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
+import { QueueStrip } from "../session/QueueStrip.tsx";
 import { Transcript } from "../session/Transcript.tsx";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
+import { releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import type { SessionRoute } from "./routes.ts";
 
@@ -21,7 +24,9 @@ export function SessionPage({ route }: SessionPageProps) {
 
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
     const { connection } = useViewEnvironment();
-    const { watch, loadOlder } = useSessionWatch(bridge, route.agentId, connection.phase === "attached");
+    const { watch, loadOlder, send } = useSessionWatch(bridge, route.agentId, connection.phase === "attached");
+    const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
+    const folder = row === undefined || row.workspace.length === 0 ? route.workspace : row.workspace;
     const scroller = useRef<HTMLDivElement>(null);
     const blocks = [...watch.history, ...watch.live];
     const running = watch.status !== "idle";
@@ -39,13 +44,13 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
         pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
     };
 
-    if (watch.phase === "failed" || watch.phase === "closed") {
-        if (blocks.length === 0) return <SessionMessage title={route.title} text={watch.error ?? "The session closed."} />;
-    }
-    if (watch.phase === "attaching" && blocks.length === 0) {
-        return <SessionMessage title={route.title} text="Opening the session." />;
-    }
-    return (
+    const showMessage = blocks.length === 0 && (watch.phase === "failed" || watch.phase === "closed" || watch.phase === "attaching");
+    const body = showMessage ? (
+        <SessionMessage
+            title={route.title}
+            text={watch.phase === "attaching" ? "Opening the session." : watch.error ?? "The session closed."}
+        />
+    ) : (
         <div className="transcript-scroll" ref={scroller} onScroll={onScroll} data-session={route.agentId} data-phase={watch.phase}>
             <div className="transcript">
                 <div className="transcript-inner">
@@ -64,7 +69,25 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     {watch.phase === "closed" || watch.phase === "failed" ? (
                         <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
                     ) : null}
+                    <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="session-page">
+            {body}
+            <div className="composer-wrap">
+                <Composer
+                    key={route.agentId}
+                    mode="session"
+                    bridge={bridge}
+                    agentId={route.agentId}
+                    watch={watch}
+                    send={send}
+                    folder={folder}
+                />
             </div>
         </div>
     );

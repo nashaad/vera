@@ -58,6 +58,37 @@ export type Block = UserBlock | ThoughtBlock | TextBlock | ToolsBlock | NoticeBl
 
 export type AgentRunStatus = "idle" | "working" | "waiting";
 
+export interface QueuedPrompt {
+    readonly content: string;
+    // Held prompts wait for the turn to end; released ones join it at the next tool step.
+    readonly state: "held" | "released";
+}
+
+export interface WithdrawnPrompt {
+    readonly requestId: string;
+    readonly content: string;
+}
+
+export interface RefusedPrompt {
+    readonly requestId?: string;
+    readonly content?: string;
+    readonly reason: string;
+}
+
+export interface ImageAttached {
+    readonly requestId: string;
+    readonly outcome: "attached";
+    readonly attachmentId: string;
+}
+
+export interface ImageRejected {
+    readonly requestId: string;
+    readonly outcome: "rejected";
+    readonly error: string;
+}
+
+export type ImageReply = ImageAttached | ImageRejected;
+
 export type WatchPhase = "attaching" | "attached" | "failed" | "closed";
 
 export interface SessionWatch {
@@ -75,7 +106,16 @@ export interface SessionWatch {
     readonly olderBefore?: string;
     readonly loadingOlder: boolean;
     readonly title?: string;
+    readonly queue: readonly QueuedPrompt[];
+    // The last prompt taken back out of the queue, for the composer to restore.
+    readonly withdrawn?: WithdrawnPrompt;
+    // The last prompt the session would not take.
+    readonly refused?: RefusedPrompt;
+    // Answers to this window's image attachments, newest last, capped at MAX_IMAGE_REPLIES.
+    readonly images: readonly ImageReply[];
 }
 
 // The page keeps at most this many history blocks; older pages drop off the far end.
 export const MAX_HISTORY_BLOCKS = 2_000;
+
+export const MAX_IMAGE_REPLIES = 32;
