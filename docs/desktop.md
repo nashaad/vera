@@ -624,6 +624,17 @@ it stops the host it started. `--pace <ms>` sets the pause between actions
 `--out <dir>` picks the output folder, and `--real` uses the factory model config
 instead of the scripted provider, which needs `OPENROUTER_API_KEY`.
 
+`bun run desktop:bench` builds the app, seeds one session against a throwaway
+home and a scripted provider, and streams a long reply into it twice, once in
+the foreground and once with the window hidden, then scrolls to the
+top. The window opens behind other windows and takes no clicks or keys, so the
+desk stays usable while it runs. It prints the renderer's commits,
+layouts, scripting time and CPU for each phase, and each process's memory at the
+top and the bottom, and writes `results.json` to a new folder under the system
+temp directory. `--seeds <n>` sets the number of turns before the stream
+(default 30), `--label <name>` names the run, and `--out <dir>` picks the output
+folder. It stops the host it started.
+
 The attach test launches Electron against a throwaway home. It checks the
 sidebar footer and its tooltip, the session count, that there are no theme
 buttons in the window, that the
