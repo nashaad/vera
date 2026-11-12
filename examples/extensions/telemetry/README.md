@@ -32,7 +32,11 @@ quietly fall back to off.
    restarted host must see `AXIOM_TOKEN`; an unset variable stops the
    extension from loading and the startup note names it.
 
-`vera -p` print mode does not load config extensions, so it sends nothing.
+`vera -p` print mode loads the same entry from the home's `config.json` and
+sends one event per model call. It sends no session-end event. It reads
+`AXIOM_TOKEN` from the shell that runs `vera -p`. A print run that cannot load
+the extension, such as one without the token, ends with an error naming it, and
+the model is not called.
 
 ## What leaves the machine
 
