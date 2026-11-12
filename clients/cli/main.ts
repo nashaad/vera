@@ -145,6 +145,7 @@ import {
 } from "../../src/host/catalog-refresh-client.ts";
 import type { StartupProfile } from "../../src/startup-profile.ts";
 import { Vera } from "../../src/sdk/agent.ts";
+import { startPrintExtensions } from "./print-extensions.ts";
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import {
@@ -1202,23 +1203,31 @@ export async function runHostlessPrint(request: {
         provider = bound.provider;
         model = bound.model;
     }
-    const result = await Vera.run({
-        prompt: request.prompt,
-        workspace: request.workspace,
-        ...(request.approvalMode === undefined
-            ? {}
-            : { posture: request.approvalMode }),
-        ...(provider === undefined || model === undefined
-            ? {}
-            : { provider, model }),
-        ...(request.effort === undefined
-            ? {}
-            : { effort: request.effort as ModelReasoningEffort }),
-        ...(request.startupProfile === "prompt_only" ? { tools: [] } : {}),
-        ...(request.sessionPath === undefined
-            ? {}
-            : { sessionPath: request.sessionPath }),
-    });
+    const extensions = await startPrintExtensions();
+    let result: Awaited<ReturnType<typeof Vera.run>>;
+    try {
+        result = await Vera.run({
+            prompt: request.prompt,
+            workspace: request.workspace,
+            config: extensions.config,
+            createAdapter: extensions.createAdapter,
+            ...(request.approvalMode === undefined
+                ? {}
+                : { posture: request.approvalMode }),
+            ...(provider === undefined || model === undefined
+                ? {}
+                : { provider, model }),
+            ...(request.effort === undefined
+                ? {}
+                : { effort: request.effort as ModelReasoningEffort }),
+            ...(request.startupProfile === "prompt_only" ? { tools: [] } : {}),
+            ...(request.sessionPath === undefined
+                ? {}
+                : { sessionPath: request.sessionPath }),
+        });
+    } finally {
+        await extensions.close();
+    }
     const outcome = result.outcome === "completed"
         ? "completed"
         : result.outcome === "aborted"

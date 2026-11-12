@@ -32,6 +32,20 @@ auto and asks in ask. A `cd` that some bash would not run, such as the second
 `function` body or after `coproc`, or one that ends in `&` and so runs in the
 background, is treated the same way: later relative paths are not resolved.
 
+A checkout of the same git repository other than the session's counts as
+outside the workspace. With a session in `~/proj`, a write into
+`~/proj/.worktrees/fix` is a write outside the workspace, and so is a write into
+`~/proj` or into a sibling `~/proj/.worktrees/other` from a session in
+`~/proj/.worktrees/fix`. Submodules, nested clones and the worktrees of other
+repositories stay inside.
+
+In auto, a write or delete in another worktree of the session's repository
+asks you instead of going to the classifier. That covers the file tools and
+shell targets such as `printf x > ~/proj/out.txt` or `rm ~/proj/old.txt`. Other writes outside the workspace
+still go to the classifier, ask asks for all of them, `full_access` allows and
+readonly refuses. A run with nobody to answer, such as `vera -p` or an SDK
+agent, refuses a write that asks, so in auto the write does not happen.
+
 Shell write and delete targets are checked where they really land. Vera follows
 symlinks in the path, so `printf x > hold/map.txt`, with `hold` linking to a
 folder outside the workspace, is a write outside the workspace. Deleting a

@@ -77,9 +77,14 @@ export function createTuiExperimentalEventBus(
             : event;
         for (const registered of listeners[event]) {
             try {
-                void Promise.resolve(registered.listener(...args))
-                    .catch((error) => reportFailure(registered, error))
-                    .then(() => { if (!closed) requestRender(updateType); });
+                const result = registered.listener(...args);
+                if (isThenable(result)) {
+                    void Promise.resolve(result)
+                        .catch((error) => reportFailure(registered, error))
+                        .then(() => { if (!closed) requestRender(updateType); });
+                } else if (!closed) {
+                    requestRender(updateType);
+                }
             } catch (error) {
                 reportFailure(registered, error);
                 requestRender(updateType);
@@ -112,6 +117,10 @@ export function createTuiExperimentalEventBus(
             for (const set of Object.values(listeners)) set.clear();
         },
     };
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+    return typeof (value as PromiseLike<unknown> | undefined)?.then === "function";
 }
 
 function sameTranscript(

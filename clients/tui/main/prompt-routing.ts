@@ -37,12 +37,13 @@ export function availableCommandSuggestions(rt: TuiRuntime,
 ): readonly TuiCommandCatalogEntry[] {
     const suggestions = rt.commandRegistry.suggestions(input);
     const viewingFile = isJsonlViewClient(rt.client) && rt.jsonlCommandMode;
-    return viewingFile || (isHomeClient(rt.client) && rt.homeCommandMode)
-        ? suggestions.filter((entry) =>
-            workerFreeAction(rt, 
-                rt.commandRegistry.dispatch(`/${entry.name}`),
-                viewingFile,
-            ))
+    const homeMode = isHomeClient(rt.client) && rt.homeCommandMode;
+    return viewingFile || homeMode
+        ? suggestions.filter((entry) => {
+            const action = rt.commandRegistry.dispatch(`/${entry.name}`);
+            return workerFreeAction(rt, action, viewingFile)
+                || (homeMode && action?.type === "update_session_name");
+        })
         : suggestions;
 }
 

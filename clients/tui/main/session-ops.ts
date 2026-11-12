@@ -9,6 +9,7 @@ import { createJsonlViewClient, isJsonlViewClient, isWorkerFreeClient } from "..
 import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchSessionTitle, watchStopWait, watchWorkIndex, type TuiDraft } from "../main.ts";
 import { receiveAgentUpdates } from "../main/agent-updates.ts";
 import { dismissHomeRestart, listHomeRestarts } from "./home-restarts.ts";
+import { applyHeldSessionName } from "./home-session-name.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
 import { homeNeedsProvider, openProviderPicker } from "../main/model-pickers.ts";
 import { openOnboardingWizard } from "../main/onboarding-wizard-ops.ts";
@@ -113,6 +114,8 @@ export function switchToClient(rt: TuiRuntime,
     rt.hostBuildRefusal = undefined;
     rt.jsonlCommandMode = false;
     rt.homeCommandMode = false;
+    rt.homeSessionName = undefined;
+    rt.homeNameRequestId = undefined;
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
@@ -511,6 +514,7 @@ export function beginCreateSession(rt: TuiRuntime,
         && rt.hostedSidebar.pane !== undefined;
     const sourceClient = focusedAgentClient(rt);
     const homePermission = isHomeClient(sourceClient) ? rt.state.approvalMode : undefined;
+    const homeName = isHomeClient(sourceClient) ? rt.homeSessionName : undefined;
     const sourceCompanions = clearingSidebar
         || rt.hostedSidebar.pane === undefined
         ? []
@@ -607,6 +611,7 @@ export function beginCreateSession(rt: TuiRuntime,
         }
         switchToClient(rt, next, draft?.());
         if (homePermission !== undefined) requestPermissionsChange(rt, homePermission, next, "session");
+        if (homeName !== undefined) applyHeldSessionName(rt, next, homeName);
         onReady?.();
         if (rt.homeSubmitPending) {
             rt.homeSubmitPending = false;
