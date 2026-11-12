@@ -15,6 +15,8 @@ import {
 import { ApprovalMenu, modeChoices } from "./ApprovalMenu.tsx";
 import { ApprovalStanding } from "./ApprovalStanding.tsx";
 import { freshRequestId } from "./requests.ts";
+import { resolveModeArgument } from "./slash/args.ts";
+import { PILL_DONE, usePillRequests } from "./slash/pillRequests.ts";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
 
 export interface ApprovalPillProps {
@@ -49,6 +51,19 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
         send(line(requestId));
         if (closeMenu) setOpen(false);
     };
+
+    // /permissions changes the default for every session, as it does in the terminal.
+    usePillRequests("approval", (argument) => {
+        if (disabled || approval === undefined) return { done: false, message: "The session has not reported its approval mode yet" };
+        if (argument.trim().length === 0) {
+            setOpen(true);
+            return PILL_DONE;
+        }
+        const resolved = resolveModeArgument(approval.modes, argument);
+        if (resolved.kind === "unknown") return { done: false, message: `Permission modes: ${resolved.modes.join(", ")}` };
+        dispatch("mode", (id) => defaultModeCommand(id, resolved.mode), false);
+        return PILL_DONE;
+    });
 
     const label = approval === undefined ? "Approvals" : modeLabel(approval.mode);
     const hint = wasRefused

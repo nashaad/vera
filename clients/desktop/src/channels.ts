@@ -14,6 +14,7 @@ export const CHANNELS = {
     flagsLoad: "vera:flags-load",
     sessionCreate: "vera:session-create",
     sessionBranch: "vera:session-branch",
+    sessionClone: "vera:session-clone",
     sessionClose: "vera:session-close",
     folderChoose: "vera:folder-choose",
     foldersExisting: "vera:folders-existing",

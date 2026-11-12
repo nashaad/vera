@@ -12,6 +12,7 @@ import { ContextChips } from "./ContextChips.tsx";
 import { imagePathsOf } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { NewApprovalPill } from "./NewApprovalPill.tsx";
+import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { enterAction, FOLDER_MENU_LIMIT, folderChoices, sessionTitle } from "./rules.ts";
 import { useBranch } from "./useBranch.ts";
 import { useExistingFolders } from "./useExistingFolders.ts";
@@ -33,11 +34,14 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const [images, setImages] = useState<readonly DraftImage[]>([]);
     // A refusal or a failed create; the typed text stays in the box.
     const [problem, setProblem] = useState<string | undefined>(undefined);
+    // What a slash command said; the typed text stays or clears as that command needs.
+    const [notice, setNotice] = useState<string | undefined>(undefined);
     const [busy, setBusy] = useState(false);
     const empty = text.trim().length === 0;
     const branch = useBranch(bridge, folder);
     const { controls: models, draft } = useDraftModels(bridge, folder, connection.phase === "attached", !busy);
     const mounted = useRef(true);
+    const slash = useSlashMenu({ text, setText, session: undefined, notify: setNotice });
 
     useEffect(() => {
         mounted.current = true;
@@ -49,6 +53,8 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const submit = async (): Promise<void> => {
         const content = text.trim();
         if (content.length === 0 || busy) return;
+        if (slash.runLine(content)) return;
+        setNotice(undefined);
         setBusy(true);
         setProblem(undefined);
         const result = await createSession(bridge, folder, approvalMode);
@@ -72,6 +78,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     };
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        if (slash.onKeyDown(event)) return;
         if (event.key !== "Enter") return;
         const action = enterAction({
             shift: event.shiftKey,
@@ -117,12 +124,15 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             />
             <ImageChips chips={chips} onRemove={(path) => setImages((current) => current.filter((image) => image.path !== path))} />
             {problem === undefined ? null : <p className="composer-notice" data-tone="danger" role="alert">{problem}</p>}
+            {notice === undefined ? null : <p className="composer-notice" role="status">{notice}</p>}
             <ComposerBox
                 text={text}
                 onText={setText}
                 placeholder="Describe a task or ask a question"
                 disabled={busy}
                 onKeyDown={onKeyDown}
+                slash={slash.view}
+                onBlur={slash.onBlur}
                 buttonMode="send"
                 buttonEnabled={!empty && !busy}
                 onPress={() => void submit()}

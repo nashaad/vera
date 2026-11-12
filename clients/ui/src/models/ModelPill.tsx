@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react";
 
 import { ChevronDownIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
+import { resolveModelArgument } from "../composer/slash/args.ts";
+import { PILL_DONE, usePillRequests } from "../composer/slash/pillRequests.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { modelName, shortModelName } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
@@ -16,8 +18,21 @@ export interface ModelPillProps {
 // The model the session runs, or New Chat will start with, and the menu that changes it.
 export function ModelPill({ controls, onBrowse }: ModelPillProps) {
     const [open, setOpen] = useState(false);
+    // A search typed after /model; the menu opens with it filled in.
+    const [query, setQuery] = useState("");
     const root = useRef<HTMLDivElement>(null);
     const close = useCallback(() => setOpen(false), []);
+    usePillRequests("model", (argument) => {
+        if (!controls.enabled || controls.settings === undefined) return { done: false, message: "The model cannot be changed right now" };
+        const resolved = argument.trim().length === 0 ? undefined : resolveModelArgument(controls.settings, argument);
+        if (resolved?.kind === "pick") {
+            controls.actions.pick(resolved.choice);
+            return PILL_DONE;
+        }
+        setQuery(resolved?.query ?? "");
+        setOpen(true);
+        return PILL_DONE;
+    });
     useMenuDismiss(open, root, close);
     const placed = usePopoverPlacement(open, root);
 
@@ -36,14 +51,17 @@ export function ModelPill({ controls, onBrowse }: ModelPillProps) {
                 aria-expanded={open}
                 title={title}
                 disabled={!controls.enabled}
-                onClick={() => setOpen(!open)}
+                onClick={() => {
+                    setQuery("");
+                    setOpen(!open);
+                }}
             >
                 <span className="pill-label">{name}</span>
                 {controls.note === undefined ? null : <span className="pill-sub">{controls.note}</span>}
                 <ChevronDownIcon className="pill-chevron" />
             </button>
             {open && settings !== undefined ? (
-                <ModelMenu controls={controls} settings={settings} onClose={close} onBrowse={onBrowse} style={placed} />
+                <ModelMenu controls={controls} settings={settings} onClose={close} onBrowse={onBrowse} style={placed} initialQuery={query} />
             ) : null}
         </div>
     );

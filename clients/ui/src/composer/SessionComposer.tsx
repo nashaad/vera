@@ -15,6 +15,7 @@ import { ImageChips } from "./ImageChips.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
 import { arrowUpAction, enterAction, escapeAction, folderMissingNotice } from "./rules.ts";
+import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { useBranch } from "./useBranch.ts";
 import { useFolderMissing } from "./useFolderMissing.ts";
 import { useSessionImages } from "./useImages.ts";
@@ -51,6 +52,12 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     const { images, add, remove, clear } = useSessionImages(send, watch.images, onRefused);
     const ready = readyAttachments(images, watch.images);
     const models = useSessionModels(bridge, watch, send, folder);
+    const slash = useSlashMenu({
+        text,
+        setText,
+        session: { bridge, agentId, send, attached, running },
+        notify: setNotice,
+    });
 
     // A refusal of the last prompt sent from here gives the text back and says why.
     useEffect(() => {
@@ -127,6 +134,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     const submit = (): void => {
         const content = text.trim();
         if (!attached || content.length === 0) return;
+        if (slash.runLine(content)) return;
         if (ready.kind === "waiting") {
             setNotice(IMAGES_WAITING);
             return;
@@ -144,6 +152,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     });
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        if (slash.onKeyDown(event)) return;
         const composing = event.nativeEvent.isComposing;
         if (event.key === "Enter") {
             const action = enterAction({ shift: event.shiftKey, composing, empty, running, queued });
@@ -201,6 +210,8 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
                 placeholder={placeholder}
                 disabled={!attached}
                 onKeyDown={onKeyDown}
+                slash={slash.view}
+                onBlur={slash.onBlur}
                 buttonMode={stopping ? "stop" : "send"}
                 buttonEnabled={stopping ? attached : attached && !empty && ready.kind === "ready"}
                 onPress={() => (stopping ? send(abortCommand()) : submit())}

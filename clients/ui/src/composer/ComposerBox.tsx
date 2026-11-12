@@ -2,6 +2,7 @@ import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEve
 
 import { ArrowUpIcon, PlusIcon, SquareIcon } from "../components/Icons.tsx";
 import { pastedImagePaths } from "./images.ts";
+import { SlashMenu, slashOptionId, SLASH_MENU_ID, type SlashMenuView } from "./slash/SlashMenu.tsx";
 import { useComposerFit } from "./useComposerFit.ts";
 
 export type SendButtonMode = "send" | "stop";
@@ -24,6 +25,9 @@ export interface ComposerBoxProps {
     readonly barStart?: ReactNode;
     // Controls drawn just before the send button, such as the model and effort pills.
     readonly barEnd?: ReactNode;
+    // The slash command menu, while it is open, and what the box does when it loses focus.
+    readonly slash?: SlashMenuView;
+    readonly onBlur?: () => void;
 }
 
 export function ComposerBox({
@@ -41,11 +45,15 @@ export function ComposerBox({
     attachEnabled,
     barStart,
     barEnd,
+    slash,
+    onBlur,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
+    const box = useRef<HTMLDivElement>(null);
     const bar = useRef<HTMLDivElement>(null);
     useComposerFit(bar);
     const stop = buttonMode === "stop";
+    const activeEntry = slash?.entries[slash.active];
 
     const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
         if (!attachEnabled || !event.dataTransfer.types.includes("Files")) return;
@@ -74,6 +82,7 @@ export function ComposerBox({
     return (
         <div
             className="composer"
+            ref={box}
             data-dropping={dropping}
             onDragOver={onDragOver}
             onDragLeave={() => setDropping(false)}
@@ -88,8 +97,13 @@ export function ComposerBox({
                 disabled={disabled}
                 onChange={(event) => onText(event.target.value)}
                 onKeyDown={onKeyDown}
+                onBlur={onBlur}
                 onPaste={onPaste}
+                {...(activeEntry === undefined
+                    ? {}
+                    : { "aria-controls": SLASH_MENU_ID, "aria-expanded": true, "aria-activedescendant": slashOptionId(activeEntry) })}
             />
+            {slash === undefined ? null : <SlashMenu view={slash} anchor={box} />}
             <div className="composer-bar" ref={bar}>
                 <button
                     type="button"

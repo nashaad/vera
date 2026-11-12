@@ -13,11 +13,13 @@ export interface ModelMenuProps {
     readonly onClose: () => void;
     readonly onBrowse: () => void;
     readonly style?: CSSProperties;
+    // The search the menu opens with.
+    readonly initialQuery?: string;
 }
 
 // The quick model picker. The shortlist is what it offers; everything else is one search or one browse away.
-export function ModelMenu({ controls, settings, onClose, onBrowse, style }: ModelMenuProps) {
-    const [query, setQuery] = useState("");
+export function ModelMenu({ controls, settings, onClose, onBrowse, style, initialQuery = "" }: ModelMenuProps) {
+    const [query, setQuery] = useState(initialQuery);
     const [focus, setFocus] = useState<number | undefined>(undefined);
     const [reason, setReason] = useState<string | undefined>(undefined);
     const choice = controls.choice;

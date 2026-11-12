@@ -12,6 +12,7 @@ import "./styles/sidebar-nav.css";
 import "./styles/pages.css";
 import "./styles/transcript.css";
 import "./styles/composer.css";
+import "./styles/slash.css";
 import "./styles/cards.css";
 import "./styles/settings.css";
 import "./styles/models.css";

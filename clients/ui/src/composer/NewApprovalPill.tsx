@@ -4,6 +4,8 @@ import { HandIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { modeLabel, modeOptions } from "../session/permissions.ts";
 import { ApprovalMenu, modeChoices, type ApprovalChoice } from "./ApprovalMenu.tsx";
+import { resolveModeArgument } from "./slash/args.ts";
+import { PILL_DONE, usePillRequests } from "./slash/pillRequests.ts";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
 
 export interface NewApprovalPillProps {
@@ -25,6 +27,17 @@ export function NewApprovalPill({ mode, onPick, disabled }: NewApprovalPillProps
         onPick(next);
         setOpen(false);
     };
+    usePillRequests("approval", (argument) => {
+        if (disabled) return { done: false, message: "The approval mode cannot be changed right now" };
+        if (argument.trim().length === 0) {
+            setOpen(true);
+            return PILL_DONE;
+        }
+        const resolved = resolveModeArgument([], argument);
+        if (resolved.kind === "unknown") return { done: false, message: `Permission modes: ${resolved.modes.join(", ")}` };
+        onPick(resolved.mode);
+        return PILL_DONE;
+    });
     const choices: readonly ApprovalChoice[] = [
         {
             key: "default",

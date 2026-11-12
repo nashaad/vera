@@ -13,6 +13,10 @@ export const SESSION_COMMANDS = {
     copy: "session.copyConversation",
     cycleLayout: "session.cycleLayout",
     setLayout: "session.setLayout",
+    rename: "session.rename",
+    clone: "session.clone",
+    close: "session.close",
+    parent: "session.parent",
 } as const;
 
 const SHEETS: ReadonlyArray<readonly [string, string, SessionSheet]> = [

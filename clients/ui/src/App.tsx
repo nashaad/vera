@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
@@ -41,6 +42,7 @@ export function App() {
                         />
                     ) : <div className="workbench" />}
                     <Overlays commands={commands} />
+                    <SessionWindowCommands commands={commands} />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>

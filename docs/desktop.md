@@ -172,6 +172,9 @@ Escape, its close button or a click outside it.
   to that agent. With no session open it says to open one.
 - Choose Theme lists the three themes with a swatch; a click or a number key
   applies one.
+- Rename Session, in the palette, opens a sheet with the open session's name to
+  edit. Enter or `Rename` saves it. The host refuses an empty name, one over
+  200 bytes, and a session that cannot be renamed, and the sheet says which.
 - Session Diagnostics lists the open session's facts (id, title, folder, model,
   queued prompts, open requests; a chat's folder reads `Chat`) and the host's (connection, process id, build,
   protocol, home, platform). Copy puts them on the clipboard as text.
@@ -188,8 +191,9 @@ Escape, its close button or a click outside it.
   name the terminal commands that do: `/failure-report` and `/diagnostics` for
   failures, `/nudges` for nudges.
 
-Copying a conversation, the diagnostics or the doctor command, and switching
-agents, show a short notice in the window's corner that fades on its own.
+Copying a conversation, the diagnostics or the doctor command, switching
+agents, and renaming, cloning or closing a session, show a short notice in the
+window's corner that fades on its own.
 
 ## Layout
 
@@ -436,6 +440,66 @@ Images:
 - On New Chat the images are attached once the new session is open, and the
   message is sent when they are all attached. If one is refused, the message
   stays in the box.
+
+Slash commands:
+
+- Typing `/` as the first character of the box opens a menu above the composer.
+  It lists the commands in three groups, `Built in`, `Extensions` and `Skills`,
+  each with its arguments and a line of description. Typing more narrows the
+  list to the names that start with what you typed. Up and Down move, Enter runs
+  the highlighted command, Tab completes its name and a space so you can type
+  arguments, and Escape closes the menu until you type again. A click runs a
+  row. The menu closes by itself once a space is typed.
+- Enter on a whole line such as `/rename Crow's nest audit` runs that command
+  with its arguments. A name that is not exact runs when it is the start of
+  exactly one command in the first group that has a match. A name that matches
+  nothing keeps your text in the box and says `Unknown command: /name`, with
+  `Did you mean` and up to three names that start the same way, or the closest
+  spelling. A line that starts with a path, such as `/tmp/roost.txt`, is an
+  ordinary message.
+- The built-in commands are the terminal's. Those that open something in the
+  window run the same command as the palette: `/settings`, `/work`, `/search`,
+  `/back`, `/sidebar`, `/palette`, `/themes`, `/diagnostics`, `/extensions`,
+  `/doctor`, `/configure`, `/nudges`, `/failure-report`, `/resume` (Go to
+  Session), `/clear` and its alias `/new` (New Chat), and `/models` (the Models
+  browser). `/rewind` and `/fork` open the Rewind or Fork sheet, `/compact` the
+  compact sheet and `/subagents` the subagents sheet.
+- `/model`, `/effort` and `/permissions` drive the composer's pills. With no
+  argument each opens its pill's menu. `/model scout` runs the one available
+  model that `scout` names and otherwise opens the model menu already searching
+  for it. `/effort high` sets that level and `/effort default` returns to the
+  model's default; an unknown level lists the levels. `/permissions ask` sets the
+  approval mode to `ask`, `auto`, `readonly`, `full_access` or a custom mode, and
+  an unknown mode lists them. Inside a session it changes the default mode, as in
+  the terminal; on New Chat it sets the mode for the session about to start.
+  `/agent` opens Choose Agent, and `/agent crow` switches the session to the
+  agent `crow`.
+- `/rename`, `/clone`, `/close` and `/parent` are also in the command palette as
+  Rename Session, Clone Session, Close Session and Go to Parent Session.
+  `/rename Crow's nest audit` renames the open session and shows a notice in the
+  window's corner; `/rename` alone opens a sheet with the current name. `/clone`
+  starts a new session holding a copy of the whole conversation and opens it.
+  `/close` stops the session and keeps its file, then opens New Chat. `/parent`
+  opens the session that started this one and says so when there is none. These
+  four need a session; on New Chat they say `/name needs an open session`.
+- Skills appear as `/<skill-name>`, one row for each skill the session can run.
+  Running `/scout-the-field the north corn` invokes the skill with `the north
+  corn` as its arguments. If the turn is running the skill waits for it to end
+  and a notice says so. When the host refuses the skill, the notice gives its
+  reason and your line goes back into the box.
+- Extension commands appear as their own names under `Extensions`. They run
+  while the session is idle, and the notice shows the command's answer. While a
+  turn runs they say `Extension commands are available when the agent is idle`
+  and your line goes back into the box. A skill or extension command named like
+  a built-in is left out of the menu.
+- The terminal commands `/animations`, `/import`, `/usage`, `/extension` and
+  `/reload-extensions` are listed with a muted `Not implemented yet`. Running one
+  shows `/name: Not implemented yet` under the box and sends nothing.
+- On New Chat the menu lists the built-in commands only, since skills and
+  extension commands are read from a session. An unknown name there adds that
+  skills and extension commands work inside a session.
+- The menu is drawn above the box, outside the bar, and stays inside the window
+  however narrow it is.
 
 ## Approvals and questions
 
@@ -696,6 +760,7 @@ node clients/desktop/test/chat.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
+node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
 ```
@@ -772,6 +837,18 @@ New Chat it searches for a model, adds it to the shortlist, picks it and sends;
 in the session it searches for the other model and sends on it, picks the first
 shortlist row with its number key, lowers its effort, then selects a model in the
 Models browser and probes it.
+
+The slash test serves one skill and starts a session. On New Chat it types `/`
+and checks the menu lists only the built-in group with a muted `Not implemented
+yet` beside `/usage`, runs `/usa`, which names `/usage`, and checks the notice and that nothing
+reached the provider, and enters a misspelt name and checks the text stays with
+a `Did you mean` line. In the session it checks the three groups, that the menu
+sits above the box and outside the bar, that it narrows as it is typed and stays
+inside a 720 pixel wide window without changing how the pills fit, and that
+Escape, the arrow keys and Tab work. It runs `/subagents`, `/import`, an
+extension command and the skill, and checks the provider received the skill's
+line. It renames, clones and closes the session from the box, and checks that
+`/parent` says there is no parent.
 
 The tools test runs a local provider that writes a scratch checklist, writes a
 file and edits it. It checks the turn's edits roll up into one card, opens the

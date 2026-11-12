@@ -158,6 +158,8 @@ export interface DesktopBridge {
     unwatchSession(pane: SessionPane): void;
     // Starts a new session holding the conversation before one of the source session's prompts.
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
+    // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.
+    cloneSession(agentId: string): Promise<BranchSessionResult>;
     // Stops a session and parks it, as closing its last window would.
     closeSession(agentId: string): Promise<CloseSessionResult>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.

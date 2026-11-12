@@ -10,6 +10,7 @@ import { useActiveSession, type ActiveSession } from "./activeSession.ts";
 import { CompactSheet } from "./CompactSheet.tsx";
 import { ContextPill } from "./ContextPill.tsx";
 import { usePaneLayout, type PaneLayout } from "./paneLayout.ts";
+import { RenameSheet } from "./RenameSheet.tsx";
 import { RewindSheet } from "./RewindSheet.tsx";
 import { closeSessionSheet, openSessionSheet, useSessionSheet, type SessionSheet } from "./sessionSheets.ts";
 import { SubagentsSheet } from "./SubagentsSheet.tsx";
@@ -81,5 +82,7 @@ function OpenSheet({ sheet, session }: { readonly sheet: SessionSheet; readonly 
             return <TasksSheet session={session} onClose={closeSessionSheet} />;
         case "subagents":
             return <SubagentsSheet session={session} onClose={closeSessionSheet} />;
+        case "rename":
+            return <RenameSheet session={session} onClose={closeSessionSheet} />;
     }
 }

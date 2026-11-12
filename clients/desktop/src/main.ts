@@ -34,7 +34,7 @@ import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
-import { branchSession, closeSession, idArgument } from "./session-requests.ts";
+import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { parseWindowBackground } from "./window-background.ts";
 
@@ -202,6 +202,11 @@ ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryI
     const boundary = idArgument(boundaryId);
     if (!fromWindow(event) || source === undefined || boundary === undefined) return { ok: false, reason: "Choose a prompt to fork from." };
     return branchSession(hostSocketPath, source, boundary);
+});
+ipcMain.handle(CHANNELS.sessionClone, async (event, agentId: unknown): Promise<BranchSessionResult> => {
+    const source = idArgument(agentId);
+    if (!fromWindow(event) || source === undefined) return { ok: false, reason: "Open a session to clone." };
+    return cloneSession(hostSocketPath, source);
 });
 ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<CloseSessionResult> => {
     const target = idArgument(agentId);

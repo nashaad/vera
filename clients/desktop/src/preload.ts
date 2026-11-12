@@ -43,6 +43,8 @@ const bridge: DesktopBridge = {
     },
     branchSession: async (agentId: string, boundaryId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionBranch, agentId, boundaryId)) as BranchSessionResult,
+    cloneSession: async (agentId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionClone, agentId)) as BranchSessionResult,
     closeSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
     existingFolders: async (folders: readonly string[]) => {
