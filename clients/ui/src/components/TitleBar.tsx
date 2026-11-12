@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 
+import { SessionTitleTools } from "../session/SessionTitleTools.tsx";
 import { HeaderToggle } from "./HeaderToggle.tsx";
 import { HistoryButtons } from "./HistoryButtons.tsx";
 
@@ -33,6 +34,7 @@ export function TitleBar({ title, sidebarShown, onHeight }: TitleBarProps) {
             )}
             <span className="titlebar-title">{title}</span>
             <span className="spacer" />
+            <SessionTitleTools />
             <HeaderToggle location="rightPane" lit />
         </header>
     );

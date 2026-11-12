@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { CommandRegistry } from "../commands/registry.ts";
 import { registerLayoutCommands } from "../commands/layout-commands.ts";
+import { registerSessionCommands } from "../commands/session-commands.ts";
 import { registerThemeCommands } from "../commands/theme-commands.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
 import { registerCoreContributions } from "../registry/core.ts";
@@ -95,6 +96,7 @@ export function useLayout(): LayoutController {
 
     useEffect(() => registerLayoutCommands(commands, dispatch), [commands, dispatch]);
     useEffect(() => registerThemeCommands(commands, switchTheme), [commands]);
+    useEffect(() => registerSessionCommands(commands), [commands]);
 
     // Native menu items and shortcuts arrive as command events.
     useEffect(() => window.veraDesktop?.onEvent((event) => {

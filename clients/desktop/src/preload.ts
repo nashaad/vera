@@ -2,12 +2,15 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { LayoutState } from "../../ui/src/layout/model.ts";
 import type {
+    BranchSessionResult,
+    CloseSessionResult,
     CreateSessionResult,
     DesktopBridge,
     DesktopEvent,
     HostModelsResult,
     ModelOperationKind,
     ModelOperationResult,
+    SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import type { ThemeName } from "../../ui/src/theme/tokens.ts";
 import { CHANNELS } from "./channels.ts";
@@ -18,9 +21,9 @@ const bridge: DesktopBridge = {
     reconnect: () => ipcRenderer.send(CHANNELS.reconnect),
     answer: (id: string, yes: boolean) => ipcRenderer.send(CHANNELS.answer, { id, yes }),
     send: (text: string) => ipcRenderer.send(CHANNELS.send, text),
-    watchSession: (agentId: string) => ipcRenderer.send(CHANNELS.sessionWatch, agentId),
-    sendSession: (text: string) => ipcRenderer.send(CHANNELS.sessionSend, text),
-    unwatchSession: () => ipcRenderer.send(CHANNELS.sessionUnwatch),
+    watchSession: (pane: SessionPane, agentId: string) => ipcRenderer.send(CHANNELS.sessionWatch, pane, agentId),
+    sendSession: (pane: SessionPane, text: string) => ipcRenderer.send(CHANNELS.sessionSend, pane, text),
+    unwatchSession: (pane: SessionPane) => ipcRenderer.send(CHANNELS.sessionUnwatch, pane),
     setTitleBarHeight: (height: number) => ipcRenderer.send(CHANNELS.titleBar, height),
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (name: ThemeName) => ipcRenderer.send(CHANNELS.theme, name),
@@ -33,6 +36,10 @@ const bridge: DesktopBridge = {
         const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
         return result as CreateSessionResult;
     },
+    branchSession: async (agentId: string, boundaryId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionBranch, agentId, boundaryId)) as BranchSessionResult,
+    closeSession: async (agentId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
     chooseFolder: async () => {
         const folder: unknown = await ipcRenderer.invoke(CHANNELS.folderChoose);
         return typeof folder === "string" ? folder : undefined;

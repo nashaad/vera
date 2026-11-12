@@ -4,7 +4,13 @@ import { isAbsolute, join } from "node:path";
 
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
-import type { CreateSessionResult, DesktopEvent } from "../../ui/src/protocol/bridge.ts";
+import type {
+    BranchSessionResult,
+    CloseSessionResult,
+    CreateSessionResult,
+    DesktopEvent,
+    SessionPane,
+} from "../../ui/src/protocol/bridge.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { BootSession } from "./boot.ts";
@@ -24,6 +30,7 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { SessionPipe } from "./session-pipe.ts";
+import { branchSession, closeSession, idArgument } from "./session-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { parseWindowBackground } from "./window-background.ts";
 
@@ -48,7 +55,11 @@ let activeTheme: ThemeName = DEFAULT_THEME;
 let hostSocketPath: string | undefined;
 
 const pipe = new HostPipe(sendEvent);
-const sessions = new SessionPipe(sendEvent);
+const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
+    main: new SessionPipe(sendEvent, "main"),
+    companion: new SessionPipe(sendEvent, "companion"),
+};
+const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 
 function sendEvent(event: DesktopEvent): void {
@@ -61,7 +72,7 @@ function receiveEvent(event: DesktopEvent): void {
     if (event.type === "ready") {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
-        sessions.connect(event.socketPath);
+        for (const pane of panes) pane.connect(event.socketPath);
     } else if (event.type === "disconnected" || event.type === "failed") {
         hostSocketPath = undefined;
     }
@@ -71,7 +82,7 @@ function startBoot(): void {
     boot?.cancel();
     hostSocketPath = undefined;
     pipe.close();
-    sessions.close();
+    for (const pane of panes) pane.close();
     boot = new BootSession(selectedVeraHome(), receiveEvent);
     boot.start();
 }
@@ -90,7 +101,11 @@ function shutdown(): void {
     boot = undefined;
     hostSocketPath = undefined;
     pipe.close();
-    sessions.close();
+    for (const pane of panes) pane.close();
+}
+
+function paneArgument(value: unknown): SessionPipe | undefined {
+    return value === "main" || value === "companion" ? sessionPanes[value] : undefined;
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
@@ -158,16 +173,30 @@ ipcMain.on(CHANNELS.send, (event, text: unknown) => {
     if (!fromWindow(event) || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
     pipe.send(text);
 });
-ipcMain.on(CHANNELS.sessionWatch, (event, agentId: unknown) => {
-    if (!fromWindow(event) || typeof agentId !== "string" || agentId.length === 0 || agentId.length > MAX_AGENT_ID_CHARS) return;
-    sessions.watch(agentId);
+ipcMain.on(CHANNELS.sessionWatch, (event, pane: unknown, agentId: unknown) => {
+    const target = paneArgument(pane);
+    if (!fromWindow(event) || target === undefined) return;
+    if (typeof agentId !== "string" || agentId.length === 0 || agentId.length > MAX_AGENT_ID_CHARS) return;
+    target.watch(agentId);
 });
-ipcMain.on(CHANNELS.sessionSend, (event, text: unknown) => {
-    if (!fromWindow(event) || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
-    sessions.send(text);
+ipcMain.on(CHANNELS.sessionSend, (event, pane: unknown, text: unknown) => {
+    const target = paneArgument(pane);
+    if (!fromWindow(event) || target === undefined || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
+    target.send(text);
 });
-ipcMain.on(CHANNELS.sessionUnwatch, (event) => {
-    if (fromWindow(event)) sessions.unwatch();
+ipcMain.on(CHANNELS.sessionUnwatch, (event, pane: unknown) => {
+    if (fromWindow(event)) paneArgument(pane)?.unwatch();
+});
+ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryId: unknown): Promise<BranchSessionResult> => {
+    const source = idArgument(agentId);
+    const boundary = idArgument(boundaryId);
+    if (!fromWindow(event) || source === undefined || boundary === undefined) return { ok: false, reason: "Choose a prompt to fork from." };
+    return branchSession(hostSocketPath, source, boundary);
+});
+ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<CloseSessionResult> => {
+    const target = idArgument(agentId);
+    if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a session to stop." };
+    return closeSession(hostSocketPath, target);
 });
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {

@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
 import { relativeTime } from "../protocol/sessions.ts";
+import { type FileChange, collectChanges } from "./changes.ts";
+import { DiffRollup } from "./DiffRollup.tsx";
+import { DeliveryRow, NoticeRow, RetryLine, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
 import type { Block, TextBlock, ThoughtBlock, ToolCall, ToolsBlock, UserBlock } from "./model.ts";
 
@@ -77,20 +80,75 @@ export interface TranscriptProps {
     readonly blocks: readonly Block[];
     // True while the agent is working; the last turn then shows its work open and no actions.
     readonly running: boolean;
+    // The session folder, used to show changed files relative to it.
+    readonly folder?: string;
+    // False for a read-only pane showing a session other than the active one.
+    readonly showRetry?: boolean;
 }
 
-export function Transcript({ blocks, running }: TranscriptProps) {
-    const turns = toTurns(blocks);
+interface TurnRender {
+    readonly turn: Turn;
+    // Changed files of each run of work, keyed by the index of the run's last block in `turn.work`.
+    readonly rollups: ReadonlyMap<number, readonly FileChange[]>;
+}
+
+export function Transcript({ blocks, running, folder, showRetry = true }: TranscriptProps) {
+    const renders = useMemo<readonly TurnRender[]>(
+        () => toTurns(blocks).map((turn) => ({ turn, rollups: runRollups(turn.work) })),
+        [blocks],
+    );
     return (
         <>
-            {turns.map((turn, index) => (
-                <TurnView key={turn.key} turn={turn} first={index === 0} live={running && index === turns.length - 1} />
+            {renders.map((render, index) => (
+                <TurnView
+                    key={render.turn.key}
+                    turn={render.turn}
+                    rollups={render.rollups}
+                    folder={folder}
+                    first={index === 0}
+                    live={running && index === renders.length - 1}
+                    showRetry={showRetry}
+                />
             ))}
         </>
     );
 }
 
-function TurnView({ turn, first, live }: { readonly turn: Turn; readonly first: boolean; readonly live: boolean }) {
+function isRunBlock(block: Block): boolean {
+    return block.kind === "tools" || block.kind === "thought";
+}
+
+// A run is consecutive tool and thought blocks; any other block closes it.
+function runRollups(work: readonly Block[]): ReadonlyMap<number, readonly FileChange[]> {
+    const rollups = new Map<number, readonly FileChange[]>();
+    let start = -1;
+    const close = (end: number): void => {
+        if (start < 0) return;
+        const changes = collectChanges(work.slice(start, end));
+        if (changes.length > 0) rollups.set(end - 1, changes);
+        start = -1;
+    };
+    work.forEach((block, index) => {
+        if (!isRunBlock(block)) {
+            close(index);
+            return;
+        }
+        if (start < 0) start = index;
+    });
+    close(work.length);
+    return rollups;
+}
+
+interface TurnViewProps {
+    readonly turn: Turn;
+    readonly rollups: ReadonlyMap<number, readonly FileChange[]>;
+    readonly folder?: string;
+    readonly first: boolean;
+    readonly live: boolean;
+    readonly showRetry: boolean;
+}
+
+function TurnView({ turn, rollups, folder, first, live, showRetry }: TurnViewProps) {
     const [open, setOpen] = useState(true);
     const seconds = turnSeconds(turn);
     const showWork = open || live;
@@ -107,10 +165,17 @@ function TurnView({ turn, first, live }: { readonly turn: Turn; readonly first: 
                     <ChevronRightIcon className="chev" />
                 </button>
             ) : null}
-            {showWork ? turn.work.map((block, index) => (
-                <BlockView key={block.key} block={block} next={turn.work[index + 1] ?? turn.answer} />
-            )) : null}
+            {showWork ? turn.work.map((block, index) => {
+                const changes = rollups.get(index);
+                return (
+                    <Fragment key={block.key}>
+                        <BlockView block={block} next={turn.work[index + 1] ?? turn.answer} />
+                        {changes === undefined ? null : <DiffRollup changes={changes} folder={folder} />}
+                    </Fragment>
+                );
+            }) : null}
             {turn.answer === undefined ? null : <Markdown text={turn.answer.text} />}
+            {live && showRetry ? <RetryLine /> : null}
             {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} /> : null}
         </>
     );
@@ -127,7 +192,11 @@ function BlockView({ block, next }: { readonly block: Block; readonly next?: Blo
         case "tools":
             return <ToolGroup block={block} />;
         case "notice":
-            return <div className="transcript-notice" data-tone={block.tone}>{block.text}</div>;
+            return <NoticeRow block={block} />;
+        case "substitution":
+            return <SubstitutionRow block={block} />;
+        case "delivery":
+            return <DeliveryRow block={block} />;
     }
 }
 

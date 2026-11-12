@@ -21,7 +21,11 @@ export const GO_SHORTCUTS = [
     { command: "go.settings", label: "Settings", accelerator: "CmdOrCtrl+,", code: "Comma", alt: false },
 ] as const;
 
-const SHORTCUTS = [...LAYOUT_SHORTCUTS, ...GO_SHORTCUTS];
+export const SESSION_SHORTCUTS = [
+    { command: "session.cycleLayout", label: "Cycle Agent Panes", accelerator: "CmdOrCtrl+Alt+A", code: "KeyA", alt: true },
+] as const;
+
+const SHORTCUTS = [...LAYOUT_SHORTCUTS, ...GO_SHORTCUTS, ...SESSION_SHORTCUTS];
 
 // Matches by physical key: Option+B types a different character on macOS.
 export function shortcutCommand(input: ShortcutInput, platform: string): string | undefined {

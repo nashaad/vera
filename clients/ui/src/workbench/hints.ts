@@ -1,5 +1,6 @@
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
+import { SESSION_COMMANDS } from "../commands/session-commands.ts";
 
 const KEYS: Readonly<Record<string, { readonly key: string; readonly alt: boolean }>> = {
     [LAYOUT_COMMANDS.toggleSidebar]: { key: "B", alt: false },
@@ -9,6 +10,7 @@ const KEYS: Readonly<Record<string, { readonly key: string; readonly alt: boolea
     [NAVIGATION_COMMANDS.back]: { key: "[", alt: false },
     [NAVIGATION_COMMANDS.forward]: { key: "]", alt: false },
     [NAVIGATION_COMMANDS.settings]: { key: ",", alt: false },
+    [SESSION_COMMANDS.cycleLayout]: { key: "A", alt: true },
 };
 
 // The keys of a command's direct binding, spelled for the platform; empty when it has none.

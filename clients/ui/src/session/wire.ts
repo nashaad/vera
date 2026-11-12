@@ -1,7 +1,33 @@
-import type { AgentRunStatus, ImageReply, QueuedPrompt } from "./model.ts";
+import type {
+    AgentRunStatus,
+    BackgroundAgents,
+    CompactionState,
+    ContextState,
+    ImageReply,
+    Presentation,
+    QueuedPrompt,
+    RetryState,
+    TimelineReply,
+    UsageRow,
+} from "./model.ts";
 import { parseModelRefusal, parseModelSettingsReply, type ModelRefusal, type ModelSettingsReply } from "../models/settings.ts";
 import { parsePermissions, type ApprovalState } from "./permissions.ts";
 import { parseUiRequest, type OpenRequest } from "./requests.ts";
+import {
+    parseBackground,
+    parseCompaction,
+    parseContext,
+    parseDelivery,
+    parseModelFailure,
+    parsePresentation,
+    parseRetry,
+    parseSubstitution,
+    parseTimelineReply,
+    parseUsage,
+    type Delivery,
+    type ModelFailure,
+    type Substitution,
+} from "./wireTools.ts";
 
 // Wire shapes the session view reads. Fields the view never uses are left out.
 // An entry the view does not show parses as "other", so entry indexes stay put.
@@ -48,6 +74,27 @@ export interface ErrorEntry extends EntryBase {
     readonly kind: "error";
     readonly outcome?: "error" | "aborted";
     readonly detail?: string;
+    readonly modelFailure?: ModelFailure;
+}
+
+// A turn that ended with no text, no tool call and no reasoning.
+export interface EmptyEntry extends EntryBase {
+    readonly kind: "empty";
+}
+
+export interface PresentationEntry extends EntryBase {
+    readonly kind: "presentation";
+    readonly presentation: Presentation;
+}
+
+export interface SubstitutionEntry extends EntryBase {
+    readonly kind: "model_substitution";
+    readonly substitution: Substitution;
+}
+
+export interface DeliveryEntry extends EntryBase {
+    readonly kind: "delivery";
+    readonly delivery: Delivery;
 }
 
 export interface HarnessEntry extends EntryBase {
@@ -67,11 +114,16 @@ export type WireEntry =
     | ToolEntry
     | ToolResultEntry
     | ErrorEntry
+    | EmptyEntry
+    | PresentationEntry
+    | SubstitutionEntry
+    | DeliveryEntry
     | HarnessEntry
     | OtherEntry;
 
 export interface AttachedMessage {
     readonly type: "attached";
+    readonly background?: BackgroundAgents;
 }
 
 export interface AttachFailedMessage {
@@ -85,6 +137,8 @@ export interface HistoryMessage {
     readonly status?: AgentRunStatus;
     readonly page?: PageInfo;
     readonly queue?: readonly QueuedPrompt[];
+    readonly context?: ContextState;
+    readonly usage?: readonly UsageRow[];
 }
 
 export interface HistoryPageMessage {
@@ -137,6 +191,9 @@ export interface TurnFinishedMessage {
     readonly type: "turn_finished";
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    readonly modelFailure?: ModelFailure;
+    readonly empty: boolean;
+    readonly usage?: readonly UsageRow[];
 }
 
 export interface StatusMessage {
@@ -149,15 +206,66 @@ export interface AgentFailedMessage {
     readonly detail: string;
 }
 
+// Sent after `tool_finished`; it names the tool but not the call.
+export interface ToolPresentationMessage {
+    readonly type: "tool_presentation";
+    readonly tool: string;
+    readonly presentation: Presentation;
+}
+
+export interface SubstitutionMessage {
+    readonly type: "model_substitution";
+    readonly substitution: Substitution;
+    readonly source: "turn" | "subagent";
+}
+
+export interface DeliveryMessage {
+    readonly type: "task_notification";
+    readonly delivery: Delivery;
+}
+
+// From `model_activity` with phase retrying.
+export interface ModelRetryMessage {
+    readonly type: "model_retry";
+    readonly retry: RetryState;
+    // The streamed text so far will be sent again from the start.
+    readonly replacesPartial: boolean;
+}
+
 export type LiveMessage =
     | UserPromptMessage
     | AssistantDeltaMessage
     | AssistantThinkingMessage
     | ToolStartedMessage
     | ToolFinishedMessage
+    | ToolPresentationMessage
+    | SubstitutionMessage
+    | DeliveryMessage
+    | ModelRetryMessage
     | TurnFinishedMessage
     | StatusMessage
     | AgentFailedMessage;
+
+export interface ContextMessage {
+    readonly type: "context";
+    readonly context: ContextState;
+}
+
+export interface CompactionMessage {
+    readonly type: "compaction";
+    readonly compaction: CompactionState;
+}
+
+// One of the replies to this window's `list_timeline` and timeline action commands.
+export interface TimelineMessage {
+    readonly type: "timeline_reply";
+    readonly reply: TimelineReply;
+}
+
+export interface BackgroundAgentsMessage {
+    readonly type: "background_agents";
+    readonly background: BackgroundAgents;
+}
 
 export interface PromptQueueMessage {
     readonly type: "prompt_queue";
@@ -231,6 +339,10 @@ export type SessionMessage =
     | PermissionsRejectedMessage
     | ModelSettingsMessage
     | ModelRefusedMessage
+    | ContextMessage
+    | CompactionMessage
+    | TimelineMessage
+    | BackgroundAgentsMessage
     | LiveMessage;
 
 type Fields = Record<string, unknown>;
@@ -279,8 +391,10 @@ function parseJson(text: string): unknown {
 
 function parseMessage(type: string, value: Fields): SessionMessage | undefined {
     switch (type) {
-        case "attached":
-            return { type: "attached" };
+        case "attached": {
+            const background = parseBackground(value.background_agents);
+            return background === undefined ? { type: "attached" } : { type: "attached", background };
+        }
         case "attach_failed":
             return parseAttachFailed(value);
         case "history":
@@ -343,6 +457,25 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
             const refusal = parseModelRefusal(value);
             return refusal === undefined ? undefined : { type: "model_settings_rejected", refusal };
         }
+        case "context": {
+            const context = parseContext(value.measurement);
+            return context === undefined ? undefined : { type: "context", context };
+        }
+        case "compaction": {
+            const compaction = parseCompaction(value);
+            return compaction === undefined ? undefined : { type: "compaction", compaction };
+        }
+        case "timeline":
+        case "timeline_action_preview":
+        case "timeline_action_applied":
+        case "timeline_action_rejected": {
+            const reply = parseTimelineReply(type, value);
+            return reply === undefined ? undefined : { type: "timeline_reply", reply };
+        }
+        case "background_agents": {
+            const background = parseBackground(value);
+            return background === undefined ? undefined : { type: "background_agents", background };
+        }
         default:
             return parseLive(type, value);
     }
@@ -357,12 +490,16 @@ function parseHistory(value: Fields): HistoryMessage | undefined {
     const entries = entriesOf(value.entries);
     if (entries === undefined) return undefined;
     const queue = isRecord(value.promptQueue) ? queueOf(value.promptQueue.prompts) : undefined;
+    const context = parseContext(value.context);
+    const usage = parseUsage(value.usage);
     return {
         type: "history",
         entries,
         status: statusOf(value.status),
         page: pageOf(value.page),
         ...(queue === undefined ? {} : { queue }),
+        ...(context === undefined ? {} : { context }),
+        ...(usage === undefined ? {} : { usage }),
     };
 }
 
@@ -407,8 +544,38 @@ function parseLive(type: string, value: Fields): LiveMessage | undefined {
                 ? undefined
                 : { type: "tool_finished", tool, output: str(value.output), isError: value.isError === true };
         }
-        case "turn_finished":
-            return { type: "turn_finished", outcome: outcomeOf(value.outcome), error: str(value.error) };
+        case "turn_finished": {
+            const modelFailure = parseModelFailure(value.modelFailure);
+            const usage = parseUsage(value.usage);
+            return {
+                type: "turn_finished",
+                outcome: outcomeOf(value.outcome),
+                error: str(value.error),
+                empty: value.empty === true,
+                ...(modelFailure === undefined ? {} : { modelFailure }),
+                ...(usage === undefined ? {} : { usage }),
+            };
+        }
+        case "tool_presentation": {
+            const tool = str(value.tool);
+            const presentation = parsePresentation(value.presentation);
+            if (tool === undefined || presentation === undefined) return undefined;
+            return { type: "tool_presentation", tool, presentation };
+        }
+        case "model_substitution": {
+            const substitution = parseSubstitution(value);
+            if (substitution === undefined) return undefined;
+            return { type: "model_substitution", substitution, source: value.source === "subagent" ? "subagent" : "turn" };
+        }
+        case "task_notification": {
+            const delivery = parseDelivery(value, "kind");
+            return delivery === undefined ? undefined : { type: "task_notification", delivery };
+        }
+        case "model_activity": {
+            const retry = parseRetry(value);
+            if (retry === undefined) return undefined;
+            return { type: "model_retry", retry, replacesPartial: value.replacesPartialAttempt === true };
+        }
         case "status": {
             const state = statusOf(value.state);
             return state === undefined ? undefined : { type: "status", state };
@@ -443,8 +610,30 @@ function parseEntry(raw: unknown): WireEntry {
                 ? OTHER
                 : { kind: "tool_result", ...base, tool, output: str(raw.output) ?? "", isError: raw.isError === true };
         }
-        case "error":
-            return { kind: "error", ...base, outcome: outcomeOf(raw.outcome), detail: str(raw.detail) };
+        case "error": {
+            const modelFailure = parseModelFailure(raw.modelFailure);
+            return {
+                kind: "error",
+                ...base,
+                outcome: outcomeOf(raw.outcome),
+                detail: str(raw.detail),
+                ...(modelFailure === undefined ? {} : { modelFailure }),
+            };
+        }
+        case "empty":
+            return { kind: "empty", ...base };
+        case "presentation": {
+            const presentation = parsePresentation(raw.presentation);
+            return presentation === undefined ? OTHER : { kind: "presentation", ...base, presentation };
+        }
+        case "model_substitution": {
+            const substitution = parseSubstitution(raw.substitution);
+            return substitution === undefined ? OTHER : { kind: "model_substitution", ...base, substitution };
+        }
+        case "delivery": {
+            const delivery = parseDelivery(raw, "deliveryKind");
+            return delivery === undefined ? OTHER : { kind: "delivery", ...base, delivery };
+        }
         case "harness":
             return body === undefined ? OTHER : { kind: "harness", ...base, text: body, tone: str(raw.tone) ?? "" };
         default:

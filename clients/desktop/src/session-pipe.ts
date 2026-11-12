@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
-import type { DesktopEvent } from "../../ui/src/protocol/bridge.ts";
+import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
 import { describeFailure } from "./host-pipe.ts";
 
 const MAX_REDIRECTS = 1;
@@ -20,14 +20,17 @@ interface Watch {
     finished: boolean;
 }
 
-// One watch connection for the session being viewed. Replacing or detaching it
+// One watch connection for the session shown in one pane. Replacing or detaching it
 // retires its generation first, so the old socket's close or error emits nothing.
 export class SessionPipe {
     private socketPath: string | undefined;
     private watchState: Watch | undefined;
     private generation = 0;
 
-    constructor(private readonly emit: (event: DesktopEvent) => void) {}
+    constructor(
+        private readonly emit: (event: DesktopEvent) => void,
+        private readonly pane: SessionPane,
+    ) {}
 
     connect(socketPath: string): void {
         this.stop();
@@ -43,7 +46,7 @@ export class SessionPipe {
         this.stop();
         const socketPath = this.socketPath;
         if (socketPath === undefined) {
-            this.emit({ type: "session_closed", agentId, reason: "The host is not running." });
+            this.emit({ type: "session_closed", pane: this.pane, agentId, reason: "The host is not running." });
             return;
         }
         this.open(agentId, socketPath, 0);
@@ -108,7 +111,7 @@ export class SessionPipe {
                         return;
                     }
                 }
-                if (this.isCurrent(state)) this.emit({ type: "session_frame", agentId, text: line });
+                if (this.isCurrent(state)) this.emit({ type: "session_frame", pane: this.pane, agentId, text: line });
             }
             if (buffered.length > MAX_FRAME_BYTES) {
                 this.finish(state, "The host sent a frame larger than this client accepts.");
@@ -122,7 +125,7 @@ export class SessionPipe {
         if (!this.isCurrent(state)) return;
         this.stop();
         if (state.redirects >= MAX_REDIRECTS) {
-            this.emit({ type: "session_closed", agentId: state.agentId, reason: MOVED_TWICE });
+            this.emit({ type: "session_closed", pane: this.pane, agentId: state.agentId, reason: MOVED_TWICE });
             return;
         }
         this.open(state.agentId, socketPath, state.redirects + 1);
@@ -134,7 +137,7 @@ export class SessionPipe {
         state.socket.destroy();
         if (!this.isCurrent(state)) return;
         this.watchState = undefined;
-        this.emit({ type: "session_closed", agentId: state.agentId, reason });
+        this.emit({ type: "session_closed", pane: this.pane, agentId: state.agentId, reason });
     }
 
     private isCurrent(state: Watch): boolean {

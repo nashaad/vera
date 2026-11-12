@@ -1,0 +1,360 @@
+/* The context pill and its popover, the Compact sheet and the Rewind or fork sheet. */
+
+.context-picker {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+}
+
+.context-pill[data-empty="true"] {
+    color: var(--vera-text-disabled);
+}
+
+.context-pill .pill-icon {
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    color: var(--vera-text-dim);
+}
+
+.context-pop {
+    position: absolute;
+    top: calc(100% + var(--vera-space) * 1.5);
+    right: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 2);
+    width: calc(var(--vera-space) * 80);
+    max-height: calc(var(--vera-space) * 110);
+    overflow-y: auto;
+    padding: calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    box-shadow: var(--vera-shadow);
+    user-select: text;
+}
+
+.context-empty,
+.context-trigger-note {
+    margin: 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.context-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--vera-space) * 2);
+}
+
+.context-headline {
+    font-size: var(--vera-font-size-body);
+    color: var(--vera-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.context-basis {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.context-bar {
+    position: relative;
+    display: flex;
+    height: calc(var(--vera-space) * 2);
+    background: var(--vera-surface-input);
+    border-radius: var(--vera-radius);
+}
+
+.context-seg {
+    flex: 0 0 auto;
+    height: 100%;
+    min-width: 0;
+}
+
+.context-seg-prompt-a {
+    background: var(--vera-accent);
+}
+
+.context-seg-prompt-b {
+    background: color-mix(in srgb, var(--vera-accent) 60%, var(--vera-surface));
+}
+
+.context-seg-tools {
+    background: var(--vera-warning);
+}
+
+.context-seg-conversation {
+    background: var(--vera-text-dim);
+}
+
+.context-seg-other {
+    background: color-mix(in srgb, var(--vera-text-dim) 45%, var(--vera-surface));
+}
+
+.context-seg-free {
+    background: var(--vera-surface-input);
+}
+
+.context-trigger {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc(var(--vera-space) * 0.25);
+    background: var(--vera-text);
+}
+
+.context-legend {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.context-legend-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    font-size: var(--vera-font-size-label);
+    color: var(--vera-text-muted);
+}
+
+.context-swatch {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 2);
+    height: calc(var(--vera-space) * 2);
+    border-radius: var(--vera-radius-sm);
+}
+
+.context-legend-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-legend-tokens {
+    color: var(--vera-text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.context-toggle,
+.context-compact {
+    align-self: flex-start;
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.context-toggle:hover,
+.context-compact:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.context-toggle:focus-visible,
+.context-compact:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
+}
+
+.context-messages {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 0.5);
+    max-height: calc(var(--vera-space) * 40);
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.context-message {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    font-size: var(--vera-font-size-label);
+}
+
+.context-message-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-message-tokens,
+.context-message-empty {
+    color: var(--vera-text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Compact and Rewind sheets */
+
+.session-sheet {
+    width: min(calc(var(--vera-space) * 110), 92%);
+}
+
+.sheet-head .session-sheet-title {
+    flex: 1 1 auto;
+    font-size: var(--vera-font-size-body);
+    color: var(--vera-text);
+}
+
+.session-sheet-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    color: var(--vera-text-dim);
+}
+
+.session-sheet-body {
+    gap: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4);
+    overflow-y: auto;
+}
+
+.session-sheet-text {
+    margin: 0;
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text-dim);
+}
+
+.session-sheet-usage {
+    color: var(--vera-text-muted);
+}
+
+.session-sheet-foot,
+.session-sheet-foot-row {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 4);
+    border-top: thin solid var(--vera-border);
+}
+
+.session-sheet-foot-row {
+    justify-content: flex-start;
+    padding: 0;
+    border-top: 0;
+}
+
+.session-sheet-action:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.session-notice {
+    margin: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    color: var(--vera-text);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.session-notice-warning {
+    color: var(--vera-warning);
+}
+
+.session-notice-error {
+    color: var(--vera-danger);
+}
+
+.session-button {
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.session-button:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+}
+
+.session-button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.session-button:focus-visible,
+.session-sheet-action:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
+}
+
+.session-button-danger {
+    color: var(--vera-danger);
+    border-color: var(--vera-border);
+}
+
+.session-button-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vera-danger) 12%, var(--vera-surface-raised));
+    border-color: color-mix(in srgb, var(--vera-danger) 40%, var(--vera-border));
+}
+
+.rewind-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rewind-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 2) 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.rewind-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 0.5);
+    min-width: 0;
+}
+
+.rewind-prompt {
+    overflow: hidden;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rewind-age {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
+.rewind-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.5);
+}

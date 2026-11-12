@@ -3,6 +3,9 @@ import type { ThemeName } from "../theme/tokens.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
+// The session page shows one session and, beside it, at most one of its subagents.
+export type SessionPane = "main" | "companion";
+
 export type DesktopEvent =
     | { readonly type: "phase"; readonly phase: DesktopPhase }
     | {
@@ -14,9 +17,9 @@ export type DesktopEvent =
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
     | { readonly type: "frame"; readonly text: string }
-    // One line from the watch connection of the session being viewed.
-    | { readonly type: "session_frame"; readonly agentId: string; readonly text: string }
-    | { readonly type: "session_closed"; readonly agentId: string; readonly reason: string }
+    // One line from the watch connection of a session being viewed.
+    | { readonly type: "session_frame"; readonly pane: SessionPane; readonly agentId: string; readonly text: string }
+    | { readonly type: "session_closed"; readonly pane: SessionPane; readonly agentId: string; readonly reason: string }
     | { readonly type: "disconnected"; readonly reason: string }
     | { readonly type: "failed"; readonly message: string }
     // A native menu item or shortcut asking the page to run one of its commands.
@@ -72,17 +75,39 @@ export interface ModelOperationAnswer {
 
 export type ModelOperationResult = ModelOperationAnswer | HostRequestFailure;
 
+export interface BranchedSession {
+    readonly ok: true;
+    readonly agentId: string;
+    readonly workspace: string;
+    // The text of the prompt the fork stopped before, for the composer.
+    readonly prompt: string;
+}
+
+export type BranchSessionResult = BranchedSession | HostRequestFailure;
+
+export interface ClosedSession {
+    readonly ok: true;
+    // False when the host dropped the conversation rather than keeping it to resume.
+    readonly retained: boolean;
+}
+
+export type CloseSessionResult = ClosedSession | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
     reconnect(): void;
     answer(id: string, yes: boolean): void;
     send(text: string): void;
-    // Opens the one watch connection for a session, closing any earlier one.
-    watchSession(agentId: string): void;
-    // Sends one request line on the watch connection, such as a history page request.
-    sendSession(text: string): void;
-    unwatchSession(): void;
+    // Opens the pane's watch connection for a session, closing any earlier one in that pane.
+    watchSession(pane: SessionPane, agentId: string): void;
+    // Sends one request line on the pane's watch connection, such as a history page request.
+    sendSession(pane: SessionPane, text: string): void;
+    unwatchSession(pane: SessionPane): void;
+    // Starts a new session holding the conversation before one of the source session's prompts.
+    branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
+    // Stops a session and parks it, as closing its last window would.
+    closeSession(agentId: string): Promise<CloseSessionResult>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     createSession(workspace: string, approvalMode?: string): Promise<CreateSessionResult>;
     // The host's models, shortlist and connected providers for a folder, or the host's own folder.

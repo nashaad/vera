@@ -89,3 +89,12 @@
     gap: calc(var(--vera-space) * 1.5);
     align-items: center;
 }
+
+.title-tools {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1);
+    align-items: center;
+    -webkit-app-region: no-drag;
+}

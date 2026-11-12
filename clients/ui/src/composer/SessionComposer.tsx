@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import { effortCommand, switchModelCommand } from "../models/commands.ts";
 import { ModelPills } from "../models/ModelPills.tsx";
 import { useSessionModels } from "../models/useSessionModels.ts";
+import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
 import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
 import type { SessionComposerProps } from "./Composer.tsx";
@@ -58,6 +59,19 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
         setNotice(refused.reason);
         setText((current) => (current.length === 0 ? last.text : current));
     }, [watch.refused]);
+
+    // A prompt a rewind or fork gave back lands in the box to edit.
+    useEffect(() => {
+        const land = (): void => {
+            const draft = takeDraft(agentId);
+            if (draft === undefined) return;
+            setText((current) => (current.trim().length === 0 ? draft : `${current}\n${draft}`));
+        };
+        land();
+        return subscribeDrafts((target) => {
+            if (target === agentId) land();
+        });
+    }, [agentId]);
 
     // A prompt taken back out of the queue lands in the box to edit.
     useEffect(() => {

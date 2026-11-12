@@ -12,6 +12,8 @@ export const CHANNELS = {
     layoutLoad: "vera:layout-load",
     layoutSave: "vera:layout-save",
     sessionCreate: "vera:session-create",
+    sessionBranch: "vera:session-branch",
+    sessionClose: "vera:session-close",
     folderChoose: "vera:folder-choose",
     branchRead: "vera:branch-read",
     imagesChoose: "vera:images-choose",

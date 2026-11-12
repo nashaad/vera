@@ -2,7 +2,7 @@ import type { MenuItemConstructorOptions } from "electron";
 
 import { THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
 import { DEFAULT_THEME, THEME_NAMES, type ThemeName } from "../../ui/src/theme/tokens.ts";
-import { GO_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
+import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, SESSION_SHORTCUTS } from "./shortcuts.ts";
 
 const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
     dark: "Dark",
@@ -16,7 +16,7 @@ export function buildMenuTemplate(
     run: (commandId: string) => void,
     theme: ThemeName = DEFAULT_THEME,
 ): MenuItemConstructorOptions[] {
-    const item = (shortcut: (typeof LAYOUT_SHORTCUTS | typeof GO_SHORTCUTS)[number]): MenuItemConstructorOptions => ({
+    const item = (shortcut: (typeof LAYOUT_SHORTCUTS | typeof GO_SHORTCUTS | typeof SESSION_SHORTCUTS)[number]): MenuItemConstructorOptions => ({
         id: shortcut.command,
         label: shortcut.label,
         accelerator: shortcut.accelerator,
@@ -41,6 +41,7 @@ export function buildMenuTemplate(
         label: "View",
         submenu: [
             ...layoutItems,
+            ...SESSION_SHORTCUTS.map(item),
             { type: "separator" },
             { id: "layout.reset", label: "Reset Layout", click: () => run("layout.reset") },
             { type: "separator" },

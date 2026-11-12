@@ -16,6 +16,10 @@ import "./styles/cards.css";
 import "./styles/settings.css";
 import "./styles/models.css";
 import "./styles/models-browser.css";
+import "./styles/session-tools.css";
+import "./styles/diffs.css";
+import "./styles/right-views.css";
+import "./styles/session-panes.css";
 
 const rootElement = document.getElementById("root");
 if (rootElement === null) {

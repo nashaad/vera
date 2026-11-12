@@ -86,7 +86,7 @@ each an icon and a title. The panel switches them with tabs. A container holds
 one or more views stacked on top of each other, and each view has a header that
 collapses it. The main area is not a location for views.
 
-Three views ship with the app:
+Seven views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
@@ -105,6 +105,8 @@ Three views ship with the app:
   and home path. The home path is shortened, with the user's home directory
   written as `~` and a long middle replaced by an ellipsis; hovering it shows the
   full path.
+- Review, Plan, Files and Preview, each in its own container in the right pane,
+  follow the open session; see Session tools.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
   losing and regaining the host, startup questions and the answers sent. It keeps
   the last 200 lines in memory and does not survive a restart. The panel is
@@ -149,7 +151,9 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`, `go.newChat`,
-`go.search`, `go.work`, `go.customize`, `go.settings`, `go.back` and `go.forward`.
+`go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
+`session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
+`session.copyConversation`, `session.cycleLayout` and `session.setLayout`.
 Menus and shortcuts run commands and nothing else.
 
 A view is told whether it is visible and never where it sits. A location with
@@ -360,6 +364,60 @@ connection and what Vera learned about its models. `Add a provider` explains
 that connecting one is done in the terminal with `vera` and `/provider`; the
 provider appears here once connected. Fallback after failures is not available
 from the window yet.
+
+## Session tools
+
+While a session is open, the title bar holds its tools: a background tasks pill
+when work is running, the context pill and the session menu.
+
+The context pill shows how full the context window is, as a percent when the
+model's window is known and as a token count otherwise. Before the first
+measurement it shows a dash. It opens a popover with the total, whether it was
+measured or estimated, a bar split into the system prompt parts, tool
+definitions, the conversation, anything else the total holds (`Other`) and free
+space, a mark where automatic compaction starts, and the token count it starts
+at. `List every message` lists each message with its size. `Compact…` opens the
+compact sheet.
+
+The session menu (the `…` button) has:
+
+- `Copy Conversation`, which copies the loaded conversation as Markdown.
+- `Rewind or Fork…`, which lists your prompts, newest first. `Rewind here`
+  shows how many messages stay and how many are set aside, and `Rewind` sets
+  them aside and puts that prompt back in the composer to edit. A prompt with
+  images cannot be rewound yet. `Fork from here` starts a new session from that
+  point, opens it, and puts the prompt in its composer. Rewind waits until the
+  turn ends; when the host refuses, the sheet says why and offers `Back`.
+- `Compact…`, which shows the current use and runs a compaction. The sheet
+  shows `Compacting…` while it runs, then the result, such as
+  `Compacted the conversation from 46K to 12K tokens.` or
+  `Nothing to compact yet.`
+- `Subagents`, which lists the session's subagents with their status. `Open`
+  shows one in a second pane beside the conversation, `Go to` opens its own
+  page, and `Stop` stops a running one. Subagents still starting, which the host
+  has not listed yet, show by title.
+- `One Pane`, `Subagent Beside` and `Subagent Below`, which choose how the
+  second pane sits. Cmd+Alt+A cycles them. The second pane shows the subagent
+  you opened, or else the running one, or else the newest. It updates live and
+  has no composer.
+
+The background tasks pill shows how many subagents and background agents are
+running. It opens the tasks sheet, which lists the subagents as above. The host
+does not list background shell processes, and the sheet says so.
+
+When a turn edits files, its end shows a card with the number of files edited
+and the lines added and removed. Each file row opens to its patch, cut at 400
+lines. `Review` opens the Review view. Review lists the files changed in the
+last turn, or in the whole session, with their patches. Plan shows the newest
+checklist Vera wrote in its scratch folder: the title, how many items are done,
+a bar and the items, with the item just finished marked. Files shows the
+session's folder and says the host does not serve a file tree; Preview says the
+host does not serve previews. While the right pane is closed, a rail at the
+right of the session page opens these views.
+
+When the host runs a turn on a different model than the one picked, a line in
+the conversation says which model it used, marked `subagent` when a subagent's
+model was swapped. Retries and failures show as strips in the column.
 
 ## Finding the host
 

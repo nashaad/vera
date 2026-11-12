@@ -36,7 +36,7 @@ describe("parsing the watch connection", () => {
         expect(parseSessionLine("[]")).toBeUndefined();
         expect(parseSessionLine('{"seq":1}')).toBeUndefined();
         expect(parseSessionLine('{"type":"mystery","seq":2}')).toBeUndefined();
-        expect(parseSessionLine('{"type":"background_agents","running":0,"children":[],"has_parent":false}')).toBeUndefined();
+        expect(parseSessionLine('{"type":"background_agents","children":[],"has_parent":false}')).toBeUndefined();
         expect(parseSessionLine('{"type":"status","state":"sleeping","seq":3}')).toBeUndefined();
         expect(parseSessionLine('{"type":"assistant_delta","seq":4}')).toBeUndefined();
         expect(parseSessionLine('{"type":"history","seq":5}')).toBeUndefined();
@@ -48,7 +48,7 @@ describe("parsing the watch connection", () => {
     });
 
     test("an entry of a kind the view does not show keeps its place in the list", () => {
-        expect(line({ type: "history", entries: [{ kind: "empty" }, { kind: "user", id: "u1", text: "hi" }], status: "working" }))
+        expect(line({ type: "history", entries: [{ kind: "hook_context", phase: "pre_turn" }, { kind: "user", id: "u1", text: "hi" }], status: "working" }))
             .toEqual({
                 type: "history",
                 entries: [{ kind: "other" }, { kind: "user", id: "u1", text: "hi" }],
@@ -120,9 +120,10 @@ describe("history entries to blocks", () => {
                 ],
             },
             { kind: "text", key: "a1", text: "Done." },
-            { kind: "notice", key: "e1", tone: "error", text: "aborted" },
+            { kind: "notice", key: "e1", tone: "info", text: "Stopped." },
             { kind: "notice", key: "h9", tone: "info", text: "Context trimmed" },
             { kind: "notice", key: "h10", tone: "error", text: "Hook blocked" },
+            { kind: "notice", key: "h11", tone: "info", text: "This turn ended with nothing to show." },
         ]);
     });
 
@@ -146,14 +147,14 @@ describe("history entries to blocks", () => {
         expect(group?.kind === "tools" && group.calls.map((call) => call.output)).toEqual(["first", "second"]);
     });
 
-    test("an error with no detail names its outcome, and a missing id falls back to the index", () => {
+    test("an error with no detail says the turn failed, and a missing id falls back to the index", () => {
         const blocks = blocksOf([
             { kind: "user", text: "first" },
             { kind: "error", outcome: "error" },
         ]);
         expect(blocks).toEqual([
             { kind: "user", key: "h0", text: "first" },
-            { kind: "notice", key: "h1", tone: "error", text: "error" },
+            { kind: "notice", key: "h1", tone: "error", text: "The turn failed." },
         ]);
     });
 });

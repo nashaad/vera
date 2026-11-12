@@ -403,3 +403,87 @@ export function ProbeIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function GaugeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 18a8 8 0 1 1 16 0" />
+            <path d="m12 14 4-4" />
+        </Icon>
+    );
+}
+
+export function RewindIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M20 11a8 8 0 1 0-2 6.5" />
+            <path d="M20 5v6h-6" />
+        </Icon>
+    );
+}
+
+export function AgentIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="4" y="8" width="16" height="12" rx="3" />
+            <path d="M12 4v4" />
+            <path d="M9 14h.01" />
+            <path d="M15 14h.01" />
+        </Icon>
+    );
+}
+
+export function FileIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5" />
+        </Icon>
+    );
+}
+
+export function EyeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+            <circle cx="12" cy="12" r="2.5" />
+        </Icon>
+    );
+}
+
+export function DiffIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 4v10" />
+            <path d="M3 9h10" />
+            <path d="M11 19h10" />
+        </Icon>
+    );
+}
+
+export function InboxIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M3 13h5l1.5 3h5L16 13h5" />
+            <path d="M5 5h14l2 8v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z" />
+        </Icon>
+    );
+}
+
+export function ClockIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 7.5V12l3 2" />
+        </Icon>
+    );
+}
+
+export function ColumnsIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3" y="4" width="18" height="16" rx="2.5" />
+            <path d="M12 4v16" />
+        </Icon>
+    );
+}
