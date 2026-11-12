@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { createTuiExperimentalEventBus } from "../../clients/tui/experimental-tui-events.ts";
 import {
     createRenderCoalescer,
     isCoalescedUpdate,
@@ -74,6 +75,59 @@ test("a burst of reasoning deltas paints once", () => {
     expect(clock.renders()).toBe(0);
     clock.tick();
     expect(clock.renders()).toBe(1);
+});
+
+test("a changed transcript waits for the timer", () => {
+    const clock = testClock();
+    clock.coalescer.request("transcript_changed");
+
+    expect(clock.renders()).toBe(0);
+    expect(clock.delays).toEqual([250]);
+    clock.tick();
+    expect(clock.renders()).toBe(1);
+});
+
+test("a render that reports a changed transcript does not render again before it returns", () => {
+    let pending: (() => void) | undefined;
+    let renders = 0;
+    let insideRender = false;
+    let nestedRenders = 0;
+    const transcript = [{ role: "assistant" as const, text: "streamed" }];
+    const bus = createTuiExperimentalEventBus(
+        () => {},
+        (updateType) => coalescer.request(updateType),
+    );
+    const coalescer = createRenderCoalescer({
+        render: () => {
+            renders += 1;
+            if (insideRender) nestedRenders += 1;
+            insideRender = true;
+            bus.transcriptChanged(transcript);
+            insideRender = false;
+        },
+        setTimer: (run) => {
+            pending = run;
+            return 1;
+        },
+        clearTimer: () => {
+            pending = undefined;
+        },
+    });
+    bus.events.on("fixture", "transcript_changed", () => {});
+
+    function tick(): void {
+        const run = pending;
+        pending = undefined;
+        run?.();
+    }
+
+    coalescer.request("transcript_changed");
+    tick();
+    expect(renders).toBe(1);
+
+    tick();
+    expect(renders).toBe(2);
+    expect(nestedRenders).toBe(0);
 });
 
 test("the last delta of a burst still lands", () => {

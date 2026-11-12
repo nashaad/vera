@@ -346,6 +346,85 @@ test("streamed reasoning shows live and is rebuilt from what arrived", () => {
     expect(state.pendingThinking).toBe("first part");
 });
 
+test("a run of live reasoning deltas rewrites one row in place", () => {
+    let state = createTuiState();
+    for (const text of ["weighing ", "the ", "two"]) {
+        state = applyAgentUpdate(state, {
+            type: "assistant_thinking",
+            text,
+            seq: 1,
+        });
+    }
+
+    expect(state.entries).toEqual([{ kind: "thinking", text: "weighing the two" }]);
+
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "Answer",
+        seq: 2,
+    });
+    for (const text of [" order", "ings"]) {
+        state = applyAgentUpdate(state, {
+            type: "assistant_thinking",
+            text,
+            seq: 3,
+        });
+    }
+
+    expect(state.entries).toEqual([
+        { kind: "thinking", text: "weighing the two orderings" },
+        { kind: "assistant", text: "Answer" },
+    ]);
+    expect(state.pendingThinking).toBe("weighing the two orderings");
+});
+
+test("live reasoning after a tool call moves to the end of the transcript", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "reading ",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "search",
+        args: { pattern: "fold" },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "assistant_thinking",
+        text: "the suffix",
+        seq: 3,
+    });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "tool_header",
+        "tool",
+        "thinking",
+    ]);
+    expect(state.entries.at(-1)?.text).toBe("reading the suffix");
+});
+
+test("a live reasoning row behind an answer moves in front of it", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        entries: [
+            { kind: "assistant", text: "Answer" },
+            { kind: "thinking", text: "first " },
+        ],
+        pendingThinking: "first ",
+    }, {
+        type: "assistant_thinking",
+        text: "part",
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([
+        { kind: "thinking", text: "first part" },
+        { kind: "assistant", text: "Answer" },
+    ]);
+    expect(state.pendingThinking).toBe("first part");
+});
+
 test("a history rebuild keeps the last request recipe when occupancy arrives without one", () => {
     const projection = {
         estimatedTokens: 100,

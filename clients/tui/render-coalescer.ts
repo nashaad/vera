@@ -6,6 +6,8 @@ const COALESCED_UPDATES: ReadonlySet<string> = new Set([
     "model_activity",
     "context",
     "status",
+    // Reported from inside a render, so an immediate repaint would nest.
+    "transcript_changed",
 ]);
 
 export function isCoalescedUpdate(type: string): boolean {
