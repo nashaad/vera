@@ -3168,10 +3168,20 @@ function dropPendingAssistantText(state: TuiState): TuiState {
 }
 
 function appendThinkingText(state: TuiState, text: string): TuiState {
-    return withLiveThinking({
-        ...state,
-        pendingThinking: (state.pendingThinking ?? "") + text,
-    });
+    const pendingThinking = (state.pendingThinking ?? "") + text;
+    const entries = state.entries;
+    const last = entries.at(-1);
+    const index = last?.kind === "thinking"
+        ? entries.at(-2)?.kind === "assistant" ? -1 : entries.length - 1
+        : last?.kind === "assistant"
+        ? entries.length - 2
+        : -1;
+    if (pendingThinking.length > 0 && entries[index]?.kind === "thinking") {
+        const next = [...entries];
+        next[index] = { kind: "thinking", text: pendingThinking };
+        return { ...state, pendingThinking, entries: next };
+    }
+    return withLiveThinking({ ...state, pendingThinking });
 }
 
 function withLiveThinking(state: TuiState): TuiState {
