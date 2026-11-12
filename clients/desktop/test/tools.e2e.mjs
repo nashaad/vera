@@ -1,6 +1,6 @@
 // Session tools test for the desktop shell. Run with: node clients/desktop/test/tools.e2e.mjs
 // The provider writes a scratch checklist, writes a file and edits it, then answers.
-// The test reads the rollup, the Review and Plan views, rewinds one prompt and compacts.
+// The test reads the rollup, the Review and Plan views, quotes a reply, rewinds one prompt and compacts.
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -151,7 +151,17 @@ try {
     await input.press("Enter");
     await page.waitForSelector(`text=${SECOND}`, { timeout: 30_000 });
     await until("the second turn to end", async () => (await send.getAttribute("data-mode")) === "send");
-    await sessionMenu("Rewind or Fork");
+
+    // The reply menu quotes the reply into the composer and leaves the caret there.
+    const replyMenu = async (label) => {
+        await page.locator(".turn-actions").last().getByRole("button", { name: "Reply menu" }).click();
+        await page.getByRole("menuitem", { name: label }).click();
+    };
+    await replyMenu("Quote in Reply");
+    await until("the quoted reply", async () => (await input.inputValue()).startsWith(`> ${SECOND}`));
+    if (!await input.evaluate((box) => box === document.activeElement)) throw new Error("The composer lost focus after quoting.");
+    await input.fill("");
+    await replyMenu("Rewind or Fork");
     const rows = page.locator(".rewind-row");
     await until("two prompts to rewind to", async () => (await rows.count()) === 2);
     await rows.first().getByRole("button", { name: "Rewind here" }).click();

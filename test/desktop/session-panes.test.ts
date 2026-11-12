@@ -20,6 +20,7 @@ import { conversationText } from "../../clients/ui/src/session/conversationText.
 import { offerDraft, takeDraft } from "../../clients/ui/src/session/drafts.ts";
 import type { Block, ContextState, Presentation, ToolsBlock } from "../../clients/ui/src/session/model.ts";
 import { closeCompanion, cyclePaneLayout, openCompanion, paneState, setPaneLayout } from "../../clients/ui/src/session/paneLayout.ts";
+import { quoteReply } from "../../clients/ui/src/session/quote.ts";
 import { closeSessionSheet, openedSessionSheet } from "../../clients/ui/src/session/sessionSheets.ts";
 import { childRows, companionFor, runningChildCount, unlistedChildTitles } from "../../clients/ui/src/session/subagents.ts";
 import { initialWatch } from "../../clients/ui/src/session/transcript.ts";
@@ -250,6 +251,26 @@ describe("session commands", () => {
         expect(paneState().layout).toBe("stack");
         registry.execute(SESSION_COMMANDS.cycleLayout);
         expect(paneState().layout).toBe("single");
+    });
+
+    test("a reply quotes into the open session's composer as Markdown", () => {
+        const registry = new CommandRegistry();
+        registerSessionCommands(registry);
+        registry.execute(SESSION_COMMANDS.quote, "Ahoy");
+        expect(takeDraft("agent")).toBeUndefined();
+        publishActiveSession({
+            bridge: {} as DesktopBridge,
+            agentId: "agent",
+            title: "Title",
+            chat: false,
+            watch: initialWatch("agent"),
+            send: () => undefined,
+        });
+        registry.execute(SESSION_COMMANDS.quote, "  ");
+        expect(takeDraft("agent")).toBeUndefined();
+        registry.execute(SESSION_COMMANDS.quote, "The crow keeps the map.\n\nThe gold is under the mast.\n");
+        expect(takeDraft("agent")).toBe("> The crow keeps the map.\n>\n> The gold is under the mast.\n\n");
+        expect(quoteReply("one\r\ntwo")).toBe("> one\n> two\n\n");
     });
 
     test("the conversation copies as Markdown prompts and replies without tool work", () => {

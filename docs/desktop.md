@@ -109,7 +109,11 @@ workspace and a session.
 - Settings has a list of sections on the left with a search box that filters
   them by name and keywords, and the chosen section on the right. It opens on
   Appearance. The sections sit under two headings: Settings, and Desktop for
-  what the window keeps itself.
+  what the window keeps itself. When the page is narrow the list shows only
+  each section's icon, with its name on hover, and the search box becomes a
+  search icon. Clicking that icon opens the whole list over the section;
+  Escape, a click outside or picking a section closes it again. A setting's
+  control moves under its description when there is no room beside it.
   - Appearance picks the theme and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
     motion stops the status line's dots and sweep and the fade on new words. Past
@@ -276,7 +280,8 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
-`session.copyConversation`, `session.cycleLayout` and `session.setLayout`.
+`session.copyConversation`, `session.quote`, `session.cycleLayout` and
+`session.setLayout`.
 Menus and shortcuts run commands and nothing else.
 
 A view is told whether it is visible and never where it sits. A location with
@@ -340,9 +345,12 @@ right. Under each message:
   copy button. Links are shown with their address on hover and are not opened.
   Raw HTML is never rendered.
 - Notices from Vera, such as errors, show as a strip in the column.
-- The end of each turn has a copy button and the time since its last step
-  (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact date and
-  time.
+- The end of each turn has a copy button, a `…` button and the time since its
+  last step (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact
+  date and time. The `…` menu has `Quote in Reply`, which puts the reply in the
+  composer as a Markdown quote with the caret under it, and `Rewind or Fork…`,
+  which opens the same sheet as the session menu. A subagent's pane has no `…`
+  button.
 
 The page stays at the bottom as new steps arrive unless you have scrolled up.
 It opens with the newest page of history; `Show earlier messages` at the top
@@ -867,8 +875,9 @@ line. It renames, clones and closes the session from the box, and checks that
 The tools test runs a local provider that writes a scratch checklist, writes a
 file and edits it. It checks the turn's edits roll up into one card, opens the
 change from Review, reads the checklist's progress in the Plan view, waits for
-the context pill to fill in, rewinds the newest prompt back into the composer
-and compacts from the session menu.
+the context pill to fill in, quotes a reply into the composer from its `…`
+menu, rewinds the newest prompt back into the composer and compacts from the
+session menu.
 
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page
