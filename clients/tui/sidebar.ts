@@ -70,7 +70,7 @@ export interface TuiSidebar {
         readonly speaker?: string;
     }[]): void;
     replaceRendered(blocks: readonly TuiSidebarBlock[]): void;
-    setTranscriptWindow(node: Renderable, blocks: readonly TuiSidebarBlock[]): void;
+    setTranscriptBlocks(blocks: readonly TuiSidebarBlock[] | undefined): void;
     clear(): void;
     setTheme(theme: TuiSidebarTheme, syntaxStyle: SyntaxStyle): void;
     refit(): void;
@@ -459,12 +459,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             }
             options.onLayoutChanged?.();
         },
-        setTranscriptWindow(node, nextBlocks): void {
-            if (appended.length !== 1 || appended[0]?.node !== node) {
-                removeBlocks();
-                appended.push({ node, speaker: "agent" });
-                content.add(node);
-            }
+        setTranscriptBlocks(nextBlocks): void {
             selectionBlocks = nextBlocks;
         },
         replaceRendered(nextBlocks): void {

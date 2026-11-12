@@ -1646,12 +1646,8 @@ export async function startTui(
     });
     rt.transcript.add(rt.placeholder);
 
-    rt.transcriptEntryWindow = new BoxRenderable(rt.renderer, {
-        id: "transcript-entry-window",
-        width: "100%",
-        flexDirection: "column",
-        flexShrink: 0,
-    });
+    // Entries and their spacers are direct children of the scroll content, so
+    // OpenTUI's viewport culling can skip the rows outside the viewport.
     rt.transcriptWindowTopSpacer = new BoxRenderable(rt.renderer, {
         id: "transcript-window-top-spacer",
         width: "100%",
@@ -1665,9 +1661,8 @@ export async function startTui(
         visible: false,
         flexShrink: 0,
     });
-    rt.transcriptEntryWindow.add(rt.transcriptWindowTopSpacer);
-    rt.transcriptEntryWindow.add(rt.transcriptWindowBottomSpacer);
-    rt.transcript.add(rt.transcriptEntryWindow);
+    rt.transcript.add(rt.transcriptWindowTopSpacer);
+    rt.transcript.add(rt.transcriptWindowBottomSpacer);
     rt.transcriptWorking = new TextRenderable(rt.renderer, {
         id: "transcript-working",
         width: "100%",

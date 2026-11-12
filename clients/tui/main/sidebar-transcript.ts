@@ -2,7 +2,7 @@ import { resumeTuiTranscriptFollow, tuiTranscriptAtBottom } from "../transcript-
 import { renderSidebarJump } from "./notices.ts";
 import { resetHistoryPagingState } from "../history-paging-state.ts";
 import { applyPendingHistoryAnchor } from "./render-state.ts";
-import { BoxRenderable, CliRenderEvents } from "@opentui/core";
+import { BoxRenderable, CliRenderEvents, type Renderable } from "@opentui/core";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import type { TuiAgentPane } from "../agent-pane.ts";
 import { applyPendingHistoryScroll, captureHistoryAnchor, maybeRequestEarlierHistory } from "./history-paging.ts";
@@ -28,21 +28,37 @@ interface SidebarView {
 const views = new WeakMap<TuiRuntime, SidebarView>();
 const listeners = new WeakSet<TuiRuntime>();
 
+// clear() detaches the view's nodes and an owner extension can append a block
+// outside it; the next render rebuilds instead of inserting around nothing.
+function transcriptDomOwned(rt: TuiRuntime, view: SidebarView): boolean {
+    const children = rt.sidebar.content.getChildren();
+    const top = view.runtime.transcriptWindowTopSpacer;
+    const bottom = view.runtime.transcriptWindowBottomSpacer;
+    if (!children.includes(top) || !children.includes(bottom)) return false;
+    const owned = new Set<Renderable>([top, bottom, view.runtime.transcriptAnchorSpacer]);
+    for (const node of view.runtime.entryNodes) {
+        if (node !== undefined) owned.add(node);
+    }
+    return children.every((child) => owned.has(child));
+}
+
 export function destroySidebarTranscript(rt: TuiRuntime): void {
     const view = views.get(rt);
     if (view === undefined) return;
     views.delete(rt);
     resetHistoryPagingState(view.pane.state.historyPaging, false);
-    view.runtime.transcriptEntryWindow.destroyRecursively();
+    rt.sidebar.setTranscriptBlocks(undefined);
+    for (const node of view.runtime.entryNodes) node?.destroyRecursively();
+    view.runtime.entryNodes.length = 0;
+    view.runtime.entryNodeKinds.length = 0;
+    view.runtime.transcriptWindowTopSpacer.destroyRecursively();
+    view.runtime.transcriptWindowBottomSpacer.destroyRecursively();
     view.runtime.transcriptAnchorSpacer.destroyRecursively();
     rt.sidebarEntryNodes = [];
     rt.sidebarEntryNodeKinds = [];
 }
 
 function createView(rt: TuiRuntime, pane: TuiAgentPane<IdentifiedTuiAgentClient>): SidebarView {
-    const window = new BoxRenderable(rt.renderer, {
-        id: "sidebar-transcript-window", width: "100%", flexDirection: "column", flexShrink: 0,
-    });
     const top = new BoxRenderable(rt.renderer, {
         id: "sidebar-transcript-top", width: "100%", height: 0, flexShrink: 0,
     });
@@ -52,8 +68,11 @@ function createView(rt: TuiRuntime, pane: TuiAgentPane<IdentifiedTuiAgentClient>
     const anchorSpacer = new BoxRenderable(rt.renderer, {
         id: "sidebar-transcript-anchor", width: "100%", height: 0, visible: false, flexShrink: 0,
     });
-    window.add(top);
-    window.add(bottom);
+    // Entries are direct children of the scroll content, between the spacers,
+    // so OpenTUI's viewport culling can skip the rows outside the viewport.
+    rt.sidebar.clear();
+    rt.sidebar.content.add(top);
+    rt.sidebar.content.add(bottom);
     const local: Record<string, unknown> = {
         client: pane.client,
         clientGeneration: 0,
@@ -62,7 +81,6 @@ function createView(rt: TuiRuntime, pane: TuiAgentPane<IdentifiedTuiAgentClient>
         transcript: rt.sidebar.content,
         transcriptEntryOwner: rt,
         searchLanding: undefined,
-        transcriptEntryWindow: window,
         transcriptWindowTopSpacer: top,
         transcriptWindowBottomSpacer: bottom,
         transcriptAnchorSpacer: anchorSpacer,
@@ -146,7 +164,7 @@ function syncSelection(rt: TuiRuntime, view: SidebarView): void {
             blocks.push({ node, speaker: entries[index]?.kind === "user" ? "you" : "agent" });
         }
     }
-    rt.sidebar.setTranscriptWindow(view.runtime.transcriptEntryWindow, blocks);
+    rt.sidebar.setTranscriptBlocks(blocks);
 }
 
 function frame(rt: TuiRuntime): void {
@@ -199,8 +217,11 @@ export function renderSidebarTranscript(
 ): void {
     if (pane !== rt.hostedSidebar.pane) return;
     let view = views.get(rt);
-    if (view?.pane !== pane) {
-        if (view !== undefined) destroySidebarTranscript(rt);
+    if (view !== undefined && (view.pane !== pane || !transcriptDomOwned(rt, view))) {
+        destroySidebarTranscript(rt);
+        view = undefined;
+    }
+    if (view === undefined) {
         view = createView(rt, pane);
         views.set(rt, view);
     }
@@ -217,7 +238,6 @@ export function renderSidebarTranscript(
         view.runtime.materializedEntryEnd = 0;
         view.runtime.pendingTranscriptReseed = true;
     }
-    rt.sidebar.setTranscriptWindow(view.runtime.transcriptEntryWindow, []);
     renderTranscriptEntries(view.runtime, pane.state.state.entries);
     applyPendingHistoryAnchor(view.runtime);
     syncSelection(rt, view);
