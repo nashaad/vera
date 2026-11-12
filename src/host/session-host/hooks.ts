@@ -51,7 +51,7 @@ interface SessionHookOptions {
 export function createSessionHooks(options: SessionHookOptions): Pick<AgentRegistryOptions,
     "loadContextualContributions" | "createToolHooks" | "prepareModelRequest"
     | "onTurnFinished" | "onSessionUpdated" | "onPreCompact"
-    | "onContextSizeTrigger" | "onSessionEnd"
+    | "onContextSizeTrigger" | "contextSizeLevels" | "onSessionEnd"
     | "onSubagentFinished"
 > {
     const { currentConfig, extensions, hostLog, home, startupFindings, sessionImportNotes } = options;
@@ -209,6 +209,7 @@ export function createSessionHooks(options: SessionHookOptions): Pick<AgentRegis
             payload,
             "context_size_trigger_hook_failed",
         ),
+        contextSizeLevels: () => currentConfig().context_size_events ?? [],
         onSessionEnd: (payload) => notifyHookObservers(
             configuredObservers<SessionEndHook>(currentConfig(), "session_end"),
             extensions.sessionEndHooks(),

@@ -233,6 +233,11 @@ export interface VeraConfig {
     readonly reasoning_effort?: ModelReasoningEffort;
     /** Global ceiling applied to every model's declared context window. */
     readonly context_limit?: number;
+    /**
+     * Fractions of the context window at which the context size trigger hook
+     * fires as context grows past them. Sorted ascending when loaded.
+     */
+    readonly context_size_events?: readonly number[];
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
@@ -1483,6 +1488,16 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             ),
         );
     }
+    const contextSizeEvents = parseContextSizeEvents(config.context_size_events);
+    if (contextSizeEvents === undefined) {
+        return configProblem(
+            "context_size_events",
+            expectedValue(
+                "an array of numbers above 0 and at most 1",
+                config.context_size_events,
+            ),
+        );
+    }
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -1519,6 +1534,9 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         ...(contextLimit === undefined
             ? {}
             : { context_limit: contextLimit as number }),
+        ...(config.context_size_events === undefined
+            ? {}
+            : { context_size_events: contextSizeEvents }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagent === undefined ? {} : { subagent }),
@@ -1585,6 +1603,20 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             ? {}
             : { log_max_age_days: logMaxAgeDays }),
     };
+}
+
+function parseContextSizeEvents(value: unknown): readonly number[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) return undefined;
+    const levels: number[] = [];
+    for (const entry of value) {
+        if (typeof entry !== "number" || !Number.isFinite(entry)
+            || entry <= 0 || entry > 1) {
+            return undefined;
+        }
+        levels.push(entry);
+    }
+    return [...new Set(levels)].sort((left, right) => left - right);
 }
 
 function parseHostConfig(value: unknown): VeraHostConfig | undefined {

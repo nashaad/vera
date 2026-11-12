@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ContextSizeTriggerEvent } from "../../src/engine/events.ts";
-import { contextSizeTriggerPayload } from "../../src/host/agent-registry/context-size-trigger.ts";
+import { contextSizeLevelPayload, contextSizeTriggerPayload } from "../../src/host/agent-registry/context-size-trigger.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
 const directories: string[] = [];
@@ -73,4 +73,38 @@ test("a trigger without a policy carries no threshold facts", async () => {
     expect(payload.actions).toEqual([]);
     expect(payload).not.toHaveProperty("policy");
     expect(payload).not.toHaveProperty("capacity");
+});
+
+test("a crossed level becomes a level payload with no actions", async () => {
+    const ship = await store();
+    const measurement = { tokens: 132_000, capacity: 200_000, estimated: false };
+    expect(contextSizeLevelPayload(ship, 0.7, measurement)).toEqual({
+        type: "context_size_trigger",
+        sessionId: "ship",
+        workspace: ship.header.cwd,
+        reason: "level",
+        level: 0.7,
+        actions: [],
+        tokens: 132_000,
+        tokensAfter: 132_000,
+        capacity: 200_000,
+        spawned: false,
+    });
+    expect(JSON.parse(JSON.stringify(contextSizeLevelPayload(ship, 0.7, measurement)))).toMatchObject({
+        reason: "level",
+        level: 0.7,
+    });
+    const bare = contextSizeLevelPayload(ship, 0.7, { tokens: 12_000, estimated: true });
+    expect(bare).not.toHaveProperty("capacity");
+    expect(bare).not.toHaveProperty("policy");
+});
+
+test("a subagent's level payload is marked spawned", async () => {
+    const lookout = await store("ship");
+    const payload = contextSizeLevelPayload(lookout, 0.5, {
+        tokens: 12_000,
+        capacity: 20_000,
+        estimated: false,
+    });
+    expect(payload.spawned).toBe(true);
 });

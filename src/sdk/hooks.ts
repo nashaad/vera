@@ -309,12 +309,16 @@ export interface ContextSizeTriggerHookPolicy {
     readonly kind: "ladder" | "high_low" | "every_n";
 }
 
+export type ContextSizeTriggerHookReason = ContextSizeTriggerReason | "level";
+
 export interface ContextSizeTriggerHookPayload {
     readonly type: "context_size_trigger";
     readonly sessionId: string;
     readonly workspace: string;
-    /** `pressure` when a configured policy fired. */
-    readonly reason: ContextSizeTriggerReason;
+    /** `pressure` when a policy fired, `level` when a configured fraction was crossed. */
+    readonly reason: ContextSizeTriggerHookReason;
+    /** The configured fraction that context crossed. Present for `level`. */
+    readonly level?: number;
     /** The policy whose threshold fired. */
     readonly policy?: ContextSizeTriggerHookPolicy;
     readonly actions: readonly ContextSizeAction[];
