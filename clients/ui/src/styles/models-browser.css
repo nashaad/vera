@@ -128,7 +128,7 @@
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: calc(var(--vera-space) * 2.5);
+    gap: calc(var(--vera-space) * 3.5);
     padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4);
 }
 
@@ -158,20 +158,37 @@
 .models-cutoff {
     display: inline-flex;
     align-items: center;
-    gap: calc(var(--vera-space) * 2);
+    gap: calc(var(--vera-space) * 1.75);
     white-space: nowrap;
     font-size: var(--vera-font-size-label);
     color: var(--vera-text-dim);
 }
 
+/* The native arrow sits against the edge, so the select draws its own chevron inset from it. */
+.models-select {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
 .models-cutoff select {
     height: calc(var(--vera-row-height) * 0.8);
-    padding: 0 calc(var(--vera-space) * 1.5);
+    padding: 0 calc(var(--vera-space) * 7) 0 calc(var(--vera-space) * 2.5);
     color: var(--vera-text);
     background: var(--vera-surface-input);
     border: thin solid var(--vera-border-input);
     border-radius: var(--vera-radius);
     font: inherit;
+    appearance: none;
+}
+
+.models-select-chevron {
+    position: absolute;
+    right: calc(var(--vera-space) * 2.25);
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-dim);
+    pointer-events: none;
 }
 
 .models-split {

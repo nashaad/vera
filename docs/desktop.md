@@ -587,7 +587,7 @@ has the full name and the provider. It opens a menu:
   four while the search box is empty, and Up, Down and Enter move through the
   rows. A model its provider no longer offers is greyed out.
 - When the session runs a model that is not a favorite, it shows first under
-  `Running, not in your favorites`.
+  `Running, not in favorites`.
 - `All models…` opens the Models browser.
 
 Picking a model in a session switches it and makes it the default for new
@@ -618,8 +618,10 @@ The Models browser has four tabs:
   per million tokens, a `P` for models on the score and price front, an image
   mark, and a pin that adds or removes the model from favorites. Under each
   name is its maker, when the provider names one, and its provider. A search
-  box and an `Intelligence` filter narrow the list; models the catalog hides
-  appear only in a search. Selecting a row shows its details: provider,
+  box, a `Provider` filter and an `Intelligence` filter narrow the list. The
+  `Provider` menu lists each connected provider with how many of the tab's
+  models it offers, the provider with the most models first. Models the catalog
+  hides appear only in a search. Selecting a row shows its details: provider,
   favorite, verified, images, WA score, listed and blended price, context
   window and model id, with `Run this model`, the favorites button and
   `Probe it`, which sends one short request and says whether the model passed.

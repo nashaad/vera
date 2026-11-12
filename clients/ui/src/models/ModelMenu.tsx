@@ -80,7 +80,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             )}
             {running === undefined ? null : (
                 <>
-                    <div className="model-label">Running, not in your favorites</div>
+                    <div className="model-label">Running, not in favorites</div>
                     <ModelMenuRow
                         entry={running}
                         sub={providerLabel(settings, running.provider)}
@@ -109,7 +109,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             ))}
             {rows.browse.length === 0 ? null : (
                 <>
-                    <div className="model-label">Not in your favorites</div>
+                    <div className="model-label">Not in favorites</div>
                     {rows.browse.map((entry) => (
                         <ModelMenuRow
                             key={`${entry.provider}/${entry.model}`}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { LayersIcon, SearchIcon, XIcon } from "../../components/Icons.tsx";
+import { ChevronDownIcon, LayersIcon, SearchIcon, XIcon } from "../../components/Icons.tsx";
 import { INTELLIGENCE_CUTOFFS, allModels, browseRows, type IntelligenceCutoff } from "../catalog.ts";
 import type { ModelControls, ProbeOutcome } from "../controls.ts";
 import type { ModelEntry } from "../settings.ts";
@@ -9,12 +9,26 @@ import { HelpTab } from "./HelpTab.tsx";
 import { ModelDetail } from "./ModelDetail.tsx";
 import { ModelList } from "./ModelList.tsx";
 import { providerLabel } from "../menuRows.ts";
-import { BROWSER_TABS, TAB_NOTES, type BrowserTab, cutoffLabel, entryKey, pickSelection, tabRows } from "./rows.ts";
+import {
+    ANY_PROVIDER,
+    BROWSER_TABS,
+    TAB_NOTES,
+    type BrowserTab,
+    cutoffLabel,
+    entryKey,
+    fromProvider,
+    pickSelection,
+    providerOrder,
+    tabRows,
+} from "./rows.ts";
 
 export interface ModelsBrowserProps {
     readonly controls: ModelControls;
     readonly onClose: () => void;
 }
+
+const NO_FAVORITES = "You have no favorites. Pin a model under All models.";
+const NO_MATCH = "No model clears that filter.";
 
 interface ProbeResult {
     readonly key: string;
@@ -25,6 +39,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
     const [tab, setTab] = useState<BrowserTab>("All models");
     const [query, setQuery] = useState("");
     const [cutoff, setCutoff] = useState<IntelligenceCutoff>("any");
+    const [provider, setProvider] = useState<string>(ANY_PROVIDER);
     const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
     const [probing, setProbing] = useState<string | undefined>(undefined);
     const [probed, setProbed] = useState<ProbeResult | undefined>(undefined);
@@ -44,9 +59,13 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
         () => new Set((settings?.shortlist ?? []).map(entryKey)),
         [settings],
     );
+    const providers = useMemo(() => (settings === undefined ? [] : providerOrder(settings)), [settings]);
+    const pool = useMemo(() => (settings === undefined ? [] : tabRows(tab, settings)), [settings, tab]);
+    // A provider that left the catalog falls back to Any rather than emptying the list.
+    const shownProvider = providers.includes(provider) ? provider : ANY_PROVIDER;
     const rows = useMemo(
-        () => (settings === undefined ? [] : browseRows(tabRows(tab, settings), query, cutoff)),
-        [settings, tab, query, cutoff],
+        () => browseRows(fromProvider(pool, shownProvider), query, cutoff),
+        [pool, shownProvider, query, cutoff],
     );
     const selected = pickSelection(rows, selectedKey, choice);
     const selectedId = selected === undefined ? undefined : entryKey(selected);
@@ -134,22 +153,40 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                                     />
                                 </label>
                                 <label className="models-cutoff">
+                                    Provider
+                                    <span className="models-select">
+                                        <select value={shownProvider} onChange={(event) => setProvider(event.target.value)}>
+                                            <option value={ANY_PROVIDER}>Any</option>
+                                            {providers.map((name) => (
+                                                <option key={name} value={name}>
+                                                    {`${providerName(name)} (${fromProvider(pool, name).length})`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <ChevronDownIcon className="models-select-chevron" />
+                                    </span>
+                                </label>
+                                <label className="models-cutoff">
                                     Intelligence
-                                    <select
-                                        value={cutoff}
-                                        onChange={(event) => setCutoff(event.target.value as IntelligenceCutoff)}
-                                    >
-                                        {INTELLIGENCE_CUTOFFS.map((value) => (
-                                            <option key={value} value={value}>
-                                                {cutoffLabel(value)}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <span className="models-select">
+                                        <select
+                                            value={cutoff}
+                                            onChange={(event) => setCutoff(event.target.value as IntelligenceCutoff)}
+                                        >
+                                            {INTELLIGENCE_CUTOFFS.map((value) => (
+                                                <option key={value} value={value}>
+                                                    {cutoffLabel(value)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <ChevronDownIcon className="models-select-chevron" />
+                                    </span>
                                 </label>
                             </div>
                             <div className="models-split">
                                 <ModelList
                                     rows={rows}
+                                    empty={tab === "Favorites" && pool.length === 0 ? NO_FAVORITES : NO_MATCH}
                                     selectedKey={selectedId}
                                     choice={choice}
                                     pinned={pinned}
