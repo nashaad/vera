@@ -24,7 +24,7 @@ import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts"
 import { modelLevelFacts, openModelPicker, openProviderPicker } from "./model-pickers.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { renderState } from "./render-state.ts";
-import { beginCreateSession, currentDraft } from "./session-ops.ts";
+import { beginCreateSessionKeepingTyping, currentDraft } from "./session-ops.ts";
 import { startTuiReasoningPicker } from "../settings-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import type { TuiState } from "../state.ts";
@@ -258,7 +258,6 @@ export function applyModelSwitch(
         renderState(rt);
     };
     if (isHomeClient(target)) {
-        const draft = currentDraft(rt);
-        beginCreateSession(rt, "stop", () => draft, apply);
+        beginCreateSessionKeepingTyping(rt, currentDraft(rt), apply);
     } else apply();
 }

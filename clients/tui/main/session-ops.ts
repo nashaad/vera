@@ -369,11 +369,23 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         beginCreateSession(rt, "stop");
         return;
     }
-    rt.homeTypedText = action.text;
+    beginCreateSessionKeepingTyping(rt, { text: action.text, attachmentIds: [] });
+}
+
+/** Keys typed until the conversation opens collect in `homeTypedText`; `switchToClient` would otherwise overwrite them with the draft. */
+export function beginCreateSessionKeepingTyping(
+    rt: TuiRuntime,
+    draft: TuiDraft | undefined,
+    onReady?: () => void,
+): void {
+    const alreadySwitching = rt.sessionSwitchPending;
+    if (!alreadySwitching) rt.homeTypedText = draft?.text ?? "";
     beginCreateSession(rt, "stop", () => ({
         text: rt.homeTypedText ?? "",
-        attachmentIds: [],
-    }));
+        attachmentIds: draft?.attachmentIds ?? [],
+    }), onReady);
+    // A switch that never started has nothing to end the collecting.
+    if (!rt.sessionSwitchPending) rt.homeTypedText = undefined;
 }
 
 /** Opening a restart entry dismisses it, because the session it names is now being shown. */

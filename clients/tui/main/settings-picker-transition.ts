@@ -1,4 +1,4 @@
-import { beginCreateSession, currentDraft } from "./session-ops.ts";
+import { beginCreateSession, beginCreateSessionKeepingTyping, currentDraft } from "./session-ops.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
@@ -477,8 +477,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 }
             };
             if (isHomeClient(target)) {
-                const draft = currentDraft(rt);
-                beginCreateSession(rt, "stop", () => draft, apply);
+                beginCreateSessionKeepingTyping(rt, currentDraft(rt), apply);
             } else apply();
         } else if (selection.kind === "model") {
             const chosenLevels = selection.reasoningEffort === undefined

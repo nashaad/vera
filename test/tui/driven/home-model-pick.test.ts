@@ -86,3 +86,39 @@ test("choosing a reasoning level after a model search leaves the next typing to 
         await session.close();
     }
 }, 20_000);
+
+test("text typed while a model pick opens the conversation stays in the composer", async () => {
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-tui-home-pick-typing-")),
+        dependencies: () => homeDependencies(false),
+    });
+
+    try {
+        await searchForFlash(session);
+        session.sendText("write hello");
+        await session.settle(800);
+        const pane = await session.waitForVisiblePane("write hello");
+        expect(pane).not.toContain("V  E  R  A");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
+test("text typed while a reasoning pick opens the conversation stays in the composer", async () => {
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-tui-home-pick-levels-typing-")),
+        dependencies: () => homeDependencies(true),
+    });
+
+    try {
+        await searchForFlash(session);
+        await session.waitForVisiblePane("Reasoning");
+        session.sendKey("Enter");
+        session.sendText("write hello");
+        await session.settle(800);
+        const pane = await session.waitForVisiblePane("write hello");
+        expect(pane).not.toContain("V  E  R  A");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
