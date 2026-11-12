@@ -8,6 +8,7 @@ import {
 import {
     bridgedCommandName,
     bridgedName,
+    bridgedToolNames,
     promptArguments,
 } from "../../extensions/mcp/extension.ts";
 import { contentText, McpServerClient } from "../../extensions/mcp/client.ts";
@@ -20,6 +21,9 @@ import {
 
 const FIXTURE_SERVER = fileURLToPath(
     new URL("./fixtures/mcp-stdio-server.ts", import.meta.url),
+);
+const TOOL_NAMES_SERVER = fileURLToPath(
+    new URL("./fixtures/mcp-tool-names-server.ts", import.meta.url),
 );
 const EXTENSION_DIRECTORY = fileURLToPath(
     new URL("../../extensions/mcp", import.meta.url),
@@ -56,14 +60,32 @@ test("parseMcpConfig rejects ambiguous and malformed servers", () => {
     expect(parseMcpConfig({})).toEqual([]);
 });
 
-test("bridgedName prefixes, flattens, and caps", () => {
+test("bridgedName prefixes, flattens, lowercases, and caps", () => {
     expect(bridgedCommandName("linear_app", "Summarize.PR"))
         .toBe("mcp-linear-app-summarize-pr");
     expect(bridgedName("github", "search_issues"))
         .toBe("mcp_github_search_issues");
     expect(bridgedName("linear-app", "list.my/issues"))
         .toBe("mcp_linear_app_list_my_issues");
+    expect(bridgedName("parrot", "GetParrot"))
+        .toBe("mcp_parrot_getparrot");
     expect(bridgedName("s", "x".repeat(100)).length).toBe(64);
+});
+
+test("bridgedToolNames suffixes names that bridge alike", () => {
+    expect(bridgedToolNames("parrot", ["GetParrot", "getparrot", "Perch"]))
+        .toEqual([
+            { remote: "GetParrot", name: "mcp_parrot_getparrot" },
+            {
+                remote: "getparrot",
+                name: "mcp_parrot_getparrot_2",
+                collisionName: "mcp_parrot_getparrot",
+                collidedWith: "GetParrot",
+            },
+            { remote: "Perch", name: "mcp_parrot_perch" },
+        ]);
+    expect(bridgedToolNames("s", ["x".repeat(100), "X".repeat(100)]).at(1))
+        .toMatchObject({ name: `${`mcp_s_${"x".repeat(100)}`.slice(0, 62)}_2` });
 });
 
 test("promptArguments maps positionally and the last argument takes the rest", () => {
@@ -111,6 +133,88 @@ test("client connects to a real stdio server, lists, calls, and reconnects", asy
     const revived = await client.callTool("echo", { text: "back" }, signal);
     expect(revived.text).toBe("echo: back");
     client.close();
+});
+
+test("registry loads a server with an uppercase tool name", async () => {
+    const registry = await startExtensionRegistry({
+        extensions: [{
+            path: EXTENSION_DIRECTORY,
+            enabled: true,
+            config: {
+                servers: {
+                    parrot: { command: ["bun", TOOL_NAMES_SERVER] },
+                },
+            },
+        }],
+        onFailure: (failure) => {
+            throw new Error(failure.message);
+        },
+    });
+    try {
+        const tools = registry.tools();
+        expect(tools.map((tool) => tool.definition.name)).toEqual([
+            "mcp_parrot_perch",
+            "mcp_parrot_getparrot",
+            "mcp_resource",
+        ]);
+        await expect(executeToolHandler(
+            {
+                type: "tool_call",
+                id: "call-1",
+                name: "mcp_parrot_getparrot",
+                input: {},
+            },
+            new ToolRuntime(process.cwd()),
+            new AbortController().signal,
+            tools,
+        )).resolves.toMatchObject({
+            kind: "output",
+            output: "pieces of eight",
+            isError: false,
+        });
+    } finally {
+        await registry.close();
+    }
+});
+
+test("a tool the registry refuses is skipped and the rest of the server loads", async () => {
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+    };
+    let registry: Awaited<ReturnType<typeof startExtensionRegistry>> | undefined;
+    try {
+        registry = await startExtensionRegistry({
+            extensions: [{
+                path: EXTENSION_DIRECTORY,
+                enabled: true,
+                config: {
+                    servers: {
+                        parrot: {
+                            command: ["bun", TOOL_NAMES_SERVER],
+                            env: { MCP_FIXTURE_BAD_SCHEMA: "1" },
+                        },
+                    },
+                },
+            }],
+            onFailure: (failure) => {
+                throw new Error(failure.message);
+            },
+        });
+        expect(registry.tools().map((tool) => tool.definition.name)).toEqual([
+            "mcp_parrot_perch",
+            "mcp_parrot_getparrot",
+            "mcp_resource",
+        ]);
+        expect(logged).toContain(
+            "[vera.mcp] server parrot: tool broken was skipped: "
+            + "Invalid extension tool registration",
+        );
+    } finally {
+        console.error = original;
+        await registry?.close();
+    }
 });
 
 test("registry activates the bridge and the model-facing tool round-trips", async () => {

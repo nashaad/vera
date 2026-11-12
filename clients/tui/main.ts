@@ -2119,6 +2119,8 @@ export async function startTui(
         homeNeedsProvider(rt),
     );
     rt.homeCommandMode = false;
+    rt.homeSessionName = undefined;
+    rt.homeNameRequestId = undefined;
     rt.homeSubmitPending = false;
     rt.onboardingPromptWaiting = false;
     rt.onboardingPromptRequest = undefined;

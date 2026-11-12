@@ -14,9 +14,6 @@ export interface ToolDenialBreaker {
     /** Records that a call of this tool was allowed to run. Only the same tool's counter resets: a turn that is refused one tool while hundreds of calls to other tools succeed is. */
     recordAllowed(tool: string): void;
     isWithheld(tool: string): boolean;
-    filterOffered<T extends { readonly name: string }>(
-        offered: readonly T[],
-    ): readonly T[];
 }
 
 export function createToolDenialBreaker(): ToolDenialBreaker {
@@ -40,11 +37,6 @@ export function createToolDenialBreaker(): ToolDenialBreaker {
         },
         isWithheld(tool) {
             return withheld.has(tool);
-        },
-        filterOffered(offered) {
-            return withheld.size === 0
-                ? offered
-                : offered.filter((tool) => !withheld.has(tool.name));
         },
     };
 }

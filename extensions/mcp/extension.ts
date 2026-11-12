@@ -1,4 +1,4 @@
-import { McpServerClient } from "./client.ts";
+import { McpServerClient, type McpToolDefinition } from "./client.ts";
 import { parseMcpConfig, type McpServerConfig } from "./config.ts";
 import { freshAccessToken, loginServer, TokenStore } from "./oauth.ts";
 
@@ -153,33 +153,62 @@ function registerTools(
     vera: VeraExtensionApiShape,
     client: McpServerClient,
 ): void {
-    for (const tool of client.tools) {
-        vera.tools.register({
-            name: bridgedName(client.name, tool.name),
-            description: tool.description.length > 0
-                ? `${tool.description} (MCP server: ${client.name})`
-                : `MCP tool ${tool.name} on server ${client.name}.`,
-            inputSchema: tool.inputSchema,
-            parallel: tool.readOnly,
-            permissionOperation: `mcp.${client.name}`,
-            async run(request: {
-                input: Readonly<Record<string, unknown>>;
-                signal: AbortSignal;
-            }) {
-                const result = await client.callTool(
-                    tool.name,
-                    request.input,
-                    request.signal,
-                );
-                return {
-                    output: result.text.length > 0
-                        ? result.text
-                        : "(empty result)",
-                    ...(result.isError ? { isError: true } : {}),
-                };
-            },
-        });
+    const toolsByName = new Map(client.tools.map((tool) => [tool.name, tool]));
+    for (const bridged of bridgedToolNames(
+        client.name,
+        client.tools.map((tool) => tool.name),
+    )) {
+        const tool = toolsByName.get(bridged.remote);
+        if (tool === undefined) continue;
+        if (bridged.collidedWith !== undefined) {
+            console.error(
+                `[vera.mcp] server ${client.name} has tools that bridge to `
+                + `${bridged.collisionName}: ${bridged.collidedWith} and `
+                + `${bridged.remote}; ${bridged.remote} is offered as ${bridged.name}`,
+            );
+        }
+        try {
+            registerTool(vera, client, tool, bridged.name);
+        } catch (error) {
+            console.error(
+                `[vera.mcp] server ${client.name}: tool ${tool.name} was skipped: `
+                + message(error),
+            );
+        }
     }
+}
+
+function registerTool(
+    vera: VeraExtensionApiShape,
+    client: McpServerClient,
+    tool: McpToolDefinition,
+    name: string,
+): void {
+    vera.tools.register({
+        name,
+        description: tool.description.length > 0
+            ? `${tool.description} (MCP server: ${client.name})`
+            : `MCP tool ${tool.name} on server ${client.name}.`,
+        inputSchema: tool.inputSchema,
+        parallel: tool.readOnly,
+        permissionOperation: `mcp.${client.name}`,
+        async run(request: {
+            input: Readonly<Record<string, unknown>>;
+            signal: AbortSignal;
+        }) {
+            const result = await client.callTool(
+                tool.name,
+                request.input,
+                request.signal,
+            );
+            return {
+                output: result.text.length > 0
+                    ? result.text
+                    : "(empty result)",
+                ...(result.isError ? { isError: true } : {}),
+            };
+        },
+    });
 }
 
 function registerPrompts(
@@ -265,8 +294,37 @@ function registerResourceTool(
 }
 
 export function bridgedName(server: string, remoteName: string): string {
-    const safe = remoteName.replaceAll(/[^a-zA-Z0-9_]+/g, "_");
+    const safe = remoteName.toLowerCase().replaceAll(/[^a-z0-9_]+/g, "_");
     return `mcp_${server.replaceAll("-", "_")}_${safe}`.slice(0, 64);
+}
+
+export interface BridgedToolName {
+    readonly remote: string;
+    readonly name: string;
+    readonly collisionName?: string;
+    readonly collidedWith?: string;
+}
+
+// Names stay inside the registry's alphabet, so a remote name never fails
+// registration; two remote names that bridge alike get a numeric suffix.
+export function bridgedToolNames(
+    server: string,
+    remoteNames: readonly string[],
+): readonly BridgedToolName[] {
+    const owners = new Map<string, string>();
+    return remoteNames.map((remote) => {
+        const base = bridgedName(server, remote);
+        const collidedWith = owners.get(base);
+        let name = base;
+        for (let suffix = 2; owners.has(name); suffix += 1) {
+            const tail = `_${suffix}`;
+            name = `${base.slice(0, 64 - tail.length)}${tail}`;
+        }
+        owners.set(name, remote);
+        return collidedWith === undefined
+            ? { remote, name }
+            : { remote, name, collisionName: base, collidedWith };
+    });
 }
 
 export function bridgedCommandName(server: string, remoteName: string): string {

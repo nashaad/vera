@@ -7,7 +7,8 @@ description: "Choose the model that reviews actions when permission rules need a
 
 In auto mode, Vera checks tool actions against permission rules. When those
 rules cannot decide, a separate classifier evaluates whether to allow the
-action. If it cannot return a usable decision, the tool does not run.
+action. If it cannot return a usable decision, Vera asks you whether to run
+the action.
 
 An action the rules allow runs without a notice. So does a low-risk allow
 from the classifier; the end of the turn shows how many there were, such as
@@ -82,25 +83,32 @@ Did not run
   High risk: Deletes the crow's nest outside the workspace.
 ```
 
-When the classifier cannot answer, the action does not run and the turn stops,
-because every later action would be held up the same way. A **CLASSIFIER
-FAILED** error names the tool, the classifier model, and what went wrong, with a
-**Fix** line under it:
+When the classifier cannot answer, Vera asks you the way ask mode does, so one
+failed classification does not stop the turn. The prompt names the action and
+says what went wrong, with a **Fix** line under it:
 
 ```text
-× CLASSIFIER FAILED · write did not run
-  The classifier, openai-codex/gpt-6-luna, is out of usage until 6:35 PM.
-  Fix: open /settings, then Classifier, and pick a model on another provider, or set a failsafe there.
+Permission required  bash
+The classifier, deepseek/deepseek-flash, did not answer within 60s, so Vera is asking you instead.
+Fix: open /settings, then Classifier, and pick another model, or set a failsafe there.
+$ mkdir -p build && bun test
 ```
 
 A spent subscription usage limit shows when it resets. A rate limit with no
 reset time says to wait a minute and send again, or pick a model on another
 provider. A timeout shows how long Vera waited. When no classifier model is
-set, the error says so. The error is
-saved with the conversation, so a reopened conversation shows it too. Cancelling
-a turn while the classifier works is not a failure. It says the turn was
-cancelled before the classifier answered, so the action did not run, and that
-note is saved too.
+set, the prompt says so. Whatever you choose applies to that action; Session
+and Always also stop later matching actions from being classified. If nobody
+answers, the action is denied after a minute and the model carries on without
+it.
+
+The one failure that ends the turn is an action Vera cannot describe to the
+classifier. It shows as a **CLASSIFIER FAILED** error that names the tool,
+says the action did not run, and gives a **Fix** line.
+
+Cancelling a turn while the classifier works is not a failure. It says the turn
+was cancelled before the classifier answered, so the action did not run, and
+that note is saved too.
 
 The classifier receives user turns and tool calls. It does not receive tool
 results.
@@ -110,8 +118,9 @@ results.
 A failsafe handles a classifier that errors or cannot be reached. Set it in
 `/settings` under Classifier. If the provider itself is the problem, such as
 an exhausted credit balance or a spent usage limit, pick a classifier on another
-provider there or in Defaults. Then send the request again: the turn that hit
-the failure has already stopped.
+provider there or in Defaults. While the classifier is unavailable, each
+action that needs automatic approval arrives as a prompt, so you can keep
+working. Each prompt says what failed and where to change it.
 
 ## Inspect review logs
 

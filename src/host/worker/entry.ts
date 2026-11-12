@@ -7,12 +7,7 @@ import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
-import { veraMachineDirectoryIn } from "../../profile-paths.ts";
-import { startExtensionRegistry } from "../../extensions/registry.ts";
-import type {
-    ExtensionRegistry,
-    ExtensionRegistryFailure,
-} from "../../extensions/registry.ts";
+import { startWorkerExtensions } from "./extensions.ts";
 import {
     failingWorkerAdapter,
     workerAdapterWithMiddleware,
@@ -78,34 +73,16 @@ export async function runWorker(
     const options = await started;
     let failure: string | undefined;
     let failureError: Error | undefined;
-    let activationFailure: string | undefined;
     let inbound: InboundCommandRouter | undefined;
-    const activationFailures: ExtensionRegistryFailure[] = [];
-    let extensions: ExtensionRegistry | undefined;
-    if (options.extensions !== undefined && options.extensions.length > 0) {
-        try {
-            extensions = await startExtensionRegistry({
-                extensions: options.extensions,
-                ...(options.home === undefined
-                    ? {}
-                    : {
-                        storageRoots: {
-                            profile: options.home,
-                            machine: veraMachineDirectoryIn(options.home),
-                        },
-                    }),
-                onFailure: (extensionFailure) => {
-                    activationFailures.push(extensionFailure);
-                },
-            });
-        } catch (error) {
-            failureError = error instanceof Error ? error : new Error(String(error));
-            failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
-        }
-    }
-    if (activationFailures.length > 0) {
-        activationFailure = activationFailures.map(activationFailureDetail)
-            .join("; ");
+    const extensionStart = await startWorkerExtensions(
+        options.extensions,
+        options.home,
+    );
+    const extensions = extensionStart.registry;
+    const activationFailure = extensionStart.activationFailure;
+    if (extensionStart.startFailure !== undefined) {
+        failureError = extensionStart.startFailure;
+        failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
     }
     let replicaDiverged: (error: Error) => void = () => {};
     const replicaFailure = new Promise<never>((_resolve, reject) => {
@@ -277,11 +254,6 @@ function forwardUpdates(
             pipe.notify({ method: "client.update", update });
         }
     })();
-}
-
-function activationFailureDetail(failure: ExtensionRegistryFailure): string {
-    return `Extension ${failure.extensionId ?? failure.path} failed to activate: `
-        + failure.message;
 }
 
 async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {

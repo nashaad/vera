@@ -44,7 +44,7 @@ conversation unless they open a broader browser.
 | `/search` | Search past work. |
 | `/work` | Show conversations that need you or are running. |
 | `/sidebar` | Show or hide the sidebar of running conversations. Same as Ctrl+X, then B. |
-| `/rename [name]` | Name the conversation, or remove its name when omitted. |
+| `/rename [name]` | Name the conversation, or remove its name when omitted. On the start screen it names the conversation your first message starts. |
 | `/clone` | Duplicate the conversation. |
 | `/fork` | Choose an earlier prompt to fork from. |
 | `/rewind` | Choose a point to rewind the active conversation. |

@@ -5363,7 +5363,7 @@ test("repeated reviewer denials stop the turn", async () => {
     expect(state.messages.at(-1)).toEqual(message);
 });
 
-test("auto rejects without asking when no reviewer is configured", async () => {
+test("auto asks instead of ending the turn when no reviewer is configured", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, undefined);
@@ -5371,32 +5371,22 @@ test("auto rejects without asking when no reviewer is configured", async () => {
     channel.client.send({ type: "prompt", content: "go" });
     const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
 
-    const updates: string[] = [];
-    while (true) {
-        const update = await channel.client.receive();
-        updates.push(update.type);
-        if (update.type === "turn_finished") {
-            break;
-        }
-    }
+    const reason = await answerToolApproval(channel, "allow_once");
+    expect(reason).toContain("No classifier model is set");
+    expect(reason).toContain("Fix:");
+    const updates = await receiveThroughTurnFinished(channel);
     const message = await turn;
 
-    expect(updates).toContain("tool_review");
-    expect(updates).not.toContain("ui_request");
-    expect(updates).not.toContain("tool_started");
+    expect(updates.map((update) => update.type)).toContain("tool_started");
     expect(state.messages[2]).toMatchObject({
         role: "tool_result",
-        isError: true,
+        isError: false,
     });
-    expect(state.messages[2]).toMatchObject({ withheld: true, classifierOutcome: { kind: "failed" } });
-    expect(JSON.stringify(state.messages[2]))
-        .toContain("automatic classifier is not configured");
-    // With no classifier every later call is withheld too, so the turn stops.
-    expect(message.stopReason).toBe("error");
-    expect(message.classifierFailure).toEqual({ tool: "bash", kind: "no_route" });
+    expect(message.stopReason).toBe("stop");
+    expect(JSON.stringify(message)).toContain("done");
 });
 
-test("a classifier that cannot answer ends the turn with its failure facts", async () => {
+test("a classifier failure asks instead of ending the turn", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const failure = {
@@ -5412,10 +5402,14 @@ test("a classifier that cannot answer ends the turn with its failure facts", asy
         userAuthorization: "unknown",
         failure,
     }));
-    const adapter = new FauxAdapter(boundaryCrossingResponses());
 
     channel.client.send({ type: "prompt", content: "go" });
-    const turn = runTurn(adapter, "test", state);
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+
+    const reason = await answerToolApproval(channel, "deny");
+    expect(reason).toContain("openai-codex/gpt-6-luna");
+    expect(reason).toContain("asking you instead");
+    expect(reason).toContain("Fix:");
     const updates = await receiveThroughTurnFinished(channel);
     const message = await turn;
 
@@ -5423,24 +5417,114 @@ test("a classifier that cannot answer ends the turn with its failure facts", asy
         role: "tool_result",
         isError: true,
         withheld: true,
+    });
+    expect(JSON.stringify(state.messages[2])).toContain("denied by the user");
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    // The failed review is not drawn as a withheld call; the prompt replaced it.
+    expect(updates.map((update) => update.type)).not.toContain("tool_review");
+    expect(JSON.stringify(state.messages)).toContain("done");
+    expect(message.stopReason).toBe("stop");
+    expect(message.classifierFailure).toBeUndefined();
+});
+
+test("a classifier timeout asks instead of ending the turn", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "unavailable",
+        reason: "The approval classifier timed out after 60s. The action did not run.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        failure: {
+            classifier: "deepseek/deepseek-flash",
+            kind: "timeout" as const,
+            timeoutMs: 60_000,
+        },
+    }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const reason = await answerToolApproval(channel, "allow_once");
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(reason).toContain("did not answer within 60s");
+    expect(reason).toContain("asking you instead");
+    expect(updates.map((update) => update.type)).toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: false,
+    });
+    expect(message.stopReason).toBe("stop");
+    expect(JSON.stringify(message)).toContain("done");
+});
+
+test("an unreadable classifier answer asks instead of ending the turn", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "unavailable",
+        reason: "The approval classifier gave an answer Vera could not read.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        failure: {
+            classifier: "deepseek/deepseek-flash",
+            kind: "unreadable" as const,
+            detail: "expected a JSON object with a decision",
+        },
+    }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const reason = await answerToolApproval(channel, "deny");
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(reason).toContain("could not read");
+    expect(reason).toContain("asking you instead");
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        withheld: true,
+    });
+    expect(JSON.stringify(state.messages)).toContain("done");
+    expect(message.stopReason).toBe("stop");
+    expect(message.classifierFailure).toBeUndefined();
+});
+
+test("a classifier that cannot describe the action still ends the turn", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "unavailable",
+        reason: "The approval classifier could not describe this action, so the action did not run.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        failure: {
+            classifier: "deepseek/deepseek-flash",
+            kind: "undescribed" as const,
+        },
+    }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(updates.map((update) => update.type)).not.toContain("ui_request");
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        withheld: true,
         classifierOutcome: { kind: "failed" },
     });
-    expect(updates.map((update) => update.type)).not.toContain("tool_started");
-    // Clients draw the call that did not run from these args.
-    expect(updates.find((update) => update.type === "tool_review")).toMatchObject({
-        tool: "bash",
-        args: { command: "env" },
-        decision: "unavailable",
-    });
-    // The model is not asked again: its next call would be withheld the same way.
-    expect(JSON.stringify(state.messages)).not.toContain("done");
     expect(message.stopReason).toBe("error");
-    expect(message.classifierFailure).toEqual({ tool: "bash", ...failure });
-    expect(state.messages.at(-1)).toEqual(message);
-    expect(updates.at(-1)).toMatchObject({
-        type: "turn_finished",
-        outcome: "error",
-        classifierFailure: { tool: "bash", ...failure },
+    expect(message.classifierFailure).toEqual({
+        tool: "bash",
+        classifier: "deepseek/deepseek-flash",
+        kind: "undescribed",
     });
 });
 
@@ -5503,6 +5587,28 @@ async function expectContextMeasured(
     expect(update.seq).toBe(seq);
     expect(update.measurement.tokens).toBeGreaterThan(0);
     expect(typeof update.measurement.estimated).toBe("boolean");
+}
+
+async function answerToolApproval(
+    channel: InProcessChannel,
+    decision: "allow_once" | "deny",
+): Promise<string> {
+    let requestId = "";
+    let reason = "";
+    while (requestId.length === 0) {
+        const update = await channel.client.receive();
+        if (update.type !== "ui_request") continue;
+        requestId = update.requestId;
+        if (update.request.type === "tool_approval") {
+            reason = update.request.reason;
+        }
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "tool_approval", decision },
+    });
+    return reason;
 }
 
 async function receiveThroughTurnFinished(

@@ -97,6 +97,44 @@ test("a classifier denial stays in the transcript after the turn ends", async ()
     }
 }, 15_000);
 
+test("a classifier timeout asks the user and keeps the turn going", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-auto-timeout-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 24,
+        dependencies: () => createTuiAutoReviewDependencies(home, "timeout"),
+    });
+    let pane = "";
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("run the routine command");
+        session.sendKey("Enter");
+
+        pane = await session.waitForVisiblePane("Permission required");
+        const flat = pane
+            .split("\n")
+            .map((line) => line.replace(/^┃\s?/, "").trim())
+            .join(" ");
+        expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
+            .toBe("timed out\n");
+        expect(pane).toContain("1 Allow once");
+        expect(flat).toContain("did not answer within 60s, so Vera is asking you instead.");
+        expect(flat).toContain("Fix: open /settings, then Classifier");
+        expect(pane).not.toContain("CLASSIFIER FAILED");
+
+        session.sendKey("1");
+        pane = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
+        expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
+        expect(pane).not.toContain("CLASSIFIER FAILED");
+        expect(pane).not.toContain("Permission required");
+        expect(pane).not.toContain("Did not run");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("approval actions stay visible above long details", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-approval-layout-"));
     const session = await startTuiTestSession({

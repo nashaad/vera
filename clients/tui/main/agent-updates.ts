@@ -126,11 +126,19 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 update.type === "session_name"
                 || update.type === "session_name_rejected"
             ) {
-                if (update.requestId !== rt.pendingSessionRename?.requestId) {
+                const heldName = update.requestId === rt.homeNameRequestId;
+                if (
+                    !heldName
+                    && update.requestId !== rt.pendingSessionRename?.requestId
+                ) {
                     continue;
                 }
-                const pending = rt.pendingSessionRename;
-                rt.pendingSessionRename = undefined;
+                const pending = heldName ? undefined : rt.pendingSessionRename;
+                if (heldName) {
+                    rt.homeNameRequestId = undefined;
+                } else {
+                    rt.pendingSessionRename = undefined;
+                }
                 if (update.type === "session_name") {
                     rt.state = appendTuiNotice(
                         rt.state,
@@ -147,7 +155,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     }
                 } else {
                     if (
-                        pending.commandText !== undefined
+                        pending?.commandText !== undefined
                         && rt.composer.expandedText().length === 0
                     ) {
                         rt.composer.setComposerText(pending.commandText);

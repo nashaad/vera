@@ -16,7 +16,7 @@ import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiAutoReviewDependencies(
     home: string,
-    decision: "allow" | "deny" = "allow",
+    decision: "allow" | "deny" | "timeout" = "allow",
 ): TuiDependencies {
     const source = { provider: "faux", api: "scripted", model: "test" } as const;
     const responses: AssistantMessage[] = [
@@ -53,8 +53,25 @@ export function createTuiAutoReviewDependencies(
             reviewToolCall: async () => {
                 writeFileSync(
                     join(home, "auto-review-invoked"),
-                    decision === "allow" ? "allowed\n" : "denied\n",
+                    decision === "allow"
+                        ? "allowed\n"
+                        : decision === "deny"
+                            ? "denied\n"
+                            : "timed out\n",
                 );
+                if (decision === "timeout") {
+                    return {
+                        decision: "unavailable" as const,
+                        reason: "The approval classifier timed out after 60s. The action did not run.",
+                        riskLevel: "high" as const,
+                        userAuthorization: "unknown" as const,
+                        failure: {
+                            classifier: "deepseek/deepseek-flash",
+                            kind: "timeout" as const,
+                            timeoutMs: 60_000,
+                        },
+                    };
+                }
                 return decision === "allow"
                     ? {
                         decision: "allow",
