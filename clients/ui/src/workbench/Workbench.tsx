@@ -49,7 +49,7 @@ export function Workbench({ platform, banner, onTitleBarHeight }: WorkbenchProps
             ) : (
                 <DropStrip location="sidebar" />
             )}
-            <div className="stage">
+            <div className="stage" style={{ minWidth: MAIN_MIN_WIDTH }}>
                 <TitleBar
                     title={routeTitle(route)}
                     sidebarShown={sidebar}

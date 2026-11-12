@@ -29,6 +29,38 @@ async function box(page, selector) {
     return found;
 }
 
+// At the window's minimum width with both side panes open, the main area keeps its own column
+// and the composer's controls sit side by side without covering each other.
+async function assertNarrowFits(app, page) {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(720, 800));
+    await page.waitForFunction(() => window.innerWidth <= 720, null, { timeout: 5_000 });
+    const stage = await box(page, ".stage");
+    const center = await box(page, ".center");
+    const sidebar = await box(page, location("sidebar"));
+    const pane = await box(page, location("rightPane"));
+    if (sidebar.width < 159 || pane.width < 239) throw new Error(`A side pane went under its minimum: ${sidebar.width}, ${pane.width}.`);
+    if (center.x + center.width > stage.x + stage.width + 1) throw new Error("The main area spills out of its column.");
+    if (stage.x + stage.width > pane.x + 1) throw new Error("The main area runs under the right pane.");
+    const bar = await box(page, ".composer-bar");
+    const controls = await page.locator(".composer-bar :is(.round-button, .pill-button, .send-button)").evaluateAll((nodes) =>
+        nodes.map((node) => node.getBoundingClientRect()).map((rect) => ({ left: rect.left, right: rect.right })));
+    controls.sort((a, b) => a.left - b.left);
+    for (let index = 1; index < controls.length; index += 1) {
+        if (controls[index].left < controls[index - 1].right - 0.5) throw new Error("Two composer controls overlap.");
+    }
+    if (controls.some((control) => control.left < bar.x - 0.5 || control.right > bar.x + bar.width + 0.5)) {
+        throw new Error("A composer control spills out of the composer.");
+    }
+    // A pill shrinks before its text does, so the text has to stay inside its own pill.
+    const spilled = await page.locator(".composer-bar .pill-button :is(.pill-label, .pill-sub)").evaluateAll((labels) =>
+        labels.filter((label) => {
+            const inner = label.getBoundingClientRect();
+            const outer = label.closest(".pill-button").getBoundingClientRect();
+            return inner.left < outer.left - 0.5 || inner.right > outer.right + 0.5;
+        }).map((label) => label.textContent));
+    if (spilled.length > 0) throw new Error(`Pill text runs out of its pill: ${spilled.join(", ")}.`);
+}
+
 async function dragSessionsToPanel(page) {
     const source = await box(page, sessionsHeader);
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
@@ -154,6 +186,10 @@ try {
     await second.page.waitForSelector("main[data-page=\"work\"]", { timeout: 5_000 });
     await press(second.app, "N", [modifier]);
     await second.page.waitForSelector("main[data-page=\"home\"]", { timeout: 5_000 });
+
+    await press(second.app, "B", [modifier, "alt"]);
+    await second.page.waitForSelector(location("rightPane"), { timeout: 5_000 });
+    await assertNarrowFits(second.app, second.page);
 
     console.log(`layout e2e passed: ${trial.home}`);
 } finally {

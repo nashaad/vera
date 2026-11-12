@@ -1,5 +1,5 @@
 import { HeaderToggle } from "../components/HeaderToggle.tsx";
-import { LOCATION_TITLES, type LocationId } from "../layout/model.ts";
+import { LOCATION_SIZES, LOCATION_TITLES, type LocationId } from "../layout/model.ts";
 import { useWorkbench } from "./context.tsx";
 import { useDrag, useDropTarget } from "./drag.tsx";
 import { SidebarFoot } from "./SidebarFoot.tsx";
@@ -50,8 +50,11 @@ export function LocationPane({ location }: LocationPaneProps) {
         </div>
     );
 
-    // The size is the width of a side pane and the height of the panel.
-    const size = location === "panel" ? { height: resolved.size } : { width: resolved.size };
+    // The size is the height of the panel. A side pane's width is its basis and gives way, down
+    // to its minimum, when the window is too narrow for the main area's minimum.
+    const size = location === "panel"
+        ? { height: resolved.size }
+        : { flex: `0 1 ${resolved.size}px`, minWidth: LOCATION_SIZES[location].min };
     return (
         <section
             className="location"

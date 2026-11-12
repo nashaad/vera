@@ -428,6 +428,14 @@
     border: 0;
     border-radius: var(--vera-radius);
     cursor: pointer;
+    overflow: hidden;
+}
+
+.pill-button .pill-label,
+.pill-button .pill-sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pill-button:hover:not(:disabled),
