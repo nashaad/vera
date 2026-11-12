@@ -27,6 +27,8 @@ export interface BootInspection {
     // A message when the active release cannot run; undefined when it can or when no release is installed.
     readonly releaseProblem?: string;
     readonly bootLoop: boolean;
+    // A fault no repair here can fix, such as a refused config or an unusable home; boot reports it as it is.
+    readonly startBlocker?: { readonly label: string; readonly error: Error };
 }
 
 export interface RecoveryResult {
@@ -67,8 +69,11 @@ export interface BootQuestion {
 }
 
 export class BootFailedError extends Error {
+    readonly reason: string;
+
     constructor(readonly checks: readonly BootCheck[], cause: unknown) {
         super(`Vera could not start a host: ${errorText(cause)}`);
+        this.reason = errorText(cause);
         this.name = "BootFailedError";
     }
 }
@@ -102,6 +107,12 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
     }
     const inspection = await deps.inspect();
     const healthy = inspection.hostAnswers && inspection.lock === "live";
+    if (!healthy && inspection.startBlocker !== undefined) {
+        const { label, error } = inspection.startBlocker;
+        checks.push(...describe(inspection), { label, status: "failed", detail: errorText(error).split("\n")[0]! });
+        if (deps.full === true) deps.render(checks);
+        throw error;
+    }
     if (healthy) {
         try {
             const host = await deps.start("default");
@@ -159,7 +170,7 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
             checks.push({ label: "Host start, previous release", status: "failed", detail: errorText(error) });
         }
     }
-    const fresh = await startFromStash(deps, checks, inspection);
+    const fresh = await startFromStash(deps, checks, inspection, lastError);
     if (fresh !== undefined) return fresh;
     deps.render(checks);
     throw new BootFailedError(checks, lastError);
@@ -171,11 +182,12 @@ async function startFromStash(
     deps: BootDependencies,
     checks: BootCheck[],
     inspection: BootInspection,
+    cause: unknown,
 ): Promise<HostLockRecord | undefined> {
     if (deps.stash === undefined || deps.restoreStash === undefined) return undefined;
     const unknown = inspection.unknownProcesses ?? [];
     const before = [
-        "Vera could not start with its current runtime folder.",
+        `Vera could not start with its current runtime folder${cause === undefined ? "." : `: ${errorText(cause)}`}`,
         ...(unknown.length === 0 ? [] : ["These processes could not be identified and will be left running:", ...unknown.map((line) => `  ${line}`)]),
         "Move the runtime folder to a stash and start fresh? The inbox, schedules and session blocks are copied over, and the stash can be put back.",
     ].join("\n");

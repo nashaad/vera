@@ -10,10 +10,12 @@ export const BOOT_FAILURE_LIMIT = 2;
 export { HOST_STARTUP_RACE_EXIT_CODE };
 
 export class HostBootLoopError extends Error {
-    constructor(count: number) {
+    constructor(readonly count: number, readonly startupCause?: string) {
         super(
             `The resident host exited during startup ${count} times in a row;`
-                + " not respawning it. Fix the host build, then retry."
+                + " not respawning it."
+                + (startupCause === undefined ? "" : ` The host reported: ${startupCause}`)
+                + " Fix the host build, then retry."
                 + " Run 'vera host stop --force' after you fix the build.",
         );
         this.name = "HostBootLoopError";

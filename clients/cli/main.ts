@@ -65,6 +65,10 @@ import {
 } from "../../src/host/supervision.ts";
 import { residentHostEntrypoint, residentHostSpawnSpec } from "../host/launch.ts";
 import { isCompiledRelease } from "../../src/release/runtime-path.ts";
+import { isDefaultConfigError, recoverConfig } from "./config-recovery.ts";
+import { confirmBusyHostUpgrade, confirmHostReset } from "./startup-confirm.ts";
+import type { CardPresenter } from "./startup-prompt.ts";
+import { hostHomeProblem } from "../../src/host/startup-failure.ts";
 import { renderCliFailure } from "./failure.ts";
 
 export { renderCliFailure } from "./failure.ts";
@@ -191,6 +195,7 @@ import {
     renderExtensionMutation,
 } from "../../src/extensions/manager-command.ts";
 const PROVIDER_CHECK_FLAG = "--check-providers";
+const CONFIG_ONLY_FLAG = "--config";
 
 async function defaultProviderDoctor(
     options: ProviderDoctorOptions,
@@ -291,6 +296,8 @@ export interface CliDependencies {
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly hostResetInteractive?: boolean;
+    readonly configRecoveryInteractive?: boolean;
+    readonly confirmConfigSetAside?: (question: string) => Promise<boolean>;
     readonly hostReset?: (
         options: { readonly assumeYes: boolean },
         environment: {
@@ -458,6 +465,9 @@ export async function runCli(
         return 1;
     }
 
+    // The dispatch below reads the host lock, which fails with a bare ENOTDIR when the home is a file.
+    const unusableHome = hostHomeProblem();
+    if (unusableHome !== undefined) throw unusableHome;
     const dispatched = await (dependencies.dispatchToHostRelease
         ?? ((argv: readonly string[]) => dispatchToHostRelease({ argv })))(originalArgs);
     if (dispatched !== undefined) {
@@ -792,12 +802,28 @@ export async function runCli(
     if (
         args[0] === "doctor"
         && args.slice(1).every((arg) =>
-            arg === PROVIDER_CHECK_FLAG || arg === "--yes" || arg === "-y"
+            arg === PROVIDER_CHECK_FLAG || arg === CONFIG_ONLY_FLAG
+                || arg === "--yes" || arg === "-y"
         )
     ) {
         const checkNetwork = args.includes(PROVIDER_CHECK_FLAG);
         const doctorAssumeYes = assumeYes || args.includes("--yes")
             || args.includes("-y");
+        const configFailure = await doctorConfigFailure(
+            doctorAssumeYes,
+            output,
+            dependencies,
+        );
+        if (configFailure !== undefined) {
+            if (!configFailure.reported) {
+                errorOutput.write(`${renderCliFailure(configFailure.error)}\n`);
+            }
+            return 1;
+        }
+        if (args.includes(CONFIG_ONLY_FLAG)) {
+            output.write("Vera's config loads.\n");
+            return 0;
+        }
         const report = await (
             dependencies.doctor ?? diagnoseVeraProcesses
         )();
@@ -1469,12 +1495,120 @@ export async function runCliMain(
     args: readonly string[],
     dependencies: CliDependencies = {},
 ): Promise<number> {
+    const output = dependencies.stderr ?? stderr;
     try {
         return await runCli(args, dependencies);
     } catch (error) {
-        const output = dependencies.stderr ?? stderr;
-        output.write(`${renderCliFailure(error)}\n`);
+        const outcome = await offerConfigRecovery(error, args, dependencies);
+        if (outcome.error === undefined) {
+            try {
+                return await runCli(args, dependencies);
+            } catch (retryError) {
+                await writeFailure(retryError, output, args, dependencies);
+                return 1;
+            }
+        }
+        if (!outcome.reported) {
+            await writeFailure(outcome.error, output, args, dependencies);
+        }
         return 1;
+    }
+}
+
+// Cards are for a person at a terminal. A test double, `vera -p`, a pipe or CI keeps the plain text.
+async function startupCards(
+    args: readonly string[],
+    dependencies: CliDependencies,
+): Promise<CardPresenter | undefined> {
+    if (
+        args[0] === "-p"
+        || dependencies.stderr !== undefined
+        || dependencies.configRecoveryInteractive !== undefined
+        || dependencies.confirmConfigSetAside !== undefined
+    ) {
+        return undefined;
+    }
+    return (await import("./startup-prompt.ts")).terminalCardPresenter();
+}
+
+async function writeFailure(
+    error: unknown,
+    output: CliOutput,
+    args: readonly string[],
+    dependencies: CliDependencies,
+): Promise<void> {
+    const cards = await startupCards(args, dependencies);
+    if (cards !== undefined) {
+        const card = (await import("./failure-card.ts")).failureCard(error);
+        if (card !== undefined) {
+            cards.show(card);
+            return;
+        }
+    }
+    output.write(`${renderCliFailure(error)}\n`);
+}
+
+interface ConfigFailure {
+    readonly error: unknown;
+    // True when recoverConfig already printed the failure and its advice.
+    readonly reported: boolean;
+}
+
+function canAskOnTerminal(dependencies: CliDependencies): boolean {
+    return dependencies.configRecoveryInteractive
+        ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
+}
+
+// A terminal user is asked; `vera -p`, a pipe or CI gets the failure and the command that fixes it.
+async function offerConfigRecovery(
+    error: unknown,
+    args: readonly string[],
+    dependencies: CliDependencies,
+): Promise<ConfigFailure> {
+    if (!isDefaultConfigError(error) || args[0] === "-p" || !canAskOnTerminal(dependencies)) {
+        return { error, reported: false };
+    }
+    return recoverConfig(error, {
+        write: (text) => { (dependencies.stderr ?? stderr).write(text); },
+        confirm: dependencies.confirmConfigSetAside ?? confirmOnStandardStreams,
+        cards: await startupCards(args, dependencies),
+    });
+}
+
+// Checks Vera's own config first, because the provider check below reads it. Returns the failure left standing.
+async function doctorConfigFailure(
+    assumeYes: boolean,
+    output: CliOutput,
+    dependencies: CliDependencies,
+): Promise<ConfigFailure | undefined> {
+    try {
+        loadOptionalVeraConfig();
+        return undefined;
+    } catch (error) {
+        if (!isDefaultConfigError(error)) throw error;
+        if (!assumeYes && !canAskOnTerminal(dependencies)) {
+            return { error, reported: false };
+        }
+        const outcome = await recoverConfig(
+            error,
+            {
+                write: (text) => { output.write(text); },
+                confirm: dependencies.confirmConfigSetAside ?? confirmOnStandardStreams,
+                cards: await startupCards([], dependencies),
+            },
+            { assumeYes },
+        );
+        return outcome.error === undefined ? undefined : outcome;
+    }
+}
+
+async function confirmOnStandardStreams(question: string): Promise<boolean> {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = (await prompt.question(question)).trim().toLowerCase();
+        return answer === "y" || answer === "yes";
+    } finally {
+        prompt.close();
     }
 }
 
@@ -1704,22 +1838,6 @@ function runLogin(output: CliOutput): number {
     return 0;
 }
 
-async function confirmBusyHostUpgrade(error?: Error): Promise<boolean> {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-    const prompt = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-        const answer = await prompt.question(
-            error instanceof HostUnresponsiveError
-                ? `The resident Vera host (PID ${error.pid}) is not responding. Replace it? [y/N] `
-                : "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
-        );
-        return answer.trim().toLowerCase() === "y"
-            || answer.trim().toLowerCase() === "yes";
-    } finally {
-        prompt.close();
-    }
-}
-
 function runHostSupervision(
     keyword: string | undefined,
     output: CliOutput,
@@ -1934,17 +2052,6 @@ async function runRollbackCommand(
     }
 }
 
-async function confirmHostReset(question: string): Promise<boolean> {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-    const prompt = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-        const answer = (await prompt.question(question)).trim().toLowerCase();
-        return answer === "y" || answer === "yes";
-    } finally {
-        prompt.close();
-    }
-}
-
 async function confirmResidentHostStop(force: boolean): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
@@ -2116,9 +2223,11 @@ async function runBoot(
         }
         return 0;
     } catch (error) {
+        // runCliMain offers to set aside what a refused config failed on.
+        if (!json && isDefaultConfigError(error)) throw error;
         const message = error instanceof Error ? error.message : String(error);
         if (json) line({ type: "failed", message });
-        else errorOutput.write(`${message}\n`);
+        else errorOutput.write(`${renderCliFailure(error)}\n`);
         return 1;
     }
 }

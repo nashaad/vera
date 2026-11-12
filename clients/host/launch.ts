@@ -10,14 +10,21 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadOptionalVeraConfig, VeraConfigError } from "../../src/config.ts";
 import {
     ensureResidentHost,
+    HostStartDeadlineError,
     type EnsureResidentHostOptions,
 } from "../../src/host/discovery.ts";
 import {
     createHostLockfile,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
+import {
+    hostHomeProblem,
+    hostSocketPathProblem,
+    readHostStartupFailure,
+} from "../../src/host/startup-failure.ts";
 import {
     VERA_HOME_ENV,
     selectedVeraHome,
@@ -71,6 +78,9 @@ export async function findOrStartResidentHost(
 ): Promise<HostLockRecord> {
     const { boot, ...options } = findOptions;
     const home = selectedVeraHome();
+    // No host can exist at either fault, and every step below would fail on it with a bare errno.
+    const unusable = hostHomeProblem(home) ?? hostSocketPathProblem(home);
+    if (unusable !== undefined) throw unusable;
     const baseLockfile = options.lockfile ?? createHostLockfile();
     let pool = pooledHomes.has(home);
     const remember = (record: HostLockRecord | undefined): void => {
@@ -105,11 +115,11 @@ export async function findOrStartResidentHost(
         hostPublished: async () => (await lockfile.read()) !== undefined,
         inspect: () => inspectHome(),
         recover: () => recoverHome(),
-        start: (mode) => ensureResidentHost({
+        start: (mode) => startNamingCause(() => ensureResidentHost({
             ...options,
             lockfile,
             startHost: () => spawnDetachedResidentHost(pool, mode, releaseRoot),
-        }),
+        })),
         rollback: async () => {
             const target = rollbackTarget();
             if (target === undefined) return undefined;
@@ -118,7 +128,7 @@ export async function findOrStartResidentHost(
             return target.buildId;
         },
         clearBootFailures,
-        confirm: boot?.confirm ?? ((question) => confirmOnTerminal(`${question.text} [Y/n] `)),
+        confirm: boot?.confirm ?? confirmBootQuestion,
         stash: async (unknown) => stashRuntime(selectedVeraHome(), {
             reason: "Vera could not start with this runtime folder.",
             unknown_processes: unknown,
@@ -143,7 +153,9 @@ async function inspectHome(): Promise<BootInspection> {
     const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
     const problem = activeReleaseProblem();
     const homeProblem = homeFilesystemProblem(discovery.home);
+    const blocker = configBlocker();
     return {
+        ...(blocker === undefined ? {} : { startBlocker: blocker }),
         home: discovery.home,
         ...(homeProblem === undefined ? {} : { homeProblem }),
         hostAnswers,
@@ -157,6 +169,44 @@ async function inspectHome(): Promise<BootInspection> {
         ...(problem === undefined ? {} : { releaseProblem: problem }),
         bootLoop: recentBootFailures(Date.now()).length >= BOOT_FAILURE_LIMIT,
     };
+}
+
+// A config the host would refuse, found before a start is tried and a repair that cannot help is offered.
+function configBlocker(): BootInspection["startBlocker"] {
+    try {
+        loadOptionalVeraConfig();
+    } catch (error) {
+        if (error instanceof VeraConfigError) return { label: "Config", error };
+        return {
+            label: "Config",
+            error: new Error(
+                `Vera cannot read its config: ${error instanceof Error ? error.message : String(error)}.\n`
+                + "Fix that file's permissions or move it aside, then run Vera again.",
+            ),
+        };
+    }
+    return undefined;
+}
+
+// The host's output is discarded, so a start that timed out names the cause the host left behind.
+export async function startNamingCause(start: () => Promise<HostLockRecord>): Promise<HostLockRecord> {
+    const startedAt = Date.now();
+    try {
+        return await start();
+    } catch (error) {
+        const failure = error instanceof HostStartDeadlineError
+            ? readHostStartupFailure(startedAt)
+            : undefined;
+        if (failure === undefined) throw error;
+        throw new HostStartFailedError(failure.message);
+    }
+}
+
+export class HostStartFailedError extends Error {
+    constructor(reason: string) {
+        super(`The Vera host stopped while starting: ${reason}`);
+        this.name = "HostStartFailedError";
+    }
 }
 
 // Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
@@ -233,6 +283,15 @@ async function stopStartedHost(record: HostLockRecord): Promise<void> {
     if (processIsAlive(record.pid)) throw new Error(`Host PID ${record.pid} did not stop.`);
 }
 
+// A terminal gets a card; anything else keeps the plain line, which still lets Vera start unanswered.
+async function confirmBootQuestion(question: BootQuestion): Promise<boolean> {
+    const { terminalCardPresenter } = await import("../cli/startup-prompt.ts");
+    const cards = terminalCardPresenter();
+    if (cards === undefined) return confirmOnTerminal(`${question.text} [Y/n] `);
+    const { bootQuestionCard } = await import("../cli/boot-question-card.ts");
+    return cards.ask(bootQuestionCard(question));
+}
+
 async function confirmOnTerminal(question: string): Promise<boolean> {
     // Without a terminal nobody can answer, and Vera must still start.
     if (!process.stdin.isTTY || !process.stderr.isTTY) return true;
@@ -294,7 +353,7 @@ function insideLinkedWorktree(cwd: string): boolean {
 function spawnDetachedResidentHost(pool = false, mode: HostMode = "default", releaseRoot?: string): Promise<void> {
     const failures = recentBootFailures(Date.now());
     if (failures.length >= BOOT_FAILURE_LIMIT) {
-        return Promise.reject(new HostBootLoopError(failures.length));
+        return Promise.reject(new HostBootLoopError(failures.length, readHostStartupFailure(0)?.message));
     }
     const spawnedAt = Date.now();
     const spec = residentHostSpawnSpec(releaseRoot ?? childReleaseRoot(), pool, mode);
