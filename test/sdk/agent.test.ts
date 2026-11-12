@@ -34,6 +34,11 @@ import {
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import {
+    addWorktree,
+    removeGitRepositories,
+    repository,
+} from "../support/git-repositories.ts";
 
 test("A1 an SDK agent runs from a module-level definition", async () => {
     const requests: ModelRequest[] = [];
@@ -275,6 +280,70 @@ test("B1 an SDK agent does not run at full access", async () => {
         });
     } finally {
         rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("B1b a headless auto run is refused, not reviewed, for a write into another worktree", async () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const target = join(repo, "src", "new.ts");
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([
+        toolCall("write", { path: target, content: "no" }),
+        answer("write was refused"),
+    ], requests, {
+        workspace: session,
+        config: { ...baseConfig(), approval_mode: "auto" },
+        posture: "auto",
+    });
+    const definition = defineAgent({
+        name: "review-writer",
+        instructions: "Write the file.",
+        tools: ["write"],
+    });
+
+    try {
+        const result = await vera.agent(definition).run("write it");
+
+        expect(existsSync(target)).toBe(false);
+        expect(requests).toHaveLength(2);
+        expect(JSON.stringify(requests[1]?.messages)).toContain(
+            "Tool use was denied by the user",
+        );
+        expect(result).toMatchObject({
+            outcome: "completed",
+            text: "write was refused",
+        });
+    } finally {
+        await vera.close();
+        removeGitRepositories();
+    }
+});
+
+test("vera.tool denies an auto write into another worktree that nobody can approve", async () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const target = join(repo, "src", "new.ts");
+    const vera = await Vera.create({
+        workspace: session,
+        posture: "auto",
+        config: { ...baseConfig(), approval_mode: "auto" },
+    });
+    try {
+        const write = await vera.tool("write", { path: target, content: "x" });
+
+        expect(write.outcome).toBe("denied");
+        expect(write.output).toContain("No one can approve it here");
+        expect(existsSync(target)).toBe(false);
+
+        const inside = await vera.tool("write", {
+            path: join(session, "src", "new.ts"),
+            content: "x",
+        });
+        expect(inside.outcome).toBe("completed");
+    } finally {
+        await vera.close();
+        removeGitRepositories();
     }
 });
 

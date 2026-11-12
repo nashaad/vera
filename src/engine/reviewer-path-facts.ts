@@ -3,15 +3,11 @@ import {
     readdir,
     realpath,
 } from "node:fs/promises";
-import {
-    dirname,
-    relative,
-    resolve,
-    sep,
-} from "node:path";
+import { dirname, resolve } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { PermissionActionDecision } from "./permissions.ts";
+import { workspaceScope } from "./workspace-scope.ts";
 
 const MAX_DIRECTORY_ENTRIES = 1_000;
 const GIT_CHECK_TIMEOUT_MS = 1_000;
@@ -280,10 +276,7 @@ function pathScope(
     workspace: string,
     path: string,
 ): ReviewerPathFacts["scope"] {
-    const child = relative(workspace, path);
-    return child === "" || (child !== ".." && !child.startsWith(`..${sep}`))
-        ? "workspace"
-        : "outside_workspace";
+    return workspaceScope(path, workspace);
 }
 
 function isMissingPathError(value: unknown): boolean {

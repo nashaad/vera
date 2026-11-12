@@ -134,13 +134,14 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Side panes from `/btw` and `/pair` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer; with a side pane focused, the same key closes that pane instead.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=24]
+## Tools, permissions, and agents [lines=25]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 When the classifier allows an extension's operation, the rest of the conversation runs that operation without asking it again. Vera's own operations are classified every time.
 Clicking a turn's auto-approved count, or pressing Ctrl+T, lists the actions the classifier allowed and why. Manual: `docs/permission-classifier.md`.
 Defaults and the Classifier entry in `/settings` set the same classifier; the Classifier entry also sets a failsafe. When the classifier fails, the turn stops and an error names the tool that did not run, the classifier model, and what to change in `/settings` then Classifier; a spent usage limit also says when it resets. An action the classifier denied, or that never got an answer, shows as not run.
+A write or delete in a different git worktree of the session's repository counts as outside the workspace, and in auto it asks you instead of going to the classifier; a run with nobody to answer, such as `vera -p`, refuses it. Manual: `docs/permission-rules.md`.
 The permission modes are readonly, ask, auto, and full access. Full access runs everything without asking, except that Vera refuses a recursive `rm` aimed at the home directory, the workspace or anything above it, in every mode. Home config can add named custom modes with their own rules.
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.
