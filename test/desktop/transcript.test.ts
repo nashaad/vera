@@ -12,6 +12,7 @@ import {
     type SessionMessage,
 } from "../../clients/ui/src/session/wire.ts";
 import { toolTitle } from "../../clients/ui/src/session/toolTitle.ts";
+import { keepTurns } from "../../clients/ui/src/session/turns.ts";
 
 function line(value: unknown): SessionMessage {
     const message = parseSessionLine(JSON.stringify(value));
@@ -350,5 +351,46 @@ describe("prompt queue", () => {
             expect(text.endsWith("\n")).toBe(true);
             expect(text.slice(0, -1).includes("\n")).toBe(false);
         }
+    });
+});
+
+describe("keeping turn renders", () => {
+    const threeTurns = (): unknown[] => [
+        { kind: "user", id: "u1", text: "first" },
+        { kind: "assistant", id: "a1", text: "one" },
+        { kind: "user", id: "u2", text: "second" },
+        { kind: "assistant", id: "a2", text: "two" },
+        { kind: "user", id: "u3", text: "third" },
+        { kind: "assistant", id: "a3", text: "three" },
+    ];
+
+    test("the same blocks give back the same render objects", () => {
+        const blocks = blocksOf(threeTurns());
+        const first = keepTurns(new Map(), blocks);
+        const second = keepTurns(first.byKey, blocks);
+        expect(second.renders.length).toBe(3);
+        expect(second.renders).toEqual(first.renders);
+        second.renders.forEach((render, index) => expect(render === first.renders[index]).toBe(true));
+    });
+
+    test("after a live delta only the last turn gets a new render", () => {
+        const before = watchWithHistory(threeTurns());
+        const after = reduceWatch(before, line({ type: "assistant_delta", text: " more" }));
+        const first = keepTurns(new Map(), before.history);
+        const second = keepTurns(first.byKey, [...after.history, ...after.live]);
+        expect(second.renders.length).toBe(3);
+        expect(second.renders[0]).toBe(first.renders[0]);
+        expect(second.renders[1]).toBe(first.renders[1]);
+        expect(second.renders[2]).not.toBe(first.renders[2]);
+        expect(second.byKey.get("u3")).toBe(second.renders[2]);
+    });
+
+    test("a turn that is no longer in blocks is not in the new byKey", () => {
+        const blocks = blocksOf(threeTurns());
+        const first = keepTurns(new Map(), blocks);
+        const shorter = keepTurns(first.byKey, blocks.slice(0, 4));
+        expect(shorter.renders.length).toBe(2);
+        expect(shorter.byKey.has("u3")).toBe(false);
+        expect(shorter.byKey.get("u1")).toBe(first.renders[0]);
     });
 });

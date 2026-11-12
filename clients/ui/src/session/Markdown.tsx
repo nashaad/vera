@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 
 import { CheckIcon, CopyIcon } from "../components/Icons.tsx";
 
@@ -89,9 +89,9 @@ function renderBlock(block: string, key: string): ReactNode {
     return <p key={key}>{inline(block, key)}</p>;
 }
 
-export function Markdown({ text }: { readonly text: string }) {
+export const Markdown = memo(function Markdown({ text }: { readonly text: string }) {
     return <div className="assistant-text">{splitBlocks(text).map((block, i) => renderBlock(block, String(i)))}</div>;
-}
+});
 
 // Splits on blank lines and before headings, keeping a fenced block whole even when it has blank lines.
 export function splitBlocks(text: string): string[] {

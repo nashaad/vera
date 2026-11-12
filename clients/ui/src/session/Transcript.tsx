@@ -1,46 +1,13 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, memo, useMemo, useRef, useState } from "react";
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
 import { relativeTime } from "../protocol/sessions.ts";
-import { type FileChange, collectChanges } from "./changes.ts";
+import type { FileChange } from "./changes.ts";
 import { DiffRollup } from "./DiffRollup.tsx";
 import { DeliveryRow, NoticeRow, RetryLine, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
-import type { Block, TextBlock, ThoughtBlock, ToolCall, ToolsBlock, UserBlock } from "./model.ts";
-
-interface Turn {
-    readonly key: string;
-    readonly user?: UserBlock;
-    readonly work: readonly Block[];
-    readonly answer?: TextBlock;
-}
-
-// A user block starts a turn; the trailing text of a turn is its answer and the rest is work.
-export function toTurns(blocks: readonly Block[]): Turn[] {
-    const turns: Turn[] = [];
-    let user: UserBlock | undefined;
-    let work: Block[] = [];
-    let key = "start";
-    const push = (): void => {
-        if (user === undefined && work.length === 0) return;
-        const last = work[work.length - 1];
-        if (last !== undefined && last.kind === "text") turns.push({ key, user, work: work.slice(0, -1), answer: last });
-        else turns.push({ key, user, work });
-    };
-    for (const block of blocks) {
-        if (block.kind === "user") {
-            push();
-            user = block;
-            work = [];
-            key = block.key;
-            continue;
-        }
-        if (user === undefined && work.length === 0) key = block.key;
-        work.push(block);
-    }
-    push();
-    return turns;
-}
+import type { Block, ThoughtBlock, ToolCall, ToolsBlock } from "./model.ts";
+import { keepTurns, type Turn, type TurnRender } from "./turns.ts";
 
 function formatSeconds(total: number): string {
     const seconds = Math.max(1, Math.round(total));
@@ -86,17 +53,13 @@ export interface TranscriptProps {
     readonly showRetry?: boolean;
 }
 
-interface TurnRender {
-    readonly turn: Turn;
-    // Changed files of each run of work, keyed by the index of the run's last block in `turn.work`.
-    readonly rollups: ReadonlyMap<number, readonly FileChange[]>;
-}
-
 export function Transcript({ blocks, running, folder, showRetry = true }: TranscriptProps) {
-    const renders = useMemo<readonly TurnRender[]>(
-        () => toTurns(blocks).map((turn) => ({ turn, rollups: runRollups(turn.work) })),
-        [blocks],
-    );
+    const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
+    const renders = useMemo<readonly TurnRender[]>(() => {
+        const next = keepTurns(kept.current, blocks);
+        kept.current = next.byKey;
+        return next.renders;
+    }, [blocks]);
     return (
         <>
             {renders.map((render, index) => (
@@ -114,31 +77,6 @@ export function Transcript({ blocks, running, folder, showRetry = true }: Transc
     );
 }
 
-function isRunBlock(block: Block): boolean {
-    return block.kind === "tools" || block.kind === "thought";
-}
-
-// A run is consecutive tool and thought blocks; any other block closes it.
-function runRollups(work: readonly Block[]): ReadonlyMap<number, readonly FileChange[]> {
-    const rollups = new Map<number, readonly FileChange[]>();
-    let start = -1;
-    const close = (end: number): void => {
-        if (start < 0) return;
-        const changes = collectChanges(work.slice(start, end));
-        if (changes.length > 0) rollups.set(end - 1, changes);
-        start = -1;
-    };
-    work.forEach((block, index) => {
-        if (!isRunBlock(block)) {
-            close(index);
-            return;
-        }
-        if (start < 0) start = index;
-    });
-    close(work.length);
-    return rollups;
-}
-
 interface TurnViewProps {
     readonly turn: Turn;
     readonly rollups: ReadonlyMap<number, readonly FileChange[]>;
@@ -148,7 +86,7 @@ interface TurnViewProps {
     readonly showRetry: boolean;
 }
 
-function TurnView({ turn, rollups, folder, first, live, showRetry }: TurnViewProps) {
+const TurnView = memo(function TurnView({ turn, rollups, folder, first, live, showRetry }: TurnViewProps) {
     const [open, setOpen] = useState(true);
     const seconds = turnSeconds(turn);
     const showWork = open || live;
@@ -179,9 +117,9 @@ function TurnView({ turn, rollups, folder, first, live, showRetry }: TurnViewPro
             {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} /> : null}
         </>
     );
-}
+});
 
-function BlockView({ block, next }: { readonly block: Block; readonly next?: Block }) {
+const BlockView = memo(function BlockView({ block, next }: { readonly block: Block; readonly next?: Block }) {
     switch (block.kind) {
         case "user":
             return <div className="user-bubble-row"><div className="user-bubble">{block.text}</div></div>;
@@ -198,7 +136,7 @@ function BlockView({ block, next }: { readonly block: Block; readonly next?: Blo
         case "delivery":
             return <DeliveryRow block={block} />;
     }
-}
+});
 
 function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?: Block }) {
     const [open, setOpen] = useState(false);
