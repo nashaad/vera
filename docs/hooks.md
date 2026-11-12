@@ -62,7 +62,7 @@ Session start (start, resume, after compaction)
 | `pre_turn` | Before your message reaches the model. It can add context, narrow the tools, change the model, or block the message. |
 | `turn_ending` | When the model gives a final reply with no tool calls. It can send the model back for one more pass. |
 | `pre_compact` | When a compaction starts. It only observes. |
-| `context_size_trigger` | When trimming, active-turn stubbing, or automatic compaction changed the request. It only observes. |
+| `context_size_trigger` | When trimming, active-turn stubbing, or automatic compaction changed the request, or the context grew past a configured `context_size_events` fraction. It only observes. |
 | `session_end` | When the host closes a session. It only observes. |
 | `subagent_finished` | When a subagent hands its result back to the session that started it. It only observes. |
 
@@ -262,7 +262,9 @@ function gets (see [Register from an extension](#register-from-an-extension))
 and ignores stdout. Nothing waits for these executables: compaction goes
 ahead, the changed request goes to the model, the session closes, and the
 parent gets the subagent's result. A `session_end` hook that is still running
-when the host exits may be cut off.
+when the host exits may be cut off. A `context_size_trigger` for a configured
+level reports with `reason: "level"` and runs no action, so nothing is
+rebuilt.
 
 ## Use the `claude` protocol
 
@@ -579,16 +581,24 @@ vera.hooks.registerPreCompact(async (compaction) => {
 An extension can run a function when a context size trigger's actions finish
 with `registerContextSizeTrigger`, after declaring
 `hooks.context_size_trigger`. It fires when trimming, active-turn stubbing, or
-automatic compaction changed the request. It gets the session ID, workspace,
-`reason` (`pressure` when a policy fired), the `policy` that fired (`id` and
-`kind`), the `actions` that ran, the context size in `tokens` and
-`tokensAfter`, the context window in `capacity` when Vera knows it, and
-`spawned`, which is true when another agent started the session. It only
-observes: the request does not wait for it, and a trigger that changed
-nothing does not fire.
+automatic compaction changed the request. It also fires when the context grows
+past a fraction listed in `context_size_events` (see
+[Context levers](context-levers.md#announce-a-context-size)). It gets the
+session ID, workspace, `reason` (`pressure` when a policy fired, `level` when a
+configured fraction was crossed), the `policy` that fired (`id` and `kind`),
+the `actions` that ran, the context size in `tokens` and `tokensAfter`, the
+context window in `capacity` when Vera knows it, and `spawned`, which is true
+when another agent started the session. For a level, `level` is the crossed
+fraction, `actions` is empty, and `tokensAfter` equals `tokens`. It only
+observes: the request does not wait for it, and a policy trigger that
+changed nothing does not fire.
 
 ```js
 vera.hooks.registerContextSizeTrigger((trigger) => {
+    if (trigger.reason === "level") {
+        logbook.push(`${trigger.sessionId} passed ${trigger.level}`);
+        return;
+    }
     logbook.push(`${trigger.sessionId} ${trigger.actions.join(",")} `
         + `${trigger.tokens} -> ${trigger.tokensAfter}`);
 });

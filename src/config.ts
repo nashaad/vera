@@ -224,6 +224,11 @@ export interface VeraConfig {
     readonly reasoning_effort?: ModelReasoningEffort;
     /** Global ceiling applied to every model's declared context window. */
     readonly context_limit?: number;
+    /**
+     * Fractions of the context window at which the context size trigger hook
+     * fires as context grows past them. Sorted ascending when loaded.
+     */
+    readonly context_size_events?: readonly number[];
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
@@ -567,6 +572,13 @@ export function loadVeraConfig(
     if (typeof migrated === "object" && migrated !== null && "host" in migrated
         && parseHostConfig(migrated.host) === undefined) {
         throw new VeraConfigError(path, "host must be an object with workers set to a non-negative integer.");
+    }
+    if (typeof migrated === "object" && migrated !== null && "context_size_events" in migrated
+        && parseContextSizeEvents(migrated.context_size_events) === undefined) {
+        throw new VeraConfigError(
+            path,
+            "context_size_events must be an array of numbers above 0 and at most 1.",
+        );
     }
     const movedReviewerKeys = reviewerRouteKeys(migrated);
     if (movedReviewerKeys.length > 0) {
@@ -1280,6 +1292,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const logMaxAgeDays = parsePositiveWholeCount(config.log_max_age_days);
     const contextLimit = config.context_limit;
+    const contextSizeEvents = parseContextSizeEvents(config.context_size_events);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -1321,6 +1334,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && catalogMaxAgeDays === undefined)
         || (config.log_max_age_days !== undefined
             && logMaxAgeDays === undefined)
+        || contextSizeEvents === undefined
         || (config.compaction !== undefined && compaction === undefined)
         || modelSlots === undefined
         ||
@@ -1361,6 +1375,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(contextLimit === undefined
             ? {}
             : { context_limit: contextLimit as number }),
+        ...(config.context_size_events === undefined
+            ? {}
+            : { context_size_events: contextSizeEvents }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagent === undefined ? {} : { subagent }),
@@ -1427,6 +1444,20 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { log_max_age_days: logMaxAgeDays }),
     };
+}
+
+function parseContextSizeEvents(value: unknown): readonly number[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) return undefined;
+    const levels: number[] = [];
+    for (const entry of value) {
+        if (typeof entry !== "number" || !Number.isFinite(entry)
+            || entry <= 0 || entry > 1) {
+            return undefined;
+        }
+        levels.push(entry);
+    }
+    return [...new Set(levels)].sort((left, right) => left - right);
 }
 
 function parseHostConfig(value: unknown): VeraHostConfig | undefined {

@@ -54,6 +54,33 @@ tokens and fit hundreds of thousands.
 
 <div data-widget="screen-steps" data-steps="context-compaction"></div>
 
+## Announce a context size
+
+`context_size_events` in `config.json` is a list of fractions of the context
+window. When the measured context grows past one, Vera fires the
+`context_size_trigger` hook with `reason: "level"` and `level` set to that
+fraction. Use it to report or record how full a session is.
+
+```json
+{
+  "context_size_events": [0.5, 0.7, 0.9]
+}
+```
+
+A level fires once per crossing. Several levels crossed at once fire in
+ascending order. The context dropping below a level arms it again; this can
+happen through compaction, rewind, or a larger window. A level added while the
+context is already above it waits for the context to drop below it and grow
+past it again. A new session starts at 0, and a resumed session starts from its
+last stored measurement, so a restart does not report a level twice.
+
+The list takes numbers above 0 and at most 1. Vera sorts it and removes exact
+duplicates. An empty list means no level events. The key is read on the next
+measurement, so a change applies to an open session without a restart. An
+ephemeral session fires nothing, and a level runs no action, so the model
+request is unchanged. [Hooks](hooks.md#register-from-an-extension) shows how to
+receive it.
+
 ## When compaction cannot run
 
 Vera retries retryable summary model failures before reporting that the summary
@@ -137,6 +164,6 @@ Choose **Reset all to defaults** to clear all eleven context overrides. The
 confirmation lists the overrides you set. Press 1 to clear them or Escape to
 keep them. Other configuration stays unchanged.
 
-The same settings are stored in `config.json`: top-level `context_limit`,
-plus the `compaction` and `tool_results` blocks. The settings screen validates
-changes to these values.
+The same settings are stored in `config.json`: top-level `context_limit` and
+`context_size_events`, plus the `compaction` and `tool_results` blocks. The
+settings screen validates changes to the values it controls.

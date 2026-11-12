@@ -47,7 +47,8 @@ import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
-import { contextSizeTriggerPayload } from "./agent-registry/context-size-trigger.ts";
+import { contextSizeLevelBaseline, createContextSizeLevelTracker } from "./agent-registry/context-size-levels.ts";
+import { contextSizeLevelPayload, contextSizeTriggerPayload } from "./agent-registry/context-size-trigger.ts";
 import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import { changedSessionUpdate } from "./agent-registry/session-updated.ts";
@@ -990,6 +991,23 @@ export class AgentRegistry {
             events.subscribe((event) => {
                 if (event.type === "context_size_trigger") {
                     onContextSizeTrigger(contextSizeTriggerPayload(store, event));
+                }
+            });
+        }
+        const contextSizeLevels = this.options.contextSizeLevels;
+        if (!ephemeral && onContextSizeTrigger !== undefined && contextSizeLevels !== undefined) {
+            const tracker = createContextSizeLevelTracker(
+                contextSizeLevelBaseline(store.latestContextMeasurement()),
+            );
+            events.subscribe((event) => {
+                if (event.type !== "context_measured") return;
+                const crossed = tracker.observe(
+                    contextSizeLevels(),
+                    event.measurement.tokens,
+                    event.measurement.capacity,
+                );
+                for (const level of crossed) {
+                    onContextSizeTrigger(contextSizeLevelPayload(store, level, event.measurement));
                 }
             });
         }

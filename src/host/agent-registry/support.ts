@@ -317,6 +317,8 @@ export interface AgentRegistryOptions {
     readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
     readonly onContextSizeTrigger?: (payload: ContextSizeTriggerHookPayload) => void;
+    /** Configured window fractions, read on every measurement so a config change applies live. */
+    readonly contextSizeLevels?: () => readonly number[];
     readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
     // Sessions that close_subagent or a trash reaped, which have no caller to report them to the host.

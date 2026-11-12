@@ -29,3 +29,31 @@ test("the context size trigger phase has no claude protocol event", () => {
     ]);
     expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
 });
+
+function eventsPath(contextSizeEvents: unknown): string {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-config-size-events-")), "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        context_size_events: contextSizeEvents,
+    }));
+    return path;
+}
+
+test("context size events load sorted with duplicates removed", () => {
+    expect(loadVeraConfig({ path: eventsPath([0.9, 0.5, 0.7, 0.5]) }).context_size_events)
+        .toEqual([0.5, 0.7, 0.9]);
+    expect(loadVeraConfig({ path: eventsPath([]) }).context_size_events).toEqual([]);
+});
+
+test("an absent context size events key stays undefined", () => {
+    expect(loadVeraConfig({ path: configPath([]) }).context_size_events).toBeUndefined();
+});
+
+test("context size events reject values outside the window", () => {
+    for (const value of [[0], [-0.2], [1.1], ["0.5"], [null], 0.5, null, {}]) {
+        expect(() => loadVeraConfig({ path: eventsPath(value) })).toThrow(
+            "context_size_events must be an array of numbers above 0 and at most 1.",
+        );
+    }
+});
