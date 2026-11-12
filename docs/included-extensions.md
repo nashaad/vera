@@ -20,7 +20,8 @@ src/extensions/        the extension host: discovery, manifests, registry, manag
 ```
 
 To use an example, install its folder with `/extension install <path>`, as in
-[Install a local extension](extensions.md#install-a-local-extension).
+[Install a local extension](extensions.md#install-a-local-extension), or add
+it by path when it needs configuration.
 
 The core and optional extensions are:
 
@@ -185,3 +186,17 @@ add a `config.json` `extensions` entry whose path is the absolute path of
 
 A home or project `plan.md` overrides the extension's definition. Restart
 the host and client after changing its configuration.
+
+### Telemetry
+
+Telemetry reports model-call counts, timings and cache-miss findings; prompts,
+messages and completions are not sent. It does nothing without a destination,
+so use a `config.json` `extensions` entry whose path is the absolute path of
+`examples/extensions/telemetry` rather than installing it: an installed copy
+runs with no configuration and stays off. `sink.type` is `axiom`, which needs
+a `dataset` and a `token` such as `{env:AXIOM_TOKEN}`, or `jsonl`, which writes
+to the extension's profile directory. `vera -p` print mode does not load
+config extensions, so it sends nothing. Restart the host after adding or
+changing the entry: Ctrl+P, then Reconnect host. The restarted host must see
+the token's environment variable, or the extension does not load. The
+example's README lists the events it sends and some Axiom queries.
