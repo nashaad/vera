@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const root = new URL("../../..", import.meta.url).pathname;
 const require = createRequire(join(root, "clients", "desktop", "package.json"));
@@ -27,6 +27,8 @@ export function startTrial() {
             env: {
                 ...process.env,
                 VERA_HOME: home,
+                // Without it the CLI boots the installed release host, not this checkout's source.
+                VERA_DEV_INSTANCE: `${basename(root)} e2e`,
                 VERA_DESKTOP_DEV_CLI: join(root, "clients", "cli", "main.ts"),
                 VERA_DESKTOP_BUN: bun,
             },
