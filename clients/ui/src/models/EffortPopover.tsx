@@ -1,8 +1,7 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 
-import { BoltIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { ModelControls } from "./controls.ts";
-import { effortIndex, effortText, sliderLevels } from "./menuRows.ts";
+import { effortIndex, levelLabel, sliderLevels } from "./menuRows.ts";
 import type { ModelEntry } from "./settings.ts";
 
 export interface EffortPopoverProps {
@@ -12,43 +11,53 @@ export interface EffortPopoverProps {
     readonly style?: CSSProperties;
 }
 
+// Positions are fractions of the track, 0 to 1; the stylesheet turns them into a length.
+type KnobStyle = CSSProperties & { readonly "--effort-at": number };
+type StopStyle = CSSProperties & { readonly "--stop-at": number };
+
 // The slider keeps the dragged position until the host echoes the new effort, so the knob does not snap back between steps.
 export function EffortPopover({ controls, entry, name, style }: EffortPopoverProps) {
     const effort = controls.choice?.effort;
     const [dragged, setDragged] = useState<number | undefined>(undefined);
     useEffect(() => setDragged(undefined), [effort]);
+    const describedBy = useId();
 
     const levels = sliderLevels(entry.levels);
     const last = levels.length - 1;
     const index = dragged ?? effortIndex(entry, effort);
     const level = levels[index];
-    const percent = `${(index / last) * 100}%`;
+    const track: KnobStyle = { "--effort-at": index / last };
+    const hasDescription = levels.some((stop) => stop.description !== undefined);
+    const defaultName = entry.defaultLevel === undefined ? undefined : levelLabel(entry.levels, entry.defaultLevel);
     const atDefault = effort === undefined || effort === entry.defaultLevel;
 
     return (
-        <div className="effort-pop" role="dialog" data-popover="above-end" style={style} aria-label="Effort">
+        <div className="menu effort-pop" role="dialog" data-popover="above-end" style={style} aria-label="Effort">
             <div className="effort-head">
-                <BoltIcon className="effort-bolt" />
-                <span className="effort-level">{effortText(entry, effort)}</span>
-                <button
-                    type="button"
-                    className="effort-reset"
-                    title="Back to this model's default"
-                    aria-label="Back to this model's default"
-                    disabled={atDefault}
-                    onClick={() => controls.actions.setEffort(null)}
-                >
-                    <RefreshIcon className="effort-reset-icon" />
-                </button>
+                <div className="effort-level">{level?.label}</div>
+                <div className="effort-model" title={name}>{name}</div>
+                {defaultName === undefined ? null : (
+                    <button
+                        type="button"
+                        className="effort-reset"
+                        title={`Back to ${defaultName}, this model's default`}
+                        aria-label={`Reset to ${defaultName}, this model's default`}
+                        disabled={atDefault}
+                        onClick={() => controls.actions.setEffort(null)}
+                    >
+                        Reset
+                    </button>
+                )}
             </div>
-            <div className="effort-model">{name}</div>
-            <div className="effort-track">
-                <span className="effort-rail" />
-                <span className="effort-fill" style={{ width: percent }} />
-                {levels.map((stop, i) => (
-                    <span key={stop.id} className="effort-stop" title={stop.label} style={{ left: `${(i / last) * 100}%` }} />
-                ))}
-                <span className="effort-knob" style={{ left: percent }} />
+            <div className="effort-track" style={track}>
+                <div className="effort-rail">
+                    <span className="effort-fill" />
+                    {levels.map((stop, i) => {
+                        const at: StopStyle = { "--stop-at": i / last };
+                        return <span key={stop.id} className="effort-stop" data-reached={i <= index} style={at} aria-hidden="true" />;
+                    })}
+                    <span className="effort-knob" />
+                </div>
                 <input
                     type="range"
                     className="effort-input"
@@ -56,7 +65,10 @@ export function EffortPopover({ controls, entry, name, style }: EffortPopoverPro
                     max={last}
                     step={1}
                     value={index}
+                    autoFocus
                     aria-label="Effort"
+                    aria-valuetext={level?.label}
+                    aria-describedby={level?.description === undefined ? undefined : describedBy}
                     onChange={(event) => {
                         const next = Number(event.target.value);
                         const picked = levels[next];
@@ -66,7 +78,15 @@ export function EffortPopover({ controls, entry, name, style }: EffortPopoverPro
                     }}
                 />
             </div>
-            {level?.description === undefined ? null : <p className="effort-desc">{level.description}</p>}
+            {hasDescription ? (
+                <div className="effort-descs">
+                    {levels.map((stop, i) => (
+                        <p key={stop.id} id={i === index ? describedBy : undefined} className="effort-desc" data-current={i === index}>
+                            {stop.description}
+                        </p>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
 }

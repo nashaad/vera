@@ -235,48 +235,58 @@
 /* effort popover */
 
 .effort-picker .effort-pop {
-    width: calc(var(--vera-space) * 62.5);
-    padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 3.25) calc(var(--vera-space) * 3.5);
-    background: var(--vera-surface-menu);
-    border: thin solid var(--vera-border);
-    border-radius: var(--vera-radius-lg);
-    box-shadow: var(--vera-shadow);
+    --effort-knob: calc(var(--vera-space) * 5);
+    width: calc(var(--vera-space) * 70);
+    padding: calc(var(--vera-space) * 3.5) calc(var(--vera-space) * 4) calc(var(--vera-space) * 4);
 }
 
 .effort-head {
-    display: flex;
-    align-items: center;
-    gap: calc(var(--vera-space) * 2.5);
-    margin-bottom: calc(var(--vera-space) * 0.5);
+    display: grid;
+    justify-items: center;
+    margin-bottom: calc(var(--vera-space) * 4);
 }
 
-.effort-bolt {
-    flex: 0 0 auto;
-    width: calc(var(--vera-space) * 3.75);
-    height: calc(var(--vera-space) * 3.75);
-    color: var(--vera-text-dim);
-}
-
-.effort-level {
-    flex: 1 1 auto;
-    color: var(--vera-accent);
-    font-size: var(--vera-font-size-body);
+.effort-level,
+.effort-model {
+    grid-column: 1;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow: hidden;
     text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Clears the reset button so a long level name stays centered under it. */
+.effort-level {
+    grid-row: 1;
+    padding-inline: calc(var(--vera-space) * 12);
+    color: var(--vera-text);
+    font-size: calc(var(--vera-font-size-body) * 1.2);
+    font-weight: 600;
+}
+
+.effort-model {
+    grid-row: 2;
+    margin-top: calc(var(--vera-space) * 0.5);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
 }
 
 .effort-reset {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: calc(var(--vera-space) * 6);
-    height: calc(var(--vera-space) * 6);
-    padding: 0;
+    grid-area: 1 / 1;
+    align-self: center;
+    justify-self: end;
+    margin-right: calc(var(--vera-space) * -2);
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2);
     color: var(--vera-text-dim);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
     background: transparent;
     border: 0;
     border-radius: var(--vera-radius-sm);
     cursor: pointer;
+    transition: color var(--vera-motion), background var(--vera-motion);
 }
 
 .effort-reset:hover:not(:disabled) {
@@ -293,81 +303,106 @@
     outline: thin solid var(--vera-focus);
 }
 
-.effort-reset-icon {
-    width: calc(var(--vera-space) * 3.5);
-    height: calc(var(--vera-space) * 3.5);
-}
-
-.effort-model {
-    margin-bottom: calc(var(--vera-space) * 3);
-    color: var(--vera-text-dim);
-    font-size: var(--vera-font-size-label);
-    text-align: center;
-}
-
 .effort-track {
     position: relative;
-    display: flex;
-    align-items: center;
-    height: calc(var(--vera-space) * 5.5);
+    height: calc(var(--vera-space) * 7);
 }
 
+/* The rail is inset by half a knob, the distance the native thumb stops short of each end. */
 .effort-rail {
     position: absolute;
-    top: calc(var(--vera-space) * 1.5);
-    right: 0;
-    bottom: calc(var(--vera-space) * 1.5);
-    left: 0;
+    top: 50%;
+    right: calc(var(--effort-knob) / 2);
+    left: calc(var(--effort-knob) / 2);
+    height: var(--vera-space);
     background: var(--vera-border-input);
-    border-radius: calc(var(--vera-space) * 1.5);
+    border-radius: var(--vera-space);
+    transform: translateY(-50%);
 }
 
 .effort-fill {
     position: absolute;
-    top: calc(var(--vera-space) * 1.5);
-    bottom: calc(var(--vera-space) * 1.5);
+    top: 0;
+    bottom: 0;
     left: 0;
+    width: calc(var(--effort-at) * 100%);
     background: var(--vera-accent);
-    border-radius: calc(var(--vera-space) * 1.5);
+    border-radius: var(--vera-space);
+    transition: width var(--vera-motion);
 }
 
 .effort-stop {
     position: absolute;
     top: 50%;
-    width: var(--vera-space);
-    height: var(--vera-space);
-    background: var(--vera-text-disabled);
+    left: calc(var(--stop-at) * 100%);
+    box-sizing: border-box;
+    width: calc(var(--vera-space) * 2);
+    height: calc(var(--vera-space) * 2);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-text-disabled);
     border-radius: 50%;
     transform: translate(-50%, -50%);
+    transition: background var(--vera-motion), border-color var(--vera-motion);
+}
+
+.effort-stop[data-reached="true"] {
+    background: var(--vera-accent);
+    border-color: var(--vera-accent);
 }
 
 .effort-knob {
     position: absolute;
     top: 50%;
-    width: calc(var(--vera-space) * 5);
-    height: calc(var(--vera-space) * 5);
-    background: var(--vera-text);
+    left: calc(var(--effort-at) * 100%);
+    box-sizing: border-box;
+    width: var(--effort-knob);
+    height: var(--effort-knob);
+    background: var(--vera-accent);
+    border: calc(var(--vera-space) * 1) solid var(--vera-surface-menu);
     border-radius: 50%;
-    box-shadow: var(--vera-shadow);
     transform: translate(-50%, -50%);
+    transition: left var(--vera-motion);
 }
 
+.effort-track:has(.effort-input:focus-visible) .effort-knob {
+    outline: calc(var(--vera-space) / 2) solid var(--vera-focus);
+}
+
+/* Invisible but exact: its thumb is as wide as the knob, so a click or drag lands on the stop it covers. */
 .effort-input {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     margin: 0;
-    opacity: 0;
+    padding: 0;
+    background: transparent;
     cursor: pointer;
+    opacity: 0;
+    appearance: none;
 }
 
-.effort-track:focus-within .effort-knob {
-    outline: thin solid var(--vera-focus);
+.effort-input::-webkit-slider-thumb {
+    width: var(--effort-knob);
+    height: var(--effort-knob);
+    appearance: none;
+}
+
+/* The descriptions share one cell so the popover keeps the height of the longest. */
+.effort-descs {
+    display: grid;
+    margin-top: calc(var(--vera-space) * 3);
 }
 
 .effort-desc {
-    margin: calc(var(--vera-space) * 2.5) 0 0;
+    grid-area: 1 / 1;
+    margin: 0;
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
+    text-align: center;
+    text-wrap: balance;
+}
+
+.effort-desc[data-current="false"] {
+    visibility: hidden;
 }

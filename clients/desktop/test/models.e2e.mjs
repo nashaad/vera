@@ -72,6 +72,103 @@ const provider = createServer((request, response) => {
 
 const USER = ":is(.user-turn, .user-bubble)";
 
+// Raven runs High by default. The popover names the level and the model, offers one stop per level,
+// and follows a click on a stop, Reset and the keys, with the pill beside it.
+async function assertEffortPopover(page) {
+    const pill = page.locator(".effort-pill");
+    const slider = page.getByRole("slider", { name: "Effort" });
+    const level = page.locator(".effort-level");
+    const pillShows = (text) => until(`${text} on the effort pill`, async () => (await pill.innerText()).includes(text));
+    const sliderReads = (text) => until(`${text} on the slider`, async () => (await slider.getAttribute("aria-valuetext")) === text);
+
+    await pill.click();
+    await page.waitForSelector(".effort-pop");
+    await until("the slider in focus", async () => slider.evaluate((node) => node === document.activeElement));
+    await sliderReads("High");
+    if ((await level.innerText()) !== "High") throw new Error("The popover does not name the current level.");
+    if ((await page.locator(".effort-model").innerText()) !== "Raven") throw new Error("The popover does not name the model.");
+    if (await page.locator(".effort-stop").count() !== 2) throw new Error("The track does not have one stop per level.");
+    if (!await page.locator(".effort-reset").isDisabled()) throw new Error("Reset is live while the model runs its default.");
+
+    // The level name is centered in the popover with the model's name under it, in smaller text.
+    const layout = await page.evaluate(() => {
+        const pop = document.querySelector(".effort-pop").getBoundingClientRect();
+        const text = (selector) => {
+            const range = document.createRange();
+            range.selectNodeContents(document.querySelector(selector));
+            return range.getBoundingClientRect();
+        };
+        const size = (selector) => parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
+        const level = text(".effort-level");
+        const model = text(".effort-model");
+        const center = (rect) => rect.left + rect.width / 2;
+        return {
+            levelOff: Math.abs(center(level) - (pop.left + pop.width / 2)),
+            modelOff: Math.abs(center(model) - (pop.left + pop.width / 2)),
+            below: model.top >= level.bottom - 1,
+            larger: size(".effort-level") > size(".effort-model"),
+        };
+    });
+    if (layout.levelOff > 1 || layout.modelOff > 1) throw new Error(`The names are not centered: ${JSON.stringify(layout)}.`);
+    if (!layout.below || !layout.larger) throw new Error(`The model name is not a smaller line under the level: ${JSON.stringify(layout)}.`);
+
+    // A click on a stop lands on that level, so the stops line up with where the slider reads them.
+    const clickStop = async (position) => {
+        const box = await page.locator(".effort-stop").nth(position).boundingBox();
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    };
+    await clickStop(0);
+    await pillShows("Low");
+    await sliderReads("Low");
+    if ((await level.innerText()) !== "Low") throw new Error("The popover did not follow the click on Low.");
+    if (await page.locator(".effort-stop[data-reached=\"true\"]").count() !== 1) throw new Error("Stops past the knob read as reached.");
+    await clickStop(1);
+    await pillShows("High");
+    await sliderReads("High");
+    await clickStop(0);
+    await pillShows("Low");
+
+    // Reset returns to the model's default level, and the knob goes back there.
+    await page.locator(".effort-reset").click();
+    await pillShows("Default");
+    await sliderReads("High");
+    if (!await page.locator(".effort-reset").isDisabled()) throw new Error("Reset stays live at the default.");
+
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await pillShows("Low");
+    await page.keyboard.press("ArrowRight");
+    await pillShows("High");
+    await page.keyboard.press("ArrowLeft");
+    await pillShows("Low");
+    await page.keyboard.press("End");
+    await pillShows("High");
+    await page.keyboard.press("Home");
+    await pillShows("Low");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".effort-pop", { state: "detached", timeout: 5_000 });
+}
+
+
+// At the window's minimum width the popover opens whole, inside the window, with the pill still showing.
+async function assertEffortPopoverFits(app, page) {
+    const [width, height] = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(720, 800));
+    await page.waitForFunction(() => window.innerWidth <= 720, null, { timeout: 5_000 });
+    await page.locator(".effort-pill").click();
+    await page.waitForSelector(".effort-pop");
+    const problem = await page.locator(".effort-pop").evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        if (rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight) return "The popover leaves the window.";
+        const corners = [[rect.left + 4, rect.top + 4], [rect.right - 4, rect.top + 4], [rect.left + 4, rect.bottom - 4], [rect.right - 4, rect.bottom - 4]];
+        return corners.some(([x, y]) => !node.contains(document.elementFromPoint(x, y))) ? "A pane covers the popover." : undefined;
+    });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".effort-pop", { state: "detached", timeout: 5_000 });
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), [width, height]);
+    if (problem !== undefined) throw new Error(problem);
+}
+
 const trial = startTrial();
 let failed = false;
 let page;
@@ -137,12 +234,8 @@ try {
     await page.waitForSelector(".model-menu");
     await page.keyboard.press("1");
     await until("Raven on the pill", async () => (await modelPill.innerText()).includes("Raven"));
-    const effortPill = page.locator(".effort-pill");
-    await effortPill.click();
-    await page.locator(".effort-input").focus();
-    await page.keyboard.press("Home");
-    await until("Low on the effort pill", async () => (await effortPill.innerText()).includes("Low"));
-    await page.keyboard.press("Escape");
+    await assertEffortPopover(page);
+    await assertEffortPopoverFits(app, page);
 
     // The browser: select Raven and probe it.
     await modelPill.click();
