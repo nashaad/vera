@@ -21,6 +21,7 @@ import {
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
 } from "../../src/host/capabilities.ts";
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
@@ -2013,6 +2014,273 @@ socketTest(
             client.close();
             agent.close();
             await server.close();
+        }
+    },
+);
+
+socketTest(
+    "@core a client that negotiates reasoning progress gets counts while another gets the text",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [
+                HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+                HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+            ],
+            findAgent: () => agent,
+        });
+        const plain = await attachAgent({ socketPath, agentId: agent.id });
+        const hiding = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
+        });
+        try {
+            expect(plain.supportsHostCapability(HOST_CAPABILITY_AGENT_REASONING_PROGRESS)).toBe(false);
+            expect(hiding.supportsHostCapability(HOST_CAPABILITY_AGENT_REASONING_PROGRESS)).toBe(true);
+            await plain.receive();
+            await hiding.receive();
+            agent.engine.send({ type: "assistant_thinking", text: "weigh ", seq: 1 });
+            agent.engine.send({ type: "assistant_thinking", text: "options", seq: 2 });
+            agent.engine.send({ type: "assistant_delta", text: "answer", seq: 3 });
+            expect(await receiveUpdates(plain, 3)).toEqual([
+                { type: "assistant_thinking", text: "weigh ", seq: 1 },
+                { type: "assistant_thinking", text: "options", seq: 2 },
+                { type: "assistant_delta", text: "answer", seq: 3 },
+            ]);
+            expect(await receiveUpdates(hiding, 2)).toEqual([
+                { type: "assistant_thinking_progress", characters: 13, seq: 2 },
+                { type: "assistant_delta", text: "answer", seq: 3 },
+            ]);
+            expect(hiding.lastSequence).toBe(3);
+        } finally {
+            plain.close();
+            hiding.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "reasoning progress alone reaches the client within the coalescing interval",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [
+                HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+                HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+            ],
+            findAgent: () => agent,
+        });
+        const hiding = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
+        });
+        try {
+            await hiding.receive();
+            for (let seq = 1; seq <= 5; seq += 1) {
+                agent.engine.send({ type: "assistant_thinking", text: "ab", seq });
+            }
+            expect(await hiding.receive()).toEqual({
+                type: "assistant_thinking_progress",
+                characters: 10,
+                seq: 5,
+            });
+        } finally {
+            hiding.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "@core a host that does not offer reasoning progress sends the text to a client that asked for counts",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
+        });
+        try {
+            expect(client.supportsHostCapability(HOST_CAPABILITY_AGENT_REASONING_PROGRESS)).toBe(false);
+            await client.receive();
+            agent.engine.send({ type: "assistant_thinking", text: "plain", seq: 1 });
+            expect(await client.receive()).toEqual({ type: "assistant_thinking", text: "plain", seq: 1 });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "@core a resume across a filtered span replays counts and the client accepts the sequence gap",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [
+                HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+                HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+            ],
+            findAgent: () => agent,
+        });
+        const requestedCapabilities = [
+            HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+            HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+        ];
+        const first = await attachAgent({ socketPath, agentId: agent.id, requestedCapabilities });
+        try {
+            await first.receive();
+            agent.engine.send({ type: "status", state: "working", seq: 1 });
+            expect(await first.receive()).toMatchObject({ seq: 1 });
+            first.close();
+
+            agent.engine.send({ type: "assistant_thinking", text: "aaa", seq: 2 });
+            agent.engine.send({ type: "assistant_thinking", text: "bb", seq: 3 });
+            agent.engine.send({ type: "assistant_delta", text: "x", seq: 4 });
+
+            const resumed = await attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities,
+                afterSequence: 1,
+            });
+            try {
+                expect(await receiveUpdates(resumed, 2)).toEqual([
+                    { type: "assistant_thinking_progress", characters: 5, seq: 3 },
+                    { type: "assistant_delta", text: "x", seq: 4 },
+                ]);
+                expect(resumed.lastSequence).toBe(4);
+                agent.engine.send({ type: "assistant_thinking", text: "c", seq: 5 });
+                agent.engine.send({ type: "tool_started", tool: "read", args: {}, seq: 6 });
+                expect(await receiveUpdates(resumed, 2)).toEqual([
+                    { type: "assistant_thinking_progress", characters: 1, seq: 5 },
+                    { type: "tool_started", tool: "read", args: {}, seq: 6 },
+                ]);
+            } finally {
+                resumed.close();
+            }
+
+            const atCursor = await attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities,
+                afterSequence: 5,
+            });
+            try {
+                expect(await atCursor.receive()).toMatchObject({ type: "tool_started", seq: 6 });
+            } finally {
+                atCursor.close();
+            }
+        } finally {
+            first.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "attached client accepts a progress update that skips the reasoning it covers",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "assistant_thinking_progress", characters: 40, seq: 9 },
+            { type: "assistant_thinking_progress", characters: 3, seq: 12 },
+            { type: "assistant_delta", text: "x", seq: 13 },
+            { type: "history", entries: [], seq: 13 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await receiveUpdates(client, 5)).toMatchObject([
+                { type: "history", seq: 4 },
+                { type: "assistant_thinking_progress", characters: 40, seq: 9 },
+                { type: "assistant_thinking_progress", characters: 3, seq: 12 },
+                { type: "assistant_delta", seq: 13 },
+                { type: "history", seq: 13 },
+            ]);
+            expect(client.lastSequence).toBe(13);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+socketTest(
+    "attached client rejects progress that does not advance, comes first, or hides a gap after it",
+    async () => {
+        const rejected: Array<readonly unknown[]> = [
+            [
+                { type: "assistant_thinking_progress", characters: 1, seq: 1 },
+            ],
+            [
+                { type: "history", entries: [], seq: 4 },
+                { type: "assistant_thinking_progress", characters: 1, seq: 4 },
+            ],
+            [
+                { type: "history", entries: [], seq: 4 },
+                { type: "assistant_thinking_progress", characters: 1, seq: 7 },
+                { type: "assistant_thinking_progress", characters: 1, seq: 6 },
+            ],
+            [
+                { type: "history", entries: [], seq: 4 },
+                { type: "assistant_thinking_progress", characters: 1, seq: 7 },
+                { type: "assistant_delta", text: "lost an update", seq: 9 },
+            ],
+            [
+                { type: "history", entries: [], seq: 4 },
+                { type: "assistant_thinking_progress", characters: 1, seq: 7 },
+                { type: "history", entries: [], seq: 9 },
+            ],
+        ];
+        for (const updates of rejected) {
+            const directory = temporaryDirectory();
+            const socketPath = join(directory, "host.sock");
+            const server = await scriptedHost(socketPath, updates);
+            const client = await attachAgent({ socketPath, agentId: "agent-1" });
+            try {
+                let failure: unknown;
+                try {
+                    while (true) await client.receive();
+                } catch (error) {
+                    failure = error;
+                }
+                expect(failure).toBeInstanceOf(Error);
+                expect((failure as Error).message).toMatch(
+                    /non-contiguous agent update sequence|before its history checkpoint/,
+                );
+            } finally {
+                client.close();
+                await closeServer(server);
+            }
         }
     },
 );

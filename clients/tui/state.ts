@@ -600,6 +600,8 @@ export function applyHistoryPage(
 
 function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
     if (update.type === "prompt_admission") return state;
+    // The TUI does not request reasoning progress, so none reaches it.
+    if (update.type === "assistant_thinking_progress") return state;
     if (update.type === "prompt_queue") {
         return {
             ...state,

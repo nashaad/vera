@@ -4,6 +4,7 @@ import type { HostModelCatalogSettings } from "./model-catalog-settings.ts";
 import { AsyncQueue } from "../engine/async-queue.ts";
 import {
     AttachmentUpdateQueue,
+    type AttachmentFilter,
     type AttachmentQueueLimits,
     type PendingAttachmentUpdate,
 } from "./attachment-update-queue.ts";
@@ -212,7 +213,11 @@ export class ResidentAgent {
     }
 
     /** Limits bound a client that can fall behind; in-process readers pass none. */
-    attach(afterSequence?: number, limits?: AttachmentQueueLimits): AgentAttachment {
+    attach(
+        afterSequence?: number,
+        limits?: AttachmentQueueLimits,
+        filter?: AttachmentFilter,
+    ): AgentAttachment {
         if (this.isClosed) {
             throw new ResidentAgentClosedError();
         }
@@ -223,7 +228,7 @@ export class ResidentAgent {
             throw new Error("Agent replay cursor is unavailable");
         }
 
-        const outgoing = new AttachmentUpdateQueue(limits);
+        const outgoing = new AttachmentUpdateQueue(limits, filter);
         const attachmentId = nonEmpty(
             this.createAttachmentId(),
             "attachment ID",
@@ -244,9 +249,15 @@ export class ResidentAgent {
             if (afterSequence === undefined
                 || !("seq" in update)
                 || update.seq > afterSequence) {
-                outgoing.push(clone(update), { counted: false });
+                outgoing.push(
+                    outgoing.hidesReasoning && update.type === "assistant_thinking"
+                        ? update
+                        : clone(update),
+                    { counted: false },
+                );
             }
         }
+        outgoing.flushReasoning();
         if (this.terminalFailure !== undefined) {
             outgoing.fail(new ResidentAgentClosedError());
         }
@@ -615,6 +626,9 @@ export class ResidentAgent {
         if (update.type === "prompt_rejected") {
             throw new Error("Prompt refusals must target one attachment");
         }
+        if (update.type === "assistant_thinking_progress") {
+            throw new Error("Reasoning progress is produced for one attachment");
+        }
         if (!Number.isSafeInteger(update.seq) || update.seq < 0) {
             throw new Error(
                 "Invalid resident update sequence: expected a non-negative safe integer",
@@ -727,6 +741,9 @@ export class ResidentAgent {
         for (const outgoing of this.attachments.values()) {
             if (outgoingUpdate.type === "history") {
                 // History is read-only on the way out; every attachment shares one page.
+                outgoing.push(outgoingUpdate);
+            } else if (outgoingUpdate.type === "assistant_thinking" && outgoing.hidesReasoning) {
+                // Only its length is read, so the copy is skipped.
                 outgoing.push(outgoingUpdate);
             } else {
                 outgoing.push(clone(outgoingUpdate));

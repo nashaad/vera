@@ -41,6 +41,7 @@ const KNOWN_AGENT_UPDATE_TYPES: Record<AgentUpdate["type"], true> = {
     user_prompt: true,
     assistant_delta: true,
     assistant_thinking: true,
+    assistant_thinking_progress: true,
     tool_started: true,
     tool_review: true,
     tool_breaker_tripped: true,
@@ -229,6 +230,9 @@ function parseKnownAgentUpdate(
     }
     if (update.type === "assistant_delta" || update.type === "assistant_thinking") {
         return typeof update.text === "string" ? value as AgentUpdate : undefined;
+    }
+    if (update.type === "assistant_thinking_progress") {
+        return isSequence(update.characters) ? value as AgentUpdate : undefined;
     }
     if (update.type === "tool_started") {
         return typeof update.tool === "string" && asRecord(update.args) !== undefined

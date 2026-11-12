@@ -742,6 +742,14 @@ export interface AssistantThinkingUpdate {
     readonly seq: number;
 }
 
+// Replaces `assistant_thinking` for an attachment that negotiated reasoning progress.
+// `seq` is the last reasoning delta it covers, so seq increases but may skip numbers.
+export interface AssistantThinkingProgressUpdate {
+    readonly type: "assistant_thinking_progress";
+    readonly characters: number;
+    readonly seq: number;
+}
+
 export interface ToolStartedUpdate {
     readonly type: "tool_started";
     readonly tool: string;
@@ -1192,6 +1200,7 @@ export type AgentUpdate =
     | UserPromptUpdate
     | AssistantDeltaUpdate
     | AssistantThinkingUpdate
+    | AssistantThinkingProgressUpdate
     | ToolStartedUpdate
     | ToolReviewUpdate
     | ToolBreakerTrippedUpdate

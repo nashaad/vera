@@ -94,6 +94,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
     HOST_CAPABILITY_SESSION_TITLE,
     HOST_CAPABILITY_SESSION_ROUTING,
     HOST_CAPABILITY_STOP_WAIT,
@@ -2202,7 +2203,9 @@ function receiveConnection(
         }
         let attached: AgentAttachment;
         try {
-            attached = agent.attach(request.after_seq, CLIENT_ATTACHMENT_QUEUE_LIMITS);
+            attached = agent.attach(request.after_seq, CLIENT_ATTACHMENT_QUEUE_LIMITS, {
+                reasoningProgress: negotiated.includes(HOST_CAPABILITY_AGENT_REASONING_PROGRESS),
+            });
         } catch {
             if (lease !== undefined) {
                 void interactiveAttachments.detach(lease, agent.id).then((roots) => {

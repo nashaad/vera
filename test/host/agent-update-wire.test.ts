@@ -66,6 +66,22 @@ test("host wire carries streamed reasoning and rejects a missing text field", ()
     expect(parseAgentUpdate({ type: "assistant_thinking", seq: 4 })).toBeUndefined();
 });
 
+test("host wire carries reasoning progress and rejects a bad count or sequence", () => {
+    const progress = {
+        type: "assistant_thinking_progress" as const,
+        characters: 128,
+        seq: 9,
+    };
+    expect(parseAgentUpdate(progress)).toEqual(progress);
+    expect(parseAgentUpdate({ ...progress, characters: 0 })).toEqual({ ...progress, characters: 0 });
+    expect(parseAgentUpdate({ type: "assistant_thinking_progress", seq: 9 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...progress, characters: -1 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...progress, characters: 1.5 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...progress, characters: "12" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...progress, seq: -1 })).toBeUndefined();
+    expect(parseAgentUpdateFrame(progress)).toEqual({ kind: "update", update: progress });
+});
+
 test("host wire validates skill catalogs and invocation outcomes", () => {
     const catalog = {
         type: "skill_catalog" as const,

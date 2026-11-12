@@ -4,6 +4,7 @@ import {
     CLIENT_CAPABILITIES,
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
     HOST_CAPABILITY_SESSION_ROUTING,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -58,4 +59,20 @@ test("session routing is a host capability every client requests", () => {
         [HOST_CAPABILITY_SESSION_ROUTING],
         HOST_CAPABILITIES,
     )).toEqual([HOST_CAPABILITY_SESSION_ROUTING]);
+});
+
+test("@core reasoning progress is offered by the host and requested only by name", () => {
+    expect(HOST_CAPABILITY_AGENT_REASONING_PROGRESS).toBe("agent.reasoning-progress.v1");
+    expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
+    expect(CLIENT_CAPABILITIES).not.toContain(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
+    expect(parseHostCapabilities([HOST_CAPABILITY_AGENT_REASONING_PROGRESS]))
+        .toEqual([HOST_CAPABILITY_AGENT_REASONING_PROGRESS]);
+    expect(negotiateHostCapabilities(
+        [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
+        HOST_CAPABILITIES,
+    )).toEqual([HOST_CAPABILITY_AGENT_REASONING_PROGRESS]);
+    expect(negotiateHostCapabilities(
+        [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
+        CLIENT_CAPABILITIES,
+    )).toEqual([]);
 });
