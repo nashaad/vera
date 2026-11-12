@@ -112,7 +112,6 @@ export function applyBackgroundAgents(rt: TuiRuntime,
 }
 
 export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
-    emitExperimentalAgentEvent(rt, update);
     if (update.type === "status" && update.state === "working") {
         // Only a delivery turn sends this; the previous turn's start can still be set.
         rt.workingSince = Date.now();

@@ -173,10 +173,11 @@ test("stopping drops a pending repaint", () => {
     expect(clock.renders()).toBe(0);
 });
 
-test("only streaming updates are coalesced", () => {
+test("only streaming updates and extension events are coalesced", () => {
     expect(isCoalescedUpdate("assistant_delta")).toBe(true);
     expect(isCoalescedUpdate("assistant_thinking")).toBe(true);
     expect(isCoalescedUpdate("model_activity")).toBe(true);
+    expect(isCoalescedUpdate("agent_event")).toBe(true);
     // A type nobody listed is immediate, which is the safe direction for one
     // added later.
     expect(isCoalescedUpdate("tool_started")).toBe(false);

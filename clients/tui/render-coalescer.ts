@@ -8,6 +8,9 @@ const COALESCED_UPDATES: ReadonlySet<string> = new Set([
     "status",
     // Reported from inside a render, so an immediate repaint would nest.
     "transcript_changed",
+    // Extension events fire after the client applies the update; its own frame
+    // request paints them, so this one must not flush first.
+    "agent_event",
 ]);
 
 export function isCoalescedUpdate(type: string): boolean {

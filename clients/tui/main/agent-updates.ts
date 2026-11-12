@@ -1,6 +1,6 @@
 import { receiveCustomizationSources } from "./customization-sources.ts";
 import { isConfigurationRequiredUiRequestUpdate, isTimelineReplyUpdate } from "../../../src/engine/protocol.ts";
-import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showModeToast, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
+import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, emitExperimentalAgentEvent, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showModeToast, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
 import { closeTransientOverlaysForUiRequest, focusedAgentState, hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { adoptReportedPermission } from "../dials.ts";
 import { adoptFallbackSessionTitle, applyTerminalTitle, refreshTerminalTitle } from "../main/chrome.ts";
@@ -693,6 +693,9 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     rt.activity = "ready";
                 }
             }
+            // Extension listeners read the state this update produced, and the
+            // request below paints them along with it.
+            emitExperimentalAgentEvent(rt, update);
             rt.renderCoalescer.request(update.type);
 
             if (update.type === "agent_failed") {
