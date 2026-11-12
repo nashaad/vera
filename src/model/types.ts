@@ -105,7 +105,7 @@ export interface ModelFailure {
     readonly resetsAt?: number;
 }
 
-/** Why the approval classifier gave no decision, which ended the turn. */
+/** Why the approval classifier gave no decision. */
 export interface ClassifierFailure {
     readonly tool: string;
     /** Absent when no classifier model was configured. */
