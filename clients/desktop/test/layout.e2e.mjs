@@ -43,7 +43,8 @@ async function assertNarrowFits(app, page) {
     if (stage.x + stage.width > pane.x + 1) throw new Error("The main area runs under the right pane.");
     const bar = await box(page, ".composer-bar");
     const controls = await page.locator(".composer-bar :is(.round-button, .pill-button, .send-button)").evaluateAll((nodes) =>
-        nodes.map((node) => node.getBoundingClientRect()).map((rect) => ({ left: rect.left, right: rect.right })));
+        nodes.filter((node) => node.getClientRects().length > 0)
+            .map((node) => node.getBoundingClientRect()).map((rect) => ({ left: rect.left, right: rect.right })));
     controls.sort((a, b) => a.left - b.left);
     for (let index = 1; index < controls.length; index += 1) {
         if (controls[index].left < controls[index - 1].right - 0.5) throw new Error("Two composer controls overlap.");
