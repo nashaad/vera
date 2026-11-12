@@ -33,6 +33,9 @@ export type DesktopEvent =
         readonly checked: readonly string[];
     };
 
+// The most folder paths one existence check accepts.
+export const MAX_FOLDER_CHECKS = 64;
+
 export interface CreatedSession {
     readonly ok: true;
     readonly agentId: string;
@@ -157,7 +160,8 @@ export interface DesktopBridge {
     // Stops a session and parks it, as closing its last window would.
     closeSession(agentId: string): Promise<CloseSessionResult>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
-    createSession(workspace: string, approvalMode?: string): Promise<CreateSessionResult>;
+    // With no folder the host creates a chat, a session that works in a folder of its own.
+    createSession(workspace: string | undefined, approvalMode?: string): Promise<CreateSessionResult>;
     // The host's models, shortlist and connected providers for a folder, or the host's own folder.
     readModelSettings(workspace?: string): Promise<HostModelsResult>;
     // Asks one provider for its model list again.
@@ -172,6 +176,8 @@ export interface DesktopBridge {
     readExtensionFailures(): Promise<ExtensionFailuresResult>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
+    // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.
+    existingFolders(folders: readonly string[]): Promise<readonly string[]>;
     // Opens the native folder picker; undefined when cancelled.
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.

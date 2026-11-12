@@ -5,6 +5,7 @@ import type { SessionRow, SessionStatus } from "../../clients/ui/src/protocol/se
 import {
     foundSessionDesc,
     newestWithStatus,
+    sessionRoute,
     SHEET_DESCS,
     sessionCards,
     sheetCards,
@@ -17,6 +18,7 @@ function row(id: string, status: SessionStatus, updatedAt: number | undefined, w
         workspace,
         status,
         live: false,
+        chat: false,
         ...(updatedAt === undefined ? {} : { updatedAt }),
     };
 }
@@ -59,6 +61,13 @@ test("the sheet list has one card per overlay in OVERLAY_COMMANDS", () => {
 
 test("the desc of a found row is name · folder", () => {
     expect(foundSessionDesc(row("a", "working", 1, "/Users/nash/Projects/vera"))).toBe("Session a · vera");
+});
+
+test("a found chat reads Chat and opens as a chat, not at its internal folder", () => {
+    const chat = { ...row("c", "working", 1, "/h/runtime/sessions/c.jsonl.files"), chat: true };
+    expect(foundSessionDesc(chat)).toBe("Session c · Chat");
+    expect(sessionRoute(chat)).toEqual({ kind: "session", agentId: "c", title: "Session c", chat: true });
+    expect(sessionRoute(row("a", "working", 1))).toEqual({ kind: "session", agentId: "a", title: "Session a", workspace: "/work/vera" });
 });
 
 test("session cards are disabled with the connection note when Vera is not attached", () => {

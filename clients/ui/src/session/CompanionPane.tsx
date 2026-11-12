@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { AgentIcon, ArrowRightIcon, XIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { useRouter } from "../pages/router.tsx";
+import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { closeCompanion } from "./paneLayout.ts";
 import { Transcript } from "./Transcript.tsx";
@@ -27,7 +28,7 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
 
     const goTo = (): void => {
         closeCompanion();
-        router.navigate({ kind: "session", agentId, title, ...(row?.workspace ? { workspace: row.workspace } : {}) });
+        router.navigate({ kind: "session", agentId, title, ...(row === undefined ? {} : sessionPlace(row.workspace, row.chat)) });
     };
 
     const message = watch.phase === "attaching"

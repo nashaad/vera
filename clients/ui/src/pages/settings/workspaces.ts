@@ -3,11 +3,11 @@ import type { WorkspaceStats } from "../WorkspacePage.tsx";
 
 export const FOLDER_LIMIT = 50;
 
-// Distinct folders of the loaded sessions, the most recently active first. Rows without a folder are skipped.
+// Distinct folders of the loaded sessions, the most recently active first. Rows without a folder and chats are skipped.
 export function workspaceFolders(rows: readonly SessionRow[], limit: number = FOLDER_LIMIT): readonly string[] {
     const newest = new Map<string, number | undefined>();
     for (const row of rows) {
-        if (row.workspace.length === 0) continue;
+        if (row.chat || row.workspace.length === 0) continue;
         const known = newest.get(row.workspace);
         if (!newest.has(row.workspace)) newest.set(row.workspace, row.updatedAt);
         else if (row.updatedAt !== undefined && (known === undefined || row.updatedAt > known)) newest.set(row.workspace, row.updatedAt);

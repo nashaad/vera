@@ -102,7 +102,7 @@ try {
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
     await trial.waitForHost();
 
-    await page.getByRole("button", { name: /Choose folder/ }).click();
+    await page.getByRole("button", { name: /No folder/ }).click();
     await page.getByRole("menuitem", { name: /Open folder/ }).click();
     await page.waitForSelector(".context-chips .chip-label:text-is(\"work\")");
     const input = page.locator(".composer-input");

@@ -1,4 +1,5 @@
 import { shortenPath } from "../components/homePath.ts";
+import { CHAT_FOLDER_LABEL } from "../protocol/sessionGroups.ts";
 import { useActiveSession } from "../session/activeSession.ts";
 import type { ViewProps } from "./env.tsx";
 
@@ -9,7 +10,9 @@ export function FilesView(_props: ViewProps) {
     return (
         <div className="right-unavailable">
             <p className="view-empty">The host does not serve a file tree.</p>
-            {folder === undefined || folder === "" ? null : (
+            {session.chat ? (
+                <p className="right-path">{CHAT_FOLDER_LABEL}</p>
+            ) : folder === undefined || folder === "" ? null : (
                 <p className="right-path" title={folder}>{shortenPath(folder)}</p>
             )}
         </div>

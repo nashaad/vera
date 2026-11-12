@@ -1,6 +1,6 @@
 import type { Command } from "../commands/registry.ts";
 import { acceleratorKeys, NATIVE_SHORTCUTS } from "../commands/keys.ts";
-import { folderName } from "../protocol/sessionGroups.ts";
+import { rowFolderName } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 
 export const PALETTE_LIMIT = 50;
@@ -68,7 +68,7 @@ export function buildCommandItems(commands: readonly Command[], platform: string
 
 export function buildSessionItems(rows: readonly SessionRow[], now: number): readonly PaletteItem[] {
     return rows.map((row): PaletteItem => {
-        const folder = folderName(row.workspace);
+        const folder = rowFolderName(row);
         const status = row.status === "working" || row.status === "waiting" ? row.status : undefined;
         return {
             id: row.id,

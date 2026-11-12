@@ -80,7 +80,7 @@ try {
     await trial.waitForHost();
 
     // New Chat starts the session in ask mode even though the home default is auto.
-    await page.getByRole("button", { name: /Choose folder/ }).click();
+    await page.getByRole("button", { name: /No folder/ }).click();
     await page.getByRole("menuitem", { name: /Open folder/ }).click();
     await page.waitForSelector(".context-chips .chip-label:text-is(\"work\")");
     await page.getByRole("button", { name: /Default approvals/ }).click();

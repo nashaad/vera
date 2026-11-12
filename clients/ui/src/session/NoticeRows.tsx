@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { ChevronDownIcon, ChevronRightIcon, InboxIcon, RefreshIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
+import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useActiveSession } from "./activeSession.ts";
 import type { DeliveryBlock, NoticeBlock, SubstitutionBlock } from "./model.ts";
@@ -62,7 +63,7 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
                         kind: "session",
                         agentId: row.id,
                         title: row.name,
-                        workspace: row.workspace.length === 0 ? undefined : row.workspace,
+                        ...sessionPlace(row.workspace, row.chat),
                     })}
                 >
                     Open it

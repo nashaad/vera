@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { BellIcon, ChevronRightIcon } from "../components/Icons.tsx";
-import { folderName } from "../protocol/sessionGroups.ts";
+import { rowFolderName, rowFolderPath } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
 import { type FinishedEntry, useFinished } from "../state/finished.ts";
 import { NOW_TICK_MS } from "../state/frameBudget.ts";
@@ -13,6 +13,7 @@ export interface WorkRowView {
     readonly id: string;
     readonly name: string;
     readonly workspace: string;
+    readonly chat: boolean;
     readonly status: SessionStatus;
     readonly detail: string;
 }
@@ -37,7 +38,7 @@ export function finishedDetail(finishedAt: number, now: number): string {
 }
 
 function rowOf(row: SessionRow, detail: string): WorkRowView {
-    return { id: row.id, name: row.name, workspace: row.workspace, status: row.status, detail };
+    return { id: row.id, name: row.name, workspace: row.workspace, chat: row.chat, status: row.status, detail };
 }
 
 // A session that is waiting or running now is listed there only, even if it finished earlier.
@@ -57,6 +58,7 @@ export function workBuckets(
             id: entry.agentId,
             name: entry.name,
             workspace: entry.workspace,
+            chat: entry.chat,
             status: entry.status,
             detail: finishedDetail(entry.finishedAt, now),
         }));
@@ -111,7 +113,7 @@ function WorkRow({ row }: { readonly row: WorkRowView }) {
                 <span className="list-row-body">
                     <span className="list-row-name">
                         <span className="list-row-title">{row.name}</span>
-                        <span className="badge" title={row.workspace}>{folderName(row.workspace)}</span>
+                        <span className="badge" title={rowFolderPath(row)}>{rowFolderName(row)}</span>
                     </span>
                     <span className="list-row-detail">{row.detail}</span>
                 </span>

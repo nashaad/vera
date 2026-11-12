@@ -15,6 +15,7 @@ import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/t
 import { buildMenuTemplate } from "./app-menu.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
+import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
@@ -229,19 +230,26 @@ ipcMain.handle(
     async (event, workspace: unknown, approvalMode: unknown): Promise<CreateSessionResult> => {
         if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
         if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
-        if (typeof workspace !== "string" || !isAbsolute(workspace)) return { ok: false, reason: "Choose a folder first." };
+        // No folder asks for a chat; a folder that is given must be an absolute path.
+        let folder: string | undefined;
+        if (workspace !== undefined && workspace !== null) {
+            if (typeof workspace !== "string" || !isAbsolute(workspace)) return { ok: false, reason: "Choose a folder first." };
+            folder = workspace;
+        }
         const mode = typeof approvalMode === "string" && APPROVAL_MODE_PATTERN.test(approvalMode) ? approvalMode : undefined;
         try {
-            const ready = await createAgentThroughHost(hostSocketPath, workspace, mode);
+            const ready = await createAgentThroughHost(hostSocketPath, folder, mode);
             return { ok: true, agentId: ready.id, workspace: ready.workspace };
         } catch (error) {
             if (error instanceof AgentStartError && error.reason !== undefined) {
                 return { ok: false, reason: error.reason };
             }
-            return { ok: false, reason: "Vera could not start a session in that folder." };
+            return { ok: false, reason: folder === undefined ? "Vera could not start a chat." : "Vera could not start a session in that folder." };
         }
     },
 );
+ipcMain.handle(CHANNELS.foldersExisting, async (event, folders: unknown): Promise<readonly string[]> =>
+    fromWindow(event) ? existingFolders(folderListArgument(folders)) : []);
 ipcMain.handle(CHANNELS.folderChoose, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;
     const result = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });

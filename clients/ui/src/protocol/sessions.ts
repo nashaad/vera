@@ -14,6 +14,8 @@ export interface SessionRow {
     // Milliseconds since the epoch; absent when the host reported no usable time.
     readonly updatedAt?: number;
     readonly live: boolean;
+    // A chat has no outside folder; its workspace is the session's own files folder.
+    readonly chat: boolean;
     readonly parentId?: string;
 }
 
@@ -40,6 +42,7 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
             status: statusOf(fields.status),
             ...(Number.isFinite(updated) ? { updatedAt: updated } : {}),
             live: fields.live === true,
+            chat: fields.chat === true,
             ...(typeof fields.parent_id === "string" && fields.parent_id.length > 0 ? { parentId: fields.parent_id } : {}),
         });
     }

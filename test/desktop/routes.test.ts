@@ -9,6 +9,7 @@ import {
     lastSession,
     reduceRouter,
     routeTitle,
+    sessionPlace,
     type PageKind,
     type RouterState,
 } from "../../clients/ui/src/pages/routes.ts";
@@ -59,4 +60,10 @@ test("the last session is the newest one at or before the page shown", () => {
     expect(lastSession(state)?.agentId).toBe("b");
     state = reduceRouter(reduceRouter(state, { type: "back" }), { type: "back" });
     expect(lastSession(state)?.agentId).toBe("a");
+});
+
+test("a session route names a folder or a chat, never a chat's internal folder", () => {
+    expect(sessionPlace("/p/crow", false)).toEqual({ workspace: "/p/crow" });
+    expect(sessionPlace("", false)).toEqual({});
+    expect(sessionPlace("/h/runtime/sessions/c.jsonl.files", true)).toEqual({ chat: true });
 });

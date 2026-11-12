@@ -38,6 +38,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const rightPaneShown = useIsShown("rightPane");
     const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
     const folder = row === undefined || row.workspace.length === 0 ? route.workspace : row.workspace;
+    const chat = row?.chat ?? route.chat === true;
     const scroller = usePinnedScroll();
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const companion = panes.layout === "single" ? undefined : companionFor(route.agentId, panes.companion, connection.sessionRows);
@@ -45,8 +46,8 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const title = watch.title ?? row?.name ?? route.title;
 
     useEffect(() => {
-        publishActiveSession({ bridge, agentId: route.agentId, title, folder, watch, send });
-    }, [bridge, route.agentId, title, folder, watch, send]);
+        publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send });
+    }, [bridge, route.agentId, title, folder, chat, watch, send]);
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
 
@@ -102,6 +103,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     watch={watch}
                     send={send}
                     folder={folder}
+                    chat={chat}
                 />
             </div>
         </div>

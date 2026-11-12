@@ -161,11 +161,11 @@ export function groupByScope(items: readonly CustomizeItem[]): ScopeSection[] {
     return sections;
 }
 
-// Folders of the listed sessions, most recently active first. Rows without a folder are skipped.
+// Folders of the listed sessions, most recently active first. Rows without a folder and chats are skipped.
 export function folderChoices(rows: readonly SessionRow[], limit: number = FOLDER_LIMIT): string[] {
     const newest = new Map<string, number>();
     for (const row of rows) {
-        if (row.workspace.length === 0) continue;
+        if (row.chat || row.workspace.length === 0) continue;
         const at = row.updatedAt ?? Number.NEGATIVE_INFINITY;
         const seen = newest.get(row.workspace);
         if (seen === undefined || at > seen) newest.set(row.workspace, at);

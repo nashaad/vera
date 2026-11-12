@@ -53,9 +53,10 @@ workspace and a session.
 - Search finds sessions by what was said in them and by their titles. The host
   searches the messages, tool commands and file edits of every session, and the
   window matches titles of the sessions it has listed. Each result shows the
-  session's title, folder and age, and under it the lines that matched, with the
-  words you typed marked. Everything searches all sessions; This conversation
-  searches only the session last open. A menu limits the search to one folder.
+  session's title, folder (`Chat` for a chat) and age, and under it the lines
+  that matched, with the words you typed marked. Everything searches all sessions; This conversation
+  searches only the session last open. A menu limits the search to one folder and
+  lists no chats.
   Picking a result opens the session. When the host stops at its first 20
   sessions, a note under the results asks for more words.
 - Work lists sessions in three sections: Needs you, for sessions stopped at an
@@ -78,7 +79,7 @@ workspace and a session.
   described under Session view.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
-  starts on the folder of the session last open. The page reads through one
+  starts on the folder of the session last open, and lists no chats. The page reads through one
   top-level session in that folder, preferring a running one, and names it under
   the toolbar. Reading through a session that has stopped starts it again. With
   no session in the folder the page says so and offers New chat here. Pills
@@ -119,7 +120,7 @@ workspace and a session.
     It does not change them; Choose Agent does.
   - Approvals is described under Approvals and questions and Providers under
     Models.
-  - Workspaces lists the folders of the listed sessions, the most recently
+  - Workspaces lists the folders of the listed sessions, leaving out chats, the most recently
     active first, each with its path, session count and last activity, and Open,
     New chat here and Show in Finder.
   - Git & PRs lists the same folders with each one's current branch and says that
@@ -169,7 +170,7 @@ Escape, its close button or a click outside it.
 - Choose Theme lists the three themes with a swatch; a click or a number key
   applies one.
 - Session Diagnostics lists the open session's facts (id, title, folder, model,
-  queued prompts, open requests) and the host's (connection, process id, build,
+  queued prompts, open requests; a chat's folder reads `Chat`) and the host's (connection, process id, build,
   protocol, home, platform). Copy puts them on the clipboard as text.
 - Check Vera's Health checks the connection, the protocol version, the session
   list, extensions and providers from what this window knows, with Run again.
@@ -204,7 +205,9 @@ Seven views ship with the app:
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
   path, or `No folder` when a session has none. Hovering the heading shows the
-  full path. Groups are in the order of their most recent session, and rows keep
+  full path. Chats, which are sessions with no folder of their own, share one
+  group headed `Chats`; its heading opens no workspace page. Groups are in the
+  order of their most recent session, and rows keep
   the host's order inside a group. A child session in the same folder is listed
   under its parent, indented. A child of a child is listed under the same top
   parent. A group collapses and expands from its heading; the state is not kept
@@ -329,8 +332,9 @@ strip with the reason.
 
 The composer is a box for your message with a row of chips above it and a bar
 below it. The chips show where the session runs: `This Mac`, the folder by its
-last path segment, and the folder's git branch when it has one. Hovering a chip
-shows the full value. The branch is read from the folder's `.git` without
+last path segment, and the folder's git branch when it has one. A chat shows
+`Chat` in place of the folder and no branch. Hovering a chip shows the full
+value. The branch is read from the folder's `.git` without
 running git; a detached checkout shows the short commit id. The bar has a round
 `+` button at the left that attaches images and the send button at the right.
 
@@ -350,14 +354,28 @@ In a session:
   and Enter with nothing queued stops the turn too.
 - When the host refuses a message, the box gets its text back if you have not
   typed since, and a line above the box says why.
+- When the session's folder no longer exists, the folder chip turns to the
+  warning colour, keeps the folder's name and shows `Folder missing` when you
+  hover it, and a line above the box reads `The folder <path> no longer exists.`
+  with the full path. The window checks when the session opens and each time the
+  window is shown or focused again, not on a timer. The warning goes away once
+  the folder is back. Chats are not checked, since the host recreates their
+  folder. The window offers no way to pick another folder for the session.
 
 On New Chat the folder chip is a menu: the folders of your eight most recent
 sessions, newest first, then `Open folder…`, which opens the system folder
-picker. It starts on the folder of your most recent session, and says
-`Choose folder` when there is none. Sending creates a session in that folder
-with the host's default settings and the model and effort chosen on the bar's
-pills, opens its page, and sends the message as soon as the page is attached. The page title is the first line of
-the message until the session is named.
+picker. The menu leaves out chats and folders that no longer exist; the window
+asks the shell which of up to 64 candidate folders are still directories each
+time New Chat opens. The chip says `No folder` until you pick one, and New chat
+here on a folder page or a workspace row starts with that folder picked.
+Sending with no folder starts a chat: a session with no outside working
+folder, whose files the host keeps in a folder of its own under the home.
+Sending with a folder creates a session in that folder. Either way the session
+starts with the host's default settings and the model and effort chosen on the
+bar's pills, opens its page, and sends the message as soon as the page is
+attached. The page title is the first line of the message until the session is
+named. When the host cannot start the session, a line in the error colour above
+the box says so, and the text you typed stays in the box.
 
 Images:
 
@@ -526,7 +544,7 @@ lines. `Review` opens the Review view. Review lists the files changed in the
 last turn, or in the whole session, with their patches. Plan shows the newest
 checklist Vera wrote in its scratch folder: the title, how many items are done,
 a bar and the items, with the item just finished marked. Files shows the
-session's folder and says the host does not serve a file tree; Preview says the
+session's folder (`Chat` for a chat) and says the host does not serve a file tree; Preview says the
 host does not serve previews. While the right pane is closed, a rail at the
 right of the session page opens these views.
 
@@ -610,6 +628,7 @@ node clients/desktop/test/attach.e2e.mjs
 node clients/desktop/test/layout.e2e.mjs
 node clients/desktop/test/shortcuts.e2e.mjs
 node clients/desktop/test/compose.e2e.mjs
+node clients/desktop/test/chat.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
@@ -660,6 +679,19 @@ reply, queues a message during a running turn, takes it back with Up, queues it
 again and releases it with Enter, stops a turn from the stop button, and sends a
 message with an attached PNG, checking the provider received the image. It
 stops the host it started.
+
+The chat test runs the same kind of local provider. It starts one session in
+each of two folders and removes one of the folders from disk. It opens the
+session of the removed folder and checks that the chip is marked missing, keeps
+the folder's name and reads `Folder missing`, and that the line above the box
+gives the full path. It opens the other session, removes its folder, focuses the
+window and checks the warning appears, then restores the folder and checks it
+goes. On New Chat it checks the chip says `No folder` and the menu offers the
+folder that exists but not the removed one. It sends a message with no folder,
+checks the reply, the `Chat` chip, the session under one `Chats` group in the
+sidebar and the chat's own folder under the home's `runtime/sessions`. It then
+picks a folder, removes it and sends, and checks that the error line shows and
+the typed text stays. It stops the host it started.
 
 The approve test runs a local provider that asks to run one shell command per
 prompt in a session started in ask mode. It allows the first request with the 1

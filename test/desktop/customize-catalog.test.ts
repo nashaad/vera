@@ -44,6 +44,7 @@ function row(id: string, workspace: string, updatedAt?: number): SessionRow {
         workspace,
         status: "idle",
         live: false,
+        chat: false,
         ...(updatedAt === undefined ? {} : { updatedAt }),
     };
 }
@@ -152,6 +153,11 @@ test("@core folders are the distinct workspaces, newest first, capped", () => {
     expect(folderChoices(rows)).toEqual(["/w/beta", "/w/alpha", "/w/gamma"]);
     expect(folderChoices(rows, 2)).toEqual(["/w/beta", "/w/alpha"]);
     expect(folderChoices([])).toEqual([]);
+});
+
+test("@core a chat's own folder is not offered as a folder", () => {
+    const rows = [{ ...row("c", "/h/sessions/c.jsonl.files", 900), chat: true }, row("a", "/w/alpha", 100)];
+    expect(folderChoices(rows)).toEqual(["/w/alpha"]);
 });
 
 test("dirname splits on both slash styles", () => {

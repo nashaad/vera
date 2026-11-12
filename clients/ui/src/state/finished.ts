@@ -14,6 +14,7 @@ export interface FinishedEntry {
     readonly agentId: string;
     readonly name: string;
     readonly workspace: string;
+    readonly chat: boolean;
     readonly status: SessionStatus;
     readonly finishedAt: number;
 }
@@ -40,6 +41,7 @@ export class FinishedSessions {
                 agentId: row.id,
                 name: row.name,
                 workspace: row.workspace,
+                chat: row.chat,
                 status: row.status,
                 finishedAt: now,
             });

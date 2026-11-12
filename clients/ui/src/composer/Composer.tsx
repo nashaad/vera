@@ -10,6 +10,7 @@ export interface SessionComposerProps {
     readonly watch: SessionWatch;
     readonly send: (line: string) => void;
     readonly folder: string | undefined;
+    readonly chat: boolean;
 }
 
 export interface NewChatComposerProps {

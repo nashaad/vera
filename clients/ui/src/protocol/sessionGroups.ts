@@ -7,9 +7,27 @@ export interface SessionEntry {
 }
 
 export interface SessionGroup {
+    // Unique among groups; the Chats group has its own key.
+    readonly key: string;
+    // Empty for the Chats group and for sessions with no folder.
     readonly workspace: string;
     readonly title: string;
+    // Chats share one group and its title opens no workspace page.
+    readonly chats: boolean;
     readonly entries: readonly SessionEntry[];
+}
+
+export const CHATS_TITLE = "Chats";
+export const CHAT_FOLDER_LABEL = "Chat";
+
+// The folder a session is shown under: a chat has none of its own to name.
+export function rowFolderName(row: Pick<SessionRow, "workspace" | "chat">): string {
+    return row.chat ? CHAT_FOLDER_LABEL : folderName(row.workspace);
+}
+
+// The folder path for a tooltip; a chat has no path to show.
+export function rowFolderPath(row: Pick<SessionRow, "workspace" | "chat">): string | undefined {
+    return row.chat || row.workspace.length === 0 ? undefined : row.workspace;
 }
 
 // The last part of a folder path, for a group heading.
@@ -20,17 +38,23 @@ export function folderName(path: string): string {
     return parts[parts.length - 1] ?? trimmed;
 }
 
+const CHATS_KEY = "chats";
+const FOLDER_KEY = "folder:";
+
 // Groups keep the order of their most recent session; rows keep the host's order, and a
-// row whose parent is in the same group follows that parent.
+// row whose parent is in the same group follows that parent. Chats share one group.
 export function groupSessions(rows: readonly SessionRow[]): readonly SessionGroup[] {
-    const byWorkspace = new Map<string, SessionRow[]>();
+    const byKey = new Map<string, SessionRow[]>();
     for (const row of rows) {
-        const members = byWorkspace.get(row.workspace);
-        if (members === undefined) byWorkspace.set(row.workspace, [row]);
+        const key = row.chat ? CHATS_KEY : `${FOLDER_KEY}${row.workspace}`;
+        const members = byKey.get(key);
+        if (members === undefined) byKey.set(key, [row]);
         else members.push(row);
     }
     const groups: SessionGroup[] = [];
-    for (const [workspace, members] of byWorkspace) {
+    for (const [key, members] of byKey) {
+        const chats = key === CHATS_KEY;
+        const workspace = chats ? "" : key.slice(FOLDER_KEY.length);
         const byId = new Map(members.map((row) => [row.id, row]));
         const rootOf = (row: SessionRow): string => {
             let current = row;
@@ -61,7 +85,7 @@ export function groupSessions(rows: readonly SessionRow[]): readonly SessionGrou
             entries.push({ row: root, nested: false });
             for (const child of children.get(root.id) ?? []) entries.push({ row: child, nested: true });
         }
-        groups.push({ workspace, title: folderName(workspace), entries });
+        groups.push({ key, workspace, title: chats ? CHATS_TITLE : folderName(workspace), chats, entries });
     }
     return groups;
 }

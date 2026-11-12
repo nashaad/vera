@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { ArrowLeftIcon, ChevronRightIcon, LaptopIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { folderName } from "../protocol/sessionGroups.ts";
+import { rowFolderName, rowFolderPath } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { phaseLabel, type UiState } from "../state/connection.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -125,7 +125,7 @@ function SessionListRow({ row, now, onOpen }: SessionListRowProps) {
                 <span className="list-row-name">
                     <span className="list-row-title">{row.name}</span>
                 </span>
-                <span className="list-row-detail" title={row.workspace}>{folderName(row.workspace)} · {statusPhrase(row.status)}</span>
+                <span className="list-row-detail" title={rowFolderPath(row)}>{rowFolderName(row)} · {statusPhrase(row.status)}</span>
             </span>
             <span className="list-row-age">{relativeTime(row.updatedAt, now)}</span>
             <ChevronRightIcon className="list-row-go" />

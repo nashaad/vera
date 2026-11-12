@@ -40,10 +40,15 @@ describe("filterSettings", () => {
 });
 
 function row(id: string, workspace: string, updatedAt?: number): SessionRow {
-    return { id, name: id, workspace, status: "idle", live: false, ...(updatedAt === undefined ? {} : { updatedAt }) };
+    return { id, name: id, workspace, status: "idle", live: false, chat: false, ...(updatedAt === undefined ? {} : { updatedAt }) };
 }
 
 describe("workspaceFolders", () => {
+    test("@core leaves out chats", () => {
+        const rows = [{ ...row("c", "/home/runtime/sessions/c.jsonl.files", 900), chat: true }, row("a", "/work/alpha", 100)];
+        expect(workspaceFolders(rows)).toEqual(["/work/alpha"]);
+    });
+
     test("@core lists distinct folders, most recently active first, skipping empty folders", () => {
         const rows = [
             row("a", "/work/alpha", 100),

@@ -24,6 +24,14 @@ export interface SessionRoute {
     readonly title: string;
     // The folder a session made on New Chat was created in, shown until the session list carries it.
     readonly workspace?: string;
+    // Set for a chat, until the session list carries it.
+    readonly chat?: boolean;
+}
+
+// Where a session runs, for a route that opens it before the session list carries its row.
+export function sessionPlace(workspace: string, chat: boolean): Pick<SessionRoute, "workspace" | "chat"> {
+    if (chat) return { chat: true };
+    return workspace.length > 0 ? { workspace } : {};
 }
 
 export type Route = HomeRoute | PageRoute | SessionRoute | WorkspaceRoute;

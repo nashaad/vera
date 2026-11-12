@@ -14,7 +14,7 @@ const ready = { pid: 42, buildId: "abc1234def", home: "/Users/someone/.vera", at
 const identity = { protocol_version: 3, pid: 42 } as UiState["identity"];
 
 function row(id: string, extra: Partial<SessionRow> = {}): SessionRow {
-    return { id, name: id, workspace: "/p/crow", status: "idle", live: false, ...extra };
+    return { id, name: id, workspace: "/p/crow", status: "idle", live: false, chat: false, ...extra };
 }
 
 test("the local machine is named by platform", () => {

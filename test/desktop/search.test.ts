@@ -6,7 +6,7 @@ import type { SessionSearchMatch } from "../../clients/ui/src/protocol/bridge.ts
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 
 function row(id: string, name: string, workspace: string, extra: Partial<SessionRow> = {}): SessionRow {
-    return { id, name, workspace, status: "idle", live: false, ...extra };
+    return { id, name, workspace, status: "idle", live: false, chat: false, ...extra };
 }
 
 const everything = { workspace: undefined, agentId: undefined };
@@ -107,6 +107,27 @@ test("host matches come first and a session already matched is not repeated", ()
         ["a", "Also host", undefined, 0],
         ["c", "Build", 7, 0],
     ]);
+});
+
+test("a host match is a chat when the listed rows say so, and a title match carries its row's flag", () => {
+    const host: SessionSearchMatch[] = [
+        { agentId: "c1", title: "Chat one", workspace: "/h/sessions/c1.jsonl.files", updatedAt: 1, hits: [] },
+        { agentId: "a", title: "Folder one", workspace: "/p/crow", updatedAt: 2, hits: [] },
+    ];
+    const listed = [row("c1", "Chat one", "/h/sessions/c1.jsonl.files", { chat: true }), row("a", "Folder one", "/p/crow")];
+    const titled = [...listed, row("c2", "Chat two", "/h/sessions/c2.jsonl.files", { chat: true })];
+    expect(mergeMatches(host, titled, titled).map((item) => [item.agentId, item.chat])).toEqual([
+        ["c1", true],
+        ["a", false],
+        ["c2", true],
+    ]);
+});
+
+test("workspace choices leave out chats", () => {
+    expect(workspaceChoices([
+        row("c", "c", "/h/sessions/c.jsonl.files", { chat: true }),
+        row("a", "a", "/p/crow"),
+    ])).toEqual([{ workspace: "/p/crow", label: "crow" }]);
 });
 
 test("workspace choices are distinct, non-empty and labelled by folder", () => {

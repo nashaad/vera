@@ -1,3 +1,4 @@
+import { CHAT_FOLDER_LABEL } from "../protocol/sessionGroups.ts";
 import type { ActiveSession } from "../session/activeSession.ts";
 import { tokenCount } from "../session/notices.ts";
 import type { ContextState } from "../session/model.ts";
@@ -13,7 +14,7 @@ export interface DiagnosticFact {
 }
 
 // The parts of an open session the facts read. A test builds this without a bridge.
-export type DiagnosticSession = Pick<ActiveSession, "agentId" | "title" | "folder" | "watch">;
+export type DiagnosticSession = Pick<ActiveSession, "agentId" | "title" | "folder" | "chat" | "watch">;
 
 export const NOT_REPORTED = "Not reported yet";
 // The window keeps the host's pid and build, not the socket path it connected to.
@@ -38,7 +39,7 @@ function sessionSection(session: DiagnosticSession): readonly DiagnosticFact[] {
     return [
         fact("Session", "Session id", session.agentId),
         fact("Session", "Title", session.title),
-        fact("Session", "Folder", session.folder ?? "Not known"),
+        fact("Session", "Folder", session.chat ? CHAT_FOLDER_LABEL : session.folder ?? "Not known"),
         fact("Session", "Watch phase", watch.phase),
         fact("Session", "Run status", watch.status),
         fact("Session", "Model", modelText(watch.models?.settings)),

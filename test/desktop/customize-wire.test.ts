@@ -110,7 +110,7 @@ test("@core the probe is ready only when all three of its own replies arrived", 
 });
 
 function row(id: string, extra: Partial<SessionRow> = {}): SessionRow {
-    return { id, name: id, workspace: "/p/crow", status: "idle", live: false, ...extra };
+    return { id, name: id, workspace: "/p/crow", status: "idle", live: false, chat: false, ...extra };
 }
 
 test("the probe reads through a live top-level session in the folder before a newer parked one", () => {
@@ -124,6 +124,12 @@ test("the probe reads through a live top-level session in the folder before a ne
     expect(probeTarget(rows)?.id).toBe("elsewhere");
     expect(probeTarget(rows, "/p/none")).toBeUndefined();
     expect(probeTarget([row("a", { updatedAt: 1 }), row("b", { updatedAt: 5 })], "/p/crow")?.id).toBe("b");
+});
+
+test("a chat is never the probe target", () => {
+    const rows = [row("chat", { workspace: "/h/c.jsonl.files", live: true, updatedAt: 50, chat: true }), row("a", { updatedAt: 1 })];
+    expect(probeTarget(rows)?.id).toBe("a");
+    expect(probeTarget(rows, "/h/c.jsonl.files")).toBeUndefined();
 });
 
 test("extension failures parse into ids and messages, and a malformed entry refuses the reply", () => {

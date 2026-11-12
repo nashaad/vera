@@ -169,7 +169,7 @@ export function CustomizePage() {
     const folders = folderChoices(rows);
 
     // Starts at the folder on screen or the newest session's folder; until the user picks, the first listed folder.
-    const [chosen, setChosen] = useState<string | undefined>(() => active?.folder ?? probeTarget(rows)?.workspace);
+    const [chosen, setChosen] = useState<string | undefined>(() => (active === undefined || active.chat ? undefined : active.folder) ?? probeTarget(rows)?.workspace);
     const folder = chosen ?? folders[0];
     const target = probeTarget(rows, folder);
 

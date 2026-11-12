@@ -37,7 +37,7 @@ function tools(key: string, calls: ToolsBlock["calls"]): ToolsBlock {
 }
 
 function row(id: string, overrides: Partial<SessionRow> = {}): SessionRow {
-    return { id, name: id, workspace: "/work", status: "idle", live: true, ...overrides };
+    return { id, name: id, workspace: "/work", status: "idle", live: true, chat: false, ...overrides };
 }
 
 describe("changed files", () => {
@@ -231,6 +231,7 @@ describe("session commands", () => {
             bridge: {} as DesktopBridge,
             agentId: "agent",
             title: "Title",
+            chat: false,
             watch: initialWatch("agent"),
             send: () => undefined,
         });

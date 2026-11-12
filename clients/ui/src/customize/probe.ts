@@ -51,11 +51,11 @@ export function reduceProbe(state: ProbeState, ids: ProbeIds, reply: CatalogRepl
 }
 
 // The session to read through: a top-level session in the folder (any folder when none is
-// given), live ones first since reading a parked one starts it again, then the newest.
+// given, chats excluded), live ones first since reading a parked one starts it again, then the newest.
 export function probeTarget(rows: readonly SessionRow[], folder?: string): SessionRow | undefined {
     let best: SessionRow | undefined;
     for (const row of rows) {
-        if (row.parentId !== undefined || row.workspace.length === 0) continue;
+        if (row.parentId !== undefined || row.chat || row.workspace.length === 0) continue;
         if (folder !== undefined && row.workspace !== folder) continue;
         if (best === undefined || better(row, best)) best = row;
     }

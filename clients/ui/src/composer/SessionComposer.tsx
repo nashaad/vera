@@ -14,8 +14,9 @@ import { imagePathsOf } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
-import { arrowUpAction, enterAction, escapeAction } from "./rules.ts";
+import { arrowUpAction, enterAction, escapeAction, folderMissingNotice } from "./rules.ts";
 import { useBranch } from "./useBranch.ts";
+import { useFolderMissing } from "./useFolderMissing.ts";
 import { useSessionImages } from "./useImages.ts";
 
 const IMAGES_WAITING = "The images are still attaching.";
@@ -27,7 +28,7 @@ interface ModelGate {
     readonly prompt: PendingPrompt;
 }
 
-export function SessionComposer({ bridge, agentId, watch, send, folder }: SessionComposerProps) {
+export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: SessionComposerProps) {
     const [text, setText] = useState("");
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
@@ -41,7 +42,8 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
     const queued = watch.queue.length > 0;
     const held = watch.queue.some((prompt) => prompt.state === "held");
     const empty = text.trim().length === 0;
-    const branch = useBranch(bridge, folder);
+    const branch = useBranch(bridge, chat ? undefined : folder);
+    const missing = useFolderMissing(bridge, folder, chat);
     const onRefused = useCallback((reason: string) => {
         setNotice(reason);
         setAutoSend(false);
@@ -187,8 +189,11 @@ export function SessionComposer({ bridge, agentId, watch, send, folder }: Sessio
 
     return (
         <div className="composer-inner wide">
-            <ContextChips folder={folder} branch={branch} />
+            <ContextChips folder={folder} branch={branch} chat={chat} missing={missing} />
             <ImageChips chips={chips} onRemove={remove} />
+            {missing && folder !== undefined ? (
+                <p className="composer-notice" data-tone="warning" role="status">{folderMissingNotice(folder)}</p>
+            ) : null}
             {notice === undefined ? null : <p className="composer-notice" role="status">{notice}</p>}
             <ComposerBox
                 text={text}

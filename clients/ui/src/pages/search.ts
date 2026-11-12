@@ -21,6 +21,8 @@ export interface SearchRow {
     readonly agentId: string;
     readonly title: string;
     readonly workspace: string;
+    // True for a session known to be a chat, which has no folder to show.
+    readonly chat: boolean;
     readonly updatedAt: number | undefined;
     // Empty for a title-only match.
     readonly hits: readonly SessionSearchHit[];
@@ -57,11 +59,18 @@ export function titleMatches(rows: readonly SessionRow[], query: string, filter:
 }
 
 // Host matches keep the host's order and come first; a session already matched by the host is not repeated.
-export function mergeMatches(hostMatches: readonly SessionSearchMatch[], titleRows: readonly SessionRow[]): readonly SearchRow[] {
+// A host match carries no chat label, so it is read from the listed rows.
+export function mergeMatches(
+    hostMatches: readonly SessionSearchMatch[],
+    titleRows: readonly SessionRow[],
+    listed: readonly SessionRow[] = titleRows,
+): readonly SearchRow[] {
+    const chatIds = new Set(listed.filter((row) => row.chat).map((row) => row.id));
     const merged: SearchRow[] = hostMatches.map((match) => ({
         agentId: match.agentId,
         title: match.title,
         workspace: match.workspace,
+        chat: chatIds.has(match.agentId),
         updatedAt: Number.isFinite(match.updatedAt) ? match.updatedAt : undefined,
         hits: match.hits,
     }));
@@ -69,7 +78,7 @@ export function mergeMatches(hostMatches: readonly SessionSearchMatch[], titleRo
     for (const row of titleRows) {
         if (seen.has(row.id)) continue;
         seen.add(row.id);
-        merged.push({ agentId: row.id, title: row.name, workspace: row.workspace, updatedAt: row.updatedAt, hits: [] });
+        merged.push({ agentId: row.id, title: row.name, workspace: row.workspace, chat: row.chat, updatedAt: row.updatedAt, hits: [] });
     }
     return merged;
 }
@@ -78,7 +87,7 @@ export function workspaceChoices(rows: readonly SessionRow[]): readonly Workspac
     const seen = new Set<string>();
     const choices: WorkspaceChoice[] = [];
     for (const row of rows) {
-        if (row.workspace.length === 0 || seen.has(row.workspace)) continue;
+        if (row.chat || row.workspace.length === 0 || seen.has(row.workspace)) continue;
         seen.add(row.workspace);
         choices.push({ workspace: row.workspace, label: folderName(row.workspace) });
     }

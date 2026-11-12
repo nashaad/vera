@@ -5,19 +5,22 @@ import {
     enterAction,
     escapeAction,
     folderChoices,
+    folderMissingNotice,
+    FOLDER_MISSING_TITLE,
     sessionTitle,
 } from "../../clients/ui/src/composer/rules.ts";
 import { sendPrompt } from "../../clients/ui/src/composer/requests.ts";
 import { takePendingPrompt, setPendingPrompt } from "../../clients/ui/src/session/pendingPrompt.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 
-function row(id: string, workspace: string, updatedAt?: number): SessionRow {
+function row(id: string, workspace: string, updatedAt?: number, chat = false): SessionRow {
     return {
         id,
         name: id,
         workspace,
         status: "idle",
         live: false,
+        chat,
         ...(updatedAt === undefined ? {} : { updatedAt }),
     };
 }
@@ -46,6 +49,26 @@ describe("folderChoices", () => {
 
     test("skips sessions with no folder", () => {
         expect(folderChoices([row("a", "", 5)])).toEqual([]);
+    });
+
+    test("@core skips chats, whose folder is the session's own", () => {
+        const choices = folderChoices([
+            row("chat", "/home/runtime/sessions/chat.jsonl.files", 99, true),
+            row("a", "/work/alpha", 10),
+        ]);
+        expect(choices.map((choice) => choice.folder)).toEqual(["/work/alpha"]);
+    });
+
+    test("@core skips folders that are not known to exist when given the ones that do", () => {
+        const rows = [row("a", "/work/gone", 90), row("b", "/work/kept", 50), row("c", "/work/other", 10)];
+        expect(folderChoices(rows, 8, new Set(["/work/kept", "/work/other"])).map((choice) => choice.folder))
+            .toEqual(["/work/kept", "/work/other"]);
+        expect(folderChoices(rows, 8, new Set())).toEqual([]);
+    });
+
+    test("the limit counts only the folders that exist", () => {
+        const rows = [row("a", "/work/gone", 90), row("b", "/work/kept", 50), row("c", "/work/other", 10)];
+        expect(folderChoices(rows, 1, new Set(["/work/kept", "/work/other"])).map((choice) => choice.folder)).toEqual(["/work/kept"]);
     });
 });
 
@@ -143,5 +166,12 @@ describe("pending prompts", () => {
 
     test("an unknown agent has no pending prompt", () => {
         expect(takePendingPrompt("never-set")).toBeUndefined();
+    });
+});
+
+describe("missing folder wording", () => {
+    test("the notice names the full path and the chip title says the folder is missing", () => {
+        expect(folderMissingNotice("/Users/nash/Projects/gone")).toBe("The folder /Users/nash/Projects/gone no longer exists.");
+        expect(FOLDER_MISSING_TITLE).toBe("Folder missing");
     });
 });

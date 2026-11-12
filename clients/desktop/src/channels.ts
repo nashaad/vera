@@ -15,6 +15,7 @@ export const CHANNELS = {
     sessionBranch: "vera:session-branch",
     sessionClose: "vera:session-close",
     folderChoose: "vera:folder-choose",
+    foldersExisting: "vera:folders-existing",
     branchRead: "vera:branch-read",
     imagesChoose: "vera:images-choose",
     imagePaste: "vera:image-paste",

@@ -1,8 +1,8 @@
 import { OVERLAY_COMMANDS, type Overlay } from "../commands/overlay-ids.ts";
-import { folderName } from "../protocol/sessionGroups.ts";
+import { folderName, rowFolderName } from "../protocol/sessionGroups.ts";
 import type { SessionRow, SessionStatus } from "../protocol/sessions.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
-import type { Route, SessionRoute } from "./routes.ts";
+import { sessionPlace, type Route, type SessionRoute } from "./routes.ts";
 
 export type TourStatus = Extract<SessionStatus, "working" | "waiting" | "completed" | "idle">;
 
@@ -71,13 +71,13 @@ export function sessionRoute(row: SessionRow): SessionRoute {
         kind: "session",
         agentId: row.id,
         title: row.name,
-        ...(row.workspace.length > 0 ? { workspace: row.workspace } : {}),
+        ...sessionPlace(row.workspace, row.chat),
     };
 }
 
 // The desc of a card whose session was found, such as "Refactor the parser · vera".
 export function foundSessionDesc(row: SessionRow): string {
-    return `${row.name} · ${folderName(row.workspace)}`;
+    return `${row.name} · ${rowFolderName(row)}`;
 }
 
 // `rows` is undefined until the host's first session listing arrives.

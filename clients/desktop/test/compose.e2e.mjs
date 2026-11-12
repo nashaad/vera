@@ -88,7 +88,7 @@ try {
     await trial.waitForHost();
 
     // New Chat: pick the folder, type, Enter. The prompt goes out once the new session attaches.
-    await page.getByRole("button", { name: /Choose folder/ }).click();
+    await page.getByRole("button", { name: /No folder/ }).click();
     await page.getByRole("menuitem", { name: /Open folder/ }).click();
     await page.waitForSelector(".context-chips .chip-label:text-is(\"work\")");
     const input = page.locator(".composer-input");

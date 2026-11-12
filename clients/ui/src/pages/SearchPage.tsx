@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import { ChevronRightIcon, SearchIcon } from "../components/Icons.tsx";
 import type { SessionSearchResult } from "../protocol/bridge.ts";
-import { folderName } from "../protocol/sessionGroups.ts";
+import { rowFolderName, rowFolderPath } from "../protocol/sessionGroups.ts";
 import { relativeTime } from "../protocol/sessions.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
@@ -79,7 +79,7 @@ export function SearchPage() {
         : [];
     const results: readonly SearchRow[] = query.length === 0
         ? []
-        : mergeMatches(hostMatches, titleMatches(rows, query, filter));
+        : mergeMatches(hostMatches, titleMatches(rows, query, filter), rows);
     const pending = query.length > 0 && (answer === undefined || !sameSearch(answer, current));
     const failure = query.length > 0 && answer !== undefined && answer.result.ok === false ? answer.result.reason : undefined;
     const truncated = query.length > 0 && answer !== undefined && answer.result.ok && answer.result.truncated;
@@ -173,7 +173,7 @@ export function SearchPage() {
                                     <span className="list-row-body">
                                         <span className="list-row-name">
                                             <span className="list-row-title">{row.title}</span>
-                                            <span className="badge" title={row.workspace}>{folderName(row.workspace)}</span>
+                                            <span className="badge" title={rowFolderPath(row)}>{rowFolderName(row)}</span>
                                         </span>
                                         {snippet !== undefined && snippet.length > 0 && (
                                             <span className="list-row-detail search-snippet">

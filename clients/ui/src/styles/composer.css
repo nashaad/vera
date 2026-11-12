@@ -50,6 +50,11 @@
     border-radius: var(--vera-radius);
 }
 
+.chip[data-missing="true"] {
+    color: var(--vera-warning);
+    border-color: var(--vera-warning);
+}
+
 .chip-label {
     min-width: 0;
     overflow: hidden;
@@ -208,6 +213,14 @@
     padding: 0 calc(var(--vera-space) * 1);
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
+}
+
+.composer-notice[data-tone="danger"] {
+    color: var(--vera-danger);
+}
+
+.composer-notice[data-tone="warning"] {
+    color: var(--vera-warning);
 }
 
 .composer {

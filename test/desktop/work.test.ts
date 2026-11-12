@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 const T0 = 1_000_000_000_000;
 
 function row(id: string, status: SessionStatus, extra: Partial<SessionRow> = {}): SessionRow {
-    return { id, name: `name ${id}`, workspace: "/p/crow", status, live: false, ...extra };
+    return { id, name: `name ${id}`, workspace: "/p/crow", status, live: false, chat: false, ...extra };
 }
 
 test("@core a session that finishes while unseen lands in Finished", () => {
@@ -21,7 +21,7 @@ test("@core a session that finishes while unseen lands in Finished", () => {
     store.observe([row("a", "working")], T0, undefined);
     expect(store.observe([row("a", "idle")], T0 + MINUTE, undefined)).toBe(true);
     expect(store.list(T0 + MINUTE)).toEqual([
-        { agentId: "a", name: "name a", workspace: "/p/crow", status: "idle", finishedAt: T0 + MINUTE },
+        { agentId: "a", name: "name a", workspace: "/p/crow", chat: false, status: "idle", finishedAt: T0 + MINUTE },
     ]);
 });
 
@@ -106,6 +106,14 @@ test("the store keeps at most FINISHED_LIMIT entries and drops the oldest", () =
     expect(listed).toContain(`s${total - 1}`);
 });
 
+test("Work rows keep the chat flag of a running session and of a finished one", () => {
+    const store = new FinishedSessions();
+    store.observe([{ ...row("a", "working"), chat: true }], T0, undefined);
+    store.observe([{ ...row("a", "idle"), chat: true }], T0 + MINUTE, undefined);
+    const buckets = workBuckets([{ ...row("b", "working"), chat: true }], store.list(T0 + MINUTE), T0 + MINUTE);
+    expect(buckets.flatMap((bucket) => bucket.rows.map((item) => [item.id, item.chat]))).toEqual([["b", true], ["a", true]]);
+});
+
 test("Work buckets keep their order and show each session once", () => {
     const rows = [
         row("waiting", "waiting", { updatedAt: T0 }),
@@ -113,8 +121,8 @@ test("Work buckets keep their order and show each session once", () => {
         row("idle", "idle"),
     ];
     const finished = [
-        { agentId: "running", name: "name running", workspace: "/p/crow", status: "idle" as const, finishedAt: T0 - MINUTE },
-        { agentId: "done", name: "name done", workspace: "/p/crow", status: "completed" as const, finishedAt: T0 - 2 * MINUTE },
+        { agentId: "running", name: "name running", workspace: "/p/crow", chat: false, status: "idle" as const, finishedAt: T0 - MINUTE },
+        { agentId: "done", name: "name done", workspace: "/p/crow", chat: false, status: "completed" as const, finishedAt: T0 - 2 * MINUTE },
     ];
     const buckets = workBuckets(rows, finished, T0);
     expect(buckets.map((bucket) => [bucket.id, bucket.warn, bucket.rows.map((item) => item.id)])).toEqual([

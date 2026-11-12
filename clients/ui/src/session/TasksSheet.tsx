@@ -4,6 +4,7 @@ import { ClockIcon, XIcon } from "../components/Icons.tsx";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { openCompanion } from "./paneLayout.ts";
 import { useRouter } from "../pages/router.tsx";
+import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import type { ActiveSession } from "./activeSession.ts";
 import { childRows, isRunningRow, unlistedChildTitles } from "./subagents.ts";
@@ -113,7 +114,7 @@ export function SubagentList({ session, onClose }: SheetProps) {
                                 type="button"
                                 className="subagent-action"
                                 onClick={() => {
-                                    navigate({ kind: "session", agentId: row.id, title: row.name, workspace: row.workspace });
+                                    navigate({ kind: "session", agentId: row.id, title: row.name, ...sessionPlace(row.workspace, row.chat) });
                                     onClose();
                                 }}
                             >

@@ -39,7 +39,7 @@ function watch(overrides: Partial<SessionWatch> = {}): SessionWatch {
 }
 
 function session(overrides: Partial<SessionWatch> = {}): DiagnosticSession {
-    return { agentId: "agent-1", title: "Parser fix", folder: "/Users/someone/crow", watch: watch(overrides) };
+    return { agentId: "agent-1", title: "Parser fix", folder: "/Users/someone/crow", chat: false, watch: watch(overrides) };
 }
 
 function valueOf(facts: ReturnType<typeof diagnosticFacts>, label: string): string | undefined {

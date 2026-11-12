@@ -15,17 +15,34 @@ test("@core session rows carry a name, folder, status and the last activity, and
         ],
     });
     expect(rows).toEqual([
-        { id: "abc", name: "First", workspace: "/w/crow", status: "working", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true, parentId: "p1" },
-        { id: "def12345678", name: "Titled", workspace: "", status: "other", live: false },
-        { id: "ghi12345678", name: "ghi12345", workspace: "", status: "other", live: false },
+        { id: "abc", name: "First", workspace: "/w/crow", status: "working", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true, chat: false, parentId: "p1" },
+        { id: "def12345678", name: "Titled", workspace: "", status: "other", live: false, chat: false },
+        { id: "ghi12345678", name: "ghi12345", workspace: "", status: "other", live: false, chat: false },
+    ]);
+});
+
+test("a row the host marks as a chat is a chat, and only an exact true counts", () => {
+    const rows = sessionRows({
+        agents: [
+            { id: "chat1", workspace: "/home/runtime/sessions/chat1.jsonl.files", chat: true },
+            { id: "plain1", workspace: "/w/crow", chat: "true" },
+            { id: "plain2", workspace: "/w/crow", chat: false },
+            { id: "plain3", workspace: "/w/crow" },
+        ],
+    });
+    expect(rows.map((item) => [item.id, item.chat])).toEqual([
+        ["chat1", true],
+        ["plain1", false],
+        ["plain2", false],
+        ["plain3", false],
     ]);
 });
 
 test("an unreadable time leaves the row without one", () => {
     expect(sessionRows({ agents: [{ id: "a", updated_at: "not a date" }, { id: "b", updated_at: 5 }] }))
         .toEqual([
-            { id: "a", name: "a", workspace: "", status: "other", live: false },
-            { id: "b", name: "b", workspace: "", status: "other", live: false },
+            { id: "a", name: "a", workspace: "", status: "other", live: false, chat: false },
+            { id: "b", name: "b", workspace: "", status: "other", live: false, chat: false },
         ]);
 });
 

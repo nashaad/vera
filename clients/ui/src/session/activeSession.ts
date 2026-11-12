@@ -8,7 +8,9 @@ export interface ActiveSession {
     readonly bridge: DesktopBridge;
     readonly agentId: string;
     readonly title: string;
+    // For a chat this is the session's own files folder; show it as Chat, never as a path.
     readonly folder?: string;
+    readonly chat: boolean;
     readonly watch: SessionWatch;
     // Writes one command line on the session's watch connection.
     readonly send: (line: string) => void;

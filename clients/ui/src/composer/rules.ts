@@ -3,17 +3,28 @@ import type { SessionRow } from "../protocol/sessions.ts";
 
 export const FOLDER_MENU_LIMIT = 8;
 export const TITLE_LIMIT = 60;
+export const FOLDER_MISSING_TITLE = "Folder missing";
+
+export function folderMissingNotice(folder: string): string {
+    return `The folder ${folder} no longer exists.`;
+}
 
 export interface FolderChoice {
     readonly folder: string;
     readonly name: string;
 }
 
-// Distinct folders ordered by their most recent session, newest first.
-export function folderChoices(rows: readonly SessionRow[], limit: number = FOLDER_MENU_LIMIT): readonly FolderChoice[] {
+// Distinct folders ordered by their most recent session, newest first. Chats have no outside
+// folder to offer. With `existing` given, a folder not in it is skipped.
+export function folderChoices(
+    rows: readonly SessionRow[],
+    limit: number = FOLDER_MENU_LIMIT,
+    existing?: ReadonlySet<string>,
+): readonly FolderChoice[] {
     const latest = new Map<string, number>();
     for (const row of rows) {
-        if (row.workspace.length === 0) continue;
+        if (row.chat || row.workspace.length === 0) continue;
+        if (existing !== undefined && !existing.has(row.workspace)) continue;
         const at = row.updatedAt ?? 0;
         const seen = latest.get(row.workspace);
         if (seen === undefined || at > seen) latest.set(row.workspace, at);

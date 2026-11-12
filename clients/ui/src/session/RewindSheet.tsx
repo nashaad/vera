@@ -93,7 +93,7 @@ export function RewindSheet({ session, onClose }: RewindSheetProps) {
             kind: "session",
             agentId: result.agentId,
             title: firstLine(result.prompt) || `Fork of ${session.title}`,
-            workspace: result.workspace,
+            ...(session.chat ? { chat: true } : { workspace: result.workspace }),
         });
         onClose();
     };

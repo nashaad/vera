@@ -22,7 +22,7 @@ function registryWith(ids: readonly { readonly id: string; readonly title: strin
 }
 
 function row(overrides: Partial<SessionRow> & { readonly id: string; readonly name: string }): SessionRow {
-    return { workspace: "/Users/nash/Projects/vera", status: "idle", live: false, ...overrides };
+    return { workspace: "/Users/nash/Projects/vera", status: "idle", live: false, chat: false, ...overrides };
 }
 
 test("@core a prefix or word-start match outranks a scattered match", () => {
@@ -86,6 +86,12 @@ test("command groups follow the id prefix and sort by group, then title", () => 
     expect(items.map((item) => item.group)).toEqual(["Go", "Go", "Theme", "Other"]);
     expect(items.map((item) => item.label)).toEqual(["Back", "Settings", "Dark", "Thing"]);
     expect(sectionRows(rankItems(items, "")).map((section) => section.title)).toEqual(["Go", "Theme", "Other"]);
+});
+
+test("a chat entry says Chat, not its internal folder", () => {
+    const [item] = buildSessionItems([row({ id: "c1", name: "Ask crow", workspace: "/h/runtime/sessions/c1.jsonl.files", chat: true })], 0);
+    expect(item?.detail).toBe("Chat");
+    expect(item?.fields).toEqual(["Ask crow", "Chat"]);
 });
 
 test("session entries carry the name, folder, age and a dot only while working or waiting", () => {

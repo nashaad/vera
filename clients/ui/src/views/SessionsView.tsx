@@ -86,7 +86,7 @@ export function SessionsView(_props: ViewProps) {
     const total = state.sessions;
     return (
         <>
-            {groupSessions(rows).map((group) => <Group key={group.workspace} group={group} now={now} />)}
+            {groupSessions(rows).map((group) => <Group key={group.key} group={group} now={now} />)}
             {total !== undefined && total > rows.length ? (
                 <p className="view-note">Showing the latest {rows.length} of {total}.</p>
             ) : null}

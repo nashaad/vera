@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ModelPills } from "../models/ModelPills.tsx";
 import { useDraftModels } from "../models/useDraftModels.ts";
 import { useRouter } from "../pages/router.tsx";
-import type { CreateSessionResult, DesktopBridge } from "../protocol/bridge.ts";
+import { MAX_FOLDER_CHECKS, type CreateSessionResult, type DesktopBridge } from "../protocol/bridge.ts";
 import { setPendingPrompt } from "../session/pendingPrompt.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import type { NewChatComposerProps } from "./Composer.tsx";
@@ -12,8 +12,9 @@ import { ContextChips } from "./ContextChips.tsx";
 import { imagePathsOf } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { NewApprovalPill } from "./NewApprovalPill.tsx";
-import { enterAction, folderChoices, sessionTitle } from "./rules.ts";
+import { enterAction, FOLDER_MENU_LIMIT, folderChoices, sessionTitle } from "./rules.ts";
 import { useBranch } from "./useBranch.ts";
+import { useExistingFolders } from "./useExistingFolders.ts";
 import { addDraftImages, type DraftImage } from "./useImages.ts";
 
 const CREATE_FAILED = "Vera could not create the session.";
@@ -22,13 +23,16 @@ const NOT_IMAGES = "Only image files can be attached.";
 export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposerProps) {
     const { connection } = useViewEnvironment();
     const { navigate } = useRouter();
-    const choices = folderChoices(connection.sessionRows ?? []);
-    const [picked, setPicked] = useState<string | undefined>(startFolder);
+    const rows = connection.sessionRows ?? [];
+    const existing = useExistingFolders(bridge, folderChoices(rows, MAX_FOLDER_CHECKS).map((choice) => choice.folder));
+    const choices = folderChoices(rows, FOLDER_MENU_LIMIT, existing);
+    // With no folder picked the session is a chat.
+    const [folder, setFolder] = useState<string | undefined>(startFolder);
     const [approvalMode, setApprovalMode] = useState<string | undefined>(undefined);
-    const folder = picked ?? choices[0]?.folder;
     const [text, setText] = useState("");
     const [images, setImages] = useState<readonly DraftImage[]>([]);
-    const [notice, setNotice] = useState<string | undefined>(undefined);
+    // A refusal or a failed create; the typed text stays in the box.
+    const [problem, setProblem] = useState<string | undefined>(undefined);
     const [busy, setBusy] = useState(false);
     const empty = text.trim().length === 0;
     const branch = useBranch(bridge, folder);
@@ -44,13 +48,13 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
 
     const submit = async (): Promise<void> => {
         const content = text.trim();
-        if (folder === undefined || content.length === 0 || busy) return;
+        if (content.length === 0 || busy) return;
         setBusy(true);
-        setNotice(undefined);
+        setProblem(undefined);
         const result = await createSession(bridge, folder, approvalMode);
         if (!mounted.current) return;
         if (!result.ok) {
-            setNotice(result.reason);
+            setProblem(result.reason);
             setBusy(false);
             return;
         }
@@ -59,7 +63,12 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             images: images.map((image) => image.path),
             ...(draft === undefined ? {} : { model: draft }),
         });
-        navigate({ kind: "session", agentId: result.agentId, title: sessionTitle(content), workspace: result.workspace });
+        navigate({
+            kind: "session",
+            agentId: result.agentId,
+            title: sessionTitle(content),
+            ...(folder === undefined ? { chat: true } : { workspace: result.workspace }),
+        });
     };
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -80,7 +89,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const addFiles = (files: readonly File[]): void => {
         void imagePathsOf(bridge, files).then((paths) => {
             if (!mounted.current) return;
-            if (paths.length === 0) setNotice(NOT_IMAGES);
+            if (paths.length === 0) setProblem(NOT_IMAGES);
             else addPaths(paths);
         });
     };
@@ -98,16 +107,16 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
                 branch={branch}
                 picker={{
                     choices,
-                    onPick: setPicked,
+                    onPick: setFolder,
                     onOpen: () => {
                         void bridge.chooseFolder().then((chosen) => {
-                            if (chosen !== undefined) setPicked(chosen);
+                            if (chosen !== undefined) setFolder(chosen);
                         });
                     },
                 }}
             />
             <ImageChips chips={chips} onRemove={(path) => setImages((current) => current.filter((image) => image.path !== path))} />
-            {notice === undefined ? null : <p className="composer-notice" role="status">{notice}</p>}
+            {problem === undefined ? null : <p className="composer-notice" data-tone="danger" role="alert">{problem}</p>}
             <ComposerBox
                 text={text}
                 onText={setText}
@@ -115,7 +124,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
                 disabled={busy}
                 onKeyDown={onKeyDown}
                 buttonMode="send"
-                buttonEnabled={folder !== undefined && !empty && !busy}
+                buttonEnabled={!empty && !busy}
                 onPress={() => void submit()}
                 onFiles={addFiles}
                 onPaths={addPaths}
@@ -130,7 +139,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
 
 async function createSession(
     bridge: DesktopBridge,
-    folder: string,
+    folder: string | undefined,
     approvalMode: string | undefined,
 ): Promise<CreateSessionResult> {
     try {

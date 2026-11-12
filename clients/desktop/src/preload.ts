@@ -35,7 +35,7 @@ const bridge: DesktopBridge = {
         return (layout ?? undefined) as LayoutState | undefined;
     },
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
-    createSession: async (workspace: string, approvalMode?: string) => {
+    createSession: async (workspace: string | undefined, approvalMode?: string) => {
         const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
         return result as CreateSessionResult;
     },
@@ -43,6 +43,10 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionBranch, agentId, boundaryId)) as BranchSessionResult,
     closeSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
+    existingFolders: async (folders: readonly string[]) => {
+        const found: unknown = await ipcRenderer.invoke(CHANNELS.foldersExisting, folders);
+        return Array.isArray(found) ? found.filter((path): path is string => typeof path === "string") : [];
+    },
     chooseFolder: async () => {
         const folder: unknown = await ipcRenderer.invoke(CHANNELS.folderChoose);
         return typeof folder === "string" ? folder : undefined;
