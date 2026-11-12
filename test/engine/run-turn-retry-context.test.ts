@@ -117,15 +117,17 @@ test("a switched retry uses the persisted compaction before its recorded respons
         scratchDir: root,
         events,
         readCompaction: () => ({
-            strategy: {
-                id: "test-summary",
-                models: [],
-                compact: async () => {
-                    compactions += 1;
-                    return { projection: [summary] };
+            rungs: [{
+                strategy: {
+                    id: "test-summary",
+                    models: [],
+                    compact: async () => {
+                        compactions += 1;
+                        return { projection: [summary] };
+                    },
                 },
-            },
-            models: {},
+                models: {},
+            }],
             retainedUserTurns: 2,
         }),
         readToolResults: () => undefined,
@@ -150,8 +152,8 @@ test("a switched retry uses the persisted compaction before its recorded respons
         contextWatch: controller.contextWatch,
         modelContext: (context) => controller.modelContext(context),
         historyLineage: () => controller.historyLineage(),
-        compact: (signal, pending, context, turn) =>
-            controller.compact(signal, false, pending, context, turn),
+        compact: (signal, pending, context, turn, force = false) =>
+            controller.compact(signal, force, pending, context, turn),
     };
     const adapter: ModelAdapter = {
         supportsImageInputFor: (_provider, model) => model === "wide",

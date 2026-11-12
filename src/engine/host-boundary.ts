@@ -99,7 +99,7 @@ export function createLocalHostBoundary(
             return services.readReviewer?.() ?? readPolicy().reviewer;
         },
         get compaction() {
-            return loopCompactionState(services.compaction?.diagnostics);
+            return loopCompactionState(services.compaction?.rungs[0].diagnostics);
         },
     };
     return {

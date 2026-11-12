@@ -33,6 +33,16 @@ messages stay as they were. When the current turn alone is too big to keep,
 its work is summarized too, but your latest message stays word for word next
 to the summary. Images in it are not kept.
 
+Compaction follows a ladder. The first rung writes a summary with the summary
+model. If that cannot make room, the next rung drops the oldest messages and
+calls no model. Dropping keeps each tool call next to its result. Set your own
+ladder with `compaction.ladder` in `config.json`.
+
+Before every model request, Vera checks the request against the model's window.
+A request that does not fit runs the ladder first and is not sent. If the
+context still does not fit after every rung, the turn stops with a notice that
+names each rung and its outcome.
+
 A single tool result is also capped on arrival, so one large read cannot fill
 the context by itself. The cap is a share of the model's window, which means a
 small window gets a smaller cap. What was cut is saved to a file the result
@@ -136,7 +146,8 @@ the context limit, compaction trigger and target, retained material, and tool
 result limits. Highlight a setting to read its explanation, then choose a value.
 
 Each change saves only that setting. Choose **Default** in its value screen
-to remove your override.
+to remove your override. The pane tunes the numbers around the ladder; it does
+not edit `compaction.ladder`.
 
 ### Read the status columns
 
@@ -184,7 +195,7 @@ set off the next.
 
 Choose **Reset all to defaults** to clear all eleven context overrides. The
 confirmation lists the overrides you set. Press 1 to clear them or Escape to
-keep them. Other configuration stays unchanged.
+keep them. Other configuration, including `compaction.ladder`, stays unchanged.
 
 The same settings are stored in `config.json`: top-level `context_limit` and
 `context_size_events`, plus the `compaction` and `tool_results` blocks. The

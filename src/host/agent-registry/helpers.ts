@@ -461,7 +461,9 @@ export function subagentResolutionLabel(
 }
 
 export function loopStateOf(services: RunHeadlessLoopServices): LoopState {
-    const compaction = loopCompactionState(services.compaction?.diagnostics);
+    const compaction = loopCompactionState(
+        services.compaction?.rungs[0].diagnostics,
+    );
     return {
         policy: services.readPolicy?.() ?? {},
         ...(services.readModelSettings === undefined ? {} : {

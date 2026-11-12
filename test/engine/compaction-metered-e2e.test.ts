@@ -341,18 +341,20 @@ function compactionOptions(): SessionCompactionOptions {
         },
     };
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                summarizer,
-                { models: [{ provider: "faux", model: "summarizer" }] },
-            ),
-        },
-        diagnostics: {
-            strategy: FULL_SUMMARY_STRATEGY_ID,
-            provider: "faux",
-            model: "summarizer",
-        },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    summarizer,
+                    { models: [{ provider: "faux", model: "summarizer" }] },
+                ),
+            },
+            diagnostics: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model: "summarizer",
+            },
+        }],
     };
 }
 

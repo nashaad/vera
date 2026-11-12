@@ -38,8 +38,11 @@ import type {
     WorkerHostCapabilities,
     WorkerSessionSeed,
 } from "./start.ts";
-import { bindRemoteCompaction, type CompactionWireSpec } from
-    "../../engine/compaction-binding.ts";
+import {
+    bindRemoteCompaction,
+    type CompactionWireSpec,
+    unboundWireStrategy,
+} from "../../engine/compaction-binding.ts";
 import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
 import {
     CompletionUnavailableError,
@@ -160,12 +163,14 @@ export function createRemoteHostBoundary(
     if (options.compaction !== undefined) {
         compaction = bindRemoteCompaction(
             options.compaction,
-            (slot) => completeOverPipe(pipe, slot),
+            (rung, slot) => completeOverPipe(pipe, rung, slot),
         );
         if (compaction === undefined) {
+            const strategyId = unboundWireStrategy(options.compaction)
+                ?? options.compaction.strategyId;
             throw new Error(
                 `Worker cannot reconstruct compaction strategy `
-                    + `${options.compaction.strategyId}.`,
+                    + `${strategyId}.`,
             );
         }
     }
@@ -509,7 +514,11 @@ function newCallId(): string {
     return `w${callCounter}`;
 }
 
-function completeOverPipe(pipe: JsonPipe, role: string): CompleteText {
+function completeOverPipe(
+    pipe: JsonPipe,
+    rung: number,
+    role: string,
+): CompleteText {
     return async (request, signal) => {
         if (signal.aborted) {
             throw new CompletionUnavailableError("Cancelled.");
@@ -527,6 +536,7 @@ function completeOverPipe(pipe: JsonPipe, role: string): CompleteText {
                 method: "compaction.complete",
                 callId,
                 role,
+                rung,
                 prompt: completionPrompt(request),
                 ...(request.systemPrompt.length === 0
                     ? {}

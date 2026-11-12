@@ -192,11 +192,13 @@ test("successful compaction reruns hooks before continuing and failed compaction
         services: {
             hooks,
             compaction: {
-                strategy: fullSummaryStrategy,
-                models: { summarizer: async () => {
-                    if (failSummary) throw new Error("summary unavailable");
-                    return { text: "# Task\nFinish the work.\n\n# State\nTwo turns finished.\n\n# Decisions\nNone.\n\n# Constraints\nNone.\n\n# Open\nContinue.", model: "summary", provider: "faux" };
-                } },
+                rungs: [{
+                    strategy: fullSummaryStrategy,
+                    models: { summarizer: async () => {
+                        if (failSummary) throw new Error("summary unavailable");
+                        return { text: "# Task\nFinish the work.\n\n# State\nTwo turns finished.\n\n# Decisions\nNone.\n\n# Constraints\nNone.\n\n# Open\nContinue.", model: "summary", provider: "faux" };
+                    } },
+                }],
             },
         },
         onUpdate: (update) => { updates.push(update); },

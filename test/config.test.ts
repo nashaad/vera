@@ -1801,7 +1801,7 @@ test("a reset clears every lever and leaves the rest of the config alone", () =>
     const config = loadVeraConfig({ path });
     expect(configuredOverrides(config)).toEqual({});
     // The strategy is a binding, not a number, so a reset must not unbind it.
-    expect(config.compaction?.strategy).toBe("vera/full-summary");
+    expect(config.compaction?.ladder?.[0]?.strategy).toBe("vera/full-summary");
     expect(config.approval_mode).toBe("ask");
 });
 
@@ -1981,8 +1981,10 @@ test("a written compaction number leaves the strategy and its routes alone", () 
 
     // Retuning a number must not unbind the models compaction runs on.
     expect(loadVeraConfig({ path }).compaction).toEqual({
-        strategy: "vera/full-summary",
-        models: { summarizer: "summarizer" },
+        ladder: [{
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+        }],
         trigger_fraction: 0.7,
         summary_word_cap: 300,
     });
@@ -2247,4 +2249,81 @@ test("an absent optional key is not reported", () => {
         tui: {},
     }));
     expect(() => loadVeraConfig({ path })).not.toThrow();
+});
+
+test("a legacy strategy and models block loads as a ladder and is rewritten under it", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "example/example-model",
+        models: [{ provider: "openrouter", model: "example/large-model" }],
+        model_routes: { summarizer: ["example_large_model_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+            trigger_fraction: 0.7,
+        },
+    }));
+
+    expect(loadVeraConfig({ path }).compaction?.ladder).toEqual([{
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+    }]);
+
+    updateVeraConfigDefaults({ compaction: { summary_word_cap: 300 } }, {
+        path,
+    });
+    const onDisk = JSON.parse(readFileSync(path, "utf8")) as {
+        compaction: Record<string, unknown>;
+    };
+    expect(onDisk.compaction).toEqual({
+        ladder: [{
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+        }],
+        trigger_fraction: 0.7,
+        summary_word_cap: 300,
+    });
+});
+
+test("a malformed compaction rung fails the config load", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "example/example-model",
+        models: [{ provider: "openrouter", model: "example/large-model" }],
+        model_routes: { summarizer: ["example_large_model_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            ladder: [{ strategy: "vera/drop-oldest" }, { strategy: "vera/drop-oldest", target_tokens: 5 }],
+        },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
+    expect(() => loadVeraConfig({ path })).toThrow("it is valid JSON but not a Vera config");
+});
+
+test("a rung's reasoning_effort loads with its rung", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "example/example-model",
+        models: [{ provider: "openrouter", model: "example/large-model" }],
+        model_routes: { summarizer: ["example_large_model_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            ladder: [{
+                strategy: "vera/full-summary",
+                models: { summarizer: "summarizer" },
+                reasoning_effort: "low",
+            }],
+        },
+    }));
+
+    expect(loadVeraConfig({ path }).compaction?.ladder).toEqual([{
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+        reasoning_effort: "low",
+    }]);
 });

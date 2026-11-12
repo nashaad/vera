@@ -138,6 +138,8 @@ while those checks continue.
 
 Open Defaults from `/models` to assign connected models to snappy, eco, extra, classifier,
 compaction, and subagents. A model does not have to be a favorite to appear here.
+A compaction assignment sets the model for every rung; a rung with its own
+`models` route uses the assignment instead.
 Assigning one that is not a favorite adds it to your favorites, because a
 subagent can run on any of these assignments and subagents only run favorites.
 

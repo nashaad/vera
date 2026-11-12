@@ -2,26 +2,43 @@ import { expect, test } from "bun:test";
 
 import {
     BUNDLED_COMPACTION_STRATEGIES,
+    DEFAULT_COMPACTION_LADDER,
     bindCompaction,
     bindRemoteCompaction,
     compactionWireSpec,
+    unboundWireStrategy,
 } from "../../src/engine/compaction-binding.ts";
 import { FULL_SUMMARY_STRATEGY_ID } from
     "../../src/engine/compaction-full-summary.ts";
-import type { ResolvedCompactionProfile } from
-    "../../src/config/model-catalog.ts";
+import { DROP_OLDEST_STRATEGY_ID } from
+    "../../src/engine/compaction-drop-oldest.ts";
+import type {
+    ResolvedCompactionProfile,
+    ResolvedCompactionRung,
+} from "../../src/config/model-catalog.ts";
 import type { ModelAdapter } from "../../src/model/types.ts";
 
 const adapter = {} as ModelAdapter;
 
-function profile(
-    overrides: Partial<ResolvedCompactionProfile> = {},
-): ResolvedCompactionProfile {
+type ProfileOverrides = Partial<Omit<ResolvedCompactionProfile, "ladder">>
+    & Partial<ResolvedCompactionRung>;
+
+function profile(overrides: ProfileOverrides = {}): ResolvedCompactionProfile {
+    const {
+        strategy = FULL_SUMMARY_STRATEGY_ID,
+        routes = { summarizer: "summarizer" },
+        slots = { summarizer: [{ name: "small", model: "test-model" }] },
+        timeout_ms,
+        ...block
+    } = overrides;
     return {
-        strategy: FULL_SUMMARY_STRATEGY_ID,
-        routes: { summarizer: "summarizer" },
-        slots: { summarizer: [{ name: "small", model: "test-model" }] },
-        ...overrides,
+        ...block,
+        ladder: [{
+            strategy,
+            routes,
+            slots,
+            ...(timeout_ms === undefined ? {} : { timeout_ms }),
+        }],
     } as ResolvedCompactionProfile;
 }
 
@@ -36,8 +53,63 @@ test("an unconfigured session compacts on the model it is already running", () =
         BUNDLED_COMPACTION_STRATEGIES,
     );
 
-    expect(bound?.strategy.id).toBe(FULL_SUMMARY_STRATEGY_ID);
-    expect(Object.keys(bound?.models ?? {})).toEqual(["summarizer"]);
+    expect(bound?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
+    expect(Object.keys(bound?.rungs[0].models ?? {})).toEqual(["summarizer"]);
+    expect(bound?.rungs[1]?.models).toEqual({});
+});
+
+test("the default ladder binds on the assignment path, with drop-oldest always bound", () => {
+    const bound = bindCompaction(
+        undefined,
+        adapter,
+        { model: "test-model" },
+        BUNDLED_COMPACTION_STRATEGIES,
+        [{ name: "assigned", provider: "openrouter", model: "assigned-model" }],
+    );
+
+    expect(bound?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
+    expect(Object.keys(bound?.rungs[0].models ?? {})).toEqual(["summarizer"]);
+    expect(bound?.rungs[1]?.models).toEqual({});
+});
+
+test("bindDefault binds DEFAULT_COMPACTION_LADDER in order on the session model when there is no profile or assignment", async () => {
+    const calls: string[] = [];
+    const recording = {
+        stream(request: { readonly provider?: string; readonly model: string }) {
+            calls.push(`${request.provider ?? ""}/${request.model}`);
+            throw new Error("recorded");
+        },
+    } as unknown as ModelAdapter;
+    const bound = bindCompaction(
+        undefined,
+        recording,
+        { provider: "faux", model: "session-model" },
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+
+    expect(bound?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        ...DEFAULT_COMPACTION_LADDER,
+    ]);
+    expect(bound?.rungs[0]?.diagnostics).toEqual({
+        strategy: FULL_SUMMARY_STRATEGY_ID,
+        provider: "faux",
+        model: "session-model",
+    });
+    expect(bound?.rungs[1]?.diagnostics).toEqual({
+        strategy: DROP_OLDEST_STRATEGY_ID,
+    });
+    const summarizer = bound?.rungs[0]?.models.summarizer;
+    await summarizer?.(
+        { systemPrompt: "", messages: [], maxTokens: 16 },
+        new AbortController().signal,
+    ).catch(() => undefined);
+    expect(calls).toEqual(["faux/session-model"]);
 });
 
 test("a session with no model of its own binds nothing", () => {
@@ -58,8 +130,8 @@ test("a bound profile exposes exactly the slots the strategy declared", () => {
     );
 
     expect(bound).toBeDefined();
-    expect(Object.keys(bound?.models ?? {})).toEqual(["summarizer"]);
-    expect(bound?.strategy.id).toBe(FULL_SUMMARY_STRATEGY_ID);
+    expect(Object.keys(bound?.rungs[0].models ?? {})).toEqual(["summarizer"]);
+    expect(bound?.rungs[0].strategy.id).toBe(FULL_SUMMARY_STRATEGY_ID);
 });
 
 test("an unknown strategy binds nothing rather than a strategy of its choosing", () => {
@@ -100,11 +172,11 @@ test("the compaction assignment outranks a route the profile names for a slot", 
         [{ name: "assigned", provider: "openrouter", model: "assigned-model" }],
     );
 
-    expect(bound?.diagnostics).toMatchObject({
+    expect(bound?.rungs[0].diagnostics).toMatchObject({
         catalogEntry: "assigned",
         model: "assigned-model",
     });
-    expect(bound?.diagnostics?.route).toBeUndefined();
+    expect(bound?.rungs[0].diagnostics?.route).toBeUndefined();
 });
 
 test("an assignment binds without a compaction profile", () => {
@@ -118,7 +190,7 @@ test("an assignment binds without a compaction profile", () => {
         [{ name: "assigned", provider: "openrouter", model: "assigned-model" }],
     );
 
-    expect(bound?.diagnostics).toMatchObject({
+    expect(bound?.rungs[0].diagnostics).toMatchObject({
         catalogEntry: "assigned",
         model: "assigned-model",
     });
@@ -137,7 +209,7 @@ test("a catalog fallback is the model shown for the bound summarizer", () => {
         }],
     );
 
-    expect(bound?.diagnostics).toMatchObject({
+    expect(bound?.rungs[0].diagnostics).toMatchObject({
         provider: "openrouter",
         model: "fallback-model",
     });
@@ -253,6 +325,115 @@ test("an override may raise a token bound the profile already set", () => {
     expect(bound?.retainedUserTurns).toBe(4);
 });
 
+test("every rung of a configured ladder binds, in the order it was declared", () => {
+    const dropRung: ResolvedCompactionRung = {
+        strategy: DROP_OLDEST_STRATEGY_ID,
+        routes: {},
+        slots: {},
+    };
+    const summaryRung: ResolvedCompactionRung = {
+        strategy: FULL_SUMMARY_STRATEGY_ID,
+        routes: {},
+        slots: { summarizer: [{ name: "small", provider: "faux", model: "test" }] },
+    };
+    const bound = bindCompaction(
+        { ladder: [dropRung, summaryRung, dropRung] },
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+
+    expect(bound?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        DROP_OLDEST_STRATEGY_ID,
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
+    expect(Object.keys(bound?.rungs[1]?.models ?? {})).toEqual(["summarizer"]);
+});
+
+test("a rung naming an unknown strategy fails the whole binding", () => {
+    const summaryRung: ResolvedCompactionRung = {
+        strategy: FULL_SUMMARY_STRATEGY_ID,
+        routes: {},
+        slots: { summarizer: [{ name: "small", provider: "faux", model: "test" }] },
+    };
+    const unknownRung: ResolvedCompactionRung = {
+        strategy: "other/thing",
+        routes: {},
+        slots: {},
+    };
+    expect(bindCompaction(
+        { ladder: [summaryRung, unknownRung] },
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    )).toBeUndefined();
+});
+
+test("a rung's reasoning effort reaches that rung's calls and no other", async () => {
+    const efforts: (string | undefined)[] = [];
+    const recording = {
+        stream(request: { readonly reasoningEffort?: string }) {
+            efforts.push(request.reasoningEffort);
+            throw new Error("recorded");
+        },
+    } as unknown as ModelAdapter;
+    const bound = bindCompaction(
+        {
+            ladder: [
+                {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    routes: {},
+                    slots: {
+                        summarizer: [{
+                            name: "first",
+                            provider: "faux",
+                            model: "first-model",
+                            reasoning_effort: "low",
+                        }],
+                    },
+                    reasoning_effort: "high",
+                },
+                {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    routes: {},
+                    slots: {
+                        summarizer: [{
+                            name: "second",
+                            provider: "faux",
+                            model: "second-model",
+                            reasoning_effort: "low",
+                        }],
+                    },
+                },
+                {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    routes: {},
+                    slots: {
+                        summarizer: [{
+                            name: "third",
+                            provider: "faux",
+                            model: "third-model",
+                        }],
+                    },
+                },
+            ],
+        },
+        recording,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+    const signal = new AbortController().signal;
+    for (const rung of bound?.rungs ?? []) {
+        await rung.models.summarizer?.(
+            { systemPrompt: "", messages: [], maxTokens: 16 },
+            signal,
+        ).catch(() => undefined);
+    }
+
+    expect(efforts).toEqual(["high", "low", undefined]);
+});
+
 test("a bound compaction round-trips through the worker wire spec", () => {
     const bound = bindCompaction(
         profile({
@@ -270,11 +451,97 @@ test("a bound compaction round-trips through the worker wire spec", () => {
         () => async () => ({ text: "ok", model: "test" }),
     );
 
-    expect(restored?.strategy.id).toBe(bound?.strategy.id);
-    expect(Object.keys(restored?.models ?? {})).toEqual(["summarizer"]);
+    expect(restored?.rungs).toHaveLength(1);
+    expect(restored?.rungs[0].strategy.id).toBe(bound?.rungs[0].strategy.id);
+    expect(Object.keys(restored?.rungs[0].models ?? {})).toEqual(["summarizer"]);
     expect(restored?.trigger).toEqual(bound?.trigger);
     expect(restored?.targetTokens).toBe(10_000);
-    expect(restored?.diagnostics).toEqual(bound?.diagnostics);
+    expect(restored?.rungs[0].diagnostics).toEqual(bound?.rungs[0].diagnostics);
+});
+
+test("a ladder crosses the wire rung by rung, with each rung's effort and timeout", () => {
+    const bound = bindCompaction(
+        {
+            ladder: [
+                {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    routes: {},
+                    slots: {
+                        summarizer: [{
+                            name: "first",
+                            provider: "faux",
+                            model: "first-model",
+                        }],
+                    },
+                    reasoning_effort: "high",
+                    timeout_ms: 5_000,
+                },
+                {
+                    strategy: DROP_OLDEST_STRATEGY_ID,
+                    routes: {},
+                    slots: {},
+                },
+            ],
+        },
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+    const spec = compactionWireSpec(bound!);
+    expect(spec.rungs?.map((rung) => rung.strategyId)).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
+    expect(spec.rungs?.[0]).toMatchObject({
+        reasoningEffort: "high",
+        timeoutMs: 5_000,
+    });
+
+    const calls: [number, string][] = [];
+    const restored = bindRemoteCompaction(spec, (rung, slot) => {
+        calls.push([rung, slot]);
+        return async () => ({ text: "ok", model: "test" });
+    });
+    expect(restored?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
+    expect(restored?.rungs[0]).toMatchObject({
+        reasoningEffort: "high",
+        timeoutMs: 5_000,
+    });
+    expect(calls).toEqual([[0, "summarizer"]]);
+});
+
+test("a spec from a host that predates rungs binds its top level as the only rung", () => {
+    const calls: [number, string][] = [];
+    const restored = bindRemoteCompaction(
+        { strategyId: FULL_SUMMARY_STRATEGY_ID, slots: ["summarizer"] },
+        (rung, slot) => {
+            calls.push([rung, slot]);
+            return async () => ({ text: "ok", model: "test" });
+        },
+    );
+    expect(restored?.rungs.map((rung) => rung.strategy.id)).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+    ]);
+    expect(calls).toEqual([[0, "summarizer"]]);
+});
+
+test("the first wire rung this build cannot bind is the one named", () => {
+    const spec = {
+        strategyId: FULL_SUMMARY_STRATEGY_ID,
+        slots: ["summarizer"],
+        rungs: [
+            { strategyId: FULL_SUMMARY_STRATEGY_ID, slots: ["summarizer"] },
+            { strategyId: "ext/custom", slots: ["summarizer"] },
+        ],
+    };
+    expect(unboundWireStrategy(spec)).toBe("ext/custom");
+    expect(bindRemoteCompaction(
+        spec,
+        () => async () => ({ text: "ok", model: "test" }),
+    )).toBeUndefined();
 });
 
 test("an unknown strategy on the wire binds nothing", () => {
@@ -319,7 +586,7 @@ test("the summarizer guard reads the window from the catalog it is bound with", 
         undefined,
         [{ provider: "openai", model: "catalog-only-model", contextWindow: 1_000 }],
     );
-    const summarize = windowed?.models.summarizer;
+    const summarize = windowed?.rungs[0].models.summarizer;
     if (summarize === undefined) throw new Error("summarizer is not bound");
     await expect(summarize(request, signal)).rejects.toThrow(/skipped/);
 
@@ -332,8 +599,15 @@ test("the summarizer guard reads the window from the catalog it is bound with", 
         undefined,
         [],
     );
-    const unknown = unwindowed?.models.summarizer;
+    const unknown = unwindowed?.rungs[0].models.summarizer;
     if (unknown === undefined) throw new Error("summarizer is not bound");
     const error = await unknown(request, signal).catch((caught: unknown) => caught);
     expect(String(error)).not.toContain("skipped");
+});
+
+test("the default ladder is the summary rung followed by drop-oldest", () => {
+    expect(DEFAULT_COMPACTION_LADDER).toEqual([
+        FULL_SUMMARY_STRATEGY_ID,
+        DROP_OLDEST_STRATEGY_ID,
+    ]);
 });

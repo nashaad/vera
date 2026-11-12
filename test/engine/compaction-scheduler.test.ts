@@ -439,21 +439,21 @@ test("a second cut inside one turn finds another seam, not keep-nothing", async 
     expect(second.outcome).toBe("compacted");
     // The boundary already sat past the turn's user message, so anchoring the
     // seam search on that message would have left keep-nothing as the only
-    // rung and thrown the new rounds away.
+    // boundary attempt and thrown the new rounds away.
     const kept = keptSuffix(store);
     expect(kept.length).toBeGreaterThan(0);
     expect(kept[0]?.role).toBe("assistant");
     assertToolCallsPaired(store.modelContext(), "The compacted context");
 });
 
-test("a summarizer that overshoots drops the ladder to a looser rung", async () => {
+test("a summarizer that overshoots drops to a looser boundary attempt", async () => {
     const store = await session(6);
     const targets: number[] = [];
     const result = await compactSession(
         options(store, (request) => {
             targets.push(request.targetTokens);
-            // Over the target the first time, inside it after that. The rung
-            // had room by measurement, so nothing but a retry recovers.
+            // Over the target the first time, inside it after that. The boundary
+            // attempt had room by measurement, so nothing but a retry recovers.
             return targets.length === 1
                 ? { projection: [summary("over ".repeat(4_000))] }
                 : { projection: [summary()] };
@@ -464,7 +464,7 @@ test("a summarizer that overshoots drops the ladder to a looser rung", async () 
 
     expect(result.outcome).toBe("compacted");
     expect(targets.length).toBe(2);
-    // The second rung keeps less verbatim, so it asks for a bigger summary.
+    // The second boundary attempt keeps less verbatim, so it asks for a bigger summary.
     expect(targets[1]).toBeGreaterThan(targets[0] ?? 0);
     expect(store.modelContext()[0]).toEqual(summary());
 });
@@ -488,13 +488,13 @@ test("a summarizer that always overshoots reports the rejection, once", async ()
     expect(store.latestCompaction()).toBeUndefined();
 });
 
-test("a structural rejection is not retried down the ladder", async () => {
+test("a structural rejection is not retried at a looser boundary", async () => {
     const store = await session(6);
     let calls = 0;
     const result = await compactSession(
         options(store, () => {
             calls += 1;
-            // A fault no amount of extra room changes, so every rung would
+            // A fault no amount of extra room changes, so every boundary attempt would
             // return it again.
             return {
                 projection: [{
@@ -514,18 +514,18 @@ test("a structural rejection is not retried down the ladder", async () => {
     expect(calls).toBe(1);
 });
 
-test("the ladder keeps its failsafe rung when the cap trims the middle", async () => {
+test("the last boundary attempt is kept when the cap trims the middle", async () => {
     const store = await session(8);
     const targets: number[] = [];
     const result = await compactSession(
         options(store, (request) => {
             targets.push(request.targetTokens);
-            // Only the rung that keeps nothing verbatim has room for this one.
+            // Only the boundary attempt that keeps nothing verbatim has room for this one.
             return request.targetTokens < 4_000
                 ? { projection: [summary("over ".repeat(4_000))] }
                 : { projection: [summary()] };
         }, {
-            // More rungs than the cap allows, so it has to drop some of them.
+            // More boundary attempts than the cap allows, so it has to drop some of them.
             retainedUserTurns: 5,
         }),
         pressure(store, 10_000),
@@ -534,19 +534,19 @@ test("the ladder keeps its failsafe rung when the cap trims the middle", async (
 
     expect(result.outcome).toBe("compacted");
     expect(targets.length).toBeLessThanOrEqual(MAX_COMPACTION_ATTEMPTS);
-    // Keep nothing verbatim is the loosest rung there is, and the cap must
+    // Keep nothing verbatim is the loosest boundary attempt there is, and the cap must
     // spend its last attempt on that rather than on another tight seam.
     expect(store.modelContext()).toEqual([summary()]);
 });
 
-test("a compaction cancelled during a rung stops calling the summarizer", async () => {
+test("a compaction cancelled during a boundary attempt stops calling the summarizer", async () => {
     const store = await session(6);
     const controller = new AbortController();
     let calls = 0;
     const result = await compactSession(
         options(store, () => {
             calls += 1;
-            // Cancelled while the first rung was being summarized.
+            // Cancelled while the first boundary attempt was being summarized.
             controller.abort();
             return { projection: [summary("over ".repeat(4_000))] };
         }),
@@ -558,7 +558,7 @@ test("a compaction cancelled during a rung stops calling the summarizer", async 
     expect(calls).toBe(1);
 });
 
-test("an unavailable summarizer is not retried down the ladder", async () => {
+test("an unavailable summarizer is not retried at a looser boundary", async () => {
     const store = await session(6);
     let calls = 0;
     const result = await compactSession(
@@ -574,7 +574,7 @@ test("an unavailable summarizer is not retried down the ladder", async () => {
     expect(calls).toBe(1);
 });
 
-test("the ladder gives up less verbatim as the window tightens", async () => {
+test("the boundary attempts keep less verbatim as the window tightens", async () => {
     let previousKept = Number.POSITIVE_INFINITY;
     let sawSeam = false;
     for (const capacity of [10_000, 8_000, 6_000, 4_500, 3_000, 2_000]) {
@@ -600,7 +600,7 @@ test("the ladder gives up less verbatim as the window tightens", async () => {
             sawSeam = true;
         }
     }
-    // The point of the ladder: at least one window landed inside a turn.
+    // The point of the boundary attempts: at least one window landed inside a turn.
     expect(sawSeam).toBe(true);
     // The tightest window kept nothing verbatim at all.
     expect(previousKept).toBe(0);
@@ -637,7 +637,7 @@ test("overhead that fills the target is reported, not silently declined", async 
     }
 });
 
-test("the ladder never crosses a barrier to find room", async () => {
+test("the boundary attempts never cross a barrier to find room", async () => {
     const store = await session(4);
     const barrier: ModelMessage = {
         role: "user",
@@ -650,7 +650,7 @@ test("the ladder never crosses a barrier to find room", async () => {
 
     const result = await compactSession(
         options(store, () => ({ projection: [summary()] })),
-        // Tight enough that every rung past the barrier would be tried.
+        // Tight enough that every boundary attempt past the barrier would be tried.
         pressure(store, 2_000),
         new AbortController().signal,
     );
@@ -700,7 +700,6 @@ test("a compacted intra-turn seam reads back from the store it was written to",
         assertToolCallsPaired(reopened.modelContext(), "The reopened context");
     });
 
-/** A turn shaped like a real agentic one: one prompt, then a tool loop. */
 /** More finished rounds of an already-open turn, with no user message. */
 async function appendToolRounds(
     store: SessionStore,
@@ -733,6 +732,7 @@ async function appendToolRounds(
     }
 }
 
+/** A turn shaped like a real agentic one: one prompt, then a tool loop. */
 async function appendToolTurn(
     store: SessionStore,
     turn: number,
@@ -784,7 +784,7 @@ async function appendToolTurn(
 /**
  * What the request measures at when the window is `capacity`. Derived from the
  * store rather than written down, so the fixtures can change size without the
- * ladder tests turning into arithmetic about them.
+ * boundary attempt tests turning into arithmetic about them.
  */
 const FIXED_OVERHEAD = 200;
 
@@ -864,7 +864,7 @@ test("a stated overhead is used rather than recovered by subtraction", async () 
     // `measurement.tokens` may be scaled into the provider's units while the
     // budget and the message measurements are raw estimator units. Recovering
     // the overhead by subtracting one from the other folds the whole
-    // transcript's calibration into it, and every rung then reads as having
+    // transcript's calibration into it, and every boundary attempt then reads as having
     // no room.
     const store = await session(6);
     const scaled = {
@@ -882,10 +882,10 @@ test("a stated overhead is used rather than recovered by subtraction", async () 
     expect(result.outcome).toBe("compacted");
 });
 
-test("a route that ran out of room lets the ladder try a shorter span", async () => {
+test("a route that ran out of room lets a boundary attempt try a shorter span", async () => {
     // "The request does not fit the summarizer's window" is the most room
-    // related failure there is: the next rung summarizes less. Reporting it as
-    // final kills the ladder on the first and largest rung.
+    // related failure there is: the next boundary attempt summarizes less. Reporting it as
+    // final ends the attempt loop on its first and largest boundary attempt.
     const store = await session(6);
     let calls = 0;
     const result = await compactSession(
@@ -904,7 +904,7 @@ test("a route that ran out of room lets the ladder try a shorter span", async ()
     expect(result.outcome).toBe("compacted");
 });
 
-test("a route that failed for any other reason stops the ladder", async () => {
+test("a route that failed for any other reason stops the boundary attempts", async () => {
     const store = await session(6);
     let calls = 0;
     const result = await compactSession(
@@ -1120,6 +1120,25 @@ test("kept messages are sized in the same corrected units as the trigger", async
         .toBeLessThanOrEqual(9_000);
 });
 
+test("the target a strategy receives is in the units it measures in", async () => {
+    const store = await session(6);
+    const raw = measureMessages(store.modelContext());
+    const requests: CompactionRequest[] = [];
+    await compactSession(
+        options(store, (request) => {
+            requests.push(request);
+            return { projection: [summary()] };
+        }, { estimateScale: 2, retainedUserTurns: 1 }),
+        { tokens: raw * 2 + FIXED_OVERHEAD, capacity: 20_000, estimated: true },
+        new AbortController().signal,
+    );
+
+    expect(requests.length).toBeGreaterThan(0);
+    // The strategy measures raw tokens, so its target scaled back must fit the 9,000 budget beside the overhead.
+    expect((requests[0]?.targetTokens ?? Infinity) * 2)
+        .toBeLessThanOrEqual(9_000 - FIXED_OVERHEAD);
+});
+
 test("a summary that leaves the context over the trigger is not accepted", async () => {
     const store = await session(12);
     let calls = 0;
@@ -1199,7 +1218,7 @@ test("a seam inside a running turn keeps its prompt word for word", async () => 
     expect(context.map(text).filter((line) => line === "turn 4")).toHaveLength(1);
 });
 
-test("the last rung keeps the running turn's prompt word for word", async () => {
+test("the last boundary attempt keeps the running turn's prompt word for word", async () => {
     const store = await session(2);
     await appendToolTurn(store, 3, false);
     const requests: CompactionRequest[] = [];
@@ -1218,6 +1237,25 @@ test("the last rung keeps the running turn's prompt word for word", async () => 
     const room = compactionTargetBudget(pressure(store, 8_000), {})! - FIXED_OVERHEAD;
     expect(requests[0]?.targetTokens)
         .toBeLessThanOrEqual(room - measureMessages([summary("turn 3")]));
+});
+
+test("a projection that already holds the running prompt gets no second copy", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    const result = await compactSession(
+        options(store, (request) => {
+            const prompt = request.messages.find((message) => text(message) === "turn 3");
+            return {
+                projection: [structuredClone(prompt ?? summary()), summary()],
+            };
+        }, { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext().map(text).filter((line) => line === "turn 3"))
+        .toHaveLength(1);
 });
 
 test("an answered prompt is left to the summary", async () => {
@@ -1255,6 +1293,28 @@ test("a message sent during the turn is the one kept word for word", async () =>
         "and bury the doubloons twice",
     ]);
     expect(context[1]).toMatchObject({ arrivedDuringTurn: true });
+});
+
+test("a steer does not start a turn, so retained turns keep the prompt before it", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    await store.appendMessage({
+        role: "user",
+        arrivedDuringTurn: true,
+        content: [{ type: "text", text: "and bury the doubloons twice" }],
+    });
+    await appendToolRounds(store, 3);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 1 }),
+        pressure(store, 12_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()[1]).toEqual(summary("turn 3"));
+    expect(text(store.modelContext()[2])).toMatch(/^step 1 /);
+    expect(store.modelContext().map(text))
+        .toContain("and bury the doubloons twice");
 });
 
 test("the kept copy survives a second compaction", async () => {
@@ -1307,6 +1367,58 @@ test("overhead that fills the target still compacts when the leanest plan lands 
     }
 });
 
+test("a plan that starts at a steer does not count as keeping the turn", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    await store.appendMessage({
+        role: "user",
+        arrivedDuringTurn: true,
+        content: [{ type: "text", text: "and bury the doubloons twice" }],
+    });
+    await appendToolRounds(store, 3);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return { projection: [summary()] };
+        }),
+        {
+            tokens: measureMessages(store.modelContext()) + 4_200,
+            capacity: 10_000,
+            estimated: true,
+            overheadTokens: 4_200,
+        },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("no_boundary");
+    expect(calls).toBe(0);
+});
+
+test("the running prompt is carried when a steer arrives after the span", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    await store.appendMessage({
+        role: "user",
+        arrivedDuringTurn: true,
+        content: [{ type: "text", text: "and bury the doubloons twice" }],
+    });
+    await appendToolRounds(store, 3);
+    // The cut lands inside the running turn: after its prompt, before the steer.
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 1 }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext().map(text);
+    expect(context[1]).toBe("turn 3");
+    expect(context[2]).toMatch(/^step 2 /);
+    expect(context.filter((line) => line === "and bury the doubloons twice"))
+        .toHaveLength(1);
+});
+
 test("overhead too large for any plan to land under the trigger asks for no summary and says why", async () => {
     const store = await session(6);
     let calls = 0;
@@ -1344,3 +1456,94 @@ test("overhead over the trigger by itself is named in the reason", async () => {
         );
     }
 });
+
+test("a hard limit sets the target from the window, with no trigger cap", () => {
+    expect(compactionTargetBudget(
+        { tokens: 0, capacity: 20_000, estimated: true },
+        { trigger: { tokens: 3_000 }, hardLimitTokens: 20_000 },
+    )).toBe(9_000);
+});
+
+test("a hard limit accepts a result over the trigger when it is under the limit", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, (request) => {
+            calls += 1;
+            return { projection: [sizedMessage(request.targetTokens)] };
+        }, { trigger: { tokens: 3_000 }, hardLimitTokens: 10_000 }),
+        { tokens: 10_500, capacity: 10_000, estimated: true, overheadTokens: 1_600 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(calls).toBe(1);
+    if (result.outcome === "compacted") {
+        expect(result.after).toBeGreaterThan(3_000);
+        expect(result.after).toBeLessThanOrEqual(10_000);
+    }
+});
+
+test("a hard limit rejects a result that the next request would overflow, and stores nothing", async () => {
+    // Twenty turns keep the context above every candidate result, so only the limit can reject.
+    const store = await session(20);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), {
+            hardLimitTokens: 10_000,
+            // Context the request holds beyond the projection must count against the limit too.
+            projectModelContext: (projection, retained) => projection.length === 0
+                ? retained
+                : [...projection, ...retained, sizedMessage(10_500)],
+        }),
+        { tokens: 30_000, capacity: 10_000, estimated: true, overheadTokens: 200 },
+        new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+        outcome: "rejected",
+        reason: "The compacted context would still be over the context limit.",
+    });
+    expect(store.latestCompaction()).toBeUndefined();
+});
+
+test("a hard limit plans the leanest turn that fits under the limit, past the trigger", async () => {
+    const store = await session(6);
+    let asked: number | undefined;
+    const result = await compactSession(
+        options(store, (request) => {
+            asked = request.targetTokens;
+            return { projection: [summary()] };
+        }, { hardLimitTokens: 10_000 }),
+        { tokens: 15_000, capacity: 10_000, estimated: true, overheadTokens: 7_000 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(asked).toBe(MIN_SUMMARY_TOKENS);
+    if (result.outcome === "compacted") {
+        expect(result.after).toBeLessThanOrEqual(10_000);
+    }
+});
+
+test("a hard limit names the context limit when overhead alone fills it", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { hardLimitTokens: 10_000 }),
+        { tokens: 20_000, capacity: 10_000, estimated: true, overheadTokens: 10_500 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("no_boundary");
+    if (result.outcome === "no_boundary") {
+        expect(result.reason).toBe(
+            "Instructions and tool definitions take 10,500 tokens, more than the"
+                + " 10,000-token context limit. Raise the context limit, or"
+                + " use a model with a larger window.",
+        );
+    }
+});
+
+// Four characters per token and four per message, as measureMessages counts them.
+function sizedMessage(tokens: number): ModelMessage {
+    return summary("s".repeat(Math.max(0, (tokens - 16) * 4)));
+}

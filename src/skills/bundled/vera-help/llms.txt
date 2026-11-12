@@ -206,6 +206,7 @@ Use `/context all` to inspect individual message and tool-result sizes. A single
 One tool result is capped before it reaches the model, and the cap scales with the model's context window, so a small window is not spent on a single result. `tool_results.ceiling_bytes` sets it explicitly.
 When the total tool-result budget is lower than that cap, Vera holds the cap to the budget and marks the settings with a caution.
 Older tool results may be trimmed to a digest or a stub as the context fills.
+Compaction runs the ladder of rungs in `compaction.ladder`; a request too large for the model's window is compacted first and not sent if it still does not fit. Manual: `docs/context-levers.md`.
 In a long turn, earlier tool steps can be stubbed together under context pressure; the newest step stays intact.
 For a known product question, consult this file first. Do not read configuration or provider implementation files to rediscover documented behavior.
 Search headings before reading a long document. Read the smallest relevant section or a bounded line range.

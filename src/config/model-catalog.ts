@@ -180,15 +180,20 @@ export function resolveReviewerProfile(
     };
 }
 
-export interface VeraCompactionConfig {
-    /**
-     * A strategy and its slot routes are set together or not at all. A block
-     * that carries only numbers tunes whatever compaction the session would
-     * have run anyway.
-     */
-    readonly strategy?: string;
+export interface VeraCompactionRung {
+    readonly strategy: string;
     readonly models?: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
+    readonly reasoning_effort?: ModelReasoningEffort;
+}
+
+export interface VeraCompactionConfig {
+    /**
+     * Strategies in the order they are tried. Absent means the bundled
+     * default ladder. The legacy `strategy`, `models` and `timeout_ms` keys
+     * are read as a one-rung ladder and are not kept in the parsed value.
+     */
+    readonly ladder?: readonly VeraCompactionRung[];
     readonly trigger_fraction?: number;
     readonly trigger_tokens?: number;
     readonly target_tokens?: number;
@@ -203,11 +208,16 @@ export interface VeraCompactionConfig {
     readonly unknown_target_fraction?: number;
 }
 
-export interface ResolvedCompactionProfile {
+export interface ResolvedCompactionRung {
     readonly strategy: string;
     readonly slots: Readonly<Record<string, readonly VeraCatalogModel[]>>;
     readonly routes: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
+    readonly reasoning_effort?: ModelReasoningEffort;
+}
+
+export interface ResolvedCompactionProfile {
+    readonly ladder: readonly ResolvedCompactionRung[];
     readonly trigger_fraction?: number;
     readonly trigger_tokens?: number;
     readonly target_tokens?: number;
@@ -226,12 +236,6 @@ const isCount = (value: number): boolean =>
     Number.isSafeInteger(value) && value >= 1;
 
 const COMPACTION_NUMBERS: readonly CompactionNumber[] = [
-    {
-        key: "timeout_ms",
-        expected: "a whole number from 1000 to 600000",
-        valid: (value) =>
-            Number.isSafeInteger(value) && value >= 1_000 && value <= 600_000,
-    },
     { key: "trigger_fraction", expected: "a number above 0 and up to 1", valid: isFraction },
     { key: "trigger_tokens", expected: "a whole number of tokens, 1 or more", valid: isCount },
     { key: "target_tokens", expected: "a whole number of tokens, 1 or more", valid: isCount },
@@ -256,6 +260,17 @@ const COMPACTION_NUMBERS: readonly CompactionNumber[] = [
     },
 ];
 
+const RUNG_KEYS = new Set([
+    "strategy",
+    "models",
+    "timeout_ms",
+    "reasoning_effort",
+]);
+
+interface OptionalNumber {
+    readonly value?: number;
+}
+
 export function parseCompactionConfig(
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
@@ -263,26 +278,51 @@ export function parseCompactionConfig(
     if (!isRecord(value)) {
         return configProblem("compaction", expectedValue("an object", value));
     }
-    const strategy = value.strategy;
-    const models = value.models;
-    // One without the other is a typo, not a numbers-only block.
-    if ((strategy === undefined) !== (models === undefined)) {
+    const legacyStrategy = value.strategy;
+    const legacyModels = value.models;
+    const legacyTimeout = value.timeout_ms;
+    const legacy = legacyStrategy !== undefined || legacyModels !== undefined;
+    // A ladder and the legacy keys declare the same thing, so only one may appear.
+    if (value.ladder !== undefined && (legacy || legacyTimeout !== undefined)) {
         return configProblem(
             "compaction",
-            `${strategy === undefined ? "strategy" : "models"} is missing; strategy and models are set together`,
+            "set ladder or the legacy strategy, models and timeout_ms keys, not both",
         );
     }
-    if (strategy !== undefined && (typeof strategy !== "string" || !isStrategyId(strategy))) {
+    // Strategy and models are a pair. A timeout with no strategy never reached a session.
+    if (legacy && (legacyStrategy === undefined || legacyModels === undefined)) {
         return configProblem(
-            "compaction.strategy",
-            expectedValue("a name like publisher/strategy", strategy),
+            "compaction",
+            `${legacyStrategy === undefined ? "strategy" : "models"} is missing; strategy and models are set together`,
         );
     }
-    if (models !== undefined && !isRecord(models)) {
+    if (!legacy && legacyTimeout !== undefined
+        && optionalNumber(legacyTimeout, isTimeoutMs) === undefined) {
         return configProblem(
-            "compaction.models",
-            expectedValue("an object of slot names to routes", models),
+            "compaction.timeout_ms",
+            expectedValue("a whole number from 1000 to 600000", legacyTimeout),
         );
+    }
+    let ladder: readonly VeraCompactionRung[] | undefined;
+    if (value.ladder !== undefined) {
+        ladder = parseLadder(value.ladder, routes);
+        if (ladder === undefined) {
+            return undefined;
+        }
+    } else if (legacy) {
+        const rung = parseRung(
+            {
+                strategy: legacyStrategy,
+                models: legacyModels,
+                timeout_ms: legacyTimeout,
+            },
+            routes,
+            "compaction",
+        );
+        if (rung === undefined) {
+            return undefined;
+        }
+        ladder = [rung];
     }
     const numbers: Record<string, number> = {};
     for (const entry of COMPACTION_NUMBERS) {
@@ -296,54 +336,167 @@ export function parseCompactionConfig(
         }
         numbers[entry.key] = number;
     }
+    return {
+        ...(ladder === undefined ? {} : { ladder }),
+        ...numbers,
+    };
+}
+
+function parseLadder(
+    value: unknown,
+    routes: Readonly<Record<string, readonly string[]>>,
+): readonly VeraCompactionRung[] | undefined {
+    if (!Array.isArray(value) || value.length === 0) {
+        return configProblem(
+            "compaction.ladder",
+            expectedValue("a non-empty list of rungs", value),
+        );
+    }
+    const ladder: VeraCompactionRung[] = [];
+    for (const [index, rung] of value.entries()) {
+        const parsed = parseRung(rung, routes, `compaction.ladder[${index}]`);
+        if (parsed === undefined) {
+            return undefined;
+        }
+        ladder.push(parsed);
+    }
+    return ladder;
+}
+
+function parseRung(
+    value: unknown,
+    routes: Readonly<Record<string, readonly string[]>>,
+    field: string,
+): VeraCompactionRung | undefined {
+    if (!isRecord(value)) {
+        return configProblem(field, expectedValue("an object", value));
+    }
+    const unknownKey = Object.keys(value).find((key) => !RUNG_KEYS.has(key));
+    if (unknownKey !== undefined) {
+        return configProblem(
+            `${field}.${unknownKey}`,
+            `unknown key; a rung accepts ${[...RUNG_KEYS].join(", ")}`,
+        );
+    }
+    const strategy = value.strategy;
+    if (typeof strategy !== "string" || !isStrategyId(strategy)) {
+        return configProblem(
+            `${field}.strategy`,
+            keyValue("strategy", "a name like publisher/strategy", strategy),
+        );
+    }
+    const timeout = optionalNumber(value.timeout_ms, isTimeoutMs);
+    if (timeout === undefined) {
+        return configProblem(
+            `${field}.timeout_ms`,
+            expectedValue("a whole number from 1000 to 600000", value.timeout_ms),
+        );
+    }
+    const effort = value.reasoning_effort;
+    if (effort !== undefined && !isReasoningEffort(effort)) {
+        return configProblem(
+            `${field}.reasoning_effort`,
+            keyValue("reasoning_effort", "a non-empty string", effort),
+        );
+    }
+    const models = value.models === undefined
+        ? undefined
+        : parseSlotRoutes(value.models, routes, `${field}.models`);
+    if (value.models !== undefined && models === undefined) {
+        return undefined;
+    }
+    return {
+        strategy,
+        ...(models === undefined ? {} : { models }),
+        ...withoutUndefined({
+            timeout_ms: timeout.value,
+            reasoning_effort: effort,
+        }),
+    };
+}
+
+function parseSlotRoutes(
+    value: unknown,
+    routes: Readonly<Record<string, readonly string[]>>,
+    field: string,
+): Record<string, string> | undefined {
+    if (!isRecord(value)) {
+        return configProblem(field, expectedValue("an object of slot names to routes", value));
+    }
     const slots: Record<string, string> = {};
-    for (const [slot, route] of Object.entries(models ?? {})) {
+    for (const [slot, route] of Object.entries(value)) {
         if (!isConfigName(slot)) {
             return configProblem(
-                "compaction.models",
+                field,
                 `slot name ${JSON.stringify(slot)} must use lowercase letters, digits, - and _`,
             );
         }
         if (typeof route !== "string" || routes[route] === undefined) {
             return configProblem(
-                `compaction.models.${slot}`,
+                `${field}.${slot}`,
                 expectedValue("a name in model_routes", route),
             );
         }
         slots[slot] = route;
     }
-    return {
-        ...(strategy === undefined
-            ? {}
-            : { strategy: strategy as string, models: slots }),
-        ...numbers,
-    };
+    return slots;
+}
+
+function optionalNumber(
+    value: unknown,
+    valid: (n: number) => boolean,
+): OptionalNumber | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    return typeof value === "number" && valid(value) ? { value } : undefined;
+}
+
+function isTimeoutMs(value: number): boolean {
+    return Number.isSafeInteger(value) && value >= 1_000 && value <= 600_000;
+}
+
+function withoutUndefined<T extends Record<string, unknown>>(
+    value: T,
+): Partial<T> {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, entry]) => entry !== undefined),
+    ) as Partial<T>;
 }
 
 export function resolveCompactionProfile(
     config: VeraModelCatalogConfig,
     compaction: VeraCompactionConfig,
 ): ResolvedCompactionProfile | undefined {
-    if (compaction.strategy === undefined || compaction.models === undefined) {
+    if (compaction.ladder === undefined) {
         return undefined;
     }
-    const slots: Record<string, readonly VeraCatalogModel[]> = {};
-    const routes: Record<string, string> = {};
-    for (const [slot, routeName] of Object.entries(compaction.models)) {
-        const models = resolveModelRoute(config, routeName);
-        if (models === undefined) {
-            return undefined;
+    const ladder: ResolvedCompactionRung[] = [];
+    for (const rung of compaction.ladder) {
+        const slots: Record<string, readonly VeraCatalogModel[]> = {};
+        const routes: Record<string, string> = {};
+        for (const [slot, routeName] of Object.entries(rung.models ?? {})) {
+            const models = resolveModelRoute(config, routeName);
+            if (models === undefined) {
+                return undefined;
+            }
+            slots[slot] = models;
+            routes[slot] = routeName;
         }
-        slots[slot] = models;
-        routes[slot] = routeName;
+        ladder.push({
+            strategy: rung.strategy,
+            slots,
+            routes,
+            ...(rung.timeout_ms === undefined
+                ? {}
+                : { timeout_ms: rung.timeout_ms }),
+            ...(rung.reasoning_effort === undefined
+                ? {}
+                : { reasoning_effort: rung.reasoning_effort }),
+        });
     }
     return {
-        strategy: compaction.strategy,
-        slots,
-        routes,
-        ...(compaction.timeout_ms === undefined
-            ? {}
-            : { timeout_ms: compaction.timeout_ms }),
+        ladder,
         ...(compaction.trigger_fraction === undefined
             ? {}
             : { trigger_fraction: compaction.trigger_fraction }),

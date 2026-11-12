@@ -264,6 +264,14 @@ export interface CompactionContext {
 // Returns the reason the session must stop, or undefined to keep running.
 export type TurnHaltCheck = () => string | undefined;
 
+// A cancelled check ends the turn as aborted. A failed check ends it with the message as an error.
+export type WindowStop =
+    | { readonly outcome: "cancelled" }
+    | { readonly outcome: "failed"; readonly message: string };
+
+// Landed means a compaction changed the context, so the request is built and checked again.
+export type WindowCheck = { readonly outcome: "landed" } | WindowStop;
+
 export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
@@ -277,12 +285,20 @@ export interface RunTurnState {
     ) => readonly ModelMessage[];
     readonly historyLineage?: () => HistoryLineage;
     readonly contextWatch?: ContextWatch;
+    // force runs past the trigger and the latch, as the hard check does.
     readonly compact?: (
         signal: AbortSignal,
         pendingMessages?: readonly ModelMessage[],
         context?: CompactionContext,
         turn?: CompactionTurnLink,
+        force?: boolean,
     ) => Promise<void>;
+    // Runs before each model request. A stop ends the turn without sending that request; landed builds it again.
+    readonly enforceWindow?: (
+        signal: AbortSignal,
+        context?: CompactionContext,
+        turn?: CompactionTurnLink,
+    ) => Promise<WindowCheck | undefined>;
     readonly compactionPolicy?: {
         readonly trigger?: CompactionTrigger;
     };
@@ -340,10 +356,18 @@ export interface RunTurnState {
     readonly loadOptionalContext?: boolean;
 }
 
-export interface SessionCompactionOptions {
+export interface SessionCompactionRung {
     readonly strategy: CompactionStrategyDefinition;
     readonly models: Readonly<Record<string, CompleteText>>;
     readonly diagnostics?: SessionCompactionDiagnostics;
+    /** As configured on the rung. The bound calls apply them; the wire spec carries them. */
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly timeoutMs?: number;
+}
+
+export interface SessionCompactionOptions {
+    // Tried in order.
+    readonly rungs: readonly [SessionCompactionRung, ...SessionCompactionRung[]];
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
     readonly postCompactionTargetFraction?: number;
@@ -819,7 +843,7 @@ export async function runHeadlessLoop(
             if (turnActive) {
                 events.emit({
                     type: "compaction_finished",
-                    strategy: options.strategy.id,
+                    strategy: options.rungs[0].strategy.id,
                     outcome: "busy",
                 });
                 return;
@@ -844,8 +868,10 @@ export async function runHeadlessLoop(
         get compactionPolicy() {
             return owned.compaction;
         },
-        compact: (signal, pendingMessages, context, turn) =>
-            compaction.compact(signal, false, pendingMessages, context, turn),
+        compact: (signal, pendingMessages, context, turn, force = false) =>
+            compaction.compact(signal, force, pendingMessages, context, turn),
+        enforceWindow: (signal, context, turn) =>
+            compaction.enforceWindow(signal, context, turn),
         deliveryInbox: store,
         toolRuntime: newStashingToolRuntime(
             store.header.cwd,
@@ -1370,7 +1396,14 @@ export async function runTurn(
                     });
                 }
             }
-            const requestSnapshot = {
+
+            const compactionContext = compactionContextForSettings(
+                turnSettings,
+                activeModel,
+            );
+            const projectTurnRequest = (
+                context = compactionContext,
+            ) => projectModelRequest({
                 ...(turnSettings.provider === undefined
                     ? {}
                     : { provider: turnSettings.provider }),
@@ -1379,9 +1412,8 @@ export async function runTurn(
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
-                messages: state.modelContext?.(
-                    compactionContextForSettings(turnSettings, activeModel),
-                ) ?? state.messages,
+                messages: state.modelContext?.(context)
+                    ?? state.messages,
                 tools: scopedTools,
                 workspace: state.toolRuntime.workspace,
                 ...(state.scratchDir === undefined
@@ -1406,8 +1438,71 @@ export async function runTurn(
                     ? {}
                     : { agentInstructions: selected.instructions }),
                 signal: turn.signal,
-            } satisfies ModelRequestSnapshot;
-            const projection = projectModelRequest(requestSnapshot);
+            } satisfies ModelRequestSnapshot);
+            const measureTurnRequest = (
+                built: ReturnType<typeof projectModelRequest>,
+            ) => {
+                // Recorded before the window check, so the check counts this request's system prompt and tools.
+                const measured = measureProjectedRequest(
+                    built.request,
+                    capacityForModel(activeModel),
+                    {
+                        promptContributions: built.promptContributions,
+                        extensionToolNames: state.extensionTools?.map((tool) =>
+                            tool.definition.name
+                        ),
+                        contributionParts: contextContributionParts({
+                            projectInstructions,
+                            ...(rules === undefined ? {} : { rules }),
+                            ...(memory === undefined ? {} : { memory }),
+                            ...(selected?.name === undefined ? {} : { agentName: selected.name }),
+                            ...(selected?.instructions === undefined
+                                ? {}
+                                : { agentInstructions: selected.instructions }),
+                        }),
+                        ...(state.compactionPolicy === undefined
+                            ? {}
+                            : {
+                                compaction: contextCompactionPolicy(
+                                    state.compactionPolicy.trigger,
+                                    capacityForModel(activeModel),
+                                ),
+                            }),
+                    },
+                );
+                if (state.contextWatch !== undefined) {
+                    state.contextWatch.overheadTokens = Math.max(
+                        0,
+                        measured.tokens
+                            - measureMessages(built.request.messages, built.request.model),
+                    );
+                }
+                return measured;
+            };
+            let projection = projectTurnRequest();
+            let measurement = measureTurnRequest(projection);
+            let windowCheck = await enforceWindowDuringTurn(
+                state,
+                turn.signal,
+                compactionContext,
+            );
+            // A landed compaction changed the context the request is built from, so it is built and checked again.
+            while (windowCheck?.outcome === "landed") {
+                projection = projectTurnRequest();
+                measurement = measureTurnRequest(projection);
+                windowCheck = await enforceWindowDuringTurn(
+                    state,
+                    turn.signal,
+                    compactionContext,
+                );
+            }
+            if (windowCheck !== undefined) {
+                assistantMessage = withTurnTiming(
+                    windowStopMessage(activeModel, windowCheck, turn.signal),
+                );
+                await commitMessage(state, assistantMessage);
+                break;
+            }
             const request = projection.request;
             const promptContributions = promptContributionMetadata(
                 projection.promptContributions,
@@ -1447,33 +1542,6 @@ export async function runTurn(
                 promptContributions,
                 toolResultBytes: measureToolResultBytes(request.messages),
             });
-            const measurement = measureProjectedRequest(
-                request,
-                capacityForModel(activeModel),
-                {
-                    promptContributions: projection.promptContributions,
-                    extensionToolNames: state.extensionTools?.map((tool) =>
-                        tool.definition.name
-                    ),
-                    contributionParts: contextContributionParts({
-                        projectInstructions,
-                        ...(rules === undefined ? {} : { rules }),
-                        ...(memory === undefined ? {} : { memory }),
-                        ...(selected?.name === undefined ? {} : { agentName: selected.name }),
-                        ...(selected?.instructions === undefined
-                            ? {}
-                            : { agentInstructions: selected.instructions }),
-                    }),
-                    ...(state.compactionPolicy === undefined
-                        ? {}
-                        : {
-                            compaction: contextCompactionPolicy(
-                                state.compactionPolicy.trigger,
-                                capacityForModel(activeModel),
-                            ),
-                        }),
-                },
-            );
             const shownMeasurement = correctedMeasurement(
                 measurement,
                 watchedScale(state.contextWatch, activeModel),
@@ -1484,13 +1552,6 @@ export async function runTurn(
                 measurement: shownMeasurement,
             });
             await persistContextRecipe(state.store, shownMeasurement);
-            if (state.contextWatch !== undefined) {
-                state.contextWatch.overheadTokens = Math.max(
-                    0,
-                    measurement.tokens
-                        - measureMessages(request.messages, request.model),
-                );
-            }
             const substitutions: ModelSubstitution[] = pendingSubstitutions
                 .splice(0, pendingSubstitutions.length);
             const carriesImage = request.messages.some((message) =>
@@ -1690,18 +1751,17 @@ export async function runTurn(
                         turnReasoningEffort = live.reasoningEffort;
                         let retryMessages: ModelRequest["messages"] | undefined;
                         if (modelChanged) {
+                            // The retry builds its request here, so this is its hard check.
                             await compactDuringTurn(
                                 state,
                                 turn.signal,
                                 [],
                                 compactionContextForSettings(turnSettings, activeModel),
+                                true,
                             );
-                            const projected = projectModelRequest({
-                                ...requestSnapshot,
-                                messages: state.modelContext?.(
-                                    compactionContextForSettings(turnSettings, activeModel),
-                                ) ?? state.messages,
-                            });
+                            const projected = projectTurnRequest(
+                                compactionContextForSettings(turnSettings, activeModel),
+                            );
                             omitImages = projected.request.messages.some((message) =>
                                 message.role === "user"
                                 && message.content.some((block) => block.type === "image_attachment")
@@ -2108,11 +2168,36 @@ async function compactDuringTurn(
     turnSignal: AbortSignal,
     pendingMessages: readonly ModelMessage[],
     context: CompactionContext,
+    force = false,
 ): Promise<void> {
     const compact = state.compact;
     if (compact === undefined) {
         return;
     }
+    await withTurnLink(turnSignal, (signal, turn) =>
+        compact(signal, pendingMessages, context, turn, force)
+    );
+}
+
+async function enforceWindowDuringTurn(
+    state: RunTurnState,
+    turnSignal: AbortSignal,
+    context: CompactionContext,
+): Promise<WindowCheck | undefined> {
+    const enforceWindow = state.enforceWindow;
+    if (enforceWindow === undefined) {
+        return undefined;
+    }
+    return withTurnLink(turnSignal, (signal, turn) =>
+        enforceWindow(signal, context, turn)
+    );
+}
+
+// The compaction signal follows the turn's abort, and the listener is removed once the call returns.
+async function withTurnLink<T>(
+    turnSignal: AbortSignal,
+    run: (signal: AbortSignal, turn: CompactionTurnLink) => Promise<T>,
+): Promise<T> {
     const controller = new AbortController();
     const relay = () => {
         controller.abort(turnSignal.reason);
@@ -2123,13 +2208,38 @@ async function compactDuringTurn(
         turnSignal.addEventListener("abort", relay, { once: true });
     }
     try {
-        await compact(controller.signal, pendingMessages, context, {
-            controller,
-            turnSignal,
-        });
+        return await run(controller.signal, { controller, turnSignal });
     } finally {
         turnSignal.removeEventListener("abort", relay);
     }
+}
+
+function windowStopMessage(
+    model: string,
+    stop: WindowStop,
+    turnSignal: AbortSignal,
+): AssistantMessage {
+    const source = { provider: "vera", api: "compaction", model };
+    if (stop.outcome === "cancelled") {
+        return {
+            role: "assistant",
+            content: [],
+            source,
+            usage: emptyUsage(),
+            stopReason: "aborted",
+            ...(turnSignal.reason instanceof TurnSteeredError
+                ? { steered: true as const }
+                : {}),
+        };
+    }
+    return {
+        role: "assistant",
+        content: [],
+        source,
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: stop.message,
+    };
 }
 
 function requireImageReader(

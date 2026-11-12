@@ -108,7 +108,7 @@ test("the word budget stays under the token target it will be checked against", 
 
 test("the heading and the file list come off the target before the note is sized", async () => {
     // The strategy writes both, and the target has to hold all three. Sizing
-    // the note to the whole target is how a rung that measured as viable
+    // the note to the whole target is how a boundary attempt that measured as viable
     // comes back over it.
     const small = await compact(span(), () => "the note", 900);
     const large = await compact(span(), () => "the note", 2_000);
@@ -118,7 +118,7 @@ test("the heading and the file list come off the target before the note is sized
 });
 
 test("a target too small to hold a note is refused as room related", async () => {
-    // Rejected rather than attempted: a looser rung has the room, and it is
+    // Rejected rather than attempted: a looser boundary attempt has the room, and it is
     // the only thing that recovers.
     const error = await compact(span(), () => "the note", MIN_NOTE_TOKENS)
         .then(() => undefined, (thrown: unknown) => thrown);

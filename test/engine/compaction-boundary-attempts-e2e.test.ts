@@ -159,12 +159,14 @@ test("the summarizer never sees the strategy's own file block as prose", async (
     expect(note).toContain("first");
 });
 
-test("retained_user_turns reaches the ladder from a resolved config profile", async () => {
+test("retained_user_turns reaches the boundary attempts from a resolved config profile", async () => {
     const store = await agenticSession();
     const profile: ResolvedCompactionProfile = {
-        strategy: fullSummaryStrategy.id,
-        slots: { [FULL_SUMMARY_MODEL_SLOT]: [catalogModel()] },
-        routes: { [FULL_SUMMARY_MODEL_SLOT]: "summarizer" },
+        ladder: [{
+            strategy: fullSummaryStrategy.id,
+            slots: { [FULL_SUMMARY_MODEL_SLOT]: [catalogModel()] },
+            routes: { [FULL_SUMMARY_MODEL_SLOT]: "summarizer" },
+        }],
         retained_user_turns: 1,
     };
     const bound = bindCompaction(
@@ -179,8 +181,8 @@ test("retained_user_turns reaches the ladder from a resolved config profile", as
     const result = await compactSession(
         {
             store,
-            strategy: bound!.strategy,
-            models: bound!.models,
+            strategy: bound!.rungs[0].strategy,
+            models: bound!.rungs[0].models,
             retainedUserTurns: bound!.retainedUserTurns!,
         },
         // Roomy: two turns would fit, so keeping one proves the key applied.
@@ -211,7 +213,7 @@ test("compaction still refuses rather than break a session it cannot shrink", as
 
 /** A session shaped like a real agentic one: prompts wrapped around tool loops. */
 async function agenticSession(): Promise<SessionStore> {
-    const directory = mkdtempSync(join(tmpdir(), "vera-ladder-e2e-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-boundary-attempts-e2e-"));
     temporaryDirectories.push(directory);
     const store = await SessionStore.create(join(directory, "session.jsonl"), {
         sessionId: "session-1",

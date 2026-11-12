@@ -1,4 +1,4 @@
-import type { ModelMessage, ModelUsage } from "../model/types.ts";
+import type { ModelMessage, ModelUsage, UserMessage } from "../model/types.ts";
 import type {
     SessionCompactionDiagnostics,
     SessionMessageEntry,
@@ -6,7 +6,11 @@ import type {
 } from "../store/session-store.ts";
 import {
     CompactionRejectedError,
+    projectionHoldsPrompt,
+    promptWords,
+    startsTurn,
     validateProposal,
+    workingPrompt,
     type CompactionRequest,
     type CompactionStrategyDefinition,
 } from "./compaction.ts";
@@ -51,6 +55,7 @@ export interface CompactionBudget {
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
     readonly postCompactionTargetFraction?: number;
+    readonly hardLimitTokens?: number;
 }
 
 export interface CompactionSchedulerOptions {
@@ -67,6 +72,8 @@ export interface CompactionSchedulerOptions {
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
     readonly postCompactionTargetFraction?: number;
+    // The window a request must fit. The target is its share, the result must land under it, and no trigger applies.
+    readonly hardLimitTokens?: number;
     readonly summaryWordCap?: number;
     readonly retainedUserTurns?: number;
     // The correction already applied to measurement.tokens; kept messages must be sized in the same units.
@@ -79,6 +86,13 @@ export function compactionTargetBudget(
     measurement: ContextMeasurement,
     budget?: CompactionBudget,
 ): number | undefined {
+    if (budget?.hardLimitTokens !== undefined) {
+        return Math.floor(
+            budget.hardLimitTokens
+                * (budget.postCompactionTargetFraction
+                    ?? POST_COMPACTION_TARGET_FRACTION),
+        );
+    }
     const target = configuredTargetBudget(measurement, budget);
     const triggerTokens = compactionTriggerTokens(
         measurement.capacity,
@@ -139,41 +153,45 @@ function compactionTriggerTokens(
     return resolveCompactionTriggerTokens(capacity, trigger);
 }
 
+interface Ceiling {
+    readonly tokens: number | undefined;
+    readonly name: "compaction trigger" | "context limit";
+}
+
 function noBoundaryReason(
     hasCandidate: boolean,
     leanestKeptTokens: number | undefined,
     overhead: number,
-    triggerTokens: number | undefined,
+    ceiling: Ceiling,
     capacity: number | undefined,
 ): string {
     if (!hasCandidate) {
         return "There is not enough finished history to compact yet.";
     }
-    if (triggerTokens === undefined) {
+    const ceilingTokens = ceiling.tokens;
+    if (ceilingTokens === undefined) {
         return "The compaction target is too small for a summary.";
     }
     const count = (tokens: number): string =>
         Math.round(tokens).toLocaleString("en-US");
+    const limit = `${count(ceilingTokens)}-token ${ceiling.name}`;
     const raise = capacity === undefined
         ? "Raise compaction.trigger_tokens."
         : "Raise the context limit, or use a model with a larger window.";
-    if (overhead >= triggerTokens) {
+    if (overhead >= ceilingTokens) {
         return `Instructions and tool definitions take ${count(overhead)}`
-            + ` tokens, more than the ${count(triggerTokens)}-token compaction`
-            + ` trigger. ${raise}`;
+            + ` tokens, more than the ${limit}. ${raise}`;
     }
     if (leanestKeptTokens === undefined) {
         return `What must stay word for word plus instructions and tool`
             + ` definitions (${count(overhead)} tokens) leave no room for a`
-            + ` summary under the ${count(triggerTokens)}-token compaction`
-            + ` trigger. ${raise}`;
+            + ` summary under the ${limit}. ${raise}`;
     }
-    if (overhead + leanestKeptTokens + MIN_SUMMARY_TOKENS >= triggerTokens) {
+    if (overhead + leanestKeptTokens + MIN_SUMMARY_TOKENS >= ceilingTokens) {
         return `Instructions and tool definitions (${count(overhead)} tokens)`
             + ` plus the latest messages, which stay word for word`
             + ` (${count(leanestKeptTokens)} tokens), leave no room for a`
-            + ` summary under the ${count(triggerTokens)}-token compaction`
-            + ` trigger. ${raise}`;
+            + ` summary under the ${limit}. ${raise}`;
     }
     return "The compaction target is too small for a summary.";
 }
@@ -235,20 +253,27 @@ export async function compactSession(
             : scaledTokens(measurement.overheadTokens, options),
     );
 
-    const triggerTokens = compactionTriggerTokens(capacity, options.trigger);
+    const ceiling: Ceiling = options.hardLimitTokens === undefined
+        ? {
+            tokens: compactionTriggerTokens(capacity, options.trigger),
+            name: "compaction trigger",
+        }
+        : { tokens: options.hardLimitTokens, name: "context limit" };
     const planInput = {
         active,
         previousBoundary,
         previousProjection,
         overhead,
-        triggerTokens,
+        ceiling,
         options,
     };
     let planned = planAttempts(planInput, budget);
     const unpulled = configuredTargetBudget(measurement, options);
     // A trigger too small to land under is a request to compact anyway, at the target as configured.
+    // A hard limit has no trigger, so its budget is already the configured one.
     if (
         planned.attempts.length === 0
+        && options.hardLimitTokens === undefined
         && unpulled !== undefined
         && unpulled !== budget
     ) {
@@ -262,7 +287,7 @@ export async function compactSession(
                 hasCandidate,
                 leanest?.keptTokens,
                 overhead,
-                triggerTokens,
+                ceiling,
                 capacity,
             ),
         };
@@ -315,7 +340,7 @@ interface PlanInput {
     readonly previousBoundary: number;
     readonly previousProjection: readonly ModelMessage[];
     readonly overhead: number;
-    readonly triggerTokens: number | undefined;
+    readonly ceiling: Ceiling;
     readonly options: CompactionSchedulerOptions;
 }
 
@@ -331,17 +356,21 @@ function planAttempts(input: PlanInput, budget: number): PlannedAttempts {
         previousBoundary,
         previousProjection,
         overhead,
-        triggerTokens,
+        ceiling,
         options,
     } = input;
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
     let leanest: { plan: BoundaryPlan; keptTokens: number } | undefined;
     let hasCandidate = false;
+    // A prompt-keeping strategy makes its own cut inside its span, so the span's end is the only boundary offered.
+    const retainedUserTurns = options.strategy.keepsPrompt === true
+        ? 0
+        : (options.retainedUserTurns ?? RETAINED_USER_TURNS);
     for (
         const candidate of candidateBoundaries(
             active,
             previousBoundary,
-            options.retainedUserTurns ?? RETAINED_USER_TURNS,
+            retainedUserTurns,
         )
     ) {
         const kept = active.slice(candidate.boundaryIndex + 1)
@@ -377,13 +406,13 @@ function planAttempts(input: PlanInput, budget: number): PlannedAttempts {
             ...viable.slice(-1),
         ]
         : viable;
-    // Overhead or a large prompt can fill the target by itself. Keeping as little as possible still helps if it lands under the trigger.
+    // Overhead or a large prompt can fill the target by itself. Keeping as little as possible still helps if it lands under the ceiling.
     if (
         attempts.length === 0
         && leanest !== undefined
         && budget >= MIN_SUMMARY_TOKENS
-        && triggerTokens !== undefined
-        && overhead + leanest.keptTokens + MIN_SUMMARY_TOKENS < triggerTokens
+        && ceiling.tokens !== undefined
+        && overhead + leanest.keptTokens + MIN_SUMMARY_TOKENS < ceiling.tokens
     ) {
         attempts.push({ plan: leanest.plan, targetTokens: MIN_SUMMARY_TOKENS });
     }
@@ -436,15 +465,21 @@ async function attemptCompaction(
         ...active.slice(previousBoundary + 1, plan.boundaryIndex + 1)
             .map((entry) => entry.message),
     ];
-    const carried = options.pendingPrompt === true
+    // A strategy that keeps the prompt itself gets no carried copy and reserves no room for one.
+    const flagged = options.strategy.keepsPrompt === true;
+    const carried = options.pendingPrompt === true || flagged
         ? undefined
-        : carriedMessage(active, plan, targetTokens);
+        : carriedMessage(active, plan, previousBoundary, targetTokens, options);
     const request: CompactionRequest = {
         messages: deepFreeze(structuredClone(span) as ModelMessage[]),
-        targetTokens: carried === undefined
-            ? targetTokens
-            : targetTokens - measureMessages([carried]),
+        targetTokens: rawTokens(
+            carried === undefined
+                ? targetTokens
+                : targetTokens - contextTokens([carried], options),
+            options,
+        ),
         models: options.models,
+        previousProjectionCount: previousProjection.length,
         ...(options.summaryWordCap === undefined
             ? {}
             : { summaryWordCap: options.summaryWordCap }),
@@ -460,7 +495,14 @@ async function attemptCompaction(
             return { result: { outcome: "cancelled" }, retry: false };
         }
         projection = validateProposal(proposal, request);
-        if (carried !== undefined) {
+        const prompt = flagged ? workingPrompt(request.messages)?.message : undefined;
+        if (prompt !== undefined && !projectionHoldsPrompt(projection, prompt)) {
+            throw new CompactionRejectedError(
+                "The compacted context does not hold the prompt being worked on.",
+            );
+        }
+        // A projection that already holds the prompt gets no second copy.
+        if (carried !== undefined && !projectionHoldsPrompt(projection, carried)) {
             projection = [...projection, carried];
         }
         proposalModel = proposal.model;
@@ -506,8 +548,18 @@ async function attemptCompaction(
             retry: true,
         };
     }
-    // The last rung is kept even over the trigger: an unreachable trigger would otherwise block compaction for good.
-    if (!input.lastAttempt && shouldCompact(
+    if (options.hardLimitTokens !== undefined && after > options.hardLimitTokens) {
+        return {
+            result: {
+                outcome: "rejected",
+                reason: "The compacted context would still be over the "
+                    + "context limit.",
+            },
+            retry: true,
+        };
+    }
+    // The last boundary attempt is kept even over the trigger: an unreachable trigger would otherwise block compaction for good.
+    if (options.hardLimitTokens === undefined && !input.lastAttempt && shouldCompact(
         {
             tokens: after,
             ...(capacity === undefined ? {} : { capacity }),
@@ -585,14 +637,60 @@ async function attemptCompaction(
     };
 }
 
-// While a turn runs, its latest user message stays word for word if the plan would summarize it and a summary still fits beside it.
+// While a turn runs, its prompt stays word for word if the plan compacts it and MIN_SUMMARY_TOKENS still fit beside it.
+// While an unanswered steer is in the span, the latest user message is carried instead of the prompt.
 function carriedMessage(
     active: readonly SessionMessageEntry[],
     plan: BoundaryPlan,
+    previousBoundary: number,
     targetTokens: number,
-): ModelMessage | undefined {
-    let latest: SessionMessageEntry | undefined;
-    let latestIndex = -1;
+    options: CompactionSchedulerOptions,
+): UserMessage | undefined {
+    const held = unansweredSteerInSpan(
+        active,
+        previousBoundary,
+        plan.boundaryIndex,
+    );
+    const chosen = held ? latestCarriable(active) : runningPrompt(active);
+    if (chosen === undefined || chosen.index > plan.boundaryIndex) {
+        return undefined;
+    }
+    // An answered prompt is the summary's to carry; a copy would only make the result bigger.
+    if (answeredAfter(active, chosen.index)) {
+        return undefined;
+    }
+    const copy = promptWords(chosen.message);
+    if (copy === undefined) {
+        return undefined;
+    }
+    return targetTokens - contextTokens([copy], options) >= MIN_SUMMARY_TOKENS
+        ? copy
+        : undefined;
+}
+
+// The newest turn start of the running turn, skipping extension barriers. Undefined once an assistant stop follows it.
+function runningPrompt(
+    active: readonly SessionMessageEntry[],
+): { readonly index: number; readonly message: UserMessage } | undefined {
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+        const message = active[index]?.message;
+        if (message === undefined) {
+            continue;
+        }
+        if (message.role === "assistant" && message.stopReason === "stop") {
+            return undefined;
+        }
+        if (startsTurn(message) && message.compactionBarrier !== true) {
+            return { index, message };
+        }
+    }
+    return undefined;
+}
+
+// The newest user message that is not extension context.
+function latestCarriable(
+    active: readonly SessionMessageEntry[],
+): { readonly index: number; readonly message: UserMessage } | undefined {
     for (let index = active.length - 1; index >= 0; index -= 1) {
         const message = active[index]?.message;
         if (
@@ -601,39 +699,39 @@ function carriedMessage(
             && message.compactionBarrier !== true
             && message.contextSource === undefined
         ) {
-            latest = active[index];
-            latestIndex = index;
-            break;
+            return { index, message };
         }
     }
-    if (latest === undefined || latestIndex > plan.boundaryIndex) {
-        return undefined;
+    return undefined;
+}
+
+// A steer inside the span that no assistant stop follows.
+function unansweredSteerInSpan(
+    active: readonly SessionMessageEntry[],
+    previousBoundary: number,
+    boundaryIndex: number,
+): boolean {
+    for (let index = previousBoundary + 1; index <= boundaryIndex; index += 1) {
+        const message = active[index]?.message;
+        if (
+            message?.role === "user"
+            && message.arrivedDuringTurn === true
+            && !answeredAfter(active, index)
+        ) {
+            return true;
+        }
     }
-    // An answered prompt is the summary's to carry; a copy would only make the result bigger.
-    const answered = active.slice(latestIndex + 1).some((entry) =>
+    return false;
+}
+
+function answeredAfter(
+    active: readonly SessionMessageEntry[],
+    index: number,
+): boolean {
+    return active.slice(index + 1).some((entry) =>
         entry.message.role === "assistant"
         && entry.message.stopReason === "stop"
     );
-    if (answered) {
-        return undefined;
-    }
-    const message = latest.message;
-    if (message.role !== "user") {
-        return undefined;
-    }
-    // A projection cannot carry attachment references, so only the words survive.
-    const content = message.content.filter((block) => block.type === "text");
-    if (content.length === 0) {
-        return undefined;
-    }
-    const copy: ModelMessage = {
-        role: "user",
-        content: structuredClone(content),
-        ...(message.arrivedDuringTurn === true ? { arrivedDuringTurn: true } : {}),
-    };
-    return targetTokens - measureMessages([copy]) >= MIN_SUMMARY_TOKENS
-        ? copy
-        : undefined;
 }
 
 function contextTokens(
@@ -651,6 +749,17 @@ function scaledTokens(
     return scale === undefined || !(scale > 1)
         ? tokens
         : Math.ceil(tokens * scale);
+}
+
+// validateProposal measures raw tokens, so a room in scaled units is handed over in raw units.
+function rawTokens(
+    tokens: number,
+    options: CompactionSchedulerOptions,
+): number {
+    const scale = options.estimateScale;
+    return scale === undefined || !(scale > 1)
+        ? tokens
+        : Math.floor(tokens / scale);
 }
 
 function deepFreeze<T>(value: T): T {
@@ -686,11 +795,9 @@ function* candidateBoundaries(
         }
         return;
     }
-    // Reminders, attachments and continuations ride inside a turn; counting them would let the real prompt be summarized.
+    // Reminders, attachments, continuations and steers ride inside a turn; counting them would let the real prompt be summarized.
     const userStarts = active.flatMap((entry, index) =>
-        entry.message.role === "user"
-            && entry.message.internal !== true
-            && index > previousBoundary
+        index > previousBoundary && turnStart(active, index)
             ? [index]
             : []
     );
@@ -730,6 +837,34 @@ function* candidateBoundaries(
             firstRetainedId: null,
         };
     }
+}
+
+// A queued user message starts a turn once an assistant stop answers it.
+function turnStart(
+    active: readonly SessionMessageEntry[],
+    index: number,
+): boolean {
+    const message = active[index]?.message;
+    if (
+        message === undefined
+        || message.role !== "user"
+        || message.internal === true
+    ) {
+        return false;
+    }
+    if (message.arrivedDuringTurn !== true) {
+        return true;
+    }
+    for (let after = index + 1; after < active.length; after += 1) {
+        const next = active[after]?.message;
+        if (next?.role === "user" && next.internal !== true) {
+            return false;
+        }
+        if (next?.role === "assistant" && next.stopReason === "stop") {
+            return true;
+        }
+    }
+    return false;
 }
 
 function planAt(

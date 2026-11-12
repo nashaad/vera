@@ -28,15 +28,17 @@ const ADAPTER = fileURLToPath(
     new URL("./fixtures/worker-scripted-adapter.ts", import.meta.url),
 );
 const COMPACTION: ResolvedCompactionProfile = {
-    strategy: FULL_SUMMARY_STRATEGY_ID,
-    slots: {
-        [FULL_SUMMARY_MODEL_SLOT]: [{
-            name: "summarizer",
-            provider: "faux",
-            model: "faux/test",
-        }],
-    },
-    routes: { [FULL_SUMMARY_MODEL_SLOT]: "default" },
+    ladder: [{
+        strategy: FULL_SUMMARY_STRATEGY_ID,
+        slots: {
+            [FULL_SUMMARY_MODEL_SLOT]: [{
+                name: "summarizer",
+                provider: "faux",
+                model: "faux/test",
+            }],
+        },
+        routes: { [FULL_SUMMARY_MODEL_SLOT]: "default" },
+    }],
 };
 
 interface ContextRecord {

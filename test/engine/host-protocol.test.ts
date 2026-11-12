@@ -235,6 +235,7 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
             callId: "c6",
             role: "summarizer",
             prompt: "p",
+            rung: 1,
         },
         {
             method: "hook.subagentFinished",

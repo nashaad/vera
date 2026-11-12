@@ -67,9 +67,9 @@ test("a long child turn compacts mid-turn and still returns its answer", async (
         sessionPath,
         contextLimit: 40_000,
         toolResults: { totalBudgetBytes: TOOL_RESULT_TOTAL_BUDGET_BYTES },
-        compaction: compactionOptions(() => {
+        compaction: compactionOptions(countingSummarizer(() => {
             summarized += 1;
-        }),
+        })),
     });
 
     expect(result.isError).toBe(false);
@@ -91,8 +91,38 @@ test("a long child turn compacts mid-turn and still returns its answer", async (
     assertToolCallsPaired(reopened.modelContext(), "The reopened context");
 });
 
-function compactionOptions(onSummarize: () => void): SessionCompactionOptions {
-    const summarizer: ModelAdapter = {
+test("a child request over its own window is not sent when its compaction fails", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-subagent-window-"));
+    temporaryDirectories.push(workspace);
+
+    const sent: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            sent.push(request);
+            return new FauxAdapter([assistantText("never sent")]).stream(request);
+        },
+    };
+
+    const result = await runSubagent({
+        adapter,
+        model: "test",
+        // The prompt alone is over this child's 20,000 token window, and no earlier turn exists to compact.
+        description: "plank ".repeat(16_000),
+        workspace,
+        approvalMode: "auto",
+        sessionId: "child-window",
+        sessionPath: join(workspace, "child.jsonl"),
+        contextLimit: 20_000,
+        compaction: compactionOptions(unavailableSummarizer, 1_000_000),
+    });
+
+    expect(sent).toHaveLength(0);
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("Compaction failed, so the request was not sent.");
+});
+
+function countingSummarizer(onSummarize: () => void): ModelAdapter {
+    return {
         stream(request) {
             onSummarize();
             return new FauxAdapter([
@@ -100,20 +130,34 @@ function compactionOptions(onSummarize: () => void): SessionCompactionOptions {
             ]).stream(request);
         },
     };
+}
+
+const unavailableSummarizer: ModelAdapter = {
+    stream() {
+        throw new Error("summarizer unavailable");
+    },
+};
+
+function compactionOptions(
+    summarizer: ModelAdapter,
+    triggerTokens = 24_000,
+): SessionCompactionOptions {
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                summarizer,
-                { models: [{ provider: "faux", model: "test" }] },
-            ),
-        },
-        diagnostics: {
-            strategy: FULL_SUMMARY_STRATEGY_ID,
-            provider: "faux",
-            model: "test",
-        },
-        trigger: { tokens: 24_000 },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    summarizer,
+                    { models: [{ provider: "faux", model: "test" }] },
+                ),
+            },
+            diagnostics: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model: "test",
+            },
+        }],
+        trigger: { tokens: triggerTokens },
     };
 }
 

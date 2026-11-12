@@ -387,6 +387,8 @@ export interface CompactionCompleteRequest {
     readonly role: string;
     readonly prompt: string;
     readonly system?: string;
+    /** Index into the session's compaction ladder. Absent means rung 0. */
+    readonly rung?: number;
 }
 
 /**
@@ -462,8 +464,8 @@ export interface PreToolUseReply {
 
 /**
  * One summarizer call. `unavailable` is a successful reply, not a pipe
- * error, so the ladder can still see whether more room would change the
- * outcome.
+ * error, so the boundary attempts can still see whether more room would
+ * change the outcome.
  */
 export interface CompactionCompleteReply {
     readonly text?: string;

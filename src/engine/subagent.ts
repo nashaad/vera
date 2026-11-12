@@ -859,8 +859,10 @@ export async function runSubagent(
             ...(options.compaction === undefined
                 ? {}
                 : { compactionPolicy: options.compaction }),
-            compact: (signal, pendingMessages, context, turn) =>
-                compaction.compact(signal, false, pendingMessages, context, turn),
+            compact: (signal, pendingMessages, context, turn, force = false) =>
+                compaction.compact(signal, force, pendingMessages, context, turn),
+            enforceWindow: (signal, context, turn) =>
+                compaction.enforceWindow(signal, context, turn),
             ...(options.toolResults === undefined
                 ? {}
                 : { toolResults: options.toolResults }),

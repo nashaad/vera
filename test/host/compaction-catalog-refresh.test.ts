@@ -79,7 +79,7 @@ socketAndLoopbackTest(
             try {
                 await host.registry.create({ id: "crow", workspace: home });
                 const summarize = () => host.registry.agents.get("crow")
-                    ?.loopServices?.compaction?.models.summarizer;
+                    ?.loopServices?.compaction?.rungs[0].models.summarizer;
                 const request = {
                     systemPrompt: "",
                     messages: [{

@@ -10,6 +10,7 @@ import {
     compactSession,
     COMPACTION_TRIGGER_FRACTION,
     UNKNOWN_CAPACITY_TRIGGER_TOKENS,
+    type CompactionOutcome,
     type CompactionTrigger,
 } from "./compaction-scheduler.ts";
 import {
@@ -40,6 +41,9 @@ import type {
     CompactionTurnLink,
     ContextWatch,
     SessionCompactionOptions,
+    SessionCompactionRung,
+    WindowCheck,
+    WindowStop,
 } from "./run-turn.ts";
 import {
     assembleAgedToolResults,
@@ -53,6 +57,11 @@ import { SPILL_DIRECTORY_NAME } from "./tool-result-spill.ts";
 export {
     DEFAULT_COMPACTION_RETRY_GROWTH_TOKENS as COMPACTION_RETRY_GROWTH_TOKENS,
 } from "./context-size-trigger-defaults.ts";
+
+// Stop texts for a request held at the context limit. The rung lines follow WINDOW_FAILED.
+const WINDOW_FAILED = "Compaction failed, so the request was not sent.";
+const WINDOW_UNBOUND = "Compaction could not run, so the request was not sent. No compaction strategy is bound for this session.";
+const WINDOW_STILL_OVER = "Compaction ran, but the context is still over the context limit, so the request was not sent.";
 
 export interface CompactionControllerOptions {
     readonly store: SessionStore;
@@ -82,6 +91,30 @@ export interface CompactionController {
         context?: CompactionContext,
         turn?: CompactionTurnLink,
     ): Promise<void>;
+    // Runs the ladder when the context is over the effective window. Undefined sends the request; landed builds it again.
+    enforceWindow(
+        signal: AbortSignal,
+        context?: CompactionContext,
+        turn?: CompactionTurnLink,
+    ): Promise<WindowCheck | undefined>;
+}
+
+type CompactedOutcome = Extract<CompactionOutcome, { readonly outcome: "compacted" }>;
+
+interface LadderRun {
+    readonly signal: AbortSignal;
+    readonly force: boolean;
+    readonly measurement: ContextMeasurement;
+    readonly announced: LoopCompactionState | undefined;
+    readonly compactionModel: string;
+    readonly modelContext: readonly ModelMessage[];
+    readonly estimateScale: number | undefined;
+    readonly hasPendingUserTurn: boolean;
+    readonly pendingMessages: readonly ModelMessage[];
+    readonly context: CompactionContext | undefined;
+    readonly turn: CompactionTurnLink | undefined;
+    // Set by the window check: the request must fit this limit, and the trigger does not apply.
+    readonly hardLimitTokens?: number;
 }
 
 export function createCompactionController(
@@ -204,6 +237,165 @@ export function createCompactionController(
         budgetWarned = true;
         return { warning };
     };
+    const attemptRung = async (
+        compaction: SessionCompactionOptions,
+        rung: SessionCompactionRung,
+        index: number,
+        run: LadderRun,
+    ): Promise<CompactionOutcome> => {
+        // The loop's announced model describes rung 0 only.
+        const summarizerModel = (index === 0 ? run.announced?.model : undefined)
+            ?? rung.diagnostics?.model
+            ?? run.compactionModel;
+        const summarizerProvider = (index === 0
+            ? run.announced?.provider
+            : undefined) ?? rung.diagnostics?.provider;
+        events.emit({
+            type: "compaction_started",
+            strategy: rung.strategy.id,
+            ...(summarizerProvider === undefined
+                ? {}
+                : { provider: summarizerProvider }),
+            model: summarizerModel,
+            ...(budgetWarning(run.measurement, compaction) ?? {}),
+            trigger: run.force ? "manual" : "automatic",
+            tokens: run.measurement.tokens,
+            ...(run.measurement.capacity === undefined
+                ? {}
+                : { capacity: run.measurement.capacity }),
+        });
+        const request: Parameters<typeof compactSession>[0] = {
+            store,
+            strategy: rung.strategy,
+            models: rung.models,
+            model: run.compactionModel,
+            modelContext: run.modelContext,
+            projectModelContext: (projection, retained) =>
+                assembleAgedToolResults(
+                    [...projection, ...retained].map((message) => ({
+                        message,
+                    })),
+                    agingPolicy(run.context, run.pendingMessages),
+                ),
+            ...(rung.diagnostics === undefined
+                ? {}
+                : { diagnostics: rung.diagnostics }),
+            ...(compaction.trigger === undefined
+                ? {}
+                : { trigger: compaction.trigger }),
+            ...(compaction.targetTokens === undefined
+                ? {}
+                : { targetTokens: compaction.targetTokens }),
+            ...(compaction.postCompactionTargetFraction === undefined
+                ? {}
+                : {
+                    postCompactionTargetFraction:
+                        compaction.postCompactionTargetFraction,
+                }),
+            ...(compaction.summaryWordCap === undefined
+                ? {}
+                : { summaryWordCap: compaction.summaryWordCap }),
+            ...(compaction.retainedUserTurns === undefined
+                ? {}
+                : { retainedUserTurns: compaction.retainedUserTurns }),
+            ...(run.estimateScale === undefined
+                ? {}
+                : { estimateScale: run.estimateScale }),
+            ...(run.hardLimitTokens === undefined
+                ? {}
+                : { hardLimitTokens: run.hardLimitTokens }),
+            ...(run.hasPendingUserTurn ? { pendingPrompt: true } : {}),
+        };
+        if (run.turn !== undefined) {
+            options.inbound.beginAutomaticCompaction(run.turn.controller);
+        }
+        let result: Awaited<ReturnType<typeof compactSession>>;
+        try {
+            result = await compactSession(request, run.measurement, run.signal);
+        } finally {
+            if (run.turn !== undefined) {
+                options.inbound.endAutomaticCompaction(run.turn.controller);
+            }
+        }
+        const resultModel = result.outcome === "compacted"
+            ? result.model
+            : undefined;
+        const resultProvider = result.outcome === "compacted"
+            ? result.provider
+            : undefined;
+        const reportedProvider = resultProvider ?? summarizerProvider;
+        events.emit({
+            type: "compaction_finished",
+            strategy: rung.strategy.id,
+            ...(reportedProvider === undefined
+                ? {}
+                : { provider: reportedProvider }),
+            model: resultModel ?? summarizerModel,
+            outcome: result.outcome,
+            ...(result.outcome === "cancelled"
+                    && run.turn?.turnSignal.aborted === true
+                ? { stoppedWithTurn: true }
+                : {}),
+            ...("reason" in result ? { reason: result.reason } : {}),
+            ...(result.outcome === "compacted"
+                ? { before: result.before, after: result.after }
+                : {}),
+        });
+        return result;
+    };
+    // The first rung that lands ends the walk. Cancelled and not_needed end it without a handover.
+    const runLadder = async (
+        compaction: SessionCompactionOptions,
+        run: LadderRun,
+    ): Promise<readonly CompactionOutcome[]> => {
+        const attempts: CompactionOutcome[] = [];
+        for (const [index, rung] of compaction.rungs.entries()) {
+            const outcome = await attemptRung(compaction, rung, index, run);
+            attempts.push(outcome);
+            if (
+                outcome.outcome === "compacted"
+                || outcome.outcome === "cancelled"
+                || outcome.outcome === "not_needed"
+            ) {
+                break;
+            }
+        }
+        return attempts;
+    };
+    // Clears the latch, puts back context the summary dropped, and reports the size after the compaction.
+    const landCompaction = async (
+        compaction: SessionCompactionOptions,
+        landed: CompactedOutcome,
+        measurement: ContextMeasurement,
+        compactionModel: string,
+        pendingMessages: readonly ModelMessage[],
+        context: CompactionContext | undefined,
+    ): Promise<ContextMeasurement> => {
+        automaticCompactionBlocked = false;
+        automaticCompactionBlockedAt = undefined;
+        latchedAssignmentKey = undefined;
+        latchedCapacity = undefined;
+        const contextAdded = await options.afterCompacted();
+        const refreshedMeasurement: ContextMeasurement = {
+            ...(contextAdded ? measureContextNow(pendingMessages, context) : {
+                tokens: landed.after,
+                ...(measurement.capacity === undefined
+                    ? {}
+                    : { capacity: measurement.capacity }),
+                estimated: measurement.estimated,
+            }),
+            compaction: contextCompactionPolicy(
+                compaction.trigger,
+                measurement.capacity,
+            ),
+        };
+        events.emit({
+            type: "context_measured",
+            model: compactionModel,
+            measurement: refreshedMeasurement,
+        });
+        return refreshedMeasurement;
+    };
     const compact = async (
         signal: AbortSignal,
         force = false,
@@ -221,8 +413,12 @@ export function createCompactionController(
         const measurement = measureContextNow(pendingMessages, context);
         const announced = options.readAnnouncedCompaction?.();
         const assignmentKey = compactionAssignmentKey(compaction, announced);
+        // Over the effective window, the hard check before each request runs the ladder instead.
+        if (!force && isOverWindow(measurement)) {
+            return;
+        }
         // A failed automatic compaction stops the retry loop, but it must not stop compaction for the rest of the session.
-        // Being over the window is not a change: it is what failed, and retrying it at every tool step is the loop.
+        // Below the window, a failed attempt is retried after the context grows by DEFAULT_COMPACTION_RETRY_GROWTH_TOKENS, or when the route or window changes.
         if (!force && automaticCompactionBlocked) {
             const assignmentChanged = latchedAssignmentKey !== assignmentKey;
             const capacityChanged = latchedCapacity !== measurement.capacity;
@@ -244,11 +440,6 @@ export function createCompactionController(
         const compactionModel = context?.model
             ?? readModelSettings?.().model
             ?? model;
-        const summarizerModel = announced?.model
-            ?? compaction.diagnostics?.model
-            ?? compactionModel;
-        const summarizerProvider = announced?.provider
-            ?? compaction.diagnostics?.provider;
         let firedPolicy: ContextSizeTrigger | undefined;
         if (!force && !contextWatch.refusedForSize) {
             const triggers = createContextSizeTriggerSet(
@@ -275,149 +466,110 @@ export function createCompactionController(
             firedPolicy = fired;
         }
         contextWatch.refusedForSize = false;
-        events.emit({
-            type: "compaction_started",
-            strategy: compaction.strategy.id,
-            ...(summarizerProvider === undefined
-                ? {}
-                : { provider: summarizerProvider }),
-            model: summarizerModel,
-            ...(budgetWarning(measurement, compaction) ?? {}),
-            trigger: force ? "manual" : "automatic",
-            tokens: measurement.tokens,
-            ...(measurement.capacity === undefined
-                ? {}
-                : { capacity: measurement.capacity }),
+        const attempts = await runLadder(compaction, {
+            signal,
+            force,
+            measurement,
+            announced,
+            compactionModel,
+            modelContext: store.modelContext(
+                agingPolicy(context, pendingMessages),
+            ),
+            estimateScale: watchedScale(contextWatch, compactionModel),
+            hasPendingUserTurn,
+            pendingMessages,
+            context,
+            turn,
         });
-        const modelContext = store.modelContext(
-            agingPolicy(context, pendingMessages),
-        );
-        const estimateScale = watchedScale(contextWatch, compactionModel);
-        const compactionRequest:
-            Parameters<typeof compactSession>[0] = {
-            store,
-            strategy: compaction.strategy,
-            models: compaction.models,
-            model: compactionModel,
-            modelContext,
-            projectModelContext: (projection, retained) =>
-                assembleAgedToolResults(
-                    [...projection, ...retained].map((message) => ({
-                        message,
-                    })),
-                    agingPolicy(context, pendingMessages),
-                ),
-            ...(compaction.diagnostics === undefined
-                ? {}
-                : { diagnostics: compaction.diagnostics }),
-            ...(compaction.trigger === undefined
-                ? {}
-                : { trigger: compaction.trigger }),
-            ...(compaction.targetTokens === undefined
-                ? {}
-                : { targetTokens: compaction.targetTokens }),
-            ...(compaction.postCompactionTargetFraction === undefined
-                ? {}
-                : {
-                    postCompactionTargetFraction:
-                        compaction.postCompactionTargetFraction,
-                }),
-            ...(compaction.summaryWordCap === undefined
-                ? {}
-                : { summaryWordCap: compaction.summaryWordCap }),
-            ...(compaction.retainedUserTurns === undefined
-                ? {}
-                : { retainedUserTurns: compaction.retainedUserTurns }),
-            ...(estimateScale === undefined ? {} : { estimateScale }),
-            ...(hasPendingUserTurn ? { pendingPrompt: true } : {}),
-        };
-        if (turn !== undefined) {
-            options.inbound.beginAutomaticCompaction(turn.controller);
-        }
-        let result: Awaited<ReturnType<typeof compactSession>>;
-        try {
-            result = await compactSession(
-                compactionRequest,
+        const landed = attempts.at(-1);
+        if (landed?.outcome === "compacted") {
+            await landCompaction(
+                compaction,
+                landed,
                 measurement,
-                signal,
+                compactionModel,
+                pendingMessages,
+                context,
             );
-        } finally {
-            if (turn !== undefined) {
-                options.inbound.endAutomaticCompaction(turn.controller);
+            if (firedPolicy !== undefined) {
+                reportTrigger({
+                    trigger: firedPolicy,
+                    action: "compact",
+                    tokensAfter: landed.after,
+                    fingerprint: `compacted:${store.latestCompaction()?.id ?? landed.after}`,
+                });
             }
+            return;
         }
-        const resultModel = result.outcome === "compacted"
-            ? result.model
-            : undefined;
-        const resultProvider = result.outcome === "compacted"
-            ? result.provider
-            : undefined;
-        const reportedProvider = resultProvider ?? summarizerProvider;
-        events.emit({
-            type: "compaction_finished",
-            strategy: compaction.strategy.id,
-            ...(reportedProvider === undefined
-                ? {}
-                : { provider: reportedProvider }),
-            model: resultModel ?? summarizerModel,
-            outcome: result.outcome,
-            ...(result.outcome === "cancelled"
-                    && turn?.turnSignal.aborted === true
-                ? { stoppedWithTurn: true }
-                : {}),
-            ...("reason" in result ? { reason: result.reason } : {}),
-            ...(result.outcome === "compacted"
-                ? { before: result.before, after: result.after }
-                : {}),
-        });
-        const stoppedWithTurn = result.outcome === "cancelled"
-            && turn?.turnSignal.aborted === true;
+        const turnStopped = turn?.turnSignal.aborted === true;
         if (
             !force
-            && result.outcome !== "compacted"
-            && result.outcome !== "not_needed"
-            && !stoppedWithTurn
-            && !(result.outcome === "no_boundary" && hasPendingUserTurn)
+            && attempts.some((outcome) =>
+                latchesAutomatic(outcome, hasPendingUserTurn, turnStopped)
+            )
         ) {
-            // Cancelled latches with the failures. Without this the next tool boundary opens another compaction and the user is pressing escape every few seconds.
+            // Cancelled attempts latch unless the turn itself was stopped.
             automaticCompactionBlocked = true;
             automaticCompactionBlockedAt = lastRawEstimate;
             latchedAssignmentKey = assignmentKey;
             latchedCapacity = measurement.capacity;
         }
-        if (result.outcome === "compacted") {
-            automaticCompactionBlocked = false;
-            automaticCompactionBlockedAt = undefined;
-            latchedAssignmentKey = undefined;
-            latchedCapacity = undefined;
-            const contextAdded = await options.afterCompacted();
-            const refreshedMeasurement: ContextMeasurement = {
-                ...(contextAdded ? measureContextNow(pendingMessages, context) : {
-                    tokens: result.after,
-                    ...(measurement.capacity === undefined
-                        ? {}
-                        : { capacity: measurement.capacity }),
-                    estimated: measurement.estimated,
-                }),
-                compaction: contextCompactionPolicy(
-                    compaction.trigger,
-                    measurement.capacity,
-                ),
-            };
-            events.emit({
-                type: "context_measured",
-                model: compactionModel,
-                measurement: refreshedMeasurement,
-            });
-            if (firedPolicy !== undefined) {
-                reportTrigger({
-                    trigger: firedPolicy,
-                    action: "compact",
-                    tokensAfter: result.after,
-                    fingerprint: `compacted:${store.latestCompaction()?.id ?? result.after}`,
-                });
-            }
+    };
+    // Runs before every model request. Unlike the automatic path, it ignores the latch and the trigger, and sets no latch.
+    const enforceWindow = async (
+        signal: AbortSignal,
+        context?: CompactionContext,
+        turn?: CompactionTurnLink,
+    ): Promise<WindowCheck | undefined> => {
+        const measurement = measureContextNow([], context);
+        const capacity = measurement.capacity;
+        if (capacity === undefined || measurement.tokens <= capacity) {
+            return undefined;
         }
+        const compaction = options.readCompaction();
+        if (compaction === undefined) {
+            return { outcome: "failed", message: WINDOW_UNBOUND };
+        }
+        const compactionModel = context?.model
+            ?? readModelSettings?.().model
+            ?? model;
+        // A size refusal is consumed by the next compaction attempt, as on the automatic path.
+        contextWatch.refusedForSize = false;
+        const attempts = await runLadder(compaction, {
+            signal,
+            force: false,
+            measurement,
+            announced: options.readAnnouncedCompaction?.(),
+            compactionModel,
+            modelContext: store.modelContext(agingPolicy(context)),
+            estimateScale: watchedScale(contextWatch, compactionModel),
+            hasPendingUserTurn: false,
+            pendingMessages: [],
+            context,
+            turn,
+            hardLimitTokens: capacity,
+        });
+        const landed = attempts.at(-1);
+        if (landed?.outcome === "compacted") {
+            const refreshed = await landCompaction(
+                compaction,
+                landed,
+                measurement,
+                compactionModel,
+                [],
+                context,
+            );
+            return refreshed.tokens <= capacity
+                ? { outcome: "landed" }
+                : { outcome: "failed", message: WINDOW_STILL_OVER };
+        }
+        if (landed?.outcome === "cancelled") {
+            return { outcome: "cancelled" };
+        }
+        return {
+            outcome: "failed",
+            message: windowFailureMessage(compaction.rungs, attempts),
+        };
     };
     return {
         contextWatch,
@@ -433,19 +585,77 @@ export function createCompactionController(
             };
         },
         compact,
+        enforceWindow,
     };
+}
+
+function latchesAutomatic(
+    outcome: CompactionOutcome,
+    hasPendingUserTurn: boolean,
+    turnStopped: boolean,
+): boolean {
+    switch (outcome.outcome) {
+        case "compacted":
+        case "not_needed":
+            return false;
+        case "cancelled":
+            return !turnStopped;
+        case "no_boundary":
+            return !hasPendingUserTurn;
+        case "rejected":
+        case "unavailable":
+        case "busy":
+            return true;
+    }
+}
+
+// Each rung that ran reports its failure in rung order, so the rung at index i is the one that produced attempt i.
+function windowFailureMessage(
+    rungs: readonly SessionCompactionRung[],
+    attempts: readonly CompactionOutcome[],
+): string {
+    const failures = attempts.map((attempt, index) =>
+        `${rungs[index]?.strategy.id ?? "compaction"}: ${outcomeSentence(attempt)}`
+    );
+    return [WINDOW_FAILED, ...failures].join(" ");
+}
+
+function outcomeSentence(outcome: CompactionOutcome): string {
+    switch (outcome.outcome) {
+        case "no_boundary":
+        case "rejected":
+        case "unavailable":
+            return outcome.reason.endsWith(".")
+                ? outcome.reason
+                : `${outcome.reason}.`;
+        case "busy":
+            return "Another compaction was already running.";
+        case "cancelled":
+            return "Cancelled.";
+        case "not_needed":
+        case "compacted":
+            return "Did not compact.";
+    }
+}
+
+function isOverWindow(measurement: ContextMeasurement): boolean {
+    return measurement.capacity !== undefined
+        && measurement.tokens > measurement.capacity;
 }
 
 function compactionAssignmentKey(
     compaction: SessionCompactionOptions,
     announced: LoopCompactionState | undefined,
 ): string {
-    return [
-        announced?.strategy ?? compaction.strategy.id,
-        announced?.provider ?? compaction.diagnostics?.provider ?? "",
-        announced?.model ?? compaction.diagnostics?.model ?? "",
-        compaction.diagnostics?.catalogEntry ?? "",
-    ].join("\0");
+    return compaction.rungs.map((rung, index) => {
+        const named = index === 0 ? announced : undefined;
+        return [
+            named?.strategy ?? rung.strategy.id,
+            named?.provider ?? rung.diagnostics?.provider ?? "",
+            named?.model ?? rung.diagnostics?.model ?? "",
+            rung.diagnostics?.catalogEntry ?? "",
+        ].join("\0");
+    }).join("\u0001");
 }
 
 // A resumed session has made no request yet, so the last recorded request stands in for the system prompt and tools.

@@ -2,14 +2,24 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import {
+    DROP_OLDEST_STRATEGY_ID,
+    dropOldestStrategy,
+} from "../../src/engine/compaction-drop-oldest.ts";
 import { FULL_SUMMARY_STRATEGY_ID, fullSummaryStrategy } from
     "../../src/engine/compaction-full-summary.ts";
-import type { CompleteText } from "../../src/engine/completion-service.ts";
+import {
+    CompletionUnavailableError,
+    type CompleteText,
+} from "../../src/engine/completion-service.ts";
 import type { SessionCompactionOptions } from "../../src/engine/run-turn.ts";
+import { createWorkerBoundaryServer } from "../../src/host/worker/boundary-server.ts";
 import { startWorker, type WorkerHandle } from "../../src/host/worker/handle.ts";
+import { createJsonPipe } from "../../src/host/worker/pipe.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
@@ -71,13 +81,15 @@ function summarizer(model = "summarizer-test"): CompleteText {
 
 function compaction(model = "summarizer-test"): SessionCompactionOptions {
     return {
-        strategy: fullSummaryStrategy,
-        models: { summarizer: summarizer(model) },
-        diagnostics: {
-            strategy: FULL_SUMMARY_STRATEGY_ID,
-            provider: "faux",
-            model,
-        },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: { summarizer: summarizer(model) },
+            diagnostics: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model,
+            },
+        }],
     };
 }
 
@@ -262,14 +274,211 @@ test("a worker compact uses the host's current assignment", async () => {
 
 test("a worker cannot start with a strategy it does not have", async () => {
     const agent = await startAgent("unknown-strategy", {
-        strategy: {
-            id: "ext/custom",
-            models: ["summarizer"],
-            compact: async () => {
-                throw new Error("the host strategy must not run in the worker");
+        rungs: [{
+            strategy: {
+                id: "ext/custom",
+                models: ["summarizer"],
+                compact: async () => {
+                    throw new Error("the host strategy must not run in the worker");
+                },
+            },
+            models: { summarizer: summarizer() },
+        }],
+    });
+    try {
+        expect(await agent.handle.outcome).toMatchObject({
+            kind: "failed",
+            error: "Worker cannot reconstruct compaction strategy ext/custom.",
+        });
+    } finally {
+        agent.handle.kill();
+        await agent.handle.outcome;
+    }
+}, 15_000);
+
+function unavailableSummarizer(): CompleteText {
+    return async () => {
+        throw new CompletionUnavailableError("The summarizer is offline.");
+    };
+}
+
+async function sendTwoJobs(agent: StartedWorker): Promise<void> {
+    agent.handle.send({
+        type: "prompt",
+        content: "first job: set up the workspace. " + "alpha ".repeat(800),
+    });
+    await waitFor(() =>
+        agent.store.activeEntries().some((entry) =>
+            entry.message.role === "assistant"
+        )
+    );
+    agent.handle.send({
+        type: "prompt",
+        content: "second job: finish the remaining work. "
+            + "beta ".repeat(100),
+    });
+    await waitFor(() =>
+        agent.store.activeEntries().filter((entry) =>
+            entry.message.role === "assistant"
+        ).length >= 2
+    );
+}
+
+test("a worker session whose summary rung fails lands drop-oldest in the same pass", async () => {
+    const agent = await startAgent("ladder-falls-through", {
+        rungs: [
+            {
+                strategy: fullSummaryStrategy,
+                models: { summarizer: unavailableSummarizer() },
+                diagnostics: {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    provider: "faux",
+                    model: "summarizer-test",
+                },
+            },
+            { strategy: dropOldestStrategy, models: {} },
+        ],
+        // Must sit above the instructions and tool definitions, or no drop can reach it.
+        targetTokens: 4_000,
+    });
+    try {
+        await sendTwoJobs(agent);
+        agent.handle.send({ type: "compact", requestId: "ask-ladder" });
+        await waitFor(() =>
+            agent.updates.some((update) =>
+                update.type === "compaction" && update.phase === "finished"
+                    && update.outcome === "compacted"
+            )
+        );
+        const finished = agent.updates.flatMap((update) =>
+            update.type === "compaction" && update.phase === "finished"
+                ? [update]
+                : []
+        );
+        expect(finished.map((update) => [update.strategy, update.outcome]))
+            .toEqual([
+                [FULL_SUMMARY_STRATEGY_ID, "unavailable"],
+                [DROP_OLDEST_STRATEGY_ID, "compacted"],
+            ]);
+    } finally {
+        agent.handle.kill();
+        await agent.handle.outcome;
+    }
+}, 30_000);
+
+test("the host answers each rung's model call with that rung's models", async () => {
+    const agent = await startAgent("rung-models", {
+        rungs: [
+            {
+                strategy: fullSummaryStrategy,
+                models: { summarizer: unavailableSummarizer() },
+            },
+            {
+                strategy: fullSummaryStrategy,
+                models: { summarizer: summarizer("second-rung-model") },
+            },
+        ],
+    });
+    try {
+        await sendTwoJobs(agent);
+        agent.handle.send({ type: "compact", requestId: "ask-second" });
+        await waitFor(() =>
+            agent.updates.some((update) =>
+                update.type === "compaction" && update.phase === "finished"
+                    && update.outcome === "compacted"
+            )
+        );
+        const finished = agent.updates.flatMap((update) =>
+            update.type === "compaction" && update.phase === "finished"
+                ? [update]
+                : []
+        );
+        expect(finished.map((update) => update.outcome)).toEqual([
+            "unavailable",
+            "compacted",
+        ]);
+        expect(finished[1]).toMatchObject({
+            strategy: FULL_SUMMARY_STRATEGY_ID,
+            model: "second-rung-model",
+        });
+    } finally {
+        agent.handle.kill();
+        await agent.handle.outcome;
+    }
+}, 30_000);
+
+test("a compaction request for a rung past the ladder names that rung", async () => {
+    const directory = workspace();
+    const store = await SessionStore.create(join(directory, "session.jsonl"), {
+        sessionId: "rung-reply",
+        cwd: directory,
+    });
+    const pipe = createJsonPipe({
+        input: new PassThrough(),
+        output: new PassThrough(),
+    });
+    const server = createWorkerBoundaryServer({
+        pipe,
+        store,
+        services: {
+            compaction: {
+                rungs: [{
+                    strategy: fullSummaryStrategy,
+                    models: { summarizer: summarizer() },
+                }],
             },
         },
-        models: { summarizer: summarizer() },
+    });
+    try {
+        expect(await server.handleRequest({
+            method: "compaction.complete",
+            callId: "past-ladder",
+            role: "summarizer",
+            prompt: "summarize",
+            rung: 1,
+        })).toEqual({
+            unavailable: {
+                reason: "Compaction rung 1 is not bound for this session.",
+                roomRelated: false,
+            },
+        });
+        expect(await server.handleRequest({
+            method: "compaction.complete",
+            callId: "missing-slot",
+            role: "other",
+            prompt: "summarize",
+            rung: 0,
+        })).toEqual({
+            unavailable: {
+                reason: "No model is bound to the other slot.",
+                roomRelated: false,
+            },
+        });
+    } finally {
+        pipe.close();
+    }
+});
+
+test("a worker names the rung whose strategy it does not have", async () => {
+    const agent = await startAgent("unknown-later-rung", {
+        rungs: [
+            {
+                strategy: fullSummaryStrategy,
+                models: { summarizer: summarizer() },
+            },
+            {
+                strategy: {
+                    id: "ext/custom",
+                    models: ["summarizer"],
+                    compact: async () => {
+                        throw new Error(
+                            "the host strategy must not run in the worker",
+                        );
+                    },
+                },
+                models: { summarizer: summarizer() },
+            },
+        ],
     });
     try {
         expect(await agent.handle.outcome).toMatchObject({

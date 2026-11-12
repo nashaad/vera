@@ -225,7 +225,7 @@ test("a model whose window cannot hold the request is skipped, and says so", asy
 });
 
 test("a window skip is marked room related so a smaller request can retry", async () => {
-    // The caller's ladder reads this: a shorter request is exactly what makes
+    // The caller's boundary attempts read this: a shorter request is exactly what makes
     // the skipped candidate viable, so this failure is not the end of the road.
     const complete = createRoutedCompletionService(
         adapter(() => assistant("unused")),
@@ -242,7 +242,7 @@ test("a window skip is marked room related so a smaller request can retry", asyn
 
 test("a route where only some candidates were skipped is not room related", async () => {
     // The candidate that was actually tried will fail the same way on a
-    // shorter span, so the ladder has nothing to gain from another rung.
+    // shorter span, so a further boundary attempt gains nothing.
     const complete = createRoutedCompletionService(
         adapter((request) => {
             if (request.model === "big") {

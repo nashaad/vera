@@ -19,6 +19,7 @@ import { ToolHooks } from "../../src/engine/hooks.ts";
 import { createInProcessChannel } from
     "../../src/engine/message-channel.ts";
 import { measureMessages } from "../../src/engine/context-measurement.ts";
+import { COMPACTION_TRIGGER_FRACTION } from "../../src/engine/compaction-scheduler.ts";
 import {
     runHeadlessLoop,
     type SessionCompactionOptions,
@@ -41,10 +42,10 @@ import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 /**
- * The loop end to end. A scripted agent runs a long tool turn against a window
+ * The loop end to end. A scripted adapter runs a long tool turn against a window
  * too small to hold it, so compaction has to fire during the turn and the
- * ladder has to find a seam inside it. Everything but the models is real: the
- * engine loop, the tools, the strategy, and the session on disk.
+ * boundary attempts have to find a seam inside it. Only the adapter is scripted:
+ * the engine loop, the tools, the strategy, and the session on disk are real.
  */
 
 const temporaryDirectories: string[] = [];
@@ -567,18 +568,20 @@ function compactionOptions(
         },
     };
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                summarizer,
-                { models: [{ provider: "faux", model: summarizerModel }] },
-            ),
-        },
-        diagnostics: {
-            strategy: FULL_SUMMARY_STRATEGY_ID,
-            provider: "faux",
-            model: summarizerModel,
-        },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    summarizer,
+                    { models: [{ provider: "faux", model: summarizerModel }] },
+                ),
+            },
+            diagnostics: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model: summarizerModel,
+            },
+        }],
         ...(trigger === undefined ? {} : { trigger }),
     };
 }
@@ -759,9 +762,10 @@ test("a changed context limit reopens a latched automatic compaction", async () 
         router: { updateModelSettings: async () => undefined },
     });
 
-    channel.client.send({ type: "prompt", content: "plank ".repeat(6_000) });
+    channel.client.send({ type: "prompt", content: "plank ".repeat(2_250) });
     await drain(channel);
     const afterFirst = started(seen);
+    expect(afterFirst).toBeGreaterThan(0);
 
     channel.client.send({ type: "prompt", content: "still there?" });
     await drain(channel);
@@ -770,9 +774,52 @@ test("a changed context limit reopens a latched automatic compaction", async () 
     contextWindow = 9_000;
     channel.client.send({ type: "prompt", content: "ok" });
     await drain(channel);
-
+    expectAttemptsBetweenTriggerAndWindow(seen);
     expect(unchanged).toBe(afterFirst);
     expect(started(seen)).toBeGreaterThan(unchanged);
+});
+
+test("an over-window prompt runs the ladder even while the automatic latch holds", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-latched-over-window", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk 1 ".repeat(500));
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter([
+        toolCall("latched-call-1", 1),
+        assistantText("first done"),
+        assistantText("still here"),
+    ]), "test", undefined, {
+        approvalMode: "auto",
+    }, {
+        sessionStore: store,
+        eventBus: events,
+        compaction: unavailableCompactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow: 8_000 }),
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(2_250) });
+    await drain(channel);
+    const afterFirst = started(seen);
+    expect(afterFirst).toBeGreaterThan(0);
+
+    channel.client.send({ type: "prompt", content: "still there?" });
+    await drain(channel);
+    expect(started(seen)).toBe(afterFirst);
+    expectAttemptsBetweenTriggerAndWindow(seen);
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(1_000) });
+    await drain(channel);
+
+    expect(started(seen)).toBeGreaterThan(afterFirst);
 });
 
 test("a new compaction assignment reopens a latched automatic compaction", async () => {
@@ -1164,13 +1211,15 @@ function cancellingCompactionOptions(
         },
     } as unknown as ModelAdapter;
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                summarizer,
-                { models: [{ provider: "faux", model: "test" }] },
-            ),
-        },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    summarizer,
+                    { models: [{ provider: "faux", model: "test" }] },
+                ),
+            },
+        }],
         ...(trigger === undefined ? {} : { trigger }),
     };
 }
@@ -1222,18 +1271,20 @@ test("a successful /compact reopens a latched automatic compaction", async () =>
             sessionStore: store,
             eventBus: events,
             compaction: {
-                strategy: fullSummaryStrategy,
-                models: {
-                    [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                        summarizer,
-                        { models: [{ provider: "faux", model: "flaky" }] },
-                    ),
-                },
-                diagnostics: {
-                    strategy: FULL_SUMMARY_STRATEGY_ID,
-                    provider: "faux",
-                    model: "flaky",
-                },
+                rungs: [{
+                    strategy: fullSummaryStrategy,
+                    models: {
+                        [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                            summarizer,
+                            { models: [{ provider: "faux", model: "flaky" }] },
+                        ),
+                    },
+                    diagnostics: {
+                        strategy: FULL_SUMMARY_STRATEGY_ID,
+                        provider: "faux",
+                        model: "flaky",
+                    },
+                }],
                 trigger: { tokens: 2_000 },
             },
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
@@ -1566,6 +1617,19 @@ function startOverheadLoop(
     return channel;
 }
 
+// Every attempt must sit above its trigger and at or under its window. Otherwise the hard path runs and the latch is not what a test measures.
+function expectAttemptsBetweenTriggerAndWindow(
+    seen: readonly EngineEvent[],
+): void {
+    for (const event of seen) {
+        if (event.type !== "compaction_started") continue;
+        expect(event.tokens).toBeGreaterThan(
+            COMPACTION_TRIGGER_FRACTION * (event.capacity ?? 0),
+        );
+        expect(event.tokens).toBeLessThanOrEqual(event.capacity ?? 0);
+    }
+}
+
 function compactedBeforeFirstRequest(seen: readonly EngineEvent[]): boolean {
     const compaction = seen.findIndex((event) =>
         event.type === "compaction_finished" && event.outcome === "compacted"
@@ -1626,22 +1690,24 @@ function unavailableCompactionOptions(
     model = "unavailable",
 ): SessionCompactionOptions {
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                {
-                    stream() {
-                        throw new Error("summarizer unavailable");
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    {
+                        stream() {
+                            throw new Error("summarizer unavailable");
+                        },
                     },
-                },
-                { models: [{ provider: "faux", model }] },
-            ),
-        },
-        diagnostics: {
-            strategy: FULL_SUMMARY_STRATEGY_ID,
-            provider: "faux",
-            model,
-        },
+                    { models: [{ provider: "faux", model }] },
+                ),
+            },
+            diagnostics: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model,
+            },
+        }],
         ...(trigger === undefined ? {} : { trigger }),
     };
 }

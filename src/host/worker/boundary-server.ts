@@ -348,11 +348,20 @@ export function createWorkerBoundaryServer(
                         readonly role: string;
                         readonly prompt: string;
                         readonly system?: string;
+                        readonly rung?: number;
                     };
-                    const models = services.compaction?.models;
-                    const complete = models !== undefined
-                            && Object.hasOwn(models, request.role)
-                        ? models[request.role]
+                    const rungIndex = request.rung ?? 0;
+                    const rung = services.compaction?.rungs[rungIndex];
+                    if (rung === undefined) {
+                        return {
+                            unavailable: {
+                                reason: `Compaction rung ${rungIndex} is not bound for this session.`,
+                                roomRelated: false,
+                            },
+                        };
+                    }
+                    const complete = Object.hasOwn(rung.models, request.role)
+                        ? rung.models[request.role]
                         : undefined;
                     if (complete === undefined) {
                         return {

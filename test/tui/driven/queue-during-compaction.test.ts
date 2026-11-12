@@ -91,18 +91,20 @@ async function compactingDependencies(
     }, {
         sessionStore: store,
         compaction: {
-            strategy: fullSummaryStrategy,
-            models: {
-                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                    summarizer,
-                    { models: [{ provider: "faux", model: "test" }] },
-                ),
-            },
-            diagnostics: {
-                strategy: FULL_SUMMARY_STRATEGY_ID,
-                provider: "faux",
-                model: "test",
-            },
+            rungs: [{
+                strategy: fullSummaryStrategy,
+                models: {
+                    [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                        summarizer,
+                        { models: [{ provider: "faux", model: "test" }] },
+                    ),
+                },
+                diagnostics: {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    provider: "faux",
+                    model: "test",
+                },
+            }],
             trigger: { tokens: 8_000 },
         },
         readModelSettings: () => ({

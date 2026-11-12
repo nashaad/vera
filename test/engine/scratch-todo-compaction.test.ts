@@ -105,13 +105,15 @@ function compactionOptions(): SessionCompactionOptions {
         },
     };
     return {
-        strategy: fullSummaryStrategy,
-        models: {
-            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
-                summarizer,
-                { models: [{ provider: "faux", model: "test" }] },
-            ),
-        },
+        rungs: [{
+            strategy: fullSummaryStrategy,
+            models: {
+                [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                    summarizer,
+                    { models: [{ provider: "faux", model: "test" }] },
+                ),
+            },
+        }],
     };
 }
 
