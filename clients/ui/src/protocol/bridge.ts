@@ -37,6 +37,19 @@ export type DesktopEvent =
 // The most folder paths one existence check accepts.
 export const MAX_FOLDER_CHECKS = 64;
 
+// One folder lists at most this many entries.
+export const MAX_FOLDER_ENTRIES = 500;
+
+export interface FolderEntry {
+    readonly name: string;
+    readonly folder: boolean;
+}
+
+// `cut` is set when the folder had more entries than the list holds.
+export type FolderListing =
+    | { readonly ok: true; readonly entries: readonly FolderEntry[]; readonly cut: boolean }
+    | { readonly ok: false; readonly reason: string };
+
 export interface CreatedSession {
     readonly ok: true;
     readonly agentId: string;
@@ -191,6 +204,8 @@ export interface DesktopBridge {
     savePastedImage(data: Uint8Array, mediaType: string): Promise<string | undefined>;
     // The checked-out branch of a folder's git repository, or undefined when none.
     readBranch(folder: string): Promise<string | undefined>;
+    // One level of a folder on this machine, read by the window rather than the host.
+    listFolder(folder: string): Promise<FolderListing>;
     // Tells the shell how tall the drawn title bar is so native window controls can center in it.
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.

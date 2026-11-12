@@ -58,6 +58,87 @@
     white-space: nowrap;
 }
 
+/* files */
+
+.files-view .right-path {
+    margin-bottom: var(--vera-space);
+}
+
+.file-tree,
+.file-tree ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.file-row,
+.file-note {
+    display: flex;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+    width: 100%;
+    min-height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) * (2 + 4 * var(--depth)));
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+}
+
+.file-row {
+    color: var(--vera-text-muted);
+}
+
+.file-note {
+    color: var(--vera-text-dim);
+}
+
+.file-folder {
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.file-folder:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.file-folder:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+/* Files have no chevron, so their icon starts where a folder's chevron does, one step in. */
+.file-row:not(.file-folder) {
+    padding-left: calc(var(--vera-space) * (6.5 + 4 * var(--depth)));
+}
+
+.file-chevron {
+    flex: none;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+    transition: transform var(--vera-motion);
+}
+
+[aria-expanded="true"] > .file-folder .file-chevron {
+    transform: rotate(90deg);
+}
+
+.file-icon {
+    flex: none;
+    width: calc(var(--vera-space) * 3.5);
+    height: calc(var(--vera-space) * 3.5);
+    color: var(--vera-text-dim);
+}
+
+.file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .change-add {
     color: var(--vera-diff-added);
 }

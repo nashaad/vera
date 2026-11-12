@@ -2,7 +2,7 @@
 // The provider writes a scratch checklist, writes a file and edits it, then answers.
 // The test reads the rollup, the Review and Plan views, rewinds one prompt and compacts.
 
-import { mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,7 +91,8 @@ try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port, "auto");
     const folder = join(trial.home, "..", "work");
-    mkdirSync(folder, { recursive: true });
+    mkdirSync(join(folder, "hold"), { recursive: true });
+    writeFileSync(join(folder, "hold", "doubloon.txt"), "gold\n");
 
     const app = await trial.launch();
     await app.evaluate(({ dialog }, path) => {
@@ -134,6 +135,12 @@ try {
     await page.locator(".plan-title", { hasText: "Crow plan" }).waitFor({ timeout: 10_000 });
     const progress = await page.locator(".plan-progress").innerText();
     if (progress !== "1 of 2 done") throw new Error(`Plan progress was ${progress}`);
+
+    // The Files view reads the session's folder itself, one folder at a time.
+    await page.locator(".switcher-item[aria-label=\"Files\"]").click();
+    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
+    await page.locator(".file-folder", { hasText: "hold" }).click();
+    await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
 
     // The context pill fills in once the host measures the conversation.
     const pill = page.locator(".context-pill");

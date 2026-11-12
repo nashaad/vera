@@ -9,6 +9,7 @@ import type {
     CloseSessionResult,
     CreateSessionResult,
     DesktopEvent,
+    FolderListing,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
@@ -17,6 +18,7 @@ import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
+import { folderArgument, listFolder } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
@@ -277,6 +279,11 @@ ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unkn
 ipcMain.handle(CHANNELS.branchRead, async (event, folder: unknown): Promise<string | undefined> => {
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return undefined;
     return readBranch(folder);
+});
+ipcMain.handle(CHANNELS.folderList, async (event, folder: unknown): Promise<FolderListing> => {
+    const path = folderArgument(folder);
+    if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a folder path." };
+    return listFolder(path);
 });
 ipcMain.handle(CHANNELS.modelsRead, (event, workspace: unknown) =>
     fromWindow(event) ? readModels(hostSocketPath, workspaceArgument(workspace)) : undefined);

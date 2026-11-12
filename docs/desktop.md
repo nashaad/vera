@@ -680,8 +680,10 @@ lines. `Review` opens the Review view. Review lists the files changed in the
 last turn, or in the whole session, with their patches. Plan shows the newest
 checklist Vera wrote in its scratch folder: the title, how many items are done,
 a bar and the items, with the item just finished marked. Files shows the
-session's folder (`Chat` for a chat) and says the host does not serve a file tree; Preview says the
-host does not serve previews. While the right pane is closed, a rail at the
+session's folder (`Chat` for a chat) as a tree the window reads from disk:
+folders come first, a folder opens one level at a time, and one folder lists
+at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
+again when a turn ends. Preview says the host does not serve previews. While the right pane is closed, a rail at the
 right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
