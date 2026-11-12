@@ -30,6 +30,7 @@ export const COLOR_TOKENS = [
     "diff-removed",
     "selection",
     "scrollbar",
+    "menu-check",
     "slider-value",
     "slider-rail",
     "slider-fill",

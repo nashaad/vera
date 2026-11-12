@@ -5,7 +5,7 @@ import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { resolveEffortArgument } from "../composer/slash/args.ts";
 import { PILL_DONE, usePillRequests } from "../composer/slash/pillRequests.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
-import { findModel, modelName } from "./catalog.ts";
+import { findModel, shortModelName } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
 import { EffortPopover } from "./EffortPopover.tsx";
 import { effortText } from "./menuRows.ts";
@@ -52,7 +52,7 @@ export function EffortPill({ controls }: EffortPillProps) {
                 <span className="pill-label effort-label">{effortText(entry, choice.effort)}</span>
                 <ChevronDownIcon className="pill-chevron" />
             </button>
-            {open ? <EffortPopover controls={controls} entry={entry} name={modelName(settings, choice)} style={placed} /> : null}
+            {open ? <EffortPopover controls={controls} entry={entry} name={shortModelName(settings, choice)} style={placed} /> : null}
         </div>
     );
 }

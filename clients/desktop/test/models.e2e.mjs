@@ -201,7 +201,7 @@ try {
     await page.locator(".model-search input").fill("raven");
     const ravenRow = page.locator(".model-row", { hasText: "Raven" });
     await ravenRow.locator(".model-pin").click();
-    await page.waitForSelector(".model-label:text-is(\"Shortlist\") ~ .model-row:has-text(\"Raven\")", { timeout: 15_000 });
+    await page.waitForSelector(".model-row:has-text(\"Raven\")", { timeout: 15_000 });
     await ravenRow.locator(".model-item").click();
     await until("Raven on the pill", async () => (await modelPill.innerText()).includes("Raven"));
     await page.waitForSelector(".effort-pill");

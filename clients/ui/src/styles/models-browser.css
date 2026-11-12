@@ -284,7 +284,7 @@
 .models-sub {
     display: block;
     font-size: var(--vera-font-size-label);
-    color: var(--vera-text-dim);
+    color: var(--vera-text-disabled);
 }
 
 .models-image {

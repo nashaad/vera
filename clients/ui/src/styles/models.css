@@ -33,26 +33,18 @@
 /* model menu */
 
 .model-picker .model-menu {
-    width: calc(var(--vera-space) * 80);
+    width: calc(var(--vera-space) * 69);
     max-height: min(calc(var(--vera-space) * 110), var(--popover-room));
     overflow-y: auto;
     user-select: text;
 }
 
+/* The search runs edge to edge, so it cancels the menu's padding. */
 .model-search {
     display: flex;
-    align-items: center;
-    gap: calc(var(--vera-space) * 2);
-    margin: 0 0 calc(var(--vera-space) * 1.5);
-    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
-    color: var(--vera-text-disabled);
-    background: var(--vera-surface-input);
-    border: thin solid var(--vera-border);
-    border-radius: var(--vera-radius);
-}
-
-.model-search:focus-within {
-    border-color: var(--vera-border-input);
+    margin: calc(var(--vera-space) * -1.5) calc(var(--vera-space) * -1.5) calc(var(--vera-space) * 1.5);
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3);
+    border-bottom: thin solid var(--vera-border);
 }
 
 .model-search input {
@@ -69,12 +61,6 @@
 
 .model-search input::placeholder {
     color: var(--vera-text-disabled);
-}
-
-.model-search-icon {
-    flex: 0 0 auto;
-    width: calc(var(--vera-space) * 3.5);
-    height: calc(var(--vera-space) * 3.5);
 }
 
 .model-label {
@@ -169,7 +155,20 @@
 }
 
 .model-check {
-    color: var(--vera-accent);
+    color: var(--vera-menu-check);
+}
+
+.model-hint {
+    flex: none;
+    min-width: calc(var(--vera-space) * 3);
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+    text-align: right;
+}
+
+.model-item-sub.model-item-desc {
+    overflow: visible;
+    white-space: normal;
 }
 
 .model-count {

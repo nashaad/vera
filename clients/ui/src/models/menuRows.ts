@@ -62,11 +62,14 @@ export function providerLabel(settings: ModelSettings, provider: string): string
     return settings.providers?.find((entry) => entry.id === provider)?.label ?? provider;
 }
 
-// The sub line of a row: the provider, then the model's own default effort.
-export function rowSub(settings: ModelSettings, entry: ModelEntry): string {
-    const parts = [providerLabel(settings, entry.provider)];
-    if (entry.defaultLevel !== undefined) parts.push(levelLabel(entry.levels, entry.defaultLevel));
-    return parts.join(" · ");
+// A shortlist row shows the model's default effort; rows from outside the shortlist show the provider.
+export function shortlistSub(settings: ModelSettings, entry: ModelEntry): string {
+    if (entry.defaultLevel === undefined) return providerLabel(settings, entry.provider);
+    return levelLabel(entry.levels, entry.defaultLevel);
+}
+
+export function rowTitle(settings: ModelSettings, entry: ModelEntry): string {
+    return `${entry.label} · ${providerLabel(settings, entry.provider)}`;
 }
 
 // Names an effort from the levels of the model it belongs to. The catalog helper reads the

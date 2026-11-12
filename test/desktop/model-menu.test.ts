@@ -8,7 +8,8 @@ import {
     moveFocus,
     numberKeySlot,
     pickOrder,
-    rowSub,
+    rowTitle,
+    shortlistSub,
     sliderLevels,
 } from "../../clients/ui/src/models/menuRows.ts";
 
@@ -136,10 +137,11 @@ describe("effort helpers", () => {
         expect(effortText(alpha, "extra_hot")).toBe("Extra hot");
     });
 
-    test("row sub line carries the provider label and the default effort", () => {
-        const withLabel = settings([], []);
-        expect(rowSub(withLabel, alpha)).toBe("acme · Medium");
-        const named = { ...withLabel, providers: [{ id: "acme", label: "Acme AI" }] };
-        expect(rowSub(named, alpha)).toBe("Acme AI · Medium");
+    test("a shortlist row names its default effort, or its provider when the model has none", () => {
+        const named = { ...settings([], []), providers: [{ id: "acme", label: "Acme AI" }] };
+        expect(shortlistSub(named, alpha)).toBe("Medium");
+        const { defaultLevel: _, ...plain } = alpha;
+        expect(shortlistSub(named, plain)).toBe("Acme AI");
+        expect(rowTitle(named, alpha)).toBe(`${alpha.label} · Acme AI`);
     });
 });

@@ -572,21 +572,22 @@ through a session's pill.
 ## Models
 
 The model pill at the right of the composer's bar shows the model the session
-runs; on New Chat, the model the new session will start with. The pill drops
-the vendor prefix a provider puts on a model's name, so OpenRouter's "OpenAI:
-GPT-5.6 Luna" reads "GPT-5.6 Luna"; a name you gave the model shows as you
-wrote it. The tooltip has the full name and the provider. It opens a menu:
+runs; on New Chat, the model the new session will start with. The pill, its
+menu, the effort popover and the Models browser drop the vendor prefix a
+provider puts on a model's name, so OpenRouter's "OpenAI: GPT-5.6 Luna" reads
+"GPT-5.6 Luna"; a name you gave the model shows as you wrote it. The tooltip
+has the full name and the provider. It opens a menu:
 
-- A search box at the top. Typing filters the shortlist and adds the matching
-  models that are not on it, each with a pin button that adds it to the
-  shortlist.
+- A search box at the top. Typing filters your favorites and adds the matching
+  models that are not among them, each with their provider and a pin button
+  that adds it to favorites.
 - `Auto` and `Fast` are shown but disabled, since the host does not serve them.
-- `Shortlist`: your shortlisted models with their provider and default
-  effort. Keys 1 to 4 pick the first four while the search box is empty, and
-  Up, Down and Enter move through the rows. A model its provider no longer
-  offers is greyed out.
-- When the session runs a model that is not on the shortlist, it shows first
-  under `Running, not on your shortlist`.
+- Your favorites, each with its default effort. The current model has a check;
+  the others show the number key that picks them. Keys 1 to 4 pick the first
+  four while the search box is empty, and Up, Down and Enter move through the
+  rows. A model its provider no longer offers is greyed out.
+- When the session runs a model that is not a favorite, it shows first under
+  `Running, not in your favorites`.
 - `All models…` opens the Models browser.
 
 Picking a model in a session switches it and makes it the default for new
@@ -613,13 +614,14 @@ composer widens.
 
 The Models browser has four tabs:
 
-- `Shortlist` and `All models` list models with their WA score, blended price
+- `Favorites` and `All models` list models with their WA score, blended price
   per million tokens, a `P` for models on the score and price front, an image
-  mark, and a pin that adds or removes the model from the shortlist. A search
+  mark, and a pin that adds or removes the model from favorites. Under each
+  name is its maker, when the provider names one, and its provider. A search
   box and an `Intelligence` filter narrow the list; models the catalog hides
   appear only in a search. Selecting a row shows its details: provider,
-  shortlist, verified, images, WA score, listed and blended price, context
-  window and model id, with `Run this model`, the shortlist button and
+  favorite, verified, images, WA score, listed and blended price, context
+  window and model id, with `Run this model`, the favorites button and
   `Probe it`, which sends one short request and says whether the model passed.
 - `Defaults` shows the model and effort new sessions start with, and the
   subagent and reviewer defaults. The host does not serve a model choice per
@@ -842,10 +844,10 @@ key from an empty composer and checks the key did not reach the composer, denies
 the second from the card and checks the command did not run, and changes the
 session's mode from the approval-mode pill.
 
-The models test serves two local models with the second off the shortlist. From
-New Chat it searches for a model, adds it to the shortlist, picks it and sends;
-in the session it searches for the other model and sends on it, picks the first
-shortlist row with its number key, lowers its effort, then selects a model in the
+The models test serves two local models with the second not a favorite. From
+New Chat it searches for a model, adds it to favorites, picks it and sends; in
+the session it searches for the other model and sends on it, picks the first
+favorite with its number key, lowers its effort, then selects a model in the
 Models browser and probes it.
 
 The slash test serves one skill and starts a session. On New Chat it types `/`

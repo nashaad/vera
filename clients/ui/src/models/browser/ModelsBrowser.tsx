@@ -73,7 +73,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
     };
 
     const providerName = (provider: string): string => (settings === undefined ? provider : providerLabel(settings, provider));
-    const showsList = tab === "Shortlist" || tab === "All models";
+    const showsList = tab === "Favorites" || tab === "All models";
     const notes = [problem, controls.note].filter((text): text is string => text !== undefined);
 
     return (
@@ -104,7 +104,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                             onClick={() => setTab(name)}
                         >
                             {name}
-                            {name === "Shortlist" && settings !== undefined && (
+                            {name === "Favorites" && settings !== undefined && (
                                 <span className="models-tab-count">{settings.shortlist.length}</span>
                             )}
                             {name === "All models" && settings !== undefined && (

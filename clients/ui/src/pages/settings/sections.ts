@@ -55,7 +55,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Providers",
         group: "Settings",
         Icon: LayersIcon,
-        terms: "model provider api key pricing shortlist catalog refresh",
+        terms: "model provider api key pricing favorites shortlist catalog refresh",
         file: "config.json and the model catalog cache in the Vera home",
     },
     {

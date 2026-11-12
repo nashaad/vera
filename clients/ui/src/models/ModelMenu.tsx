@@ -1,9 +1,9 @@
 import { useState, type CSSProperties, type KeyboardEvent } from "react";
 
-import { ChevronRightIcon, SearchIcon } from "../components/Icons.tsx";
+import { ChevronRightIcon } from "../components/Icons.tsx";
 import { allModels, NUMBERED_ROWS } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
-import { buildMenuRows, moveFocus, numberKeySlot, pickOrder, rowSub } from "./menuRows.ts";
+import { buildMenuRows, moveFocus, numberKeySlot, pickOrder, providerLabel, rowTitle, shortlistSub } from "./menuRows.ts";
 import { ModelMenuRow } from "./ModelMenuRow.tsx";
 import type { ModelEntry, ModelSettings } from "./settings.ts";
 
@@ -17,7 +17,7 @@ export interface ModelMenuProps {
     readonly initialQuery?: string;
 }
 
-// The quick model picker. The shortlist is what it offers; everything else is one search or one browse away.
+// The quick model picker. Favorites are what it offers; everything else is one search or one browse away.
 export function ModelMenu({ controls, settings, onClose, onBrowse, style, initialQuery = "" }: ModelMenuProps) {
     const [query, setQuery] = useState(initialQuery);
     const [focus, setFocus] = useState<number | undefined>(undefined);
@@ -59,7 +59,6 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
     return (
         <div className="model-menu menu" role="menu" data-popover="above-end" style={style} onKeyDown={onKeyDown}>
             <label className="model-search">
-                <SearchIcon className="model-search-icon" />
                 <input
                     autoFocus
                     placeholder="Search models"
@@ -81,10 +80,11 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             )}
             {running === undefined ? null : (
                 <>
-                    <div className="model-label">Running, not on your shortlist</div>
+                    <div className="model-label">Running, not in your favorites</div>
                     <ModelMenuRow
                         entry={running}
-                        sub={rowSub(settings, running)}
+                        sub={providerLabel(settings, running.provider)}
+                        title={rowTitle(settings, running)}
                         current
                         focused={focused === running}
                         onPick={() => pick(running)}
@@ -92,15 +92,15 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
                     <div className="menu-separator" />
                 </>
             )}
-            <div className="model-label">Shortlist</div>
             {settings.shortlist.length === 0 ? (
-                <p className="model-empty">Your shortlist is empty. Pin models in All models.</p>
+                <p className="model-empty">You have no favorites. Add some in All models.</p>
             ) : null}
             {rows.shortlist.map((row, index) => (
                 <ModelMenuRow
                     key={`${row.entry.provider}/${row.entry.model}`}
                     entry={row.entry}
-                    sub={rowSub(settings, row.entry)}
+                    sub={shortlistSub(settings, row.entry)}
+                    title={rowTitle(settings, row.entry)}
                     current={row.current}
                     focused={focused === row.entry}
                     hint={rows.searching || index >= NUMBERED_ROWS ? undefined : index + 1}
@@ -109,12 +109,13 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             ))}
             {rows.browse.length === 0 ? null : (
                 <>
-                    <div className="model-label">Not on your shortlist</div>
+                    <div className="model-label">Not in your favorites</div>
                     {rows.browse.map((entry) => (
                         <ModelMenuRow
                             key={`${entry.provider}/${entry.model}`}
                             entry={entry}
-                            sub={rowSub(settings, entry)}
+                            sub={providerLabel(settings, entry.provider)}
+                            title={rowTitle(settings, entry)}
                             current={false}
                             focused={focused === entry}
                             onPick={() => pick(entry)}
@@ -129,7 +130,7 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             <button type="button" className="menu-item model-item" aria-disabled="true" title="The host does not serve this">
                 <span className="model-item-text">
                     <span className="model-item-name">Fast</span>
-                    <span className="model-item-sub">Answer sooner; think less between tool calls</span>
+                    <span className="model-item-sub model-item-desc">Answer sooner; think less between tool calls</span>
                 </span>
                 <span className="model-switch" role="switch" aria-checked={false} aria-label="Fast">
                     <i />

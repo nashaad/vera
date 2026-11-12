@@ -77,7 +77,7 @@ describe("modelFacts", () => {
 
     test("shortlist follows the pinned flag and the model id is provider/model", () => {
         const rows = modelFacts(entry(), true);
-        expect(value(rows, "Shortlist")).toBe("Yes");
+        expect(value(rows, "Favorite")).toBe("Yes");
         expect(value(rows, "Model ID")).toBe("vera-test/fast-one");
     });
 

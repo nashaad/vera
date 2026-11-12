@@ -54,8 +54,9 @@ export function ModelList({ rows, selectedKey, choice, pinned, enabled, provider
                         onClick={() => onSelect(entry)}
                     >
                         <span className="models-cell models-col-name">
-                            <span className="models-name">{entry.label}</span>
+                            <span className="models-name" title={entry.label}>{entry.shortLabel ?? entry.label}</span>
                             <span className="models-sub">
+                                {entry.maker === undefined ? "" : `${entry.maker} · `}
                                 {providerName(entry.provider)}
                                 {entry.available ? "" : " · not offered now"}
                             </span>
@@ -74,8 +75,8 @@ export function ModelList({ rows, selectedKey, choice, pinned, enabled, provider
                                 className="models-pin"
                                 data-on={on}
                                 disabled={!enabled}
-                                aria-label={on ? "Remove from shortlist" : "Add to shortlist"}
-                                title={on ? "Remove from shortlist" : "Add to shortlist"}
+                                aria-label={on ? "Remove from favorites" : "Add to favorites"}
+                                title={on ? "Remove from favorites" : "Add to favorites"}
                                 onClick={(event) => {
                                     event.stopPropagation();
                                     onPin(entry, !on);

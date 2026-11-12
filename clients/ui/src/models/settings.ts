@@ -21,6 +21,8 @@ export interface ModelEntry {
     // The label without a "Vendor: " prefix, such as OpenRouter's "OpenAI: GPT-5.6 Luna". Set only
     // when it differs; a name the person gave the model is never shortened.
     readonly shortLabel?: string;
+    // The prefix shortLabel drops, such as "OpenAI".
+    readonly maker?: string;
     readonly description?: string;
     readonly contextWindow?: number;
     readonly pricing?: Pricing;
@@ -160,6 +162,7 @@ function parseEntry(raw: unknown, pooled: boolean): ModelEntry | undefined {
     const named = pooled ? str(raw.displayName) : undefined;
     const label = named ?? str(raw.label) ?? model;
     const shortLabel = named === undefined ? withoutVendor(label) : undefined;
+    const maker = shortLabel === undefined ? undefined : label.slice(0, label.length - shortLabel.length).replace(/:\s+$/, "");
     const description = str(raw.description);
     const contextWindow = num(raw.contextWindow);
     const pricing = parsePricing(raw.pricing);
@@ -171,6 +174,7 @@ function parseEntry(raw: unknown, pooled: boolean): ModelEntry | undefined {
         model,
         label,
         ...(shortLabel === undefined ? {} : { shortLabel }),
+        ...(maker === undefined ? {} : { maker }),
         ...(description === undefined ? {} : { description }),
         ...(contextWindow === undefined ? {} : { contextWindow }),
         ...(pricing === undefined ? {} : { pricing }),

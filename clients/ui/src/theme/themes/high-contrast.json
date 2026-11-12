@@ -62,6 +62,7 @@
         "diff-removed": "red",
         "selection": "navy",
         "scrollbar": "line",
+        "menu-check": "blue",
         "slider-value": "blue",
         "slider-rail": "rail",
         "slider-fill": "blue-deep",

@@ -67,7 +67,7 @@ export const PAGE_KEYS: readonly PageKey[] = [
     { keys: "1 2 4", label: "Allow once, allow similar, always allow", where: "Approval card" },
     { keys: "3 or Escape", label: "Deny", where: "Approval card" },
     { keys: "1 to 9", label: "Pick an answer", where: "Question card" },
-    { keys: "1 to 9", label: "Pick a shortlisted model", where: "Model menu" },
+    { keys: "1 to 9", label: "Pick a favorite model", where: "Model menu" },
     { keys: "ArrowUp ArrowDown", label: "Move through a list", where: "Menus and lists" },
     { keys: "Escape", label: "Close", where: "Sheets and menus" },
 ];

@@ -18,11 +18,14 @@ export interface ModelDetailProps {
 export function ModelDetail(props: ModelDetailProps) {
     const { entry } = props;
     if (entry === undefined) return <aside className="models-detail"><div className="models-empty">Select a model</div></aside>;
-    const pinLabel = props.pinned ? "Remove from shortlist" : "Add to shortlist";
+    const pinLabel = props.pinned ? "Remove from favorites" : "Add to favorites";
     return (
         <aside className="models-detail">
-            <div className="models-detail-name">{entry.label}</div>
-            <div className="models-detail-provider">{props.providerName(entry.provider)}</div>
+            <div className="models-detail-name">{entry.shortLabel ?? entry.label}</div>
+            <div className="models-detail-provider">
+                {entry.maker === undefined ? "" : `${entry.maker} · `}
+                {props.providerName(entry.provider)}
+            </div>
             {entry.description !== undefined && <p className="models-description">{entry.description}</p>}
             <div className="models-facts">
                 {modelFacts(entry, props.pinned).map((fact) => (

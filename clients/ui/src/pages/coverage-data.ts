@@ -193,7 +193,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
         items: [
             inWindow("The model pill menu searches models"),
             inWindow("Picking a model switches this conversation"),
-            inWindow("A model can be pinned to the shortlist with its pin button", "Model pill search or Models browser"),
+            inWindow("A model can be added to favorites with its pin button", "Model pill search or Models browser"),
             inWindow("The Defaults tab shows the models new sessions and jobs use", "Models browser"),
             partial("Connected providers can be refreshed and forgotten", "Connecting is done in the terminal with /provider"),
             inWindow("The composer's model and effort pills change them"),

@@ -7,7 +7,7 @@ const MARKS: readonly { readonly glyph: string; readonly name: string; readonly 
     },
     { glyph: "P", name: "Front", text: "Marks a model with the best score for its price among the models on offer." },
     { glyph: "Image", name: "Images", text: "Marks a model that accepts an image in a message." },
-    { glyph: "Pin", name: "Shortlist", text: "Pinned models are on your shortlist and offered first in the composer." },
+    { glyph: "Pin", name: "Favorites", text: "Pinned models are your favorites and offered first in the composer." },
     { glyph: "Verified", name: "Verified", text: "The model answered a probe. A model that has not been probed is taken on the provider's listing." },
     { glyph: "Probe", name: "Probe", text: "Sends one short request to check that the model answers, and reports the result." },
 ];

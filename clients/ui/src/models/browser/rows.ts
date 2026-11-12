@@ -2,12 +2,12 @@ import type { ProbeOutcome } from "../controls.ts";
 import { allModels, effortLabel, formatBlended, formatContext, formatListed, modelName, sameModel } from "../catalog.ts";
 import type { ModelChoice, ModelEntry, ModelSettings } from "../settings.ts";
 
-export type BrowserTab = "Shortlist" | "All models" | "Defaults" | "Help";
+export type BrowserTab = "Favorites" | "All models" | "Defaults" | "Help";
 
-export const BROWSER_TABS: readonly BrowserTab[] = ["Shortlist", "All models", "Defaults", "Help"];
+export const BROWSER_TABS: readonly BrowserTab[] = ["Favorites", "All models", "Defaults", "Help"];
 
 export const TAB_NOTES: Record<BrowserTab, string> = {
-    Shortlist: "The models the composer offers first",
+    Favorites: "The models the composer offers first",
     "All models": "Every model your connected providers list",
     Defaults: "The model and effort each job starts with",
     Help: "What the marks in these tabs mean",
@@ -37,7 +37,7 @@ export function modelId(ref: { readonly provider?: string; readonly model: strin
 }
 
 export function tabRows(tab: BrowserTab, settings: ModelSettings): readonly ModelEntry[] {
-    return tab === "Shortlist" ? settings.shortlist : allModels(settings);
+    return tab === "Favorites" ? settings.shortlist : allModels(settings);
 }
 
 export function cutoffLabel(cutoff: string): string {
@@ -70,7 +70,7 @@ export function blendedText(entry: ModelEntry): string {
 export function modelFacts(entry: ModelEntry, pinned: boolean): readonly FactRow[] {
     const blended = formatBlended(entry.pricing);
     return [
-        { label: "Shortlist", value: pinned ? "Yes" : "No", good: pinned },
+        { label: "Favorite", value: pinned ? "Yes" : "No", good: pinned },
         { label: "Verified", value: entry.verified ? "Yes" : (entry.verificationError ?? "No"), good: entry.verified },
         { label: "Images", value: yesNoUnknown(entry.imageSupport) },
         { label: "WA score", value: entry.waScore === undefined ? NOT_LISTED : String(entry.waScore) },
