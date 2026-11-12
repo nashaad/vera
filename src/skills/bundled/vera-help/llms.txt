@@ -208,7 +208,7 @@ An extension can add a page to the annex with `contributes.pages`; it appears in
 `vera.titles` names a new conversation after its first finished turn by asking the `snappy` model, unless it already has a name; with no `snappy` model assigned it does nothing. See `docs/included-extensions.md`.
 Manual: `docs/hooks.md`, `docs/extensions.md`, `docs/extension-apis.md`.
 
-## Context and bounded research [lines=13]
+## Context and bounded research [lines=14]
 Use `/context all` to inspect individual message and tool-result sizes. A single large read can dominate the working window.
 One tool result is capped before it reaches the model, and the cap scales with the model's context window, so a small window is not spent on a single result. `tool_results.ceiling_bytes` sets it explicitly.
 When the total tool-result budget is lower than that cap, Vera holds the cap to the budget and marks the settings with a caution.
