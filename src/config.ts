@@ -56,6 +56,15 @@ import {
     type VeraModelAssignmentsConfig,
 } from "./config/model-assignments.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
+import {
+    collectConfigProblem,
+    configProblem,
+    describeConfigProblem,
+    expectedValue,
+    isPlainObject,
+    keyValue,
+    type ConfigFieldProblem,
+} from "./config/diagnostic.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
 import { commandHookPhase, type CommandHookSpec } from "./extensions/command-hook.ts";
@@ -466,12 +475,21 @@ export function defaultVeraConfigPath(home?: string): string {
 export class VeraConfigError extends Error {
     readonly path: string;
     readonly problem: string;
+    /**
+     * Path to the field the parser refused, such as `extensions[5]`, when it
+     * named one. The startup recovery prompt removes this field.
+     */
+    readonly field: string | undefined;
+    /** What was wrong with `field`, without the sentence around it; `problem` when the parser gave none. */
+    readonly reason: string;
 
-    constructor(path: string, problem: string) {
+    constructor(path: string, problem: string, field?: string, reason?: string) {
         super(`Vera config at ${path} could not be read: ${problem}`);
         this.name = "VeraConfigError";
         this.path = path;
         this.problem = problem;
+        this.field = field;
+        this.reason = reason ?? problem;
     }
 }
 
@@ -562,44 +580,7 @@ export function loadVeraConfig(
     }
 
     const migrated = workerConfigReadOnly ? value : migrateShippedProviderDeclarations(path, value);
-    checkShippedProviderDeclarations(path, migrated);
-    checkDeclaredProviderCaches(path, migrated);
-    if (typeof migrated === "object" && migrated !== null && "host" in migrated
-        && parseHostConfig(migrated.host) === undefined) {
-        throw new VeraConfigError(path, "host must be an object with workers set to a non-negative integer.");
-    }
-    const movedReviewerKeys = reviewerRouteKeys(migrated);
-    if (movedReviewerKeys.length > 0) {
-        throw new VeraConfigError(
-            path,
-            `reviewer.${movedReviewerKeys.join(", reviewer.")} no longer`
-                + " set the classifier. Remove them and assign the classifier"
-                + " from Defaults in /models (model_assignments.reviewer).",
-        );
-    }
-    const config = parseVeraConfig(migrated);
-    if (config === undefined) {
-        throw new VeraConfigError(
-            path,
-            "it is valid JSON but not a Vera config. It expected"
-                + " schema_version 1, provider openrouter, openai-codex,"
-                + " ollama, omlx, cerebras, deepseek, or a name declared in providers,"
-                + " a non-empty model string, an optional"
-                + " non-empty reasoning_effort string, optional approval_mode"
-                + " ask, auto, or full_access, and optional fallback with a"
-                + " different model and after_failures from 1 to 3.",
-        );
-    }
-    if (config.prompt_contribution_order !== undefined) {
-        try {
-            validatePromptContributionOrder(config.prompt_contribution_order);
-        } catch (error) {
-            throw new VeraConfigError(
-                path,
-                error instanceof Error ? error.message : String(error),
-            );
-        }
-    }
+    const config = checkVeraConfigValue(path, migrated);
     const hooks = config.hooks === undefined ? undefined : resolveHookCommands(
         config.hooks,
         options.path === undefined
@@ -637,6 +618,50 @@ export function loadVeraConfig(
 }
 
 /**
+ * Every refusal `loadVeraConfig` makes about the file's contents, without
+ * reading or writing the disk, so a candidate edit can be checked in memory.
+ */
+export function checkVeraConfigValue(path: string, value: unknown): VeraConfig {
+    checkShippedProviderDeclarations(path, value);
+    checkDeclaredProviderCaches(path, value);
+    const movedReviewerKeys = reviewerRouteKeys(value);
+    if (movedReviewerKeys.length > 0) {
+        throw new VeraConfigError(
+            path,
+            `reviewer.${movedReviewerKeys.join(", reviewer.")} no longer`
+                + " set the classifier. Remove them and assign the classifier"
+                + " from Defaults in /models (model_assignments.reviewer).",
+            `reviewer.${movedReviewerKeys[0]}`,
+        );
+    }
+    const parsed = parseVeraConfig(value);
+    if (parsed.config === undefined) {
+        throw new VeraConfigError(
+            path,
+            parsed.problem === undefined
+                ? "it is valid JSON but not a Vera config."
+                : "it is valid JSON but not a Vera config. "
+                    + `${describeConfigProblem(parsed.problem)}.`,
+            parsed.problem?.field,
+            parsed.problem?.reason,
+        );
+    }
+    const config = parsed.config;
+    if (config.prompt_contribution_order !== undefined) {
+        try {
+            validatePromptContributionOrder(config.prompt_contribution_order);
+        } catch (error) {
+            throw new VeraConfigError(
+                path,
+                error instanceof Error ? error.message : String(error),
+                "prompt_contribution_order",
+            );
+        }
+    }
+    return config;
+}
+
+/**
  * Moves a shipped provider's equivalent custom declaration into the shipped
  * definition layer. This runs before parsing so an old profile can cross the
  * id-reservation boundary without a transient invalid config.
@@ -656,9 +681,11 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: more than one declaration normalizes to that id',
+            `providers.${declarations[1]![0]}`,
         );
     }
     const [rawProviderId, candidate] = declarations[0]!;
+    const providerField = `providers.${rawProviderId}`;
     if (!isPlainRecord(candidate)) return value;
     const declaration = candidate;
     const definition = providerDefinition("digitalocean");
@@ -669,6 +696,7 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: only an openai-chat API-key declaration is representable',
+            providerField,
         );
     }
     const unsupported = Object.keys(declaration).filter((key) =>
@@ -678,6 +706,7 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             `provider "digitalocean" cannot migrate without losing custom field(s): ${unsupported.join(", ")}`,
+            providerField,
         );
     }
     if (
@@ -687,12 +716,14 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: api_key_env differs from the shipped definition',
+            providerField,
         );
     }
     if (typeof declaration.base_url !== "string" || !isUserProviderUrl(declaration.base_url)) {
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: base_url is invalid',
+            providerField,
         );
     }
     const customBaseUrl = declaration.base_url.replace(/\/+$/, "");
@@ -706,6 +737,7 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: provider_endpoints is not an object',
+            "provider_endpoints",
         );
     }
     const existing = endpoints.digitalocean;
@@ -713,6 +745,7 @@ export function migrateShippedProviderDeclarations(
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: custom base_url conflicts with provider_endpoints.digitalocean',
+            "provider_endpoints.digitalocean",
         );
     }
     const providers = { ...value.providers };
@@ -924,13 +957,18 @@ function writeVeraConfigFile(
     // together. A file holding such a pair does not load, and the config is
     // what the panes that would fix it are reached through, so it has to be
     // caught before the rename rather than on the next start.
-    if (parseVeraConfig(migrateShippedProviderDeclarations(path, written))
-        === undefined
-    ) {
+    const rewritten = parseVeraConfig(
+        migrateShippedProviderDeclarations(path, written),
+    );
+    if (rewritten.config === undefined) {
         throw new VeraConfigWriteError(
             path,
-            "the settings it would leave contradict each other, so the file"
-                + " it wrote could not be read back",
+            rewritten.problem === undefined
+                ? "the settings it would leave contradict each other, so the file"
+                    + " it wrote could not be read back"
+                : "the settings it would leave contradict each other, so the file"
+                    + " it wrote could not be read back. "
+                    + `${describeConfigProblem(rewritten.problem)}.`,
         );
     }
     const directory = dirname(path);
@@ -1194,32 +1232,120 @@ function configForDisk(
     };
 }
 
-function parseVeraConfig(value: unknown): VeraConfig | undefined {
-    if (typeof value !== "object" || value === null) {
-        return undefined;
+function parseVeraConfig(
+    value: unknown,
+): {
+    readonly config: VeraConfig | undefined;
+    readonly problem: ConfigFieldProblem | undefined;
+} {
+    const { value: config, problem } = collectConfigProblem(() =>
+        parseVeraConfigValue(value)
+    );
+    return { config, problem };
+}
+
+function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return configProblem("", "expected a JSON object at the top level");
     }
 
     const config = value as Record<string, unknown>;
-    const host = parseHostConfig(config.host);
-    let modelRequestOptions: VeraModelRequestOptions | undefined;
-    try {
-        modelRequestOptions = config.model_request_options === undefined
-            ? undefined
-            : parseModelRequestOptions(config.model_request_options);
-    } catch {
-        return undefined;
+    if (config.schema_version !== VERA_CONFIG_SCHEMA_VERSION) {
+        return configProblem(
+            "schema_version",
+            expectedValue(`${VERA_CONFIG_SCHEMA_VERSION}`, config.schema_version),
+        );
     }
+
+    const host = parseHostConfig(config.host);
+    if (host === undefined) return undefined;
+
+    let modelRequestOptions: VeraModelRequestOptions | undefined;
+    if (config.model_request_options !== undefined) {
+        try {
+            modelRequestOptions = parseModelRequestOptions(
+                config.model_request_options,
+            );
+        } catch (error) {
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
+            return configProblem(
+                "model_request_options",
+                message.replace(/^model_request_options[.:]?\s*/, ""),
+            );
+        }
+    }
+
     const providers = parseCustomProviders(config.providers);
+    if (providers === undefined) return undefined;
+
     const providerEndpoints = parseProviderEndpoints(config.provider_endpoints);
+    if (providerEndpoints === undefined) return undefined;
+
+    if (
+        config.provider !== undefined
+        && (typeof config.provider !== "string"
+            || !isConfiguredProviderId(config.provider, providers))
+    ) {
+        return configProblem(
+            "provider",
+            expectedValue(
+                "a provider Vera ships or a name declared in providers",
+                config.provider,
+            ),
+        );
+    }
+
+    if (
+        typeof config.model !== "string"
+        || config.model.trim().length === 0
+    ) {
+        return configProblem(
+            "model",
+            expectedValue("a non-empty string", config.model),
+        );
+    }
+
+    if (
+        config.reasoning_effort !== undefined
+        && !isReasoningEffort(config.reasoning_effort)
+    ) {
+        return configProblem(
+            "reasoning_effort",
+            expectedValue("a non-empty string", config.reasoning_effort),
+        );
+    }
+
+    const contextLimit = config.context_limit;
+    if (
+        contextLimit !== undefined
+        && (typeof contextLimit !== "number"
+            || !Number.isSafeInteger(contextLimit)
+            || contextLimit <= 0)
+    ) {
+        return configProblem(
+            "context_limit",
+            expectedValue("a positive whole number of tokens", contextLimit),
+        );
+    }
+
     const fallback = parseModelFallback(config.fallback, config.model);
-    const reviewer = parseReviewer(config.reviewer, providers ?? {});
-    const subagent = parseSubagentModel(config.subagent, providers ?? {});
+    if (config.fallback !== undefined && fallback === undefined) return undefined;
+
+    const reviewer = parseReviewer(config.reviewer, providers);
+    if (config.reviewer !== undefined && reviewer === undefined) return undefined;
+
+    const subagent = parseSubagentModel(config.subagent, providers);
+    if (config.subagent !== undefined && subagent === undefined) return undefined;
+
     const modelCatalog = parseModelCatalogConfig(
         config.models,
         config.model_routes,
         config.reviewer_profiles,
-        new Set(Object.keys(providers ?? {})),
+        new Set(Object.keys(providers)),
     );
+    if (modelCatalog === undefined) return undefined;
     const hasModelCatalog = config.models !== undefined
         || config.model_routes !== undefined
         || config.reviewer_profiles !== undefined;
@@ -1231,115 +1357,147 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ?? config.permission_profiles;
     const permissionModes = parsePermissionModes(
         rawPermissionModes,
-        modelCatalog?.reviewer_profiles ?? {},
+        modelCatalog.reviewer_profiles,
     );
+    if (permissionModes === undefined) return undefined;
     // Routes come from the catalog, so a compaction block without one has
     // nothing to name and is rejected rather than half-resolved.
     const compaction = config.compaction === undefined
         ? undefined
         : parseCompactionConfig(
             config.compaction,
-            modelCatalog?.model_routes ?? {},
+            modelCatalog.model_routes,
         );
+    if (config.compaction !== undefined && compaction === undefined) {
+        return undefined;
+    }
     // Assignments name routes, so they parse against the same catalog compaction
     // does, and an assignment naming a route the catalog dropped rejects the block
     // rather than binding a caller to a short list.
     const modelSlots = parseModelAssignmentsConfig(
         config.model_assignments,
-        modelCatalog?.model_routes ?? {},
-        new Set(Object.keys(providers ?? {})),
+        modelCatalog.model_routes,
+        new Set(Object.keys(providers)),
     );
+    if (modelSlots === undefined) return undefined;
     const extensions = parseExtensionConfigs(config.extensions);
+    if (extensions === undefined) return undefined;
     const hooks = parseHookConfigs(config.hooks);
+    if (hooks === undefined) return undefined;
     const disabledIncludedExtensions = parseStringList(
         config.disabled_included_extensions,
+        "disabled_included_extensions",
     );
+    if (disabledIncludedExtensions === undefined) return undefined;
     const disabledPromptContributions = parseStringList(
         config.disabled_prompt_contributions,
+        "disabled_prompt_contributions",
     );
+    if (disabledPromptContributions === undefined) return undefined;
     const promptContributionOrder = parseStringList(
         config.prompt_contribution_order,
+        "prompt_contribution_order",
     );
+    if (promptContributionOrder === undefined) return undefined;
     const disabledSkills = parseSkillPatterns(config.disabled_skills);
+    if (disabledSkills === undefined) return undefined;
     const experimental = parseExperimental(config.experimental);
+    if (experimental === undefined) return undefined;
     const inbox = parseInboxConfig(config.inbox);
+    if (inbox === undefined) return undefined;
     const toolResults = parseToolResultsConfig(config.tool_results);
+    if (toolResults === undefined) return undefined;
     const promptCache = parsePromptCacheConfig(config.prompt_cache);
-    const eventLog = parseEventLog(config.event_log);
-    const tips = parseEventLog(config.tips);
+    if (promptCache === undefined) return undefined;
+    const eventLog = parseEventLog(config.event_log, "event_log");
+    if (eventLog === undefined) return undefined;
+    const tips = parseEventLog(config.tips, "tips");
+    if (tips === undefined) return undefined;
     const tui = parseTuiConfig(config.tui);
+    if (tui === undefined) return undefined;
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
+    if (config.model_feed_url !== undefined && modelFeedUrl === undefined) {
+        return configProblem(
+            "model_feed_url",
+            expectedValue("an http or https URL", config.model_feed_url),
+        );
+    }
     const curatedModelsUrl = config.curated_models_url === ""
         ? ""
         : parseModelFeedUrl(config.curated_models_url);
+    if (config.curated_models_url !== undefined && curatedModelsUrl === undefined) {
+        return configProblem(
+            "curated_models_url",
+            expectedValue("an http or https URL", config.curated_models_url),
+        );
+    }
     const maxAgeMonths = parseNonNegativeCount(config.model_picker_max_age_months);
+    if (
+        config.model_picker_max_age_months !== undefined
+        && maxAgeMonths === undefined
+    ) {
+        return configProblem(
+            "model_picker_max_age_months",
+            expectedValue(
+                "a whole number of months, 0 or more",
+                config.model_picker_max_age_months,
+            ),
+        );
+    }
     const collapseVersions = config.model_picker_collapse_versions;
+    if (collapseVersions !== undefined && typeof collapseVersions !== "boolean") {
+        return configProblem(
+            "model_picker_collapse_versions",
+            expectedValue("true or false", collapseVersions),
+        );
+    }
     const verifyAssignments = config.verify_model_assignments;
+    if (verifyAssignments !== undefined && typeof verifyAssignments !== "boolean") {
+        return configProblem(
+            "verify_model_assignments",
+            expectedValue("true or false", verifyAssignments),
+        );
+    }
     const catalogMaxAgeDays = parseNonNegativeCount(
         config.model_catalog_max_age_days,
     );
+    if (
+        config.model_catalog_max_age_days !== undefined
+        && catalogMaxAgeDays === undefined
+    ) {
+        return configProblem(
+            "model_catalog_max_age_days",
+            expectedValue(
+                "a whole number of days, 0 or more",
+                config.model_catalog_max_age_days,
+            ),
+        );
+    }
     const logMaxAgeDays = parsePositiveWholeCount(config.log_max_age_days);
-    const contextLimit = config.context_limit;
+    if (config.log_max_age_days !== undefined && logMaxAgeDays === undefined) {
+        return configProblem(
+            "log_max_age_days",
+            expectedValue(
+                "a whole number of days, 1 or more",
+                config.log_max_age_days,
+            ),
+        );
+    }
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
-    const hasSelectedMode = approvalMode !== undefined
-        && (
-            isBuiltInPermissionMode(approvalMode)
-            || permissionModes?.[approvalMode] !== undefined
-        );
     if (
-        host === undefined
-        || (config.reviewer !== undefined && reviewer === undefined)
-        || providers === undefined
-        || providerEndpoints === undefined
-        || (config.subagent !== undefined && subagent === undefined)
-        || modelCatalog === undefined
-        || permissionModes === undefined
-        || extensions === undefined
-        || hooks === undefined
-        || disabledIncludedExtensions === undefined
-        || disabledPromptContributions === undefined
-        || promptContributionOrder === undefined
-        || disabledSkills === undefined
-        || experimental === undefined
-        || inbox === undefined
-        || toolResults === undefined
-        || promptCache === undefined
-        || eventLog === undefined
-        || tui === undefined
-        || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
-        || (config.curated_models_url !== undefined
-            && curatedModelsUrl === undefined)
-        || (config.model_picker_max_age_months !== undefined
-            && maxAgeMonths === undefined)
-        || (collapseVersions !== undefined
-            && typeof collapseVersions !== "boolean")
-        || (verifyAssignments !== undefined
-            && typeof verifyAssignments !== "boolean")
-        || (config.model_catalog_max_age_days !== undefined
-            && catalogMaxAgeDays === undefined)
-        || (config.log_max_age_days !== undefined
-            && logMaxAgeDays === undefined)
-        || (config.compaction !== undefined && compaction === undefined)
-        || modelSlots === undefined
-        ||
-        config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
-        || (config.provider !== undefined
-            && (typeof config.provider !== "string"
-                || !isConfiguredProviderId(config.provider, providers)))
-        || typeof config.model !== "string"
-        || config.model.trim().length === 0
-        || (config.reasoning_effort !== undefined
-            && !isReasoningEffort(config.reasoning_effort))
-        || (contextLimit !== undefined
-            && (typeof contextLimit !== "number"
-                || !Number.isSafeInteger(contextLimit)
-                || contextLimit <= 0))
-        || !hasSelectedMode
-        || (config.fallback !== undefined && fallback === undefined)
+        approvalMode === undefined
+        || (!isBuiltInPermissionMode(approvalMode)
+            && permissionModes[approvalMode] === undefined)
     ) {
-        return undefined;
+        return configProblem(
+            "approval_mode",
+            expectedValue(
+                "ask, auto, full_access or a name in permission_modes",
+                config.approval_mode,
+            ),
+        );
     }
 
     return {
@@ -1431,10 +1589,15 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
 
 function parseHostConfig(value: unknown): VeraHostConfig | undefined {
     if (value === undefined) return {};
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return configProblem("host", expectedValue("an object", value));
+    }
     const workers = (value as Record<string, unknown>).workers;
     if (workers !== undefined && (typeof workers !== "number" || !Number.isSafeInteger(workers) || workers < 0)) {
-        return undefined;
+        return configProblem(
+            "host.workers",
+            expectedValue("a non-negative whole number", workers),
+        );
     }
     return workers === undefined ? {} : { workers };
 }
@@ -1446,34 +1609,55 @@ function parseCustomProviders(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("providers", expectedValue("an object of provider definitions", value));
     }
     const parsed: Record<string, VeraCustomProviderConfig> = {};
     for (const [rawId, rawValue] of Object.entries(value)) {
         const id = rawId.trim();
+        if (id.length === 0 || !isSafeProviderId(id)) {
+            return configProblem(
+                `providers.${rawId}`,
+                "expected a name of lowercase letters, digits, dot, dash or underscore",
+            );
+        }
+        if (isVeraProviderId(id)) {
+            return configProblem(
+                `providers.${rawId}`,
+                "is built into Vera, so it cannot be declared under providers",
+            );
+        }
         if (
-            id.length === 0
-            || !isSafeProviderId(id)
-            || isVeraProviderId(id)
-            || typeof rawValue !== "object"
+            typeof rawValue !== "object"
             || rawValue === null
             || Array.isArray(rawValue)
         ) {
-            return undefined;
+            return configProblem(
+                `providers.${id}`,
+                expectedValue("an object", rawValue),
+            );
         }
         const raw = rawValue as Record<string, unknown>;
         if (
             raw.protocol !== "openai-chat"
             && raw.protocol !== "anthropic-messages"
         ) {
-            return undefined;
+            return configProblem(
+                `providers.${id}.protocol`,
+                expectedValue("openai-chat or anthropic-messages", raw.protocol),
+            );
         }
         if (typeof raw.base_url !== "string" || !isUserProviderUrl(raw.base_url)) {
-            return undefined;
+            return configProblem(
+                `providers.${id}.base_url`,
+                expectedValue("an http or https URL", raw.base_url),
+            );
         }
         const credential = raw.credential ?? "api_key";
         if (credential !== "api_key" && credential !== "none") {
-            return undefined;
+            return configProblem(
+                `providers.${id}.credential`,
+                expectedValue("api_key or none", raw.credential),
+            );
         }
         if (
             raw.api_key_env !== undefined
@@ -1482,29 +1666,49 @@ function parseCustomProviders(
                 || !/^[A-Z_][A-Z0-9_]*$/.test(raw.api_key_env)
             )
         ) {
-            return undefined;
+            return configProblem(
+                `providers.${id}.api_key_env`,
+                expectedValue("an environment variable name", raw.api_key_env),
+            );
         }
         if (raw.images !== undefined && typeof raw.images !== "boolean") {
-            return undefined;
+            return configProblem(
+                `providers.${id}.images`,
+                expectedValue("true or false", raw.images),
+            );
         }
         if (
             raw.max_tokens !== undefined
             && (!Number.isInteger(raw.max_tokens) || (raw.max_tokens as number) <= 0)
         ) {
-            return undefined;
+            return configProblem(
+                `providers.${id}.max_tokens`,
+                expectedValue("a positive whole number", raw.max_tokens),
+            );
         }
         if (
             raw.thinking !== undefined
             && (raw.protocol !== "anthropic-messages" || raw.thinking !== "adaptive")
         ) {
-            return undefined;
+            return configProblem(
+                `providers.${id}.thinking`,
+                raw.protocol === "anthropic-messages"
+                    ? expectedValue("adaptive", raw.thinking)
+                    : "only an anthropic-messages provider takes thinking",
+            );
         }
         let cache: ProviderCacheDefinition | undefined;
         if (raw.cache !== undefined) {
             try {
                 cache = parseCache(raw.cache, raw.protocol, `provider ${id}`);
-            } catch {
-                return undefined;
+            } catch (error) {
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                return configProblem(
+                    `providers.${id}.cache`,
+                    message.replace(/^provider [^:]*:\s*/, ""),
+                );
             }
         }
         parsed[id] = {
@@ -1543,6 +1747,7 @@ function checkShippedProviderDeclarations(path: string, value: unknown): void {
             path,
             `provider "${id}" is built into Vera, so it cannot be declared under providers.`
                 + ` Remove it from providers.${redirect}`,
+            `providers.${rawId}`,
         );
     }
 }
@@ -1564,6 +1769,7 @@ function checkDeclaredProviderCaches(path: string, value: unknown): void {
             throw new VeraConfigError(
                 path,
                 error instanceof Error ? error.message : String(error),
+                `providers.${id}.cache`,
             );
         }
     }
@@ -1584,18 +1790,31 @@ function parseProviderEndpoints(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem(
+            "provider_endpoints",
+            expectedValue("an object of endpoint URLs", value),
+        );
     }
     const parsed: Record<string, string> = {};
     for (const [rawId, rawUrl] of Object.entries(value)) {
         const id = rawId.trim();
-        if (
-            !isVeraProviderId(id)
-            || isFixedEndpointProvider(id)
-            || typeof rawUrl !== "string"
-            || !isUserProviderUrl(rawUrl.trim())
-        ) {
-            return undefined;
+        if (!isVeraProviderId(id)) {
+            return configProblem(
+                `provider_endpoints.${rawId}`,
+                "expected a provider Vera ships; declare other providers under providers",
+            );
+        }
+        if (isFixedEndpointProvider(id)) {
+            return configProblem(
+                `provider_endpoints.${rawId}`,
+                "this provider's endpoint is fixed, so it cannot be changed",
+            );
+        }
+        if (typeof rawUrl !== "string" || !isUserProviderUrl(rawUrl.trim())) {
+            return configProblem(
+                `provider_endpoints.${rawId}`,
+                expectedValue("an http or https URL", rawUrl),
+            );
         }
         parsed[id] = rawUrl.trim().replace(/\/+$/, "");
     }
@@ -1614,7 +1833,7 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("tui", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
     if (
@@ -1623,7 +1842,10 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
         && raw.assistant_marker !== "•"
         && raw.assistant_marker !== ""
     ) {
-        return undefined;
+        return configProblem(
+            "tui.assistant_marker",
+            expectedValue('"●", "•" or ""', raw.assistant_marker),
+        );
     }
     const transcript = parseTuiTranscriptConfig(raw.transcript);
     const composer = parseTuiComposerConfig(raw.composer);
@@ -1645,24 +1867,53 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
 
 function parseTuiSidebarConfig(value: unknown): VeraTuiSidebarConfig | undefined {
     if (value === undefined) return {};
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return configProblem("tui.sidebar", expectedValue("an object", value));
+    }
     const openAtLaunch = Reflect.get(value, "open_at_launch");
-    if (openAtLaunch !== undefined && typeof openAtLaunch !== "boolean") return undefined;
+    if (openAtLaunch !== undefined && typeof openAtLaunch !== "boolean") {
+        return configProblem(
+            "tui.sidebar.open_at_launch",
+            expectedValue("true or false", openAtLaunch),
+        );
+    }
     return openAtLaunch === undefined ? {} : { open_at_launch: openAtLaunch };
 }
 
 function parseTuiDialogsConfig(value: unknown): VeraTuiDialogsConfig | undefined {
     if (value === undefined) return {};
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return configProblem("tui.dialogs", expectedValue("an object", value));
+    }
     const header = Reflect.get(value, "header_style");
     const search = Reflect.get(value, "search_style");
-    if (header !== undefined && header !== "underline" && header !== "box") return undefined;
-    if (search !== undefined && search !== "border" && search !== "fill" && search !== "plain") return undefined;
+    if (header !== undefined && header !== "underline" && header !== "box") {
+        return configProblem(
+            "tui.dialogs.header_style",
+            expectedValue("underline or box", header),
+        );
+    }
+    if (search !== undefined && search !== "border" && search !== "fill" && search !== "plain") {
+        return configProblem(
+            "tui.dialogs.search_style",
+            expectedValue("border, fill or plain", search),
+        );
+    }
     return {
         ...(header === undefined ? {} : { header_style: header }),
         ...(search === undefined ? {} : { search_style: search }),
     };
 }
+
+const TRANSCRIPT_LAYOUT_COUNTS = [
+    ["padding_left", 0, 20],
+    ["padding_right", 0, 20],
+    ["activity_indent", 1, 12],
+    ["message_spacing", 0, 5],
+    ["tool_group_spacing", 0, 5],
+    ["separator_spacing_before", 0, 5],
+    ["separator_spacing_after", 0, 5],
+] as const;
 
 function parseTuiTranscriptConfig(
     value: unknown,
@@ -1671,22 +1922,31 @@ function parseTuiTranscriptConfig(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("tui.transcript", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
+    const invalid = firstInvalidLayoutCount(raw, TRANSCRIPT_LAYOUT_COUNTS);
+    if (invalid !== undefined) {
+        const [key, minimum, maximum] = invalid;
+        return configProblem(
+            `tui.transcript.${key}`,
+            expectedValue(`a whole number from ${minimum} to ${maximum}`, raw[key]),
+        );
+    }
     if (
-        !isOptionalLayoutCount(raw.padding_left, 0, 20)
-        || !isOptionalLayoutCount(raw.padding_right, 0, 20)
-        || !isOptionalLayoutCount(raw.activity_indent, 1, 12)
-        || !isOptionalLayoutCount(raw.message_spacing, 0, 5)
-        || !isOptionalLayoutCount(raw.tool_group_spacing, 0, 5)
-        || (raw.separator_visible !== undefined
-            && typeof raw.separator_visible !== "boolean")
-        || !isOptionalLayoutCount(raw.separator_spacing_before, 0, 5)
-        || !isOptionalLayoutCount(raw.separator_spacing_after, 0, 5)
-        || !isOptionalHexColor(raw.separator_color)
+        raw.separator_visible !== undefined
+        && typeof raw.separator_visible !== "boolean"
     ) {
-        return undefined;
+        return configProblem(
+            "tui.transcript.separator_visible",
+            expectedValue("true or false", raw.separator_visible),
+        );
+    }
+    if (!isOptionalHexColor(raw.separator_color)) {
+        return configProblem(
+            "tui.transcript.separator_color",
+            expectedValue('a colour like "#1a2b3c"', raw.separator_color),
+        );
     }
     return {
         ...(raw.padding_left === undefined
@@ -1725,6 +1985,12 @@ function parseTuiTranscriptConfig(
     };
 }
 
+const COMPOSER_LAYOUT_COUNTS = [
+    ["margin_horizontal", 0, 20],
+    ["padding_horizontal", 0, 12],
+    ["tip_indent", 0, 24],
+] as const;
+
 function parseTuiComposerConfig(
     value: unknown,
 ): VeraTuiComposerConfig | undefined {
@@ -1732,16 +1998,22 @@ function parseTuiComposerConfig(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("tui.composer", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
-    if (
-        !isOptionalLayoutCount(raw.margin_horizontal, 0, 20)
-        || !isOptionalLayoutCount(raw.padding_horizontal, 0, 12)
-        || !isOptionalLayoutCount(raw.tip_indent, 0, 24)
-        || !isOptionalHexColor(raw.boundary_color)
-    ) {
-        return undefined;
+    const invalid = firstInvalidLayoutCount(raw, COMPOSER_LAYOUT_COUNTS);
+    if (invalid !== undefined) {
+        const [key, minimum, maximum] = invalid;
+        return configProblem(
+            `tui.composer.${key}`,
+            expectedValue(`a whole number from ${minimum} to ${maximum}`, raw[key]),
+        );
+    }
+    if (!isOptionalHexColor(raw.boundary_color)) {
+        return configProblem(
+            "tui.composer.boundary_color",
+            expectedValue('a colour like "#1a2b3c"', raw.boundary_color),
+        );
     }
     return {
         ...(raw.margin_horizontal === undefined
@@ -1757,6 +2029,15 @@ function parseTuiComposerConfig(
             ? {}
             : { boundary_color: raw.boundary_color as string }),
     };
+}
+
+function firstInvalidLayoutCount(
+    raw: Readonly<Record<string, unknown>>,
+    keys: readonly (readonly [string, number, number])[],
+): (readonly [string, number, number]) | undefined {
+    return keys.find(([key, minimum, maximum]) =>
+        !isOptionalLayoutCount(raw[key], minimum, maximum)
+    );
 }
 
 function isOptionalLayoutCount(
@@ -1815,14 +2096,17 @@ function parseExperimental(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("experimental", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
     if (
         raw.outrider_onboarding !== undefined
         && typeof raw.outrider_onboarding !== "boolean"
     ) {
-        return undefined;
+        return configProblem(
+            "experimental.outrider_onboarding",
+            expectedValue("true or false", raw.outrider_onboarding),
+        );
     }
     return {
         ...(raw.outrider_onboarding === undefined
@@ -1840,14 +2124,17 @@ function parsePromptCacheConfig(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("prompt_cache", expectedValue("an object", value));
     }
     const retention = (value as Record<string, unknown>).retention;
     if (retention === undefined) {
         return {};
     }
     if (!PROMPT_CACHE_RETENTIONS.includes(retention as CacheRetention)) {
-        return undefined;
+        return configProblem(
+            "prompt_cache.retention",
+            expectedValue(PROMPT_CACHE_RETENTIONS.join(", "), retention),
+        );
     }
     return { retention: retention as CacheRetention };
 }
@@ -1864,7 +2151,7 @@ function parseToolResultsConfig(
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("tool_results", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
     const parsed: Record<string, number | string> = {};
@@ -1874,7 +2161,10 @@ function parseToolResultsConfig(
             continue;
         }
         if (!Number.isSafeInteger(entry) || (entry as number) < 1) {
-            return undefined;
+            return configProblem(
+                `tool_results.${key}`,
+                expectedValue("a whole number of bytes, 1 or more", entry),
+            );
         }
         parsed[key] = entry as number;
     }
@@ -1883,7 +2173,10 @@ function parseToolResultsConfig(
             !Number.isSafeInteger(raw.stub_after_turns)
             || (raw.stub_after_turns as number) < 0
         ) {
-            return undefined;
+            return configProblem(
+                "tool_results.stub_after_turns",
+                expectedValue("a whole number of turns, 0 or more", raw.stub_after_turns),
+            );
         }
         parsed.stub_after_turns = raw.stub_after_turns as number;
     }
@@ -1894,7 +2187,10 @@ function parseToolResultsConfig(
                 raw.aging_level as VeraToolResultAgingLevel,
             )
         ) {
-            return undefined;
+            return configProblem(
+                "tool_results.aging_level",
+                expectedValue(VERA_TOOL_RESULT_AGING_LEVELS.join(", "), raw.aging_level),
+            );
         }
         parsed.aging_level = raw.aging_level;
     }
@@ -1903,7 +2199,10 @@ function parseToolResultsConfig(
         ?? TOOL_RESULT_CEILING_BYTES;
     const total = parsed.total_budget_bytes as number | undefined;
     if (total !== undefined && ceiling > total) {
-        return undefined;
+        return configProblem(
+            "tool_results.total_budget_bytes",
+            `expected at least the ceiling of ${ceiling} bytes, found ${total}`,
+        );
     }
     return parsed as VeraToolResultsConfig;
 }
@@ -1951,34 +2250,52 @@ function parseInboxConfig(value: unknown): VeraInboxConfig | undefined {
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem("inbox", expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
     if (raw.admit === undefined) {
         return {};
     }
     if (!Array.isArray(raw.admit)) {
-        return undefined;
+        return configProblem("inbox.admit", expectedValue("a list of source names", raw.admit));
     }
     const families = raw.admit.map((item) =>
         typeof item === "string" ? item.trim() : ""
     );
-    return families.every((family) => /^[a-z][a-z0-9_-]*$/.test(family))
-            && new Set(families).size === families.length
-        ? { admit: families }
-        : undefined;
+    const badFamily = families.findIndex((family) =>
+        !/^[a-z][a-z0-9_-]*$/.test(family)
+    );
+    if (badFamily >= 0) {
+        return configProblem(
+            `inbox.admit[${badFamily}]`,
+            expectedValue(
+                "a name of lowercase letters, digits, dash or underscore, starting with a letter",
+                raw.admit[badFamily],
+            ),
+        );
+    }
+    if (new Set(families).size !== families.length) {
+        return configProblem("inbox.admit", "expected each source name once");
+    }
+    return { admit: families };
 }
 
-function parseEventLog(value: unknown): VeraEventLogConfig | undefined {
+function parseEventLog(
+    value: unknown,
+    block: string,
+): VeraEventLogConfig | undefined {
     if (value === undefined) {
         return {};
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+        return configProblem(block, expectedValue("an object", value));
     }
     const raw = value as Record<string, unknown>;
     if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") {
-        return undefined;
+        return configProblem(
+            `${block}.enabled`,
+            expectedValue("true or false", raw.enabled),
+        );
     }
     return raw.enabled === undefined ? {} : { enabled: raw.enabled };
 }
@@ -1993,33 +2310,54 @@ export function tipsEnabled(config: Pick<VeraConfig, "tips">): boolean {
     return config.tips?.enabled !== false;
 }
 
-export function parseSkillPatterns(value: unknown): readonly string[] | undefined {
-    const patterns = parseStringList(value);
-    if (
-        patterns === undefined
-        || patterns.some((pattern) => pattern.slice(0, -1).includes("*"))
-    ) {
-        return undefined;
+export function parseSkillPatterns(
+    value: unknown,
+    field = "disabled_skills",
+): readonly string[] | undefined {
+    const patterns = parseStringList(value, field);
+    if (patterns === undefined) return undefined;
+    const bad = patterns.findIndex((pattern) =>
+        pattern.slice(0, -1).includes("*")
+    );
+    if (bad >= 0) {
+        return configProblem(
+            `${field}[${bad}]`,
+            expectedValue("a skill name, with * allowed only at the end", patterns[bad]),
+        );
     }
     return patterns;
 }
 
-function parseStringList(value: unknown): readonly string[] | undefined {
+function parseStringList(
+    value: unknown,
+    field: string,
+): readonly string[] | undefined {
     if (value === undefined) {
         return [];
     }
-    if (
-        !Array.isArray(value)
-        || !value.every((item) =>
-            typeof item === "string" && item.trim().length > 0
-        )
-    ) {
-        return undefined;
+    if (!Array.isArray(value)) {
+        return configProblem(field, expectedValue("a list of names", value));
+    }
+    const bad = value.findIndex((item) =>
+        typeof item !== "string" || item.trim().length === 0
+    );
+    if (bad >= 0) {
+        return configProblem(
+            `${field}[${bad}]`,
+            expectedValue("a non-empty string", value[bad]),
+        );
     }
     const normalized = value.map((item) => item.trim());
-    return new Set(normalized).size === normalized.length
-        ? normalized
-        : undefined;
+    const repeated = normalized.findIndex((item, index) =>
+        normalized.indexOf(item) !== index
+    );
+    if (repeated >= 0) {
+        return configProblem(
+            `${field}[${repeated}]`,
+            `${JSON.stringify(normalized[repeated])} is listed twice`,
+        );
+    }
+    return normalized;
 }
 
 const HOOK_PROTOCOLS = new Set(["vera", "claude"]);
@@ -2031,35 +2369,59 @@ function parseHookConfigs(
         return [];
     }
     if (!Array.isArray(value)) {
-        return undefined;
+        return configProblem("hooks", expectedValue("a list of hooks", value));
     }
     const hooks: VeraHookConfig[] = [];
-    for (const item of value) {
+    for (const [index, item] of value.entries()) {
+        const field = `hooks[${index}]`;
         if (
             typeof item !== "object"
             || item === null
             || Array.isArray(item)
         ) {
-            return undefined;
+            return configProblem(field, expectedValue("an object", item));
         }
         const hook = item as Record<string, unknown>;
         const { phase, argv, protocol, timeout_ms } = hook;
+        const phaseProblem = commandHookPhaseProblem(phase, protocol);
+        if (phaseProblem !== undefined) {
+            return configProblem(field, phaseProblem);
+        }
         if (
-            !isCommandHookPhase(phase, protocol)
-            || !Array.isArray(argv)
+            !Array.isArray(argv)
             || argv.length === 0
             || argv.some((argument) =>
                 typeof argument !== "string" || argument.length === 0
             )
-            || (protocol !== undefined
-                && (typeof protocol !== "string"
-                    || !HOOK_PROTOCOLS.has(protocol)))
-            || (timeout_ms !== undefined
-                && (typeof timeout_ms !== "number"
-                    || !Number.isSafeInteger(timeout_ms)
-                    || timeout_ms <= 0))
         ) {
-            return undefined;
+            return configProblem(
+                field,
+                keyValue("argv", "a non-empty list of non-empty strings", argv),
+            );
+        }
+        if (
+            protocol !== undefined
+            && (typeof protocol !== "string" || !HOOK_PROTOCOLS.has(protocol))
+        ) {
+            return configProblem(
+                field,
+                keyValue("protocol", "vera or claude", protocol),
+            );
+        }
+        if (
+            timeout_ms !== undefined
+            && (typeof timeout_ms !== "number"
+                || !Number.isSafeInteger(timeout_ms)
+                || timeout_ms <= 0)
+        ) {
+            return configProblem(
+                field,
+                keyValue(
+                    "timeout_ms",
+                    "a positive whole number of milliseconds",
+                    timeout_ms,
+                ),
+            );
         }
         hooks.push({
             phase: phase as CommandHookSpec["phase"],
@@ -2073,12 +2435,15 @@ function parseHookConfigs(
     return hooks;
 }
 
-function isCommandHookPhase(phase: unknown, protocol: unknown): boolean {
+function commandHookPhaseProblem(
+    phase: unknown,
+    protocol: unknown,
+): string | undefined {
     try {
         commandHookPhase(phase, protocol);
-        return true;
-    } catch {
-        return false;
+        return undefined;
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error);
     }
 }
 
@@ -2092,7 +2457,7 @@ function resolveHookCommands(
     hooksDirectory: string,
     configPath: string,
 ): readonly VeraHookConfig[] {
-    return hooks.map((hook) => {
+    return hooks.map((hook, index) => {
         const command = resolve(hooksDirectory, hook.argv[0]!);
         const inside = command === hooksDirectory
             ? false
@@ -2102,6 +2467,7 @@ function resolveHookCommands(
                 configPath,
                 `hook command ${hook.argv[0]} is outside ${hooksDirectory}.`
                     + " A configured hook may only run a script kept there.",
+                `hooks[${index}]`,
             );
         }
         return { ...hook, argv: [command, ...hook.argv.slice(1)] };
@@ -2115,29 +2481,41 @@ function parseExtensionConfigs(
         return [];
     }
     if (!Array.isArray(value)) {
-        return undefined;
+        return configProblem("extensions", expectedValue("a list of extensions", value));
     }
 
     const extensions: VeraExtensionConfig[] = [];
-    for (const item of value) {
+    for (const [index, item] of value.entries()) {
+        const field = `extensions[${index}]`;
         if (
             typeof item !== "object"
             || item === null
             || Array.isArray(item)
         ) {
-            return undefined;
+            return configProblem(field, expectedValue("an object", item));
         }
         const extension = item as Record<string, unknown>;
         if (
             typeof extension.path !== "string"
             || extension.path.trim().length === 0
             || !isAbsolute(extension.path.trim())
-            || (extension.enabled !== undefined
-                && typeof extension.enabled !== "boolean")
-            || (extension.config !== undefined
-                && !isJsonValue(extension.config))
         ) {
-            return undefined;
+            return configProblem(
+                field,
+                keyValue("path", "an absolute path", extension.path),
+            );
+        }
+        if (
+            extension.enabled !== undefined
+            && typeof extension.enabled !== "boolean"
+        ) {
+            return configProblem(
+                field,
+                keyValue("enabled", "true or false", extension.enabled),
+            );
+        }
+        if (extension.config !== undefined && !isJsonValue(extension.config)) {
+            return configProblem(field, "config must hold JSON values only");
         }
         extensions.push({
             path: extension.path.trim(),
@@ -2184,29 +2562,69 @@ function parseReviewer(
     value: unknown,
     providers: Readonly<Record<string, VeraCustomProviderConfig>>,
 ): VeraReviewerConfig | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    if (value === undefined) {
         return undefined;
     }
+    if (!isPlainObject(value)) {
+        return configProblem("reviewer", expectedValue("an object", value));
+    }
     const reviewer = value as Record<string, unknown>;
+    const movedKey = REVIEWER_ROUTE_KEYS.find((key) => Object.hasOwn(reviewer, key));
+    if (movedKey !== undefined) {
+        return configProblem(
+            `reviewer.${movedKey}`,
+            "the reviewer route moved to model_assignments and reviewer_profiles",
+        );
+    }
     if (
-        REVIEWER_ROUTE_KEYS.some((key) => Object.hasOwn(reviewer, key))
-        || (reviewer.timeout_ms !== undefined
-            && (typeof reviewer.timeout_ms !== "number"
-                || !Number.isInteger(reviewer.timeout_ms)
-                || reviewer.timeout_ms < 1_000
-                || reviewer.timeout_ms > 600_000))
-        || (reviewer.two_tier !== undefined
-            && typeof reviewer.two_tier !== "boolean")
-        || (reviewer.escalation_model !== undefined
-            && (typeof reviewer.escalation_model !== "string"
-                || reviewer.escalation_model.trim().length === 0))
-        || (reviewer.escalation_provider !== undefined
-            && (typeof reviewer.escalation_provider !== "string"
-                || !isConfiguredProviderId(reviewer.escalation_provider, providers)))
-        || (reviewer.escalation_reasoning_effort !== undefined
-            && !isReasoningEffort(reviewer.escalation_reasoning_effort))
+        reviewer.timeout_ms !== undefined
+        && (typeof reviewer.timeout_ms !== "number"
+            || !Number.isInteger(reviewer.timeout_ms)
+            || reviewer.timeout_ms < 1_000
+            || reviewer.timeout_ms > 600_000)
     ) {
-        return undefined;
+        return configProblem(
+            "reviewer.timeout_ms",
+            expectedValue("a whole number from 1000 to 600000", reviewer.timeout_ms),
+        );
+    }
+    if (reviewer.two_tier !== undefined && typeof reviewer.two_tier !== "boolean") {
+        return configProblem(
+            "reviewer.two_tier",
+            expectedValue("true or false", reviewer.two_tier),
+        );
+    }
+    if (
+        reviewer.escalation_model !== undefined
+        && (typeof reviewer.escalation_model !== "string"
+            || reviewer.escalation_model.trim().length === 0)
+    ) {
+        return configProblem(
+            "reviewer.escalation_model",
+            expectedValue("a non-empty string", reviewer.escalation_model),
+        );
+    }
+    if (
+        reviewer.escalation_provider !== undefined
+        && (typeof reviewer.escalation_provider !== "string"
+            || !isConfiguredProviderId(reviewer.escalation_provider, providers))
+    ) {
+        return configProblem(
+            "reviewer.escalation_provider",
+            expectedValue(
+                "a provider Vera ships or a name declared in providers",
+                reviewer.escalation_provider,
+            ),
+        );
+    }
+    if (
+        reviewer.escalation_reasoning_effort !== undefined
+        && !isReasoningEffort(reviewer.escalation_reasoning_effort)
+    ) {
+        return configProblem(
+            "reviewer.escalation_reasoning_effort",
+            expectedValue("a non-empty string", reviewer.escalation_reasoning_effort),
+        );
     }
     return {
         ...(reviewer.timeout_ms === undefined
@@ -2231,20 +2649,40 @@ function parseSubagentModel(
     value: unknown,
     providers: Readonly<Record<string, VeraCustomProviderConfig>>,
 ): VeraSubagentConfig | undefined {
-    if (typeof value !== "object" || value === null) {
+    if (value === undefined) {
         return undefined;
     }
+    if (!isPlainObject(value)) {
+        return configProblem("subagent", expectedValue("an object", value));
+    }
     const subagent = value as Record<string, unknown>;
+    if (typeof subagent.model !== "string" || subagent.model.trim().length === 0) {
+        return configProblem(
+            "subagent.model",
+            expectedValue("a non-empty string", subagent.model),
+        );
+    }
     if (
-        typeof subagent.model !== "string"
-        || subagent.model.trim().length === 0
-        || (subagent.provider !== undefined
-            && (typeof subagent.provider !== "string"
-                || !isConfiguredProviderId(subagent.provider, providers)))
-        || (subagent.reasoning_effort !== undefined
-            && !isReasoningEffort(subagent.reasoning_effort))
+        subagent.provider !== undefined
+        && (typeof subagent.provider !== "string"
+            || !isConfiguredProviderId(subagent.provider, providers))
     ) {
-        return undefined;
+        return configProblem(
+            "subagent.provider",
+            expectedValue(
+                "a provider Vera ships or a name declared in providers",
+                subagent.provider,
+            ),
+        );
+    }
+    if (
+        subagent.reasoning_effort !== undefined
+        && !isReasoningEffort(subagent.reasoning_effort)
+    ) {
+        return configProblem(
+            "subagent.reasoning_effort",
+            expectedValue("a non-empty string", subagent.reasoning_effort),
+        );
     }
     return {
         model: subagent.model.trim(),
@@ -2634,21 +3072,38 @@ function parseModelFallback(
     value: unknown,
     primaryModel: unknown,
 ): VeraModelFallbackConfig | undefined {
-    if (typeof value !== "object" || value === null) {
+    if (value === undefined) {
         return undefined;
     }
+    if (!isPlainObject(value)) {
+        return configProblem("fallback", expectedValue("an object", value));
+    }
     const fallback = value as Record<string, unknown>;
+    if (typeof fallback.model !== "string" || fallback.model.trim().length === 0) {
+        return configProblem(
+            "fallback.model",
+            expectedValue("a non-empty string", fallback.model),
+        );
+    }
     if (
-        typeof fallback.model !== "string"
-        || fallback.model.trim().length === 0
-        || typeof fallback.after_failures !== "number"
+        typeof fallback.after_failures !== "number"
         || !Number.isInteger(fallback.after_failures)
         || fallback.after_failures < 1
         || fallback.after_failures > 3
-        || (typeof primaryModel === "string"
-            && fallback.model.trim() === primaryModel.trim())
     ) {
-        return undefined;
+        return configProblem(
+            "fallback.after_failures",
+            expectedValue("a whole number from 1 to 3", fallback.after_failures),
+        );
+    }
+    if (
+        typeof primaryModel === "string"
+        && fallback.model.trim() === primaryModel.trim()
+    ) {
+        return configProblem(
+            "fallback.model",
+            "must differ from model, which is already the primary",
+        );
     }
     return {
         model: fallback.model.trim(),

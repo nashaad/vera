@@ -1,4 +1,5 @@
 
+import { configProblem, expectedValue, isPlainObject, keyValue } from "./diagnostic.ts";
 import {
     parseCatalogModel,
     resolveModelRoute,
@@ -105,8 +106,8 @@ export function parseModelAssignmentsConfig(
     if (value === undefined) {
         return {};
     }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+    if (!isPlainObject(value)) {
+        return configProblem("model_assignments", expectedValue("an object", value));
     }
     const assignments: Partial<Record<ModelAssignmentId, VeraModelAssignmentConfig>>
         & { never_auto?: SlotExclusionsConfig } = {};
@@ -120,7 +121,12 @@ export function parseModelAssignmentsConfig(
             continue;
         }
         if (!isModelSlotId(name)) {
-            return undefined;
+            return configProblem(
+                `model_assignments.${name}`,
+                `is not a slot; expected ${
+                    [...MODEL_ASSIGNMENT_IDS, "never_auto"].join(", ")
+                }`,
+            );
         }
         const parsed = parseSlot(name, entry, routes, customProviderIds);
         if (parsed === undefined) {
@@ -137,23 +143,31 @@ function parseSlot(
     routes: Readonly<Record<string, readonly string[]>>,
     customProviderIds: ReadonlySet<string>,
 ): VeraModelAssignmentConfig | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+    const field = `model_assignments.${assignment}`;
+    if (!isPlainObject(value)) {
+        return configProblem(field, expectedValue("an object", value));
     }
     const record = value as Record<string, unknown>;
     const route = record.model_route;
     const inline = record.models;
     const label = record.label;
     const allowSelf = record.allow_self;
-    if (
-        (route !== undefined && inline !== undefined)
-        || (route === undefined && inline === undefined)
-        || (label !== undefined
-            && (typeof label !== "string" || label.trim().length === 0))
-        || (allowSelf !== undefined
-            && (assignment !== "subagents" || typeof allowSelf !== "boolean"))
-    ) {
-        return undefined;
+    if (route !== undefined && inline !== undefined) {
+        return configProblem(field, "set model_route or models, not both");
+    }
+    if (route === undefined && inline === undefined) {
+        return configProblem(field, "set model_route or models");
+    }
+    if (label !== undefined && (typeof label !== "string" || label.trim().length === 0)) {
+        return configProblem(field, keyValue("label", "a non-empty string", label));
+    }
+    if (allowSelf !== undefined) {
+        if (assignment !== "subagents") {
+            return configProblem(field, "allow_self is only valid on the subagents slot");
+        }
+        if (typeof allowSelf !== "boolean") {
+            return configProblem(field, keyValue("allow_self", "true or false", allowSelf));
+        }
     }
     const additions = {
         ...(label === undefined ? {} : { label: (label as string).trim() }),
@@ -161,20 +175,22 @@ function parseSlot(
     };
     if (route !== undefined) {
         if (typeof route !== "string" || routes[route] === undefined) {
-            return undefined;
+            return configProblem(
+                field,
+                keyValue("model_route", "a name in model_routes", route),
+            );
         }
         return { model_route: route, ...additions };
     }
-    if (
-        !Array.isArray(inline)
-        || (inline.length === 0
-            && !(assignment === "subagents" && allowSelf === true))
-    ) {
-        return undefined;
+    if (!Array.isArray(inline)) {
+        return configProblem(field, keyValue("models", "a list of models", inline));
+    }
+    if (inline.length === 0 && !(assignment === "subagents" && allowSelf === true)) {
+        return configProblem(field, "models must not be empty");
     }
     const models: VeraCatalogModel[] = [];
-    for (const entry of inline) {
-        const model = parseCatalogModel(entry, customProviderIds);
+    for (const [index, entry] of inline.entries()) {
+        const model = parseCatalogModel(entry, customProviderIds, `${field}.models[${index}]`);
         if (model === undefined) {
             return undefined;
         }
@@ -302,29 +318,40 @@ export function slotExclusions(
 function parseExclusionsConfig(
     value: unknown,
 ): SlotExclusionsConfig | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+    const field = "model_assignments.never_auto";
+    if (!isPlainObject(value)) {
+        return configProblem(field, expectedValue("an object", value));
     }
     const parsed: Partial<Record<ModelAssignmentId, readonly AssignmentAutoExclusion[]>> =
         {};
     for (const [assignment, list] of Object.entries(value)) {
-        if (!isModelSlotId(assignment) || !Array.isArray(list)) {
-            return undefined;
+        if (!isModelSlotId(assignment)) {
+            return configProblem(
+                `${field}.${assignment}`,
+                `is not a slot; expected ${MODEL_ASSIGNMENT_IDS.join(", ")}`,
+            );
+        }
+        if (!Array.isArray(list)) {
+            return configProblem(
+                `${field}.${assignment}`,
+                expectedValue("a list of rules", list),
+            );
         }
         const rules: AssignmentAutoExclusion[] = [];
-        for (const rule of list) {
-            if (
-                typeof rule !== "object" || rule === null || Array.isArray(rule)
-            ) {
-                return undefined;
+        for (const [index, rule] of list.entries()) {
+            const ruleField = `${field}.${assignment}[${index}]`;
+            if (!isPlainObject(rule)) {
+                return configProblem(ruleField, expectedValue("an object", rule));
             }
             const { provider, model } = rule as Record<string, unknown>;
-            if (
-                (provider !== undefined && typeof provider !== "string")
-                || (model !== undefined && typeof model !== "string")
-                || (provider === undefined && model === undefined)
-            ) {
-                return undefined;
+            if (provider !== undefined && typeof provider !== "string") {
+                return configProblem(ruleField, keyValue("provider", "a string", provider));
+            }
+            if (model !== undefined && typeof model !== "string") {
+                return configProblem(ruleField, keyValue("model", "a string", model));
+            }
+            if (provider === undefined && model === undefined) {
+                return configProblem(ruleField, "set provider, model or both");
             }
             rules.push({
                 ...(provider === undefined ? {} : { provider }),
