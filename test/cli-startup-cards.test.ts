@@ -11,7 +11,7 @@ import type { CardPresenter } from "../clients/cli/startup-prompt.ts";
 import { withoutAnswerHint } from "../clients/cli/startup-confirm.ts";
 import { HostBootLoopError } from "../clients/host/boot-failures.ts";
 import { loadOptionalVeraConfig, VeraConfigError } from "../src/config.ts";
-import { HostHomeUnusableError, HostSocketPathTooLongError } from "../src/host/startup-failure.ts";
+import { HostHomeUnusableError, HostSocketPathTooLongError, homeSocketPathLimit, socketPlatformName } from "../src/host/startup-failure.ts";
 
 let home: string;
 let previousHome: string | undefined;
@@ -132,30 +132,26 @@ test("a config whose first failure is the whole file asks to move it aside", asy
     expect(existsSync(join(home, "config.json"))).toBe(false);
 });
 
-test("the long home card names the socket path, the limit and a shorter home", () => {
-    const socket = "/tmp/vera-dev/a-deliberately-long-home-folder-name-used-to-overflow-the-unix-socket-limit/runtime/host.sock";
-    const limit = process.platform === "darwin" ? "103" : "107";
-    const card = failureCard(new HostSocketPathTooLongError(socket, 112, "/tmp/vera"))!;
+test("the long home card names the home, its length and a shorter home", () => {
+    const home = "/tmp/vera-dev/a-deliberately-long-home-folder-name-used-to-overflow-the-unix-socket-limit";
+    const card = failureCard(new HostSocketPathTooLongError(`${home}/runtime/host.sock`, home, "/tmp/vera"))!;
     const text = renderStartupCard(card, { columns: 64, color: "none" });
     expect(text).toBe([
         "                           V  E  R  A",
         "╭──────────────────────────────────────────────────────────────╮",
         "│ ✗ Vera can't start                                           │",
         "│                                                              │",
-        "│   reason  the host socket path is 112 bytes and the limit is │",
-        `│           ${limit}                                                │`,
-        "│   socket  /tmp/vera-dev/                                     │",
+        "│   home    /tmp/vera-dev/                                     │",
         "│           a-deliberately-long-home-folder-name-used-to-      │",
-        "│           overflow-the-unix-socket-limit/runtime/host.sock   │",
+        "│           overflow-the-unix-socket-limit                     │",
+        `│   reason  the path is ${Buffer.byteLength(home)} characters; on ${socketPlatformName()} a home can be  │`,
+        `│           at most ${homeSocketPathLimit()}                                         │`,
         "│                                                              │",
-        "│   Start Vera from a shorter home, for example:               │",
+        "│   Start Vera with a shorter home, for example:               │",
         "│                                                              │",
         "│     VERA_HOME=/tmp/vera vera                                 │",
         "│                                                              │",
-        "│   That home has its own config and sessions; the files in    │",
-        "│   /tmp/vera-dev/                                             │",
-        "│   a-deliberately-long-home-folder-name-used-to-overflow-the- │",
-        "│   unix-socket-limit stay where they are.                     │",
+        "│   Nothing in this home was moved or deleted.                 │",
         "╰──────────────────────────────────────────────────────────────╯",
         "",
     ].join("\n"));

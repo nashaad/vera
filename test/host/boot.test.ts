@@ -135,7 +135,7 @@ test("a home on a Windows drive fails its check", async () => {
 });
 
 test("a start blocker is reported as it is, without a repair, a restart or a stash offer", async () => {
-    const blocker = new Error("Vera cannot start: the host socket path is 120 bytes and the limit is 103.\nStart Vera from a shorter home.");
+    const blocker = new Error("Vera's home path is too long.\nOn macOS a Vera home path can be at most 85 characters, and this one is 120.");
     const { deps, calls, rendered } = harness(
         { ...clean, orphans: 2, startBlocker: { label: "Host socket path", error: blocker } },
         [host(1)],
@@ -147,7 +147,7 @@ test("a start blocker is reported as it is, without a repair, a restart or a sta
     expect(failed).toEqual({
         label: "Host socket path",
         status: "failed",
-        detail: "Vera cannot start: the host socket path is 120 bytes and the limit is 103.",
+        detail: "Vera's home path is too long.",
     });
 });
 

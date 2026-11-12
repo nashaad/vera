@@ -21,19 +21,41 @@ const SOCKET_FILE = "host.sock";
 const FAILURE_FILE = "host-startup-failure.json";
 const FALLBACK_HOME = "/tmp/vera";
 
+// The longest home whose socket fits: the socket limit less the `/runtime/host.sock` tail.
+export function homeSocketPathLimit(): number {
+    return UNIX_SOCKET_PATH_LIMIT - 1 - Buffer.byteLength(hostSocketPath("/"));
+}
+
+export function socketPlatformName(platform: NodeJS.Platform = process.platform): string {
+    if (platform === "darwin") return "macOS";
+    if (platform === "linux") return "Linux";
+    return "this system";
+}
+
 export class HostSocketPathTooLongError extends Error {
+    readonly homeLength: number;
+    readonly homeLimit: number;
+    readonly platform: string;
+
     constructor(
         readonly socketPath: string,
-        readonly length: number,
+        readonly home: string,
         readonly suggestedHome: string,
     ) {
+        const homeLimit = homeSocketPathLimit();
+        const homeLength = Buffer.byteLength(home);
+        const platform = socketPlatformName();
         super(
-            `Vera cannot start: the host socket path is ${length} bytes and the limit is ${UNIX_SOCKET_PATH_LIMIT - 1}.\n`
-                + `The path is ${socketPath}.\n`
-                + `Start Vera from a shorter home, for example: ${VERA_HOME_ENV}=${suggestedHome} vera\n`
-                + `That home has its own config and sessions; the files in ${dirname(dirname(socketPath))} stay where they are.`,
+            `Vera's home path is too long.\n`
+                + `Home: ${home}\n`
+                + `On ${platform} a Vera home path can be at most ${homeLimit} characters, and this one is ${homeLength}.\n`
+                + `Start Vera with a shorter home, for example: ${VERA_HOME_ENV}=${suggestedHome} vera\n`
+                + `Nothing in this home was moved or deleted.`,
         );
         this.name = "HostSocketPathTooLongError";
+        this.homeLength = homeLength;
+        this.homeLimit = homeLimit;
+        this.platform = platform;
     }
 }
 
@@ -75,7 +97,7 @@ export function hostSocketPathProblem(
     const socketPath = hostSocketPath(home);
     const length = Buffer.byteLength(socketPath);
     if (length < UNIX_SOCKET_PATH_LIMIT) return undefined;
-    return new HostSocketPathTooLongError(socketPath, length, suggestedHome(home));
+    return new HostSocketPathTooLongError(socketPath, home, suggestedHome(home));
 }
 
 // A home or runtime folder that is really a file stops every start with a bare ENOTDIR.

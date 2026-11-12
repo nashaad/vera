@@ -189,19 +189,22 @@ It does what yes does, without asking, for each failure in turn. When
 whether it loads. Only the home's `config.json` is set aside. A failure in a
 project's `.vera/config.json` names that file for you to edit.
 
-### The host socket path is too long
+### The home path is too long
 
 A Unix socket path holds at most 103 bytes on macOS and 107 on Linux. Vera's
-socket is `runtime/host.sock` under the home, so on macOS a home path longer
-than 85 bytes cannot start a host. Vera stops at once and says so:
+socket is `runtime/host.sock` under the home, so a home path can be at most 85
+characters on macOS and 89 on Linux; a longer home cannot start a host. Vera
+stops at once and says so:
 
 ```text
-Vera cannot start: the host socket path is 120 bytes and the limit is 103.
-The path is <home>/runtime/host.sock.
-Start Vera from a shorter home, for example: VERA_HOME=/tmp/vera vera
+Vera's home path is too long.
+Home: <home>
+On macOS a Vera home path can be at most 85 characters, and this one is 120.
+Start Vera with a shorter home, for example: VERA_HOME=/tmp/vera vera
+Nothing in this home was moved or deleted.
 ```
 
-In a terminal the same text is a card with `reason` and `socket` rows and the
+In a terminal the same text is a card with `home` and `reason` rows and the
 `VERA_HOME=` line on its own line to copy.
 
 The shorter home is the default `~/.vera` when its socket fits and is not the

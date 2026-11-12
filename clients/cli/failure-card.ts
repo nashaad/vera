@@ -1,5 +1,3 @@
-import { dirname } from "node:path";
-
 import { VeraConfigError } from "../../src/config.ts";
 import { BootFailedError } from "../../src/host/boot.ts";
 import {
@@ -11,7 +9,6 @@ import {
 import {
     HostHomeUnusableError,
     HostSocketPathTooLongError,
-    UNIX_SOCKET_PATH_LIMIT,
 } from "../../src/host/startup-failure.ts";
 import { VERA_HOME_ENV, VeraProfileError } from "../../src/profile-paths.ts";
 import { RetainedReleaseMissingError } from "../../src/release/dispatch-error.ts";
@@ -34,19 +31,19 @@ export function failureCard(error: unknown): StartupCard | undefined {
             kind: "error",
             title: TITLE,
             rows: [
+                { label: "home", value: error.home },
                 {
                     label: "reason",
-                    value: `the host socket path is ${error.length} bytes and the limit is ${UNIX_SOCKET_PATH_LIMIT - 1}`,
+                    value: `the path is ${error.homeLength} characters; on ${error.platform}`
+                        + ` a home can be at most ${error.homeLimit}`,
                 },
-                { label: "socket", value: error.socketPath },
             ],
             body: [
-                "Start Vera from a shorter home, for example:",
+                "Start Vera with a shorter home, for example:",
                 "",
                 { command: `${VERA_HOME_ENV}=${error.suggestedHome} vera` },
                 "",
-                "That home has its own config and sessions; the files in"
-                    + ` ${dirname(dirname(error.socketPath))} stay where they are.`,
+                "Nothing in this home was moved or deleted.",
             ],
         };
     }

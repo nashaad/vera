@@ -10,6 +10,7 @@ import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import {
     clearHostStartupFailure,
     homeCommandPrefix,
+    homeSocketPathLimit,
     HostHomeUnusableError,
     hostHomeProblem,
     HostSocketPathTooLongError,
@@ -17,6 +18,7 @@ import {
     hostSocketPathProblem,
     readHostStartupFailure,
     recordHostStartupFailure,
+    socketPlatformName,
     UNIX_SOCKET_PATH_LIMIT,
 } from "../../src/host/startup-failure.ts";
 
@@ -48,16 +50,23 @@ test("a socket path under the limit raises no problem and one at the limit names
     const atLimit = homeWithSocketOf(UNIX_SOCKET_PATH_LIMIT);
     const problem = hostSocketPathProblem(atLimit);
     expect(problem).toBeInstanceOf(HostSocketPathTooLongError);
-    expect(problem?.length).toBe(UNIX_SOCKET_PATH_LIMIT);
+    expect(problem?.homeLength).toBe(Buffer.byteLength(atLimit));
+    expect(problem?.homeLimit).toBe(homeSocketPathLimit());
 });
 
-test("a long home is refused with the length, the limit and a shorter VERA_HOME to use, and no stash", () => {
+test("a long home is refused with the home, its length, the limit and a shorter VERA_HOME to use, and no stash", () => {
     const home = homeWithSocketOf(130);
     const problem = hostSocketPathProblem(home)!;
-    expect(problem.message).toContain(`the host socket path is 130 bytes and the limit is ${UNIX_SOCKET_PATH_LIMIT - 1}`);
-    expect(problem.message).toContain(hostSocketPath(home));
+    expect(problem.message).toBe([
+        "Vera's home path is too long.",
+        `Home: ${home}`,
+        `On ${socketPlatformName()} a Vera home path can be at most ${homeSocketPathLimit()} characters,`
+            + ` and this one is ${Buffer.byteLength(home)}.`,
+        `Start Vera with a shorter home, for example: VERA_HOME=${problem.suggestedHome} vera`,
+        "Nothing in this home was moved or deleted.",
+    ].join("\n"));
     expect(problem.message).toMatch(/for example: VERA_HOME=\S+ vera\n/);
-    expect(problem.message).toContain(`the files in ${home} stay where they are`);
+    expect(problem.message).not.toContain("socket");
     expect(problem.message.toLowerCase()).not.toContain("stash");
     expect(Buffer.byteLength(hostSocketPath(problem.suggestedHome))).toBeLessThan(UNIX_SOCKET_PATH_LIMIT);
     expect(problem.suggestedHome).not.toBe(home);
