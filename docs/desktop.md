@@ -449,9 +449,11 @@ says where to change them: the window reads both only through a session's pill.
 
 ## Models
 
-The model pill at the right of the composer's bar shows the provider and the
-model the session runs; on New Chat, the model the new session will start
-with. It opens a menu:
+The model pill at the right of the composer's bar shows the model the session
+runs; on New Chat, the model the new session will start with. The pill drops
+the vendor prefix a provider puts on a model's name, so OpenRouter's "OpenAI:
+GPT-5.6 Luna" reads "GPT-5.6 Luna"; a name you gave the model shows as you
+wrote it. The tooltip has the full name and the provider. It opens a menu:
 
 - A search box at the top. Typing filters the shortlist and adds the matching
   models that are not on it, each with a pin button that adds it to the

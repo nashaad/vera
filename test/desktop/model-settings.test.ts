@@ -10,6 +10,7 @@ import {
     formatListed,
     modelName,
     onShortlist,
+    shortModelName,
 } from "../../clients/ui/src/models/catalog.ts";
 import { effortCommand, getModelSettingsCommand, switchModelCommand } from "../../clients/ui/src/models/commands.ts";
 import { parseModelSettings } from "../../clients/ui/src/models/settings.ts";
@@ -54,6 +55,27 @@ describe("model settings", () => {
         expect(settings.subagentDefault).toEqual({ mode: "fixed", choice: { provider: "glm", model: "big" } });
         expect(settings.providers).toEqual([{ id: "deepseek", label: "DeepSeek", refreshedAt: "2026-11-12T00:00:00Z" }]);
         expect(parseModelSettings({ provider: "x" })).toBeUndefined();
+    });
+
+    test("the pill name drops a vendor prefix but keeps a name the person gave", () => {
+        const settings = parseModelSettings({
+            provider: "openrouter",
+            model: "openai/gpt-5.6-luna",
+            pooled: [
+                { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna", available: true, levels: [] },
+                { provider: "openrouter", model: "z-ai/glm-4.6", label: "Z.AI: GLM 4.6", displayName: "Crow: night shift", available: true, levels: [] },
+            ],
+            availableModels: [
+                { provider: "deepseek", model: "flash", label: "Flash", levels: [] },
+                { provider: "openrouter", model: "odd", label: "Odd:", levels: [] },
+            ],
+        })!;
+        expect(shortModelName(settings, { provider: "openrouter", model: "openai/gpt-5.6-luna" })).toBe("GPT-5.6 Luna");
+        expect(modelName(settings, { provider: "openrouter", model: "openai/gpt-5.6-luna" })).toBe("OpenAI: GPT-5.6 Luna");
+        expect(shortModelName(settings, { provider: "openrouter", model: "z-ai/glm-4.6" })).toBe("Crow: night shift");
+        expect(shortModelName(settings, { provider: "deepseek", model: "flash" })).toBe("Flash");
+        expect(shortModelName(settings, { provider: "openrouter", model: "odd" })).toBe("Odd:");
+        expect(shortModelName(settings, { provider: "openrouter", model: "unlisted" })).toBe("unlisted");
     });
 
     test("finds the shortlist copy first and merges both lists", () => {

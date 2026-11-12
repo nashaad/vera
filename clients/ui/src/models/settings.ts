@@ -18,6 +18,9 @@ export interface ModelEntry {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    // The label without a "Vendor: " prefix, such as OpenRouter's "OpenAI: GPT-5.6 Luna". Set only
+    // when it differs; a name the person gave the model is never shortened.
+    readonly shortLabel?: string;
     readonly description?: string;
     readonly contextWindow?: number;
     readonly pricing?: Pricing;
@@ -143,7 +146,9 @@ function parseEntry(raw: unknown, pooled: boolean): ModelEntry | undefined {
     const provider = str(raw.provider);
     const model = str(raw.model);
     if (provider === undefined || model === undefined) return undefined;
-    const label = (pooled ? str(raw.displayName) : undefined) ?? str(raw.label) ?? model;
+    const named = pooled ? str(raw.displayName) : undefined;
+    const label = named ?? str(raw.label) ?? model;
+    const shortLabel = named === undefined ? withoutVendor(label) : undefined;
     const description = str(raw.description);
     const contextWindow = num(raw.contextWindow);
     const pricing = parsePricing(raw.pricing);
@@ -154,6 +159,7 @@ function parseEntry(raw: unknown, pooled: boolean): ModelEntry | undefined {
         provider,
         model,
         label,
+        ...(shortLabel === undefined ? {} : { shortLabel }),
         ...(description === undefined ? {} : { description }),
         ...(contextWindow === undefined ? {} : { contextWindow }),
         ...(pricing === undefined ? {} : { pricing }),
@@ -242,6 +248,13 @@ function parseProviders(value: unknown): readonly ProviderCatalog[] | undefined 
 
 function strings(value: unknown): readonly string[] {
     return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : [];
+}
+
+const VENDOR_PREFIX = /^[A-Za-z0-9][\w .&'-]{0,30}:\s+(?=\S)/;
+
+function withoutVendor(label: string): string | undefined {
+    const short = label.replace(VENDOR_PREFIX, "");
+    return short === label ? undefined : short;
 }
 
 function str(value: unknown): string | undefined {

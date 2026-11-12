@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { ChevronDownIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
-import { modelName } from "./catalog.ts";
+import { modelName, shortModelName } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
 import { ModelMenu } from "./ModelMenu.tsx";
 import { providerLabel } from "./menuRows.ts";
@@ -22,9 +22,10 @@ export function ModelPill({ controls, onBrowse }: ModelPillProps) {
     const placed = usePopoverPlacement(open, root);
 
     const { settings, choice } = controls;
-    const name = settings === undefined || choice === undefined ? "Model" : modelName(settings, choice);
+    const name = settings === undefined || choice === undefined ? "Model" : shortModelName(settings, choice);
+    const fullName = settings === undefined || choice === undefined ? name : modelName(settings, choice);
     const provider = settings === undefined || choice?.provider === undefined ? undefined : providerLabel(settings, choice.provider);
-    const title = provider === undefined ? "Choose a model" : `${name}, via ${provider}`;
+    const title = provider === undefined ? "Choose a model" : `${fullName}, via ${provider}`;
 
     return (
         <div className="model-picker" ref={root}>
@@ -37,7 +38,6 @@ export function ModelPill({ controls, onBrowse }: ModelPillProps) {
                 disabled={!controls.enabled}
                 onClick={() => setOpen(!open)}
             >
-                {provider === undefined ? null : <span className="pill-sub model-provider">{provider}</span>}
                 <span className="pill-label">{name}</span>
                 {controls.note === undefined ? null : <span className="pill-sub">{controls.note}</span>}
                 <ChevronDownIcon className="pill-chevron" />

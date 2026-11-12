@@ -36,6 +36,12 @@ export function modelName(settings: ModelSettings, ref: ModelRef): string {
     return findModel(settings, ref)?.label ?? ref.model;
 }
 
+// The composer pill's name: the model without its vendor prefix.
+export function shortModelName(settings: ModelSettings, ref: ModelRef): string {
+    const entry = findModel(settings, ref);
+    return entry?.shortLabel ?? entry?.label ?? ref.model;
+}
+
 // Every model either list holds, shortlist first, one row per provider and model.
 export function allModels(settings: ModelSettings): readonly ModelEntry[] {
     const rows = [...settings.shortlist];
