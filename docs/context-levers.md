@@ -81,6 +81,28 @@ ephemeral session fires nothing, and a level runs no action, so the model
 request is unchanged. [Hooks](hooks.md#register-from-an-extension) shows how to
 receive it.
 
+A command hook can keep a log of each crossing. With this in `config.json`:
+
+```json
+{
+  "context_size_events": [0.5, 0.7, 0.9],
+  "hooks": [{ "phase": "context_size_trigger", "argv": ["crows-nest"] }]
+}
+```
+
+and this executable at `hooks/crows-nest` in the Vera home:
+
+```sh
+#!/bin/sh
+cat >> /tmp/crows-nest.log
+echo >> /tmp/crows-nest.log
+```
+
+each crossing appends one JSON line with the session ID, `reason`, `level`,
+`tokens` and `capacity`. The same hook also hears trims, stubs and automatic
+compactions, with `reason: "pressure"`. Restart the resident host after adding
+the hook, as [Add a hook](hooks.md#add-a-hook) explains.
+
 ## When compaction cannot run
 
 Vera retries retryable summary model failures before reporting that the summary
