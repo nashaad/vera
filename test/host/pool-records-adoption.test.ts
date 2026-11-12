@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import { inspectWorkerRecords } from "../../src/host/pool/worker-record.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
+import { checkoutPackRoot, releaseManifestPath } from "../../src/release/layout.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
 interface PoolInfo {
@@ -65,6 +66,13 @@ socketTest("startup rejects a session process record without a host pid", async 
     }
 });
 
+// A development instance runs this checkout's packed worker when there is one, and that reports the pack's build.
+function oldWorkerBuild(): string {
+    const manifest = releaseManifestPath(checkoutPackRoot());
+    if (!existsSync(manifest)) return "old-record-build";
+    return (JSON.parse(readFileSync(manifest, "utf8")) as { build_id: string }).build_id;
+}
+
 socketTest("startup replaces a verified worker from another build and a dead record", async () => {
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
     const home = await mkdtemp(join(tmpdir(), "vera-dev", "h8b-records-"));
@@ -103,7 +111,7 @@ socketTest("startup replaces a verified worker from another build and a dead rec
         if (!existsSync(join(home, "ready.json"))) throw new Error(`Pool host failed: ${await stderr}`);
         info = JSON.parse(await readFile(join(home, "ready.json"), "utf8")) as PoolInfo;
         for (const pid of [...info.workers, ...(info.annexPid === undefined ? [] : [info.annexPid])]) remember(pid);
-        expect((await requestHostIdentity(inProcessWorkerSocket(home, 0)))?.build_id).toBe("old-record-build");
+        expect((await requestHostIdentity(inProcessWorkerSocket(home, 0)))?.build_id).toBe(oldWorkerBuild());
         child.kill("SIGKILL");
         await child.exited;
         signal(info.workers[1]!);

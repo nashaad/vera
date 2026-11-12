@@ -32,6 +32,7 @@ import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
 import { VERA_PRODUCT_VERSION } from "../src/release/manifest.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
+import { checkoutPackRoot, releaseManifestPath } from "../src/release/layout.ts";
 
 test("--help and version are available without starting a client", async () => {
     let output = "";
@@ -238,7 +239,8 @@ test("the package bin runs help from outside the checkout", () => {
     }
 });
 
-test("vera --version in a development instance without a pack prints the launch build id", () => {
+// The checkout root comes from the source location, so a checkout with a pack cannot hide it.
+test.skipIf(existsSync(releaseManifestPath(checkoutPackRoot())))("vera --version in a development instance without a pack prints the launch build id", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-cli-dev-version-"));
     try {
         const version = Bun.spawnSync(

@@ -108,7 +108,7 @@ function requiredApiKey(
     if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
     throw new UserFacingError(
         `No credentials for provider ${provider.id}. Connect it from the model pane (ctrl+e)${
-            envVar === undefined ? "" : ` or set ${envVar}`
+            envVar === undefined ? "" : ` or add ${envVar} to the host env file`
         }.`,
     );
 }

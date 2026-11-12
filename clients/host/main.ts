@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isCompiledRelease } from "../../src/release/runtime-path.ts";
 
@@ -14,6 +15,7 @@ import {
     HOST_STARTUP_RACE_EXIT_CODE,
 } from "../../src/host/lockfile.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { selectedVeraHome, VERA_HOME_ENV } from "../../src/profile-paths.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { waitForCheckoutRemoval } from "./checkout-watch.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
@@ -57,6 +59,10 @@ export async function runHostEntrypoint(): Promise<void> {
         recordHostStartupFailure(renderCliFailure(error));
         throw error;
     }
+    // A launching client's folder can be a worktree deleted later, and then every spawn fails with ENOENT.
+    const home = resolve(selectedVeraHome());
+    if (process.env[VERA_HOME_ENV] !== undefined) process.env[VERA_HOME_ENV] = home;
+    process.chdir(home);
 
     // --single-process is the launcher's fallback when the pooled host cannot start.
     const pool = config.host?.workers !== 0 && !process.argv.includes("--single-process");

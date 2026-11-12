@@ -51,6 +51,7 @@ import { controlSocketPath } from "../src/host/pool/supervisor.ts";
 import { inProcessWorkerSocket } from "../src/host/pool/in-process.ts";
 import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/pool/force-stop-pool.ts";
 import { HostStartupInProgressError } from "../src/host/startup-claim.ts";
+import { hostLaunchEnvironment } from "../src/host/host-environment.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
 import { clientLaunchHome, stopRecordedClient, trackClient, type DevClientProcessInfo } from "./dev-tui-client.ts";
 
@@ -189,7 +190,7 @@ export interface DevTuiDependencies extends EvictHomeOptions {
         env: NodeJS.ProcessEnv,
         cwd: string,
     ) => Promise<number>;
-    readonly startPoolHost?: (home: string, env: NodeJS.ProcessEnv, cwd: string, noDiscovery: boolean) => Promise<void>;
+    readonly startPoolHost?: (home: string, env: NodeJS.ProcessEnv, noDiscovery: boolean) => Promise<void>;
     readonly checkpointDaily?: (
         socketPath: string,
         destination: string,
@@ -378,7 +379,7 @@ export async function runDevTui(
     const env = candidateLaunchEnv(destinationHome, worktreeRoot, buildId);
     if (request.pool) {
         env.VERA_DEV_INSTANCE = `${basename(worktreeRoot)} dev`;
-        await (dependencies.startPoolHost ?? startPoolHost)(destinationHome, env, worktreeRoot, request.noDiscovery === true);
+        await (dependencies.startPoolHost ?? startPoolHost)(destinationHome, env, request.noDiscovery === true);
     }
     return await spawn(
         request.passthrough,
@@ -387,14 +388,17 @@ export async function runDevTui(
     );
 }
 
-async function startPoolHost(home: string, env: NodeJS.ProcessEnv, cwd: string, noDiscovery: boolean): Promise<void> {
+async function startPoolHost(home: string, env: NodeJS.ProcessEnv, noDiscovery: boolean): Promise<void> {
     const entry = fileURLToPath(new URL("../clients/host/main.ts", import.meta.url));
     const runtime = veraRuntimeDirectoryIn(home);
     mkdirSync(runtime, { recursive: true, mode: 0o700 });
     const logPath = join(runtime, "pool-start.log");
     const log = openSync(logPath, "w", 0o600);
     const child = spawn(process.execPath, [entry, "--pool", ...(noDiscovery ? ["--no-discovery"] : [])], {
-        cwd, env, detached: true, stdio: ["ignore", log, log],
+        cwd: home,
+        env: hostLaunchEnvironment(home, { source: env }),
+        detached: true,
+        stdio: ["ignore", log, log],
     });
     closeSync(log);
     const exited = new Promise<number | null>((resolve) => child.once("close", resolve));

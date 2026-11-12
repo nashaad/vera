@@ -15,7 +15,7 @@ export function forgetProviderConnection(providerId: string, authStorage: AuthSt
     const config = loadOptionalVeraConfig(configOptions);
     const provider = findConfiguredProvider(providerId, config);
     if (provider === undefined) throw new Error("Provider is no longer configured");
-    if (provider.envVar && process.env[provider.envVar]) throw new Error(`Unset ${provider.envVar} in the host environment to disconnect this provider`);
+    if (provider.envVar && process.env[provider.envVar]) throw new Error(`Remove ${provider.envVar} from the host env file (machine/env in the Vera home) and restart the host to disconnect this provider`);
     for (const slot of config === undefined ? [] : configuredModelAssignments(config)) {
         if (slot.declared.some((model) => model.provider === providerId)) {
             updateVeraConfigDefaults({ model_assignment: { assignment: slot.assignment, binding: null } }, configOptions);

@@ -1,6 +1,7 @@
 import { existsSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export function userHome(): string {
     const home = process.env.HOME;
@@ -115,15 +116,20 @@ export function releaseBinaryPath(
     return join(releaseRoot, name);
 }
 
-// The checkout pack is the one `bun run pack:release` writes under the working directory.
-export function checkoutPackRoot(checkoutRoot = process.cwd()): string {
+// From this file, not the working directory: a resident host runs from its Vera home.
+export function sourceCheckoutRoot(): string {
+    return fileURLToPath(new URL("../../", import.meta.url));
+}
+
+// The checkout pack is the one `bun run pack:release` writes in the checkout.
+export function checkoutPackRoot(checkoutRoot = sourceCheckoutRoot()): string {
     return join(checkoutRoot, "dist", "release");
 }
 
 export function thisProcessReleaseRoot(
     prefix = defaultInstallPrefix(),
     execPath = process.execPath,
-    checkoutRoot = process.cwd(),
+    checkoutRoot = sourceCheckoutRoot(),
 ): string {
     const candidate = dirname(execPath);
     if (existsSync(releaseManifestPath(candidate))) {
@@ -143,7 +149,7 @@ export function thisProcessReleaseRoot(
 export function childReleaseRoot(
     prefix = defaultInstallPrefix(),
     execPath = process.execPath,
-    checkoutRoot = process.cwd(),
+    checkoutRoot = sourceCheckoutRoot(),
 ): string | undefined {
     const root = thisProcessReleaseRoot(prefix, execPath, checkoutRoot);
     if (!process.env.VERA_DEV_INSTANCE) return root;

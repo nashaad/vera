@@ -31,7 +31,7 @@ Closing a client does not necessarily stop its conversation. Reconnecting change
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 Manual: `docs/how-vera-works.md`.
 
-## Start, development, and upgrades [lines=24]
+## Start, development, and upgrades [lines=25]
 Run `vera` for the installed daily Vera using `~/.vera`.
 To install without a checkout or Bun, run the GitHub release's `install.sh`, which downloads the file for your platform and puts `vera` in `~/.local/bin`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host and the recorded TUI client, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted, and any host stops itself once its socket file is gone, for example when its home is deleted.
@@ -40,7 +40,8 @@ Unless `host.workers` is `0`, the host replaces a failed session process and an 
 Unless `host.workers` is `0`, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.
 An interrupted inbox, schedule, or watch wake stays unread and appears when you next attach.
 A later entry can wake the conversation normally.
-A development instance stores no provider credentials and copies none from `~/.vera`; its host uses the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model. Manual: `docs/runtime-and-worktrees.md`.
+A resident host runs from its Vera home folder, not the folder a client was started in, and its environment is `machine/env` in the home, not the launching shell; the first start writes that file from the shell, and later changes need an edit and a host restart. Manual: `docs/runtime-and-worktrees.md`.
+A development instance stores no provider credentials and copies none from `~/.vera`; its first launch copies the provider keys exported in the shell that starts `bun run dev:tui`, such as `OPENROUTER_API_KEY` for the factory model, into its own `machine/env`. Manual: `docs/runtime-and-worktrees.md`.
 `vera host stop` waits for running turns to end before it stops the host, and `vera host stop --force` stops it now.
 `vera host reset` stops this home's Vera processes, including a host that `vera host stop` cannot reach, after backing up its runtime records; `docs/runtime-and-worktrees.md` says when to use it.
 Before any client starts, `vera` checks its home and repairs a stale lock, leftover processes or a failing release so a host can start, and `vera boot` runs that check on demand, with `--json` for a graphical client; a `config.json` Vera refuses, or a home path too long for the host socket, is reported with its cause and the way out instead, and Vera offers to set a refused config entry aside after saving a backup; `docs/runtime-and-worktrees.md` lists the steps and `docs/troubleshooting.md` the way out.

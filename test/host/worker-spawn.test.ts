@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { RELEASE_SUPERVISOR_NAME } from "../../src/release/layout.ts";
+import { childReleaseRoot, RELEASE_SUPERVISOR_NAME } from "../../src/release/layout.ts";
 import {
     residentSupervisorEntrypoint,
     residentSupervisorSpawnCommand,
@@ -14,10 +14,9 @@ import {
 } from "../../src/host/worker/handle.ts";
 
 async function withInstalledRelease(
-    body: (installed: string) => Promise<void>,
+    body: (installed: string, releaseRoot: () => string | undefined) => Promise<void>,
 ): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), "vera-spawn-fallback-"));
-    const cwd = process.cwd();
     const previousHome = process.env.HOME;
     const previousDev = process.env.VERA_DEV_INSTANCE;
     try {
@@ -27,11 +26,10 @@ async function withInstalledRelease(
         await writeFile(join(installed, "worker"), "#!/bin/sh\n");
         await writeFile(join(installed, RELEASE_SUPERVISOR_NAME), "#!/bin/sh\n");
         process.env.HOME = root;
-        process.chdir(root);
         process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
-        await body(installed);
+        // A checkout with no pack, so the installed release is the only packed one.
+        await body(installed, () => childReleaseRoot(undefined, undefined, root));
     } finally {
-        process.chdir(cwd);
         if (previousHome === undefined) delete process.env.HOME;
         else process.env.HOME = previousHome;
         if (previousDev === undefined) delete process.env.VERA_DEV_INSTANCE;
@@ -41,24 +39,24 @@ async function withInstalledRelease(
 }
 
 test("a development instance runs the source worker, not the installed one", async () => {
-    await withInstalledRelease(async (installed) => {
-        expect(residentWorkerSpawnCommand()).toEqual([
-            process.execPath,
-            residentWorkerEntrypoint(),
-        ]);
+    await withInstalledRelease(async (installed, releaseRoot) => {
+        expect(releaseRoot()).toBeUndefined();
         delete process.env.VERA_DEV_INSTANCE;
-        expect(residentWorkerSpawnCommand()).toEqual([join(installed, "worker")]);
+        expect(releaseRoot()).toBe(installed);
+        expect(residentWorkerSpawnCommand(installed)).toEqual([join(installed, "worker")]);
     });
 });
 
 test("a development instance runs the source supervisor, not the installed one", async () => {
-    await withInstalledRelease(async (installed) => {
-        expect(residentSupervisorSpawnCommand()).toEqual([
+    await withInstalledRelease(async (installed, releaseRoot) => {
+        expect(releaseRoot()).toBeUndefined();
+        expect(residentSupervisorSpawnCommand(join(installed, "no-pack"))).toEqual([
             process.execPath,
             residentSupervisorEntrypoint(),
         ]);
         delete process.env.VERA_DEV_INSTANCE;
-        expect(residentSupervisorSpawnCommand()).toEqual([
+        expect(releaseRoot()).toBe(installed);
+        expect(residentSupervisorSpawnCommand(installed)).toEqual([
             join(installed, RELEASE_SUPERVISOR_NAME),
         ]);
     });

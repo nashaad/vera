@@ -61,14 +61,24 @@ uses the installed annex or its page.
 ### Provider keys
 
 A new instance has no stored provider credentials and copies none from
-`~/.vera`. Its host reads the provider keys exported in the shell that runs
-`bun run dev:tui`. The factory configuration uses OpenRouter, so an exported
-`OPENROUTER_API_KEY` is enough to start a conversation. For another provider,
-export its key, such as `DEEPSEEK_API_KEY`, or connect it from the model pane
-inside the instance; a key entered there is stored in the instance home.
+`~/.vera`. Its first launch writes the instance's `machine/env` from the shell
+that runs `bun run dev:tui`, including every exported `*_API_KEY`. The factory
+configuration uses OpenRouter, so an exported `OPENROUTER_API_KEY` is enough to
+start a conversation.
 
-A running host keeps the environment it started with. After exporting a new
-key, run `bun run dev:tui --stop` and launch again.
+Later launches read that file as it is and never rewrite it, so a key exported
+after the first launch does not reach the instance. To add one, such as
+`DEEPSEEK_API_KEY`, either:
+
+- add it to `machine/env` under the home that `bun run dev:tui --status`
+  prints, then run `bun run dev:tui --stop` and launch again;
+- run `bun run dev:tui --fresh` from a shell that exports it, which recreates
+  the home, its conversations included, and writes a new file; or
+- connect it from the model pane inside the instance, which stores it in the
+  instance home.
+
+See
+[Where the host runs and what it sees](#where-the-host-runs-and-what-it-sees).
 
 ### Inspect or stop it
 
@@ -86,6 +96,40 @@ refresh the factory configuration.
 
 If the private home still has a host from an older build, the launcher replaces
 that host and reports the PID and builds. It does not replace the daily host.
+
+## Where the host runs and what it sees
+
+A resident host runs from its Vera home folder, whichever folder the client was
+started in. Deleting the folder you launched from does not affect the host.
+Conversations still work in their own project folders.
+
+The host does not inherit the launching shell's environment. It gets your
+user's `HOME`, `USER`, `LOGNAME`, `SHELL` and `TMPDIR`, then every line of
+`machine/env` in the home. The CLI, an upgrade, `bun run dev:tui` and the
+launchd service all start the host this way, so it sees the same variables
+however it was started.
+
+`machine/env` holds one `NAME=value` per line. Blank lines and lines starting
+with `#` are skipped. A value is literal: quotes, spaces and `=` are kept as
+written, and `$NAME` is not expanded. The file cannot set `VERA_HOME` or
+`VERA_DEV_INSTANCE`, which the launcher sets. A malformed line stops the host
+from starting, and the error names the file and line.
+
+```sh
+# ~/.vera/machine/env
+PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+OPENROUTER_API_KEY=sk-or-crowsnest
+AXIOM_TOKEN=xaat-parrot
+```
+
+Without a `PATH` line the host uses `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`.
+
+When the file is missing, the first host start creates it, readable only by
+you, from the launching shell. It copies `PATH`, `LANG`, every variable ending
+in `_API_KEY`, and every variable that an `{env:NAME}` reference in
+`config.json` or `extensions.json` names, when the shell has it set. After
+that the file is never rewritten. Edit it and restart the host to change what
+the host sees.
 
 ## Choose a cleanup command
 

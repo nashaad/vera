@@ -1,5 +1,6 @@
 import { VeraConfigError } from "../../src/config.ts";
 import { BootFailedError } from "../../src/host/boot.ts";
+import { HostEnvironmentFileError } from "../../src/host/host-environment.ts";
 import {
     HostBuildMismatchError,
     HostLockUnreadableError,
@@ -44,6 +45,21 @@ export function failureCard(error: unknown): StartupCard | undefined {
                 { command: `${VERA_HOME_ENV}=${error.suggestedHome} vera` },
                 "",
                 "Nothing in this home was moved or deleted.",
+            ],
+        };
+    }
+    if (error instanceof HostEnvironmentFileError) {
+        return {
+            kind: "error",
+            title: TITLE,
+            rows: [
+                { label: "file", value: error.path },
+                { label: "line", value: String(error.line) },
+                { label: "reason", value: error.reason },
+            ],
+            body: [
+                "The host starts with the variables in this file. Each line is NAME=value,"
+                    + " a # comment, or blank. Fix that line and start Vera again.",
             ],
         };
     }
