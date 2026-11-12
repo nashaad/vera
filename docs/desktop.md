@@ -616,6 +616,14 @@ node clients/desktop/test/pages.e2e.mjs
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
 
+`bun run desktop:tour` builds the app and walks it in a visible window against a
+throwaway home and a scripted provider. It saves one screenshot per step and a
+`sheet.png` of all of them in a new folder under the system temp directory, and
+it stops the host it started. `--pace <ms>` sets the pause between actions
+(default 700), `--keep-open` leaves the window open until it is closed,
+`--out <dir>` picks the output folder, and `--real` uses the factory model config
+instead of the scripted provider, which needs `OPENROUTER_API_KEY`.
+
 The attach test launches Electron against a throwaway home. It checks the
 sidebar footer and its tooltip, the session count, that there are no theme
 buttons in the window, that the

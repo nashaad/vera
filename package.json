@@ -21,6 +21,7 @@
     "dev:tui": "bun run scripts/dev-tui.ts",
     "dev:desktop": "bun run scripts/dev-desktop.ts",
     "desktop:build": "bun run clients/desktop/build.ts",
+    "desktop:tour": "bun run desktop:build && node clients/desktop/tour/tour.mjs",
     "typecheck:desktop": "tsc --noEmit -p clients/desktop/tsconfig.json",
     "dev:load": "bun dev/load/run.ts",
     "factory:home": "bun run scripts/synthesize-factory-home.ts",
