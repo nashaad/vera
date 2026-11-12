@@ -200,3 +200,48 @@ config extensions, so it sends nothing. Restart the host after adding or
 changing the entry: Ctrl+P, then Reconnect host. The restarted host must see
 the token's environment variable, or the extension does not load. The
 example's README lists the events it sends and some Axiom queries.
+
+#### Set up Telemetry
+
+This sends model calls to an Axiom dataset named `crow-nest`. Create the
+dataset and an API token that can only ingest into it, then export the token
+in the shell that starts Vera:
+
+```sh
+export AXIOM_TOKEN=xaat-...
+```
+
+Add an entry to `extensions` in the home's `config.json`, with `path` set to
+your checkout:
+
+```json
+{
+  "extensions": [
+    {
+      "path": "/Users/blackfeather/vera/examples/extensions/telemetry",
+      "config": {
+        "developer": "blackfeather",
+        "sink": {
+          "type": "axiom",
+          "dataset": "crow-nest",
+          "token": "{env:AXIOM_TOKEN}"
+        }
+      }
+    }
+  ]
+}
+```
+
+`developer` is a label on every event, so rows from several people sending to
+one dataset can be told apart. Leave `token` as the reference; the host reads
+the variable when it loads the extension. Press Ctrl+P, choose Reconnect host,
+then check that it loaded:
+
+```sh
+grep '"example.telemetry"' ~/.vera/runtime/logs/host.jsonl | tail -1
+```
+
+The last line shows `"outcome":"loaded"`. Send a message, and its model calls
+reach the dataset within `flush_seconds` (10 by default). To try it without an
+Axiom account, use `"sink": { "type": "jsonl" }` instead; events are appended
+to `events.jsonl` in the extension's profile directory.
