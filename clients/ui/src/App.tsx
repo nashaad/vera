@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
+import { ExtensionSystemContext, useDesktopExtensions } from "./extensions/useDesktopExtensions.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
@@ -22,6 +23,7 @@ export function App() {
     const [log] = useState(() => new OutputLog());
     const { state, reconnect, answer } = useHostConnection(log);
     const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout();
+    const extensions = useDesktopExtensions(commands);
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
     const environment = useMemo(() => ({ connection: state, log }), [state, log]);
@@ -32,6 +34,7 @@ export function App() {
         <WorkbenchProvider layout={layout} dispatch={dispatch} run={run}>
             <RouterProvider commands={commands}>
             <ViewEnvContext.Provider value={environment}>
+            <ExtensionSystemContext.Provider value={extensions}>
                 <div className="app" data-platform={platform} data-sessions={state.sessions}>
                     {loaded ? (
                         <Workbench
@@ -46,6 +49,7 @@ export function App() {
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
                 </div>
+            </ExtensionSystemContext.Provider>
             </ViewEnvContext.Provider>
             </RouterProvider>
         </WorkbenchProvider>

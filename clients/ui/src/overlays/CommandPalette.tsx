@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type { CommandRegistry } from "../commands/registry.ts";
+import { useCommandVisibility } from "../extensions/useDesktopExtensions.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { useViewEnvironment } from "../views/env.tsx";
 import {
@@ -43,12 +44,13 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
     const listRef = useRef<HTMLDivElement>(null);
     const platform = window.veraDesktop?.platform ?? "";
     const sessionRows = connection.sessionRows;
+    const isVisible = useCommandVisibility();
 
     const items = useMemo<readonly PaletteItem[]>(
         () => mode === "commands"
-            ? buildCommandItems(commands.list(), platform)
+            ? buildCommandItems(commands.list().filter((command) => isVisible(command.id)), platform)
             : buildSessionItems(sessionRows ?? [], Date.now()),
-        [mode, commands, platform, sessionRows],
+        [mode, commands, platform, sessionRows, isVisible],
     );
     const ranked = useMemo(() => rankItems(items, query), [items, query]);
     const sections = useMemo(() => sectionRows(ranked), [ranked]);

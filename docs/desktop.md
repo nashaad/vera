@@ -917,6 +917,51 @@ stylesheets outside the theme directory may not carry a literal color, pixel
 size, font, shadow, or transition duration; a test scans them and fails on any
 of those, and on a `var(--vera-*)` name that is not declared.
 
+## Desktop extensions
+
+A desktop extension is a folder under `machine/desktop/extensions/` in the Vera
+home, named after its id, with a `vera.desktop.json` manifest. The manifest
+holds `id`, `version`, `engine` (`vera-gui@^1`), `main` and `contributes` with
+`commands` and `keybindings`. The extension API is unstable and may change.
+
+The window lists the folders and reads each manifest when it opens, and starts
+no extension code. Commands appear in the command palette, and keybindings work,
+from the manifest alone. A command or keybinding with a `when` clause shows or
+runs only while the clause holds. The clause reads `view`, `container`,
+`entryKind`, `sessionBusy` and `hasSession`, and the extension's own keys, which
+start with its id and a dot. A key with no value is false and equals nothing. A
+keybinding is one chord with ctrl, alt or cmd, or a function key. When two
+extensions bind the same key under conditions that can both hold, neither runs.
+
+An extension whose manifest is not valid JSON or fails validation, whose `when`
+does not parse or names an unknown key, whose keybinding cannot be matched, or
+whose command id is already held by Vera or another extension draws nothing. The
+window keeps the reason for each.
+
+The first run of one of an extension's commands starts it. The window asks the
+shell for `main`, which must be a single ES module of at most 1 MiB inside the
+extension's folder, with no imports of other files, and runs it in a Web Worker
+inside a sandboxed frame. The worker has no access to the page, Node, files or the
+network. The module exports `activate(vera)`, which receives:
+
+- `vera.commands.register(id, handler)` for a command id the manifest declares;
+- `vera.window.showToast(text, tone)`;
+- `vera.output.appendLine(text, level)`, which appends to
+  `machine/desktop/logs/<id>.log`;
+- `vera.context.set(key, value)` for keys that start with the extension's id and
+  a dot; a null or missing value clears the key.
+
+Messages between the window and the worker are plain data, are checked on both
+sides, and are refused when malformed. An extension is inactive, activating,
+active, not responding or failed. A command that has run for 3 s makes the
+window ping the worker; no answer within 3 s stops the worker, marks the
+extension not responding and shows a notice. Running one of its commands again
+starts a fresh worker. A handler that throws shows a notice and leaves the extension active. Stopping an
+extension removes its frame and its context keys, and the next command run
+starts a fresh worker. Closing the window ends every worker. The frames of all
+running extensions share one renderer process, which starts with the first
+running extension and ends after the last one stops.
+
 ## Development
 
 ```
@@ -942,6 +987,7 @@ node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/defaults.e2e.mjs
+node clients/desktop/test/extensions.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs

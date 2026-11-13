@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
@@ -40,6 +41,9 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
+import { EXTENSION_FRAME_FILE } from "./extension-frame-file.ts";
+import { extensionsDirectory, isFolderName, listExtensionFolders, readExtensionMain } from "./extension-files.ts";
+import { ExtensionLogs, extensionLogsDir } from "./extension-logs.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
@@ -86,6 +90,10 @@ const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
+const extensionLogs = new ExtensionLogs(extensionLogsDir(selectedVeraHome()));
+// The one page the window may load into its sandboxed extension frame.
+const EXTENSION_FRAME_URL = pathToFileURL(join(import.meta.dirname, "renderer", EXTENSION_FRAME_FILE)).href;
+const MAX_EXTENSION_LOG_CHARS = 8_192;
 const themeService = new ThemeService(themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
 
 function sendEvent(event: DesktopEvent): void {
@@ -128,6 +136,7 @@ function shutdown(): void {
     hostSocketPath = undefined;
     pipe.close();
     for (const pane of panes) pane.close();
+    void extensionLogs.close();
 }
 
 function paneArgument(value: unknown): SessionPipe | undefined {
@@ -139,7 +148,7 @@ function fromWindow(event: { readonly sender: WebContents }): boolean {
 }
 
 function onAnnex(url: string): boolean {
-    if (url === "about:blank" || url === "about:srcdoc") return true;
+    if (url === "about:blank" || url === "about:srcdoc" || url === EXTENSION_FRAME_URL) return true;
     if (annexUrl === undefined) return false;
     try {
         return new URL(url).origin === new URL(annexUrl).origin;
@@ -183,7 +192,7 @@ function createWindow(): BrowserWindow {
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     created.webContents.on("will-navigate", (event) => event.preventDefault());
-    // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
+    // The right pane's browser frame stays on the annex and the extension frame on its own page; links elsewhere go nowhere.
     created.webContents.on("will-frame-navigate", (event) => {
         if (event.isMainFrame) return;
         if (!onAnnex(event.url)) event.preventDefault();
@@ -390,6 +399,17 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.desktopExtensionsList, (event) =>
+    fromWindow(event) ? listExtensionFolders(extensionsDirectory(selectedVeraHome())) : { ok: false, reason: "That window cannot list extensions." });
+ipcMain.handle(CHANNELS.desktopExtensionMain, (event, extensionId: unknown, main: unknown) =>
+    fromWindow(event)
+        ? readExtensionMain(extensionsDirectory(selectedVeraHome()), extensionId, main)
+        : { ok: false, reason: "That window cannot read extensions." });
+ipcMain.on(CHANNELS.desktopExtensionLog, (event, extensionId: unknown, level: unknown, text: unknown) => {
+    if (!fromWindow(event) || !isFolderName(extensionId) || typeof text !== "string") return;
+    if (level !== "info" && level !== "warn" && level !== "error") return;
+    extensionLogs.append(extensionId, level, text.slice(0, MAX_EXTENSION_LOG_CHARS));
+});
 ipcMain.handle(CHANNELS.annexPages, async (event) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
     const result = await readAnnexPages(hostSocketPath);

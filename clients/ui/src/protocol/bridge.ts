@@ -4,6 +4,7 @@ import type { DesktopFlags } from "../state/desktopFlags.ts";
 import type { SavedPins } from "./pins.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
+import type { ExtensionListResult, ExtensionLogLevel, ExtensionMainResult } from "./desktop-extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
@@ -265,6 +266,12 @@ export interface DesktopBridge {
     listInstalledThemes(): Promise<InstalledThemesResult>;
     // Saves one theme from the last listing of installed themes.
     importInstalledTheme(key: string): Promise<ThemeImportResult>;
+    // The folders under the home's desktop extensions directory, each with its raw vera.desktop.json.
+    listDesktopExtensions(): Promise<ExtensionListResult>;
+    // The text of an installed extension's main file; the shell refuses any path outside the extension's folder.
+    readDesktopExtensionMain(extensionId: string, main: string): Promise<ExtensionMainResult>;
+    // Appends one line to the extension's output log under the home.
+    logDesktopExtension(extensionId: string, level: ExtensionLogLevel, text: string): void;
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;

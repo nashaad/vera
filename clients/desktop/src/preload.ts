@@ -22,6 +22,7 @@ import type {
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
+import type { ExtensionListResult, ExtensionLogLevel, ExtensionMainResult } from "../../ui/src/protocol/desktop-extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { CHANNELS } from "./channels.ts";
@@ -43,6 +44,11 @@ const bridge: DesktopBridge = {
     listInstalledThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesInstalled)) as InstalledThemesResult,
     importInstalledTheme: async (key: string) =>
         (await ipcRenderer.invoke(CHANNELS.themeInstalledImport, key)) as ThemeImportResult,
+    listDesktopExtensions: async () => (await ipcRenderer.invoke(CHANNELS.desktopExtensionsList)) as ExtensionListResult,
+    readDesktopExtensionMain: async (extensionId: string, main: string) =>
+        (await ipcRenderer.invoke(CHANNELS.desktopExtensionMain, extensionId, main)) as ExtensionMainResult,
+    logDesktopExtension: (extensionId: string, level: ExtensionLogLevel, text: string) =>
+        ipcRenderer.send(CHANNELS.desktopExtensionLog, extensionId, level, text),
     loadLayout: async () => {
         const layout: unknown = await ipcRenderer.invoke(CHANNELS.layoutLoad);
         return (layout ?? undefined) as LayoutState | undefined;
