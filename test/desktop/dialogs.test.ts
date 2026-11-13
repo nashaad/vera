@@ -26,6 +26,7 @@ function watch(overrides: Partial<SessionWatch> = {}): SessionWatch {
     return {
         agentId: "agent-1",
         phase: "attached",
+        loaded: true,
         history: [{ kind: "user", key: "u1", text: "hello" }],
         live: [{ kind: "text", key: "t1", text: "hi" }],
         status: "idle",

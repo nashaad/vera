@@ -275,6 +275,8 @@ export interface UsageRow {
 export interface SessionWatch {
     readonly agentId: string;
     readonly phase: WatchPhase;
+    // Set by the first `history` event; before it, an empty transcript is not yet known to be empty.
+    readonly loaded: boolean;
     // Why the watch failed or closed, in words for the user.
     readonly error?: string;
     // Blocks from stored history, oldest first.

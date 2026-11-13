@@ -5,6 +5,7 @@ import { ModelPills } from "../models/ModelPills.tsx";
 import { useSessionModels } from "../models/useSessionModels.ts";
 import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
 import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
+import { useSlowOpening } from "../session/useSlowOpening.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
 import type { SessionComposerProps } from "./Composer.tsx";
 import { ApprovalPill } from "./ApprovalPill.tsx";
@@ -41,6 +42,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     // A New Chat prompt waits here until the session has switched to the model chosen for it.
     const modelGate = useRef<ModelGate | undefined>(undefined);
     const attached = watch.phase === "attached";
+    const slowOpening = useSlowOpening(watch);
     const running = watch.status !== "idle";
     const queued = watch.queue.length > 0;
     const held = watch.queue.some((prompt) => prompt.state === "held");
@@ -193,9 +195,9 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     };
 
     const stopping = running && empty;
-    const placeholder = watch.phase === "attaching"
+    const placeholder = slowOpening
         ? "Opening the session"
-        : !attached
+        : !attached && watch.phase !== "attaching"
             ? "Not connected to this session"
             : running
                 ? "Queue a message for when this turn ends"

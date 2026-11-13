@@ -108,6 +108,23 @@ try {
     await page.waitForSelector(chipLabel("kept"));
     await startSession("Hello kept");
     const keptId = await attachedId();
+
+    // Switching between sessions never draws the opening or empty text, not even for one frame.
+    await page.evaluate(() => {
+        window.flashes = [];
+        new MutationObserver(() => {
+            for (const node of document.querySelectorAll(".transcript-empty, .session-message")) window.flashes.push(node.textContent);
+            const hint = document.querySelector(".composer-input")?.getAttribute("placeholder") ?? "";
+            if (/Opening|Not connected/.test(hint)) window.flashes.push(hint);
+        }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+    });
+    for (const id of [vanishedId, keptId, vanishedId, keptId]) {
+        await openFromSidebar(id);
+        await page.waitForSelector(`.transcript-scroll[data-session="${id}"] >> text=${REPLY}`, { timeout: 10_000 });
+    }
+    const flashes = await page.evaluate(() => window.flashes);
+    if (flashes.length > 0) throw new Error(`Switching sessions flashed: ${JSON.stringify([...new Set(flashes)])}`);
+
     // The host lists the folder by its real path, which differs from the temp path where /var is a link.
     const vanishedPath = realpathSync(vanished);
     rmSync(vanished, { recursive: true, force: true });

@@ -7,8 +7,10 @@ import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { closeCompanion } from "./paneLayout.ts";
 import { Transcript } from "./Transcript.tsx";
+import { watchOpening } from "./transcript.ts";
 import { usePinnedScroll } from "./usePinnedScroll.ts";
 import { useSessionWatch } from "./useSessionWatch.ts";
+import { useSlowOpening } from "./useSlowOpening.ts";
 
 export interface CompanionPaneProps {
     readonly bridge: DesktopBridge;
@@ -31,11 +33,14 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
         router.navigate({ kind: "session", agentId, title, ...(row === undefined ? {} : sessionPlace(row.workspace, row.chat)) });
     };
 
-    const message = watch.phase === "attaching"
-        ? "Opening the subagent."
-        : watch.phase === "failed" || watch.phase === "closed"
-            ? watch.error ?? "The subagent closed."
-            : "The subagent has not said anything yet.";
+    const slowOpening = useSlowOpening(watch);
+    const message = watch.phase === "failed" || watch.phase === "closed"
+        ? watch.error ?? "The subagent closed."
+        : !watchOpening(watch)
+            ? "The subagent has not said anything yet."
+            : slowOpening
+                ? "Opening the subagent."
+                : undefined;
 
     return (
         <section className="agent-companion" aria-label={title} data-companion={agentId} data-phase={watch.phase}>
@@ -55,7 +60,7 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
                 <div className="transcript">
                     <div className="transcript-inner">
                         {blocks.length === 0 ? (
-                            <p className="transcript-empty">{message}</p>
+                            message === undefined ? null : <p className="transcript-empty">{message}</p>
                         ) : (
                             <Transcript
                                 blocks={blocks}

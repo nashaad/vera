@@ -13,8 +13,10 @@ import { holdsTurn } from "../session/requests.ts";
 import { SessionRail } from "../session/SessionRail.tsx";
 import { companionFor } from "../session/subagents.ts";
 import { Transcript } from "../session/Transcript.tsx";
+import { watchOpening } from "../session/transcript.ts";
 import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
+import { useSlowOpening } from "../session/useSlowOpening.ts";
 import { releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown } from "../workbench/context.tsx";
@@ -49,6 +51,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     // A running turn shows the compaction on its own status line; otherwise the line stands alone at the end.
     const liveTurn = running && blocks.length > 0;
     const title = watch.title ?? row?.name ?? route.title;
+    const slowOpening = useSlowOpening(watch);
 
     useEffect(() => {
         publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send });
@@ -56,11 +59,12 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
 
-    const showMessage = blocks.length === 0 && (watch.phase === "failed" || watch.phase === "closed" || watch.phase === "attaching");
+    const ended = watch.phase === "failed" || watch.phase === "closed";
+    const showMessage = blocks.length === 0 && (ended || slowOpening);
     const body = showMessage ? (
         <SessionMessage
             title={route.title}
-            text={watch.phase === "attaching" ? "Opening the session." : watch.error ?? "The session closed."}
+            text={ended ? watch.error ?? "The session closed." : "Opening the session."}
         />
     ) : (
         <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase}>
@@ -74,7 +78,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                         </button>
                     ) : null}
                     {blocks.length === 0 ? (
-                        <p className="transcript-empty">Nothing has been said in this session yet.</p>
+                        watchOpening(watch) ? null : <p className="transcript-empty">Nothing has been said in this session yet.</p>
                     ) : (
                         <Transcript
                             blocks={blocks}

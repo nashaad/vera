@@ -407,8 +407,10 @@ running git; a detached checkout shows the short commit id. The bar has a round
 In a session:
 
 - Enter sends the message and Shift+Enter adds a line. The box is disabled
-  until the session is attached; its placeholder says `Opening the session`,
-  or `Not connected to this session` when the watch has ended.
+  until the session is attached. A session that takes more than half a second
+  to open says `Opening the session` in the placeholder and the transcript; a
+  quicker one shows neither. The placeholder says `Not connected to this
+  session` when the watch has ended.
 - While a turn runs, a message you send waits in the queue instead, and the
   placeholder says `Queue a message for when this turn ends`. A strip above the
   composer shows how many messages are queued and the first one, with a button

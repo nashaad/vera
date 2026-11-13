@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { entriesToBlocks, beginOlder, initialWatch, reduceWatch, watchClosed } from "../../clients/ui/src/session/transcript.ts";
+import { entriesToBlocks, beginOlder, initialWatch, reduceWatch, watchClosed, watchOpening } from "../../clients/ui/src/session/transcript.ts";
 import { MAX_HISTORY_BLOCKS, type Block, type SessionWatch } from "../../clients/ui/src/session/model.ts";
 import {
     abortCommand,
@@ -294,6 +294,14 @@ describe("watch phases", () => {
         expect(failed.phase).toBe("failed");
         expect(failed.error).toBe("This session no longer exists.");
         expect(watchClosed(failed, "Connection lost.")).toBe(failed);
+    });
+
+    test("@core a session is still opening until its history arrives", () => {
+        const attaching = initialWatch("a1");
+        const attached = reduceWatch(attaching, line({ type: "attached" }));
+        const empty = reduceWatch(attached, line({ type: "history", entries: [] }));
+        expect([watchOpening(attaching), watchOpening(attached), watchOpening(empty)]).toEqual([true, true, false]);
+        expect(watchOpening(watchClosed(attached, "Connection lost."))).toBe(false);
     });
 
     test("a closed watch keeps its reason", () => {

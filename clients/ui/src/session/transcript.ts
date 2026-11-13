@@ -157,6 +157,7 @@ export function initialWatch(agentId: string): SessionWatch {
     return {
         agentId,
         phase: "attaching",
+        loaded: false,
         history: [],
         live: [],
         status: "idle",
@@ -177,6 +178,7 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
         case "history":
             return {
                 ...state,
+                loaded: true,
                 history: entriesToBlocks(message.entries).slice(-MAX_HISTORY_BLOCKS),
                 live: [],
                 status: message.status ?? "idle",
@@ -306,6 +308,10 @@ export function canLoadOlder(state: SessionWatch): boolean {
 export function beginOlder(state: SessionWatch): SessionWatch {
     if (!canLoadOlder(state)) return state;
     return { ...state, loadingOlder: true };
+}
+
+export function watchOpening(watch: SessionWatch): boolean {
+    return !watch.loaded && (watch.phase === "attaching" || watch.phase === "attached");
 }
 
 export function watchClosed(state: SessionWatch, reason: string): SessionWatch {
