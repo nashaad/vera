@@ -53,6 +53,24 @@ export function releaseDirectory(
     return join(releasesDirectory(prefix), buildId);
 }
 
+// Packages for one host build sit together: desktop/<host build id>/<desktop version>.
+export function desktopPackagesDirectory(prefix = defaultInstallPrefix()): string {
+    return join(veraShareRoot(prefix), "desktop");
+}
+
+export function desktopPackageDirectory(
+    hostBuildId: string,
+    desktopVersion: string,
+    prefix = defaultInstallPrefix(),
+): string {
+    return join(desktopPackagesDirectory(prefix), hostBuildId, desktopVersion);
+}
+
+// One <pid>.json per running desktop. The leading dot keeps it from reading as a host build id.
+export function desktopPackageReferencesDirectory(prefix = defaultInstallPrefix()): string {
+    return join(desktopPackagesDirectory(prefix), ".loaded");
+}
+
 export function currentSymlinkPath(prefix = defaultInstallPrefix()): string {
     return join(veraShareRoot(prefix), "current");
 }
