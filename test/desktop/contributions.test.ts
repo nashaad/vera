@@ -12,8 +12,8 @@ test("@core core contributions register through the same registry an extension w
     const snapshot = registry.snapshot();
     expect(snapshot.containers.map((entry) => entry.id).sort()).toEqual(Object.values(CORE_CONTAINERS).sort());
     expect(snapshot.views.map((entry) => entry.id).sort()).toEqual(Object.values(CORE_VIEWS).sort());
-    const host = snapshot.views.find((entry) => entry.id === CORE_VIEWS.host);
-    expect(snapshot.containers.find((entry) => entry.id === host?.container)?.location).toBe("rightPane");
+    const files = snapshot.views.find((entry) => entry.id === CORE_VIEWS.files);
+    expect(snapshot.containers.find((entry) => entry.id === files?.container)?.location).toBe("rightPane");
 });
 
 test("a registration returns a disposer that removes only that registration", () => {

@@ -211,7 +211,7 @@ each an icon and a title. The panel switches them with tabs. A container holds
 one or more views stacked on top of each other, and each view has a header that
 collapses it. The main area is not a location for views.
 
-Eight views ship with the app:
+Six views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
@@ -242,12 +242,7 @@ Eight views ship with the app:
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
     as it is.
-- Host, in the right pane inside the Vera container, shows the connection state
-  and tiles for the session count, host build, protocol version, host process id
-  and home path. The home path is shortened, with the user's home directory
-  written as `~` and a long middle replaced by an ellipsis; hovering it shows the
-  full path.
-- Review, Plan, Files and Preview, each in its own container in the right pane,
+- Review, Plan and Files, each in its own container in the right pane,
   follow the open session; see Session tools.
 - Browser, in its own container in the right pane, shows Vera's pages; see
   Browser.
@@ -723,8 +718,8 @@ a bar and the items, with the item just finished marked. Files shows the
 session's folder (`Chat` for a chat) as a tree the window reads from disk:
 folders come first, a folder opens one level at a time, and one folder lists
 at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
-again when a turn ends. Preview says the host does not serve previews. While the right pane is closed, a rail at the
-right of the session page opens these views.
+again when a turn ends. While the right pane is closed, a rail at the right of
+the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
 the conversation says which model it used, marked `subagent` when a subagent's
