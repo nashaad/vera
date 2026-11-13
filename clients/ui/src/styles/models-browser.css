@@ -23,6 +23,11 @@
     box-shadow: var(--vera-shadow);
 }
 
+/* A fixed height, so switching tabs never resizes the sheet; each tab scrolls inside the body. */
+.models-sheet {
+    height: min(calc(var(--vera-space) * 180), 82%);
+}
+
 .sheet-head {
     display: flex;
     flex: 0 0 auto;

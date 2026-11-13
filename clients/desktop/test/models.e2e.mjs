@@ -240,6 +240,12 @@ try {
     await modelPill.click();
     await page.getByRole("button", { name: /All models/ }).click();
     await page.waitForSelector(".models-sheet");
+    const heights = {};
+    for (const name of ["Favorites", "All models", "Defaults", "Help"]) {
+        await page.locator(".models-tab", { hasText: name }).click();
+        heights[name] = await page.locator(".models-sheet").evaluate((sheet) => sheet.getBoundingClientRect().height);
+    }
+    if (new Set(Object.values(heights)).size !== 1) throw new Error(`The models sheet changed size between tabs: ${JSON.stringify(heights)}`);
     await page.locator(".models-tab", { hasText: "All models" }).click();
     await page.locator(".models-row", { hasText: "Raven" }).click();
     await page.waitForSelector(".models-detail-name:text-is(\"Raven\")");
