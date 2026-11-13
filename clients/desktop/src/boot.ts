@@ -8,6 +8,9 @@ const IDLE_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2_000;
 const STDERR_TAIL_BYTES = 4_096;
 
+// Runs before the Vera command is resolved. A returned string is a failure message; undefined means go on.
+export type BootPreflight = () => Promise<string | undefined>;
+
 export class BootSession {
     private child: ChildProcessWithoutNullStreams | undefined;
     private timer: ReturnType<typeof setTimeout> | undefined;
@@ -20,13 +23,34 @@ export class BootSession {
     constructor(
         private readonly home: string,
         private readonly emit: (event: DesktopEvent) => void,
+        private readonly preflight?: BootPreflight,
     ) {}
 
     start(): void {
         if (this.started) throw new Error("A boot session runs once; create another to reconnect.");
         this.started = true;
         this.emit({ type: "phase", phase: "starting" });
+        if (this.preflight === undefined) {
+            this.launch();
+            return;
+        }
+        void this.preflight().then(
+            (failure) => this.afterPreflight(failure),
+            (error: unknown) => this.afterPreflight(messageOf(error)),
+        );
+    }
 
+    private afterPreflight(failure: string | undefined): void {
+        if (this.cancelled) return;
+        if (failure !== undefined) {
+            this.finished = true;
+            this.emit({ type: "failed", message: failure });
+            return;
+        }
+        this.launch();
+    }
+
+    private launch(): void {
         const resolution = resolveBootCommand();
         if ("missing" in resolution) {
             this.finished = true;

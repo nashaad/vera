@@ -779,7 +779,18 @@ The command is found in this order:
    own CLI. `VERA_DESKTOP_BUN` names the Bun executable, defaulting to `bun`.
 2. The installed launcher at `~/.local/bin/vera`.
 3. Nothing. The banner says `Vera is not installed`, names the path it checked,
-   and offers Reconnect. There is no install action in this build.
+   and offers Reconnect.
+
+The app installed from the disk image carries a Vera release, and before it
+looks for the command it installs that release as the `vera` command when the
+command is missing, does not run, or runs an older release. The release goes
+under `~/.local/share/vera/` and the launcher at `~/.local/bin/vera`, the same
+place the release installer uses, and the install does not stop a running host.
+When the command already runs that release or a newer one, nothing is
+installed. If the install fails, the banner says `Vera did not start` with the
+reason and offers Try again, and the command you had is left as it was. Running
+the app from a checkout with `bun run dev:desktop` installs nothing. See
+[Install from the disk image](installation.md#install-from-the-disk-image).
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including
@@ -950,6 +961,13 @@ node clients/desktop/test/pages.e2e.mjs
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
+
+`bun run desktop:dmg` builds the macOS disk image for this machine's chip. It
+builds the app, packs a release from the checkout, puts both in a copy of
+Electron renamed Vera, signs the app ad hoc and writes
+`Vera-<platform>-<arch>.dmg` to `dist/desktop-dmg`. `--release <file>` uses an
+existing release file instead of packing one, and `--out <dir>` picks the
+folder. It runs on macOS only and does not install or open anything.
 
 `bun run desktop:tour` builds the app and walks it in a visible window against a
 throwaway home and a scripted provider. It saves one screenshot per step and a

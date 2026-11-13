@@ -21,6 +21,7 @@
     "dev:tui": "bun run scripts/dev-tui.ts",
     "dev:desktop": "bun run scripts/dev-desktop.ts",
     "desktop:build": "bun run clients/desktop/build.ts",
+    "desktop:dmg": "bun run scripts/build-desktop-dmg.ts",
     "desktop:tour": "bun run desktop:build && node clients/desktop/tour/tour.mjs",
     "desktop:bench": "bun run desktop:build && node clients/desktop/bench/stream.mjs",
     "typecheck:desktop": "tsc --noEmit -p clients/desktop/tsconfig.json",

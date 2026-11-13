@@ -17,7 +17,8 @@ import { copySleep } from "../support/copied-sleep.ts";
 import { defaultHostLockPath } from "../../src/host/lockfile.ts";
 import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
-import { gcReleases, ReleaseInUseError, removeRelease } from "../../src/release/gc.ts";
+import { gcReleases } from "../../src/release/gc.ts";
+import { ReleaseInUseError, removeRelease } from "../../src/release/remove.ts";
 import {
     currentSymlinkPath,
     releaseDirectory,
@@ -252,7 +253,7 @@ function runCheck(
     environment: { readonly home: string; readonly veraHome: string; readonly path: string },
     prefix: string,
 ): string {
-    const gc = join(import.meta.dir, "..", "..", "src", "release", "gc.ts");
+    const remove = join(import.meta.dir, "..", "..", "src", "release", "remove.ts");
     const references = join(import.meta.dir, "..", "..", "src", "release", "references.ts");
     const script = mode === "hold"
         ? `
@@ -260,7 +261,7 @@ function runCheck(
             console.log(damagedHostLockHold() === undefined ? "free" : "held");
         `
         : `
-            import { removeRelease } from ${JSON.stringify(gc)};
+            import { removeRelease } from ${JSON.stringify(remove)};
             try {
                 removeRelease("vera-other", ${JSON.stringify(prefix)});
                 console.log("removed");

@@ -19,7 +19,7 @@ import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } fro
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { AssignmentService } from "./assignments.ts";
-import { BootSession } from "./boot.ts";
+import { BootSession, type BootPreflight } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
@@ -40,6 +40,7 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
+import { BUNDLED_RELEASE_DIRECTORY, installBundledRelease } from "./release-install.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
@@ -109,8 +110,19 @@ function startBoot(): void {
     hostSocketPath = undefined;
     pipe.close();
     for (const pane of panes) pane.close();
-    boot = new BootSession(selectedVeraHome(), receiveEvent);
+    boot = new BootSession(selectedVeraHome(), receiveEvent, installPreflight());
     boot.start();
+}
+
+// Only the packaged app carries a release; a development run uses its checkout's Vera.
+function installPreflight(): BootPreflight | undefined {
+    if (!app.isPackaged || (process.env.VERA_DESKTOP_DEV_CLI ?? "").trim().length > 0) return undefined;
+    return async () => {
+        const outcome = await installBundledRelease({
+            bundleDirectory: join(process.resourcesPath, BUNDLED_RELEASE_DIRECTORY),
+        });
+        return outcome.kind === "failed" ? outcome.message : undefined;
+    };
 }
 
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
