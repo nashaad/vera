@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { CheckIcon, ChevronRightIcon } from "../components/Icons.tsx";
-import type { Checklist, RetryState, ToolCall } from "./model.ts";
+import type { Checklist, CompactionState, RetryState, ToolCall } from "./model.ts";
 import { CallList } from "./ToolRuns.tsx";
 import { liveAction } from "./toolTitle.ts";
 
@@ -50,10 +50,12 @@ export interface LiveStatusProps {
     readonly tokens: number;
     readonly waiting: boolean;
     readonly retry?: RetryState;
+    // Set while a compaction runs inside the turn.
+    readonly compaction?: CompactionState;
 }
 
 // The one line at the end of a live turn. It changes its words, never its place.
-export function LiveStatus({ since, calls, streaming, tokens, waiting, retry }: LiveStatusProps) {
+export function LiveStatus({ since, calls, streaming, tokens, waiting, retry, compaction }: LiveStatusProps) {
     const now = useClock();
     const mounted = useRef(Date.now());
     const [open, setOpen] = useState(false);
@@ -69,6 +71,8 @@ export function LiveStatus({ since, calls, streaming, tokens, waiting, retry }: 
             </div>
         );
     }
+
+    if (compaction !== undefined) return <CompactionStatus compaction={compaction} />;
 
     const running = calls.filter((call) => call.state === "running");
     const current = running[running.length - 1];
@@ -113,6 +117,20 @@ export function LiveStatus({ since, calls, streaming, tokens, waiting, retry }: 
             <Dots />
             {elapsed >= CLOCK_AFTER_MS ? <span className="clock">{clock} ·</span> : null}
             <span className="label sweep">Thinking</span>
+        </div>
+    );
+}
+
+// The line at the end of the conversation while a compaction runs; its clock starts when the window hears of it.
+export function CompactionStatus({ compaction }: { readonly compaction: CompactionState }) {
+    const now = useClock();
+    const mounted = useRef(Date.now());
+    return (
+        <div className="live-status" data-state="compacting" role="status">
+            <Dots />
+            <span className="label sweep">Compacting the conversation</span>
+            {compaction.model === undefined ? null : <span className="arg">{compaction.model}</span>}
+            <span className="clock">{elapsedText(now - mounted.current)}</span>
         </div>
     );
 }

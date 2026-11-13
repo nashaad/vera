@@ -137,6 +137,8 @@ export function parseCompaction(value: Fields): CompactionState | undefined {
         ...optional("reason", str(value.reason)),
         ...optional("tokensBefore", count(value.before) ?? (phase === "started" ? count(value.tokens) : undefined)),
         ...optional("tokensAfter", count(value.after)),
+        ...optional("provider", str(value.provider)),
+        ...optional("model", str(value.model)),
     };
 }
 

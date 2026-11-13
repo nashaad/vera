@@ -7,7 +7,7 @@ import { MoreIcon } from "../components/Icons.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { shortcutLabel } from "../workbench/hints.ts";
 import { useActiveSession, type ActiveSession } from "./activeSession.ts";
-import { CompactSheet } from "./CompactSheet.tsx";
+import { requestCompaction } from "./compact.ts";
 import { ContextPill } from "./ContextPill.tsx";
 import { usePaneLayout, type PaneLayout } from "./paneLayout.ts";
 import { RenameSheet } from "./RenameSheet.tsx";
@@ -28,7 +28,7 @@ function sessionMenu(layout: PaneLayout): readonly MenuEntry[] {
         { kind: "item", label: "Copy Conversation", command: SESSION_COMMANDS.copy },
         { kind: "separator" },
         { kind: "item", label: "Rewind or Fork…", command: SESSION_COMMANDS.rewind },
-        { kind: "item", label: "Compact…", command: SESSION_COMMANDS.compact },
+        { kind: "item", label: "Compact", command: SESSION_COMMANDS.compact },
         { kind: "item", label: "Subagents", command: SESSION_COMMANDS.subagents },
         { kind: "separator" },
         ...PANE_LABELS.map(([value, label]): MenuEntry => ({
@@ -56,7 +56,7 @@ export function SessionTitleTools() {
     return (
         <span className="title-tools">
             <TasksIndicator session={session} onOpen={() => openSessionSheet("tasks")} />
-            <ContextPill session={session} onCompact={() => openSessionSheet("compact")} />
+            <ContextPill session={session} onCompact={() => requestCompaction(session)} />
             <button
                 type="button"
                 className="header-button"
@@ -74,8 +74,6 @@ export function SessionTitleTools() {
 
 function OpenSheet({ sheet, session }: { readonly sheet: SessionSheet; readonly session: ActiveSession }) {
     switch (sheet) {
-        case "compact":
-            return <CompactSheet session={session} onClose={closeSessionSheet} />;
         case "rewind":
             return <RewindSheet session={session} onClose={closeSessionSheet} />;
         case "tasks":

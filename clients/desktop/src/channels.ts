@@ -22,6 +22,7 @@ export const CHANNELS = {
     foldersExisting: "vera:folders-existing",
     branchRead: "vera:branch-read",
     folderList: "vera:folder-list",
+    fileRead: "vera:file-read",
     imagesChoose: "vera:images-choose",
     imagePaste: "vera:image-paste",
     modelsRead: "vera:models-read",

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { folderArgument, listFolder } from "../../clients/desktop/src/folder-listing.ts";
+import { pathArgument, listFolder } from "../../clients/desktop/src/folder-listing.ts";
 import { MAX_FOLDER_ENTRIES } from "../../clients/ui/src/protocol/bridge.ts";
 
 const roots: string[] = [];
@@ -54,7 +54,7 @@ test("@core stops at the cap and says the list was cut", async () => {
 test("a missing folder or a relative path is refused", async () => {
     const root = scratch();
     expect((await listFolder(join(root, "gone"))).ok).toBe(false);
-    expect(folderArgument("relative/path")).toBeUndefined();
-    expect(folderArgument(42)).toBeUndefined();
-    expect(folderArgument(`${root}/a/../b`)).toBe(join(root, "b"));
+    expect(pathArgument("relative/path")).toBeUndefined();
+    expect(pathArgument(42)).toBeUndefined();
+    expect(pathArgument(`${root}/a/../b`)).toBe(join(root, "b"));
 });

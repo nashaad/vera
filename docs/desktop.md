@@ -211,7 +211,7 @@ each an icon and a title. The panel switches them with tabs. A container holds
 one or more views stacked on top of each other, and each view has a header that
 collapses it. The main area is not a location for views.
 
-Eight views ship with the app:
+Six views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
@@ -242,12 +242,7 @@ Eight views ship with the app:
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
     as it is.
-- Host, in the right pane inside the Vera container, shows the connection state
-  and tiles for the session count, host build, protocol version, host process id
-  and home path. The home path is shortened, with the user's home directory
-  written as `~` and a long middle replaced by an ellipsis; hovering it shows the
-  full path.
-- Review, Plan, Files and Preview, each in its own container in the right pane,
+- Review, Plan and Files, each in its own container in the right pane,
   follow the open session; see Session tools.
 - Browser, in its own container in the right pane, shows Vera's pages; see
   Browser.
@@ -487,8 +482,9 @@ Slash commands:
   `/back`, `/sidebar`, `/palette`, `/themes`, `/diagnostics`, `/extensions`,
   `/doctor`, `/configure`, `/nudges`, `/failure-report`, `/resume` (Go to
   Session), `/clear` and its alias `/new` (New Chat), and `/models` (the Models
-  browser). `/rewind` and `/fork` open the Rewind or Fork sheet, `/compact` the
-  compact sheet and `/subagents` the subagents sheet.
+  browser). `/rewind` and `/fork` open the Rewind or Fork sheet, `/compact`
+  compacts the conversation as `Compact` in the session menu does, and
+  `/subagents` opens the subagents sheet.
 - `/model`, `/effort` and `/permissions` drive the composer's pills. With no
   argument each opens its pill's menu. `/model scout` runs the one available
   model that `scout` names and otherwise opens the model menu already searching
@@ -685,8 +681,8 @@ measurement it shows a dash. It opens a popover with the total, whether it was
 measured or estimated, a bar split into the system prompt parts, tool
 definitions, the conversation, anything else the total holds (`Other`) and free
 space, a mark where automatic compaction starts, and the token count it starts
-at. `List every message` lists each message with its size. `Compact…` opens the
-compact sheet.
+at. `List every message` lists each message with its size. `Compact` compacts
+the conversation.
 
 The session menu (the `…` button) has:
 
@@ -697,10 +693,12 @@ The session menu (the `…` button) has:
   images cannot be rewound. `Fork from here` starts a new session from that
   point, opens it, and puts the prompt in its composer. Rewind waits until the
   turn ends; when the host refuses, the sheet says why and offers `Back`.
-- `Compact…`, which shows the current use and runs a compaction. The sheet
-  shows `Compacting…` while it runs, then the result, such as
+- `Compact`, which starts a compaction at once and leaves the window usable.
+  While it runs, a status line at the end of the conversation says
+  `Compacting the conversation` with the model doing it and the time so far.
+  When it ends, a line in the conversation gives the result, such as
   `Compacted the conversation from 46K to 12K tokens.` or
-  `Nothing to compact yet.`
+  `Nothing to compact yet.` A second `Compact` while one runs does nothing.
 - `Subagents`, which lists the session's subagents with their status. `Open`
   shows one in a second pane beside the conversation, `Go to` opens its own
   page, and `Stop` stops a running one. Subagents still starting, which the host
@@ -723,8 +721,14 @@ a bar and the items, with the item just finished marked. Files shows the
 session's folder (`Chat` for a chat) as a tree the window reads from disk:
 folders come first, a folder opens one level at a time, and one folder lists
 at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
-again when a turn ends. Preview says the host does not serve previews. While the right pane is closed, a rail at the
-right of the session page opens these views.
+again when a turn ends. Picking a file shows it beside the tree, which keeps
+the file marked: a bar with its path under the folder, then its text with line
+numbers. The window reads at most the first 256 KB and says so when the file is
+longer. A folder, a file that is not text and a file that is gone each show one
+line saying so. The arrows in the bar step back and forward through the files
+opened, up to the last 50, and `Browse files` hides or shows the tree. An open
+file is read again when a turn ends. While the right pane is closed, a rail at
+the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
 the conversation says which model it used, marked `subagent` when a subagent's
@@ -937,9 +941,11 @@ file and edits it. It checks the turn's edits roll up into one card, opens the
 change from Review, reads the checklist's progress in the Plan view, waits for
 the context pill to fill in, quotes a reply into the composer from its `…`
 menu, rewinds the newest prompt back into the composer and compacts from the
-session menu. From a sidebar row's `…` menu it renames the session while
-another page is open, pins it and reads `pins.json`, opens the Files view,
-unpins it from the right-click menu, clones it and closes the copy.
+session menu without a sheet, waiting for the result line. From a sidebar row's
+`…` menu it renames the session while another page is open, pins it and reads
+`pins.json`, opens the Files view, opens two files beside the tree, steps back
+and forward between them, hides and shows the tree, unpins it from the
+right-click menu, clones it and closes the copy.
 
 The browser test opens Usage from the command palette and checks the frame
 loads it from the annex without the annex's menu, that the tabs are Usage, Runs

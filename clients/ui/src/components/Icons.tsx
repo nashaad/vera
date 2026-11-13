@@ -95,17 +95,6 @@ export function SessionsIcon({ className }: IconProps) {
     );
 }
 
-export function ServerIcon({ className }: IconProps) {
-    return (
-        <Icon className={className}>
-            <rect x="3" y="4" width="18" height="7" rx="2" />
-            <rect x="3" y="13" width="18" height="7" rx="2" />
-            <path d="M7 7.5h.01" />
-            <path d="M7 16.5h.01" />
-        </Icon>
-    );
-}
-
 export function FolderIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
@@ -454,9 +443,10 @@ export function EyeIcon({ className }: IconProps) {
 export function DiffIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
-            <path d="M8 4v10" />
-            <path d="M3 9h10" />
-            <path d="M11 19h10" />
+            <rect x="5" y="3" width="14" height="18" rx="2.5" />
+            <path d="M12 7v5" />
+            <path d="M9.5 9.5h5" />
+            <path d="M9.5 16h5" />
         </Icon>
     );
 }

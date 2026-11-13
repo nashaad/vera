@@ -1,6 +1,6 @@
 // Session tools test for the desktop shell. Run with: node clients/desktop/test/tools.e2e.mjs
 // The provider writes a scratch checklist, writes a file and edits it, then answers.
-// The test reads the rollup, the Review and Plan views, quotes a reply, rewinds one prompt and compacts,
+// The test reads the rollup, the Review, Plan and Files views, quotes a reply, rewinds one prompt and compacts,
 // then works the sidebar row's menu.
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -143,6 +143,28 @@ try {
     await page.locator(".file-folder", { hasText: "hold" }).click();
     await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
 
+    // A file opens beside the tree with numbered lines and stays marked there.
+    await page.locator(".file-entry", { hasText: "nest.txt" }).click();
+    await page.locator(".file-preview-lines", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
+    const gutter = await page.locator(".file-preview-gutter").innerText();
+    if (gutter !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
+    const shownPath = async () => page.locator(".file-preview-path").innerText();
+    if (await shownPath() !== "nest.txt") throw new Error(`The preview named ${await shownPath()}`);
+    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "nest.txt" }).waitFor({ timeout: 5_000 });
+
+    // Previous and next step through the files opened, and Browse files hides and shows the tree.
+    await page.locator(".file-entry", { hasText: "doubloon.txt" }).click();
+    await until("doubloon.txt open", async () => (await shownPath()) === "hold/doubloon.txt");
+    await page.getByRole("button", { name: "Previous file" }).click();
+    await until("nest.txt open again", async () => (await shownPath()) === "nest.txt");
+    await page.getByRole("button", { name: "Next file" }).click();
+    await until("doubloon.txt open again", async () => (await shownPath()) === "hold/doubloon.txt");
+    const browse = page.getByRole("button", { name: "Browse files" });
+    await browse.click();
+    await page.locator(".file-tree").waitFor({ state: "hidden", timeout: 5_000 });
+    await browse.click();
+    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "doubloon.txt" }).waitFor({ timeout: 5_000 });
+
     // The context pill fills in once the host measures the conversation.
     const pill = page.locator(".context-pill");
     await until("a context measurement", async () => (await pill.getAttribute("data-empty")) === "false");
@@ -171,14 +193,13 @@ try {
     await until("the prompt back in the composer", async () => (await input.inputValue()) === "Say SECOND");
     await page.locator(`text=${SECOND}`).waitFor({ state: "detached", timeout: 15_000 });
 
-    // Compact from the session menu runs to a finished notice.
+    // Compact from the session menu starts at once and ends in a transcript notice, with no sheet in the way.
     await input.fill("");
     await sessionMenu("Compact");
-    const action = page.locator(".session-sheet-action");
-    await action.click();
-    await until("compaction to finish", async () => (await action.innerText()) === "Done", 45_000);
-    await action.click();
-    await page.locator(".session-sheet").waitFor({ state: "detached", timeout: 5_000 });
+    await page.locator(".transcript-notice", { hasText: /Compacted the conversation|Nothing (older )?to (compact|summarize) yet/ })
+        .waitFor({ timeout: 45_000 });
+    if (await page.locator(".session-sheet").count() !== 0) throw new Error("Compact opened a sheet.");
+    if (!await input.isEnabled()) throw new Error("The composer was not usable after compacting.");
 
     // Rename from the row menu while another page is open: the session opens with its rename sheet.
     const agentId = await page.locator(".session-row[data-active=\"true\"]").getAttribute("data-session");

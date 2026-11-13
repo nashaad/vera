@@ -91,7 +91,7 @@
     color: var(--vera-text-dim);
 }
 
-.file-folder {
+button.file-row {
     font: inherit;
     font-size: var(--vera-font-size-label);
     text-align: left;
@@ -100,14 +100,19 @@
     cursor: pointer;
 }
 
-.file-folder:hover {
+button.file-row:hover {
     color: var(--vera-text);
     background: var(--vera-surface-hover);
 }
 
-.file-folder:focus-visible {
+button.file-row:focus-visible {
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / -2);
+}
+
+.file-entry[aria-current="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
 }
 
 /* Files have no chevron, so their icon starts where a folder's chevron does, one step in. */
@@ -470,4 +475,131 @@
 
 .subagent[data-listed="false"] .session-time {
     color: var(--vera-text-dim);
+}
+
+/* An open file fills the view beside the tree, and its text scrolls in both directions under the bar. */
+
+.files-view[data-preview="true"] {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.files-view[data-preview="true"] > .files-split {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-top: thin solid var(--vera-border);
+}
+
+.files-view[data-preview="true"] .files-tree {
+    flex: 0 0 clamp(calc(var(--vera-space) * 40), 40%, calc(var(--vera-space) * 70));
+    min-width: 0;
+    padding-top: var(--vera-space);
+    overflow: auto;
+    border-left: thin solid var(--vera-border);
+}
+
+.files-tree[hidden] {
+    display: none;
+}
+
+.file-preview {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.file-preview-bar {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) / 2);
+    align-items: center;
+    padding: 0 calc(var(--vera-space) * 1.5) var(--vera-space) var(--vera-space);
+}
+
+/* A merged view's actions button floats over the bar's right end. */
+.view[data-merged="true"] .file-preview-bar {
+    padding-right: calc(var(--vera-space) * 6.5);
+}
+
+.file-preview-bar .icon-button:disabled {
+    color: var(--vera-text-disabled);
+    background: transparent;
+    cursor: default;
+}
+
+.file-preview-bar .icon-button[aria-pressed="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.file-preview-path {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: calc(var(--vera-space) / 2);
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-preview-note {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.file-preview-text {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: flex-start;
+    min-height: 0;
+    overflow: auto;
+}
+
+.file-preview-gutter,
+.file-preview-lines {
+    margin: 0;
+    padding: var(--vera-space) 0;
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+    line-height: 1.5;
+    white-space: pre;
+}
+
+/* The gutter stays put while long lines scroll sideways. */
+.file-preview-gutter {
+    position: sticky;
+    left: 0;
+    flex: 0 0 auto;
+    min-height: 100%;
+    padding-right: calc(var(--vera-space) * 2);
+    padding-left: calc(var(--vera-space) * 2);
+    color: var(--vera-text-disabled);
+    text-align: right;
+    background: var(--vera-surface);
+    user-select: none;
+}
+
+/* A sticky gutter needs the shade of the region it sits in, or text scrolls through it. */
+.location[data-location="sidebar"] .file-preview-gutter {
+    background: var(--vera-surface-sidebar);
+}
+
+.location[data-location="panel"] .file-preview-gutter {
+    background: var(--vera-surface-panel);
+}
+
+.file-preview-lines {
+    flex: 1 0 auto;
+    padding-right: calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    tab-size: 4;
 }

@@ -1,16 +1,14 @@
 import type { ReactElement } from "react";
 
 import type { IconProps } from "../components/Icons.tsx";
-import { DiffIcon, EyeIcon, FileIcon, GlobeIcon, ListIcon, OutputIcon, ServerIcon, SessionsIcon, ViewIcon } from "../components/Icons.tsx";
+import { DiffIcon, FileIcon, GlobeIcon, ListIcon, OutputIcon, SessionsIcon, ViewIcon } from "../components/Icons.tsx";
 
 const ICONS: Readonly<Record<string, (props: IconProps) => ReactElement>> = {
     sessions: SessionsIcon,
-    vera: ServerIcon,
     output: OutputIcon,
     review: DiffIcon,
     plan: ListIcon,
     files: FileIcon,
-    preview: EyeIcon,
     browser: GlobeIcon,
 };
 

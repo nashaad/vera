@@ -76,7 +76,7 @@ function ContextPopover({ context, onCompact, style }: ContextPopoverProps) {
         return (
             <div className="context-pop" role="dialog" data-popover="below-end" style={style} aria-label="Context usage">
                 <p className="context-empty">No measurement yet.</p>
-                <button type="button" className="context-compact" onClick={onCompact}>Compact…</button>
+                <button type="button" className="context-compact" onClick={onCompact}>Compact</button>
             </div>
         );
     }
@@ -146,7 +146,7 @@ function ContextPopover({ context, onCompact, style }: ContextPopoverProps) {
                 </ul>
             ) : null}
 
-            <button type="button" className="context-compact" onClick={onCompact}>Compact…</button>
+            <button type="button" className="context-compact" onClick={onCompact}>Compact</button>
         </div>
     );
 }

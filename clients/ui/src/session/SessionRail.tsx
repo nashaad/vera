@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import { DiffIcon, EyeIcon, FileIcon, ListIcon, type IconProps } from "../components/Icons.tsx";
+import { DiffIcon, FileIcon, ListIcon, type IconProps } from "../components/Icons.tsx";
 import { CORE_CONTAINERS } from "../registry/core.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
@@ -9,7 +9,6 @@ const TOOLS: ReadonlyArray<readonly [string, string, (props: IconProps) => React
     [CORE_CONTAINERS.review, "Review", DiffIcon],
     [CORE_CONTAINERS.plan, "Plan", ListIcon],
     [CORE_CONTAINERS.files, "Files", FileIcon],
-    [CORE_CONTAINERS.preview, "Preview", EyeIcon],
 ];
 
 // Shortcuts into the right pane while it is closed.
