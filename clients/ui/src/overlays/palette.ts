@@ -5,9 +5,9 @@ import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 
 export const PALETTE_LIMIT = 50;
 
-export type CommandGroup = "Go" | "Window" | "Session" | "Theme" | "Help" | "Other";
+export type CommandGroup = "Go" | "Pages" | "Window" | "Session" | "Theme" | "Help" | "Other";
 
-const GROUP_ORDER: readonly CommandGroup[] = ["Go", "Window", "Session", "Theme", "Help", "Other"];
+const GROUP_ORDER: readonly CommandGroup[] = ["Go", "Pages", "Window", "Session", "Theme", "Help", "Other"];
 
 // One row of either palette mode. Sessions have no group; `fields` are the texts a query is matched against.
 export interface PaletteItem {
@@ -34,6 +34,7 @@ export interface PaletteSection {
 
 export function commandGroup(id: string): CommandGroup {
     if (id.startsWith("go.")) return "Go";
+    if (id.startsWith("page.")) return "Pages";
     if (id.startsWith("layout.") || id.startsWith("view.") || id.startsWith("container.")) return "Window";
     if (id.startsWith("session.")) return "Session";
     if (id.startsWith("theme.")) return "Theme";

@@ -21,6 +21,7 @@ import {
     type SessionSort,
     type SessionSortKey,
 } from "./sessions-table.ts";
+import { ANNEX_BUILT_IN_PAGES } from "../../src/annex/built-in-pages.ts";
 import { money } from "./money.ts";
 import { SubscriptionLimitsPanel } from "./SubscriptionLimits.tsx";
 
@@ -38,16 +39,8 @@ const PRIOR_LABEL: Readonly<Record<UsageWindowId, string>> = {
     all: "vs prior",
 };
 
-export const ANNEX_PAGES: readonly {
-    readonly id: AnnexPageId;
-    readonly label: string;
-    readonly href: string;
-}[] = [
-    { id: "usage", label: "Usage", href: "/usage" },
-    { id: "runs", label: "Runs", href: "/runs" },
-];
-
-export type AnnexPageId = "usage" | "runs";
+// The desktop app frames these pages under its own tab row, so the page drops its menu there.
+const EMBEDDED = window.self !== window.top;
 
 interface AnnexMenuEntry {
     readonly id: string;
@@ -55,14 +48,17 @@ interface AnnexMenuEntry {
     readonly href: string;
 }
 
-// Extension pages use their href as the id, so they never collide with built-ins.
-export function AnnexChrome({
-    page,
-    onHome,
-}: {
+interface AnnexChromeProps {
     readonly page: string;
     readonly onHome: () => void;
-}) {
+}
+
+export function AnnexChrome(props: AnnexChromeProps) {
+    return EMBEDDED ? null : <AnnexMenu {...props} />;
+}
+
+// Extension pages use their href as the id, so they never collide with built-ins.
+function AnnexMenu({ page, onHome }: AnnexChromeProps) {
     const [open, setOpen] = useState(false);
     const [extensionPages, setExtensionPages] = useState<readonly AnnexMenuEntry[]>([]);
     const toggleRef = useRef<HTMLButtonElement>(null);
@@ -140,7 +136,7 @@ export function AnnexChrome({
                                     ×
                                 </button>
                             </div>
-                            {[...ANNEX_PAGES, ...extensionPages].map((entry) => (
+                            {[...ANNEX_BUILT_IN_PAGES, ...extensionPages].map((entry) => (
                                 entry.id === page
                                     ? (
                                         <button
@@ -175,7 +171,7 @@ export function AnnexChrome({
 }
 
 function labelOf(page: string, extensionPages: readonly AnnexMenuEntry[]): string {
-    return [...ANNEX_PAGES, ...extensionPages]
+    return [...ANNEX_BUILT_IN_PAGES, ...extensionPages]
         .find((entry) => entry.id === page)?.label ?? "Vera";
 }
 

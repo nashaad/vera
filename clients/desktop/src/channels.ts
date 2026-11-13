@@ -34,5 +34,7 @@ export const CHANNELS = {
     sessionsSearch: "vera:sessions-search",
     folderReveal: "vera:folder-reveal",
     extensionFailures: "vera:extension-failures",
+    annexPages: "vera:annex-pages",
+    annexOpen: "vera:annex-open",
     event: "vera:event",
 } as const;

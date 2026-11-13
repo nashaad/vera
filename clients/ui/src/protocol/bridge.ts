@@ -160,6 +160,27 @@ export interface ExtensionFailuresAnswer {
 
 export type ExtensionFailuresResult = ExtensionFailuresAnswer | HostRequestFailure;
 
+export interface AnnexPage {
+    readonly label: string;
+    // A path on the annex, such as /usage or /x/<extension>/<page>.
+    readonly path: string;
+    // The extension that adds the page; Vera's own pages have none.
+    readonly extensionId?: string;
+    readonly about?: string;
+}
+
+export interface AnnexPagesAnswer {
+    readonly ok: true;
+    // The annex base URL, ending in a slash.
+    readonly url: string;
+    // Vera's own pages first, then the ones extensions add.
+    readonly pages: readonly AnnexPage[];
+    // Set when the extension pages could not be listed; Vera's own pages are still there.
+    readonly extensionsFailure?: string;
+}
+
+export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -198,6 +219,10 @@ export interface DesktopBridge {
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
     // Extensions the host tried to load at start and could not.
     readExtensionFailures(): Promise<ExtensionFailuresResult>;
+    // The host's annex address and the pages it serves.
+    readAnnexPages(): Promise<AnnexPagesResult>;
+    // Opens an annex path in the system browser; false when there is no annex to open it on.
+    openAnnexPage(path: string): Promise<boolean>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.

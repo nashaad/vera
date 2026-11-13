@@ -14,6 +14,7 @@ import type {
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { AssignmentStore, changeArgument } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
@@ -62,6 +63,8 @@ let stopping = false;
 let activeTheme: ThemeName = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
+// The annex base URL from the last page list the window read; the browser frame may only load from it.
+let annexUrl: string | undefined;
 
 const pipe = new HostPipe(sendEvent);
 const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
@@ -124,6 +127,16 @@ function fromWindow(event: { readonly sender: WebContents }): boolean {
     return window !== undefined && event.sender === window.webContents;
 }
 
+function onAnnex(url: string): boolean {
+    if (url === "about:blank" || url === "about:srcdoc") return true;
+    if (annexUrl === undefined) return false;
+    try {
+        return new URL(url).origin === new URL(annexUrl).origin;
+    } catch {
+        return false;
+    }
+}
+
 function trafficLightPosition(titleBarHeight: number): { x: number; y: number } {
     return {
         x: TRAFFIC_LIGHT_INSET_X,
@@ -159,6 +172,11 @@ function createWindow(): BrowserWindow {
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     created.webContents.on("will-navigate", (event) => event.preventDefault());
+    // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
+    created.webContents.on("will-frame-navigate", (event) => {
+        if (event.isMainFrame) return;
+        if (!onAnnex(event.url)) event.preventDefault();
+    });
     // A shortcut handled here never reaches the page or the menu, so it runs once.
     created.webContents.on("before-input-event", (event, input) => {
         const command = shortcutCommand(input, process.platform);
@@ -339,6 +357,18 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.annexPages, async (event) => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    const result = await readAnnexPages(hostSocketPath);
+    if (result.ok) annexUrl = result.url;
+    return result;
+});
+ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean> => {
+    const address = annexUrl === undefined ? undefined : annexAddress(annexUrl, path);
+    if (!fromWindow(event) || address === undefined) return false;
+    await shell.openExternal(address);
+    return true;
+});
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;
     const color = parseWindowBackground(value);

@@ -75,11 +75,11 @@ try {
     await menu.waitFor();
     const groups = await page.locator(".slash-group").allInnerTexts();
     if (groups.join() !== "Built in") throw new Error(`New Chat showed the groups ${groups.join(", ")}.`);
-    await option("usage").locator(".slash-tag:text-is(\"Not implemented yet\")").waitFor();
-    await input.fill("/usa");
+    await option("import").locator(".slash-tag:text-is(\"Not implemented yet\")").waitFor();
+    await input.fill("/imp");
     await until("the menu to narrow", async () => (await page.locator(".slash-item").count()) === 1);
     await input.press("Enter");
-    await notice.filter({ hasText: "/usage: Not implemented yet" }).waitFor();
+    await notice.filter({ hasText: "/import: Not implemented yet" }).waitFor();
     if ((await input.inputValue()) !== "") throw new Error("A not implemented command left its text in the box.");
     await input.fill("/modle");
     await input.press("Space");

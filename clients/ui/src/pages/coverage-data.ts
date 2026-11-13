@@ -226,7 +226,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
         items: [
             inWindow("Session Diagnostics lists the session's facts and the host's", "Copy puts them on the clipboard as text"),
             partial("Check Vera's Health checks the connection and what the window knows", "Full check is vera doctor in a terminal"),
-            inTerminal("/usage opens local session usage and cost", "/usage in the terminal"),
+            inWindow("/usage opens local session usage and cost", "/usage or Pages > Usage opens it in the Browser"),
             inTerminal("/failure-report writes a report of recorded model failures", "Help > Model Failures points there"),
             inWindow("Reconnect on the banner is the next step when the connection drops", "Banner button after a lost connection"),
             inTerminal("A dropped connection gets one automatic restart", "The window shows the banner with Reconnect"),

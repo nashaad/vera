@@ -4,6 +4,7 @@ import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import { registerLayoutCommands } from "../../clients/ui/src/commands/layout-commands.ts";
 import { registerNavigationCommands } from "../../clients/ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../clients/ui/src/commands/overlay-ids.ts";
+import { registerPageCommands } from "../../clients/ui/src/commands/page-commands.ts";
 import { registerSessionCommands } from "../../clients/ui/src/commands/session-commands.ts";
 import { registerSessionWindowCommands } from "../../clients/ui/src/commands/session-window-commands.ts";
 import {
@@ -51,10 +52,10 @@ describe("the slash entries", () => {
         expect(new Set(names(BUILTIN_SLASH_ENTRIES)).size).toBe(BUILTIN_SLASH_ENTRIES.length);
     });
 
-    test("@core the commands the window cannot run are the five marked unsupported", () => {
+    test("@core the commands the window cannot run are the four marked unsupported", () => {
         const unsupported = BUILTIN_SLASH_ENTRIES.filter((entry) => entry.action.kind === "unsupported");
-        expect(names(unsupported)).toEqual(["animations", "import", "extension", "usage", "reload-extensions"]);
-        expect(notImplementedMessage(entryNamed("usage"))).toBe("/usage: Not implemented yet");
+        expect(names(unsupported)).toEqual(["animations", "import", "extension", "reload-extensions"]);
+        expect(notImplementedMessage(entryNamed("import"))).toBe("/import: Not implemented yet");
     });
 
     test("@core every built-in that runs a window command names one the window registers", () => {
@@ -63,6 +64,7 @@ describe("the slash entries", () => {
         registerLayoutCommands(registry, () => {});
         registerSessionCommands(registry);
         registerSessionWindowCommands(registry, { navigate: () => {}, parentRoute: () => undefined, bridge: () => undefined });
+        registerPageCommands(registry, { open: () => {} });
         // The overlay commands are registered by the overlay host, which needs a window.
         const overlayIds = new Set(Object.values(OVERLAY_COMMANDS).map((command) => command.id));
         for (const entry of BUILTIN_SLASH_ENTRIES) {

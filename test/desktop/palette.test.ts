@@ -65,6 +65,7 @@ test("@core command entries leave out commands that need arguments and the palet
 
 test("command groups follow the id prefix and sort by group, then title", () => {
     expect(commandGroup("go.back")).toBe("Go");
+    expect(commandGroup("page.usage")).toBe("Pages");
     expect(commandGroup("layout.togglePanel")).toBe("Window");
     expect(commandGroup("view.open")).toBe("Window");
     expect(commandGroup("container.focus")).toBe("Window");

@@ -20,6 +20,7 @@ import "./styles/models-browser.css";
 import "./styles/session-tools.css";
 import "./styles/diffs.css";
 import "./styles/right-views.css";
+import "./styles/browser.css";
 import "./styles/session-panes.css";
 import "./styles/search.css";
 import "./styles/workspace.css";

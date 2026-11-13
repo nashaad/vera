@@ -5,6 +5,7 @@ import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWr
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
 import type {
+    AnnexPagesResult,
     BranchSessionResult,
     CloseSessionResult,
     CreateSessionResult,
@@ -94,6 +95,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
     readExtensionFailures: async () =>
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
+    readAnnexPages: async () => (await ipcRenderer.invoke(CHANNELS.annexPages)) as AnnexPagesResult,
+    openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);
