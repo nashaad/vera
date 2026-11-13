@@ -52,6 +52,14 @@ export type FolderListing =
     | { readonly ok: true; readonly entries: readonly FolderEntry[]; readonly cut: boolean }
     | { readonly ok: false; readonly reason: string };
 
+// A file preview holds at most this many bytes from the start of the file.
+export const MAX_FILE_PREVIEW_BYTES = 256 * 1024;
+
+// `size` is the whole file's length in bytes; `cut` is set when the text stops before the end.
+export type FilePreview =
+    | { readonly ok: true; readonly text: string; readonly size: number; readonly cut: boolean }
+    | { readonly ok: false; readonly reason: string };
+
 export interface CreatedSession {
     readonly ok: true;
     readonly agentId: string;
@@ -239,6 +247,8 @@ export interface DesktopBridge {
     readBranch(folder: string): Promise<string | undefined>;
     // One level of a folder on this machine, read by the window rather than the host.
     listFolder(folder: string): Promise<FolderListing>;
+    // The start of a text file on this machine, read by the window rather than the host.
+    readFilePreview(path: string): Promise<FilePreview>;
     // Tells the shell how tall the drawn title bar is so native window controls can center in it.
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.

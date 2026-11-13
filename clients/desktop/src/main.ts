@@ -9,6 +9,7 @@ import type {
     CloseSessionResult,
     CreateSessionResult,
     DesktopEvent,
+    FilePreview,
     FolderListing,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
@@ -21,7 +22,8 @@ import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
-import { folderArgument, listFolder } from "./folder-listing.ts";
+import { readFilePreview } from "./file-preview.ts";
+import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
@@ -308,9 +310,14 @@ ipcMain.handle(CHANNELS.branchRead, async (event, folder: unknown): Promise<stri
     return readBranch(folder);
 });
 ipcMain.handle(CHANNELS.folderList, async (event, folder: unknown): Promise<FolderListing> => {
-    const path = folderArgument(folder);
+    const path = pathArgument(folder);
     if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a folder path." };
     return listFolder(path);
+});
+ipcMain.handle(CHANNELS.fileRead, async (event, file: unknown): Promise<FilePreview> => {
+    const path = pathArgument(file);
+    if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a file path." };
+    return readFilePreview(path);
 });
 ipcMain.handle(CHANNELS.modelsRead, (event, workspace: unknown) =>
     fromWindow(event) ? readModels(hostSocketPath, workspaceArgument(workspace)) : undefined);

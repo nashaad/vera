@@ -718,8 +718,14 @@ a bar and the items, with the item just finished marked. Files shows the
 session's folder (`Chat` for a chat) as a tree the window reads from disk:
 folders come first, a folder opens one level at a time, and one folder lists
 at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
-again when a turn ends. While the right pane is closed, a rail at the right of
-the session page opens these views.
+again when a turn ends. Picking a file shows it beside the tree, which keeps
+the file marked: a bar with its path under the folder, then its text with line
+numbers. The window reads at most the first 256 KB and says so when the file is
+longer. A folder, a file that is not text and a file that is gone each show one
+line saying so. The arrows in the bar step back and forward through the files
+opened, up to the last 50, and `Browse files` hides or shows the tree. An open
+file is read again when a turn ends. While the right pane is closed, a rail at
+the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
 the conversation says which model it used, marked `subagent` when a subagent's
@@ -934,7 +940,9 @@ the context pill to fill in, quotes a reply into the composer from its `…`
 menu, rewinds the newest prompt back into the composer and compacts from the
 session menu. From a sidebar row's `…` menu it renames the session while
 another page is open, pins it and reads `pins.json`, opens the Files view,
-unpins it from the right-click menu, clones it and closes the copy.
+opens two files beside the tree, steps back and forward between them, hides and
+shows the tree, unpins it from the right-click menu, clones it and closes the
+copy.
 
 The browser test opens Usage from the command palette and checks the frame
 loads it from the annex without the annex's menu, that the tabs are Usage, Runs

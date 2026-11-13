@@ -2,30 +2,27 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 
 import { ChevronRightIcon, FileIcon, FolderIcon } from "../components/Icons.tsx";
 import { MAX_FOLDER_ENTRIES, type DesktopBridge, type FolderListing } from "../protocol/bridge.ts";
+import { childPath } from "./files.ts";
+import { useTurnsEnded } from "./useTurnsEnded.ts";
 
 export interface FileTreeProps {
     readonly bridge: DesktopBridge;
     readonly root: string;
     readonly visible: boolean;
     readonly running: boolean;
+    readonly selected: string | undefined;
+    readonly onOpenFile: (path: string) => void;
 }
 
 type DepthStyle = CSSProperties & { readonly "--depth": number };
 
-// Folders are read one level at a time when opened. Open folders are read again when a turn ends,
-// since that is when Vera has changed files.
-export function FileTree({ bridge, root, visible, running }: FileTreeProps) {
+// Folders are read one level at a time when opened, and open folders are read again when a turn ends.
+export function FileTree({ bridge, root, visible, running, selected, onOpenFile }: FileTreeProps) {
     const [listings, setListings] = useState<ReadonlyMap<string, FolderListing>>(new Map());
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-    const [turnsEnded, setTurnsEnded] = useState(0);
-    const wasRunning = useRef(running);
+    const turnsEnded = useTurnsEnded(running);
     const openRef = useRef(open);
     openRef.current = open;
-
-    useEffect(() => {
-        if (wasRunning.current && !running) setTurnsEnded((count) => count + 1);
-        wasRunning.current = running;
-    }, [running]);
 
     const read = useCallback((path: string): void => {
         void bridge.listFolder(path).then((listing) => setListings((current) => new Map(current).set(path, listing)));
@@ -50,7 +47,7 @@ export function FileTree({ bridge, root, visible, running }: FileTreeProps) {
 
     return (
         <ul className="file-tree" role="tree" aria-label="Files">
-            <FolderRows path={root} depth={0} listings={listings} open={open} toggle={toggle} />
+            <FolderRows path={root} depth={0} listings={listings} open={open} toggle={toggle} selected={selected} onOpenFile={onOpenFile} />
         </ul>
     );
 }
@@ -61,9 +58,11 @@ interface FolderRowsProps {
     readonly listings: ReadonlyMap<string, FolderListing>;
     readonly open: ReadonlySet<string>;
     readonly toggle: (path: string) => void;
+    readonly selected: string | undefined;
+    readonly onOpenFile: (path: string) => void;
 }
 
-function FolderRows({ path, depth, listings, open, toggle }: FolderRowsProps) {
+function FolderRows({ path, depth, listings, open, toggle, selected, onOpenFile }: FolderRowsProps) {
     const listing = listings.get(path);
     const indent: DepthStyle = { "--depth": depth };
     if (listing === undefined) return <li className="file-note" style={indent}>Reading…</li>;
@@ -75,9 +74,18 @@ function FolderRows({ path, depth, listings, open, toggle }: FolderRowsProps) {
                 const child = childPath(path, entry.name);
                 if (!entry.folder) {
                     return (
-                        <li key={entry.name} className="file-row" role="treeitem" style={indent} title={child}>
-                            <FileIcon className="file-icon" />
-                            <span className="file-name">{entry.name}</span>
+                        <li key={entry.name} role="treeitem" aria-selected={child === selected}>
+                            <button
+                                type="button"
+                                className="file-row file-entry"
+                                style={indent}
+                                title={child}
+                                aria-current={child === selected ? "true" : undefined}
+                                onClick={() => onOpenFile(child)}
+                            >
+                                <FileIcon className="file-icon" />
+                                <span className="file-name">{entry.name}</span>
+                            </button>
                         </li>
                     );
                 }
@@ -91,7 +99,15 @@ function FolderRows({ path, depth, listings, open, toggle }: FolderRowsProps) {
                         </button>
                         {expanded ? (
                             <ul role="group">
-                                <FolderRows path={child} depth={depth + 1} listings={listings} open={open} toggle={toggle} />
+                                <FolderRows
+                                    path={child}
+                                    depth={depth + 1}
+                                    listings={listings}
+                                    open={open}
+                                    toggle={toggle}
+                                    selected={selected}
+                                    onOpenFile={onOpenFile}
+                                />
                             </ul>
                         ) : null}
                     </li>
@@ -100,9 +116,4 @@ function FolderRows({ path, depth, listings, open, toggle }: FolderRowsProps) {
             {listing.cut ? <li className="file-note" style={indent}>Showing the first {MAX_FOLDER_ENTRIES} entries.</li> : null}
         </>
     );
-}
-
-function childPath(parent: string, name: string): string {
-    const separator = parent.includes("/") || !parent.includes("\\") ? "/" : "\\";
-    return parent.endsWith(separator) ? `${parent}${name}` : `${parent}${separator}${name}`;
 }

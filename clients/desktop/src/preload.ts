@@ -12,6 +12,7 @@ import type {
     DesktopBridge,
     DesktopEvent,
     ExtensionFailuresResult,
+    FilePreview,
     FolderListing,
     HostModelsResult,
     ModelOperationKind,
@@ -78,6 +79,7 @@ const bridge: DesktopBridge = {
         return typeof branch === "string" ? branch : undefined;
     },
     listFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderList, folder)) as FolderListing,
+    readFilePreview: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileRead, path)) as FilePreview,
     readModelSettings: async (workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelsRead, workspace)) as HostModelsResult,
     refreshCatalog: async (provider: string, workspace?: string) =>

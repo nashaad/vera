@@ -1,6 +1,6 @@
 // Session tools test for the desktop shell. Run with: node clients/desktop/test/tools.e2e.mjs
 // The provider writes a scratch checklist, writes a file and edits it, then answers.
-// The test reads the rollup, the Review and Plan views, quotes a reply, rewinds one prompt and compacts,
+// The test reads the rollup, the Review, Plan and Files views, quotes a reply, rewinds one prompt and compacts,
 // then works the sidebar row's menu.
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -142,6 +142,28 @@ try {
     await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
     await page.locator(".file-folder", { hasText: "hold" }).click();
     await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
+
+    // A file opens beside the tree with numbered lines and stays marked there.
+    await page.locator(".file-entry", { hasText: "nest.txt" }).click();
+    await page.locator(".file-preview-lines", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
+    const gutter = await page.locator(".file-preview-gutter").innerText();
+    if (gutter !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
+    const shownPath = async () => page.locator(".file-preview-path").innerText();
+    if (await shownPath() !== "nest.txt") throw new Error(`The preview named ${await shownPath()}`);
+    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "nest.txt" }).waitFor({ timeout: 5_000 });
+
+    // Previous and next step through the files opened, and Browse files hides and shows the tree.
+    await page.locator(".file-entry", { hasText: "doubloon.txt" }).click();
+    await until("doubloon.txt open", async () => (await shownPath()) === "hold/doubloon.txt");
+    await page.getByRole("button", { name: "Previous file" }).click();
+    await until("nest.txt open again", async () => (await shownPath()) === "nest.txt");
+    await page.getByRole("button", { name: "Next file" }).click();
+    await until("doubloon.txt open again", async () => (await shownPath()) === "hold/doubloon.txt");
+    const browse = page.getByRole("button", { name: "Browse files" });
+    await browse.click();
+    await page.locator(".file-tree").waitFor({ state: "hidden", timeout: 5_000 });
+    await browse.click();
+    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "doubloon.txt" }).waitFor({ timeout: 5_000 });
 
     // The context pill fills in once the host measures the conversation.
     const pill = page.locator(".context-pill");

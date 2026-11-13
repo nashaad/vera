@@ -7,7 +7,7 @@ import { MAX_FOLDER_ENTRIES, type FolderEntry, type FolderListing } from "../../
 const MAX_PATH_CHARS = 4096;
 const SKIPPED = new Set([".git", ".DS_Store"]);
 
-export function folderArgument(value: unknown): string | undefined {
+export function pathArgument(value: unknown): string | undefined {
     if (typeof value !== "string" || value.length > MAX_PATH_CHARS || !isAbsolute(value)) return undefined;
     return normalize(value);
 }
