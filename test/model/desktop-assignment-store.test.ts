@@ -3,7 +3,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AssignmentStore, changeArgument } from "../../clients/desktop/src/assignments.ts";
+import { AssignmentService } from "../../clients/desktop/src/assignments.ts";
+import { AssignmentStore } from "../../clients/desktop/src/model-assignments/assignment-store.ts";
+import { runAssignmentTask } from "../../clients/desktop/src/model-assignments/run-task.ts";
+import { changeArgument, parseAssignmentTask, parseAssignmentTaskReply } from "../../clients/desktop/src/model-assignments/task-protocol.ts";
 import { slotOf, type AssignmentsView } from "../../clients/ui/src/protocol/assignments.ts";
 
 const homes: string[] = [];
@@ -137,7 +140,7 @@ test("a config.json that stops loading keeps the last view and refuses writes", 
 
 test("a change from the window is checked before it reaches the config", () => {
     expect(changeArgument({ assignment: "eco", provider: "openrouter", model: "big-1", effort: "high" }))
-        .toEqual({ assignment: "eco", provider: "openrouter", model: "big-1", reasoningEffort: "high" });
+        .toEqual({ assignment: "eco", provider: "openrouter", model: "big-1", effort: "high" });
     expect(changeArgument({ assignment: "subagents", provider: "openrouter", model: "big-1", move: 1 }))
         .toEqual({ assignment: "subagents", provider: "openrouter", model: "big-1", move: 1 });
     expect(changeArgument({ assignment: "eco" })).toEqual({ assignment: "eco" });
@@ -155,5 +158,72 @@ test("a change from the window is checked before it reaches the config", () => {
         { assignment: "subagents", allowSelf: "yes" },
     ]) {
         expect(changeArgument(bad)).toBeUndefined();
+    }
+});
+
+// Each task gets a fresh store and only what survives the copy between processes, as in the app.
+function inTaskProcesses(home: string): AssignmentService {
+    return new AssignmentService(home, async (task) => {
+        const received = parseAssignmentTask(structuredClone(task));
+        if (received === undefined) throw new Error("The task did not read.");
+        const reply = parseAssignmentTaskReply(structuredClone(runAssignmentTask(received)));
+        if (reply === undefined) throw new Error("The answer did not read.");
+        return reply;
+    });
+}
+
+test("@core across task processes, a config.json that stops loading keeps the last view and refuses writes", async () => {
+    const home = trialHome();
+    const assignments = inTaskProcesses(home);
+    const change = changeArgument({ assignment: "eco", provider: "openrouter", model: "big-1", effort: "high" });
+    if (change === undefined) throw new Error("The change did not read.");
+    const edited = await assignments.edit(change);
+    expect(edited.ok && slotOf(edited.view, "eco")?.declared).toEqual([{ provider: "openrouter", model: "big-1", effort: "high" }]);
+    expect(written(home).eco).toBeDefined();
+
+    writeFileSync(join(home, "config.json"), "{ not json");
+    const read = await assignments.read();
+    if (!read.ok) throw new Error(read.reason);
+    expect(read.notice).toContain("config.json could not be read");
+    expect(slotOf(read, "eco")?.bound).toBe(true);
+    expect((await assignments.edit({ assignment: "eco", provider: "openrouter", model: "small-1" })).ok).toBe(false);
+    expect((await assignments.assignAll("openrouter", "small-1")).ok).toBe(false);
+    expect(readFileSync(join(home, "config.json"), "utf8")).toBe("{ not json");
+
+    expect(read.notice).toContain("Showing the last settings that loaded.");
+    const fresh = await inTaskProcesses(home).read();
+    if (!fresh.ok) throw new Error(fresh.reason);
+    expect(fresh.notice).not.toContain("Showing the last settings");
+    expect(slotOf(fresh, "eco")?.bound).toBe(false);
+});
+
+test("a task that fails or answers a different request is reported, not thrown", async () => {
+    const failing = new AssignmentService(trialHome(), () => Promise.reject(new Error("The task stopped without answering.")));
+    expect(await failing.read()).toEqual({ ok: false, reason: "The task stopped without answering." });
+    const crossed = new AssignmentService(trialHome(), async () => ({ kind: "edit", result: { ok: false, reason: "no" } }));
+    expect(await crossed.read()).toEqual({ ok: false, reason: "The assignments task answered a different request." });
+});
+
+test("assignment tasks and answers of the wrong shape are not read", () => {
+    for (const task of [
+        null,
+        { kind: "read" },
+        { kind: "read", home: 1 },
+        { kind: "edit", home: "/h", change: { assignment: "session" } },
+        { kind: "assign-all", home: "/h", provider: "Open Router", model: "m" },
+        { kind: "read", home: "/h", lastGood: { path: 1, config: {} } },
+        { kind: "write", home: "/h" },
+    ]) {
+        expect(parseAssignmentTask(task)).toBeUndefined();
+    }
+    for (const reply of [
+        null,
+        { kind: "read" },
+        { kind: "read", result: { ok: true, slots: [{ id: "eco" }] } },
+        { kind: "edit", result: { ok: true, view: { ok: true, slots: [] } } },
+        { kind: "assign-all", result: { ok: true, view: { ok: true, slots: [] }, favorite: false, assigned: [1] } },
+        { kind: "read", result: { ok: false, reason: "no" }, lastGood: "config" },
+    ]) {
+        expect(parseAssignmentTaskReply(reply)).toBeUndefined();
     }
 });

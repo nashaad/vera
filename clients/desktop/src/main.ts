@@ -18,7 +18,7 @@ import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
-import { AssignmentStore, changeArgument } from "./assignments.ts";
+import { AssignmentService } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
@@ -28,12 +28,12 @@ import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
+import { ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE, changeArgument, parseAssignmentTaskReply, type AssignmentTask } from "./model-assignments/task-protocol.ts";
+import { modelArgument, providerArgument } from "./model-arguments.ts";
 import {
     forgetProvider,
-    modelArgument,
     operateModel,
     operationArgument,
-    providerArgument,
     readModels,
     refreshProvider,
     workspaceArgument,
@@ -83,7 +83,8 @@ const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
-const assignmentStore = new AssignmentStore(selectedVeraHome());
+const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
+const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
 const themeService = new ThemeService(themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
 
@@ -366,17 +367,17 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
     return operateModel(hostSocketPath, kind, id, name, workspaceArgument(workspace));
 });
 ipcMain.handle(CHANNELS.assignmentsRead, (event) =>
-    fromWindow(event) ? assignmentStore.read() : { ok: false, reason: "That window cannot read assignments." });
+    fromWindow(event) ? assignments.read() : { ok: false, reason: "That window cannot read assignments." });
 ipcMain.handle(CHANNELS.assignmentsEdit, (event, change: unknown) => {
     const edit = changeArgument(change);
     if (!fromWindow(event) || edit === undefined) return { ok: false, reason: "That is not an assignment change." };
-    return assignmentStore.edit(edit);
+    return assignments.edit(edit);
 });
 ipcMain.handle(CHANNELS.assignmentsAll, (event, provider: unknown, model: unknown) => {
     const id = providerArgument(provider);
     const name = modelArgument(model);
     if (!fromWindow(event) || id === undefined || name === undefined) return { ok: false, reason: "That is not a model Vera knows." };
-    return assignmentStore.assignAll(id, name);
+    return assignments.assignAll(id, name);
 });
 ipcMain.handle(CHANNELS.sessionsSearch, (event, request: unknown) => {
     const parsed = searchArgument(request);

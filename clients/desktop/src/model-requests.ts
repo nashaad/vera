@@ -11,8 +11,6 @@ import type {
 
 type Fields = Record<string, unknown>;
 
-const PROVIDER_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-const MAX_MODEL_CHARS = 256;
 const READ_TIMEOUT_MS = 10_000;
 const REFRESH_TIMEOUT_MS = 30_000;
 // A probe sends a live request to the provider; a slow provider can take minutes.
@@ -23,14 +21,6 @@ const NOT_RUNNING: HostRequestFailure = { ok: false, reason: "The host is not ru
 
 export function workspaceArgument(value: unknown): string | undefined {
     return typeof value === "string" && isAbsolute(value) ? value : undefined;
-}
-
-export function providerArgument(value: unknown): string | undefined {
-    return typeof value === "string" && PROVIDER_PATTERN.test(value) ? value : undefined;
-}
-
-export function modelArgument(value: unknown): string | undefined {
-    return typeof value === "string" && value.length > 0 && value.length <= MAX_MODEL_CHARS ? value : undefined;
 }
 
 export function operationArgument(value: unknown): ModelOperationKind | undefined {

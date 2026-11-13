@@ -49,6 +49,7 @@ try {
     mkdirSync(elsewhere, { recursive: true });
 
     const app = await trial.launch({ cwd: elsewhere });
+    await watchTaskProcesses(app);
     const cwd = await app.evaluate(() => process.cwd());
     if (cwd.replace(/^\/private/, "") !== elsewhere.replace(/^\/private/, "")) throw new Error(`The app runs in ${cwd}, not ${elsewhere}.`);
 
@@ -111,6 +112,22 @@ try {
     await page.getByRole("switch", { name: "Then the spawning session's model" }).click();
     await until("allow_self in config.json", async () => assignments().subagents?.allow_self === true);
 
+    // Each read and write ran in a process of its own, and none is left running.
+    await until("the assignment processes to stop", async () => {
+        const processes = await taskProcesses(app);
+        return processes.started >= 5 && processes.running === 0;
+    });
+    const timings = [];
+    for (let read = 0; read < 5; read += 1) {
+        timings.push(await page.evaluate(async () => {
+            const started = performance.now();
+            const reply = await window.veraDesktop.readAssignments();
+            if (!reply.ok) throw new Error(reply.reason);
+            return performance.now() - started;
+        }));
+    }
+    console.log(`assignment reads took ${timings.map((ms) => Math.round(ms)).join(", ")} ms`);
+
     console.log("defaults e2e passed");
 } catch (error) {
     failed = true;
@@ -123,3 +140,22 @@ try {
     await new Promise((resolve) => provider.close(resolve));
 }
 process.exit(failed ? 1 : 0);
+
+// Counts the assignment processes started since launch, and the ones still running.
+async function watchTaskProcesses(app) {
+    await app.evaluate(({ utilityProcess }) => {
+        const fork = utilityProcess.fork.bind(utilityProcess);
+        globalThis.assignmentTaskStarts = 0;
+        utilityProcess.fork = (modulePath, args, options) => {
+            if (options?.serviceName === "Vera Model Assignments") globalThis.assignmentTaskStarts += 1;
+            return fork(modulePath, args, options);
+        };
+    });
+}
+
+function taskProcesses(app) {
+    return app.evaluate(({ app }) => ({
+        started: globalThis.assignmentTaskStarts,
+        running: app.getAppMetrics().filter((metric) => metric.name === "Vera Model Assignments").length,
+    }));
+}

@@ -530,6 +530,11 @@ export interface LastGoodVeraConfig {
     readonly error?: Error;
 }
 
+export interface LastGoodConfigFile {
+    readonly path: string;
+    readonly config: VeraConfig;
+}
+
 /**
  * `loadOptionalVeraConfig` for readers that can run on older settings: when the
  * file stops loading, the last config loaded from the same path answers instead.
@@ -537,21 +542,33 @@ export interface LastGoodVeraConfig {
 export function createLastGoodVeraConfigReader(
     options: LoadVeraConfigOptions = {},
 ): () => LastGoodVeraConfig {
-    let lastGood: { readonly path: string; readonly config: VeraConfig } | undefined;
+    let lastGood: LastGoodConfigFile | undefined;
     return () => {
-        const path = options.path ?? defaultVeraConfigPath();
-        try {
-            // Pass options through unchanged: an explicit path moves where hooks and extensions resolve.
-            const config = loadOptionalVeraConfig(options);
-            lastGood = config === undefined ? undefined : { path, config };
-            return { config };
-        } catch (error) {
-            return {
+        const next = readVeraConfigOverLastGood(options, lastGood);
+        lastGood = next.lastGood;
+        return next.read;
+    };
+}
+
+// One read for a reader that keeps the last good config itself, such as one that runs in another process.
+export function readVeraConfigOverLastGood(
+    options: LoadVeraConfigOptions,
+    lastGood: LastGoodConfigFile | undefined,
+): { readonly read: LastGoodVeraConfig; readonly lastGood: LastGoodConfigFile | undefined } {
+    const path = options.path ?? defaultVeraConfigPath();
+    try {
+        // Pass options through unchanged: an explicit path moves where hooks and extensions resolve.
+        const config = loadOptionalVeraConfig(options);
+        return { read: { config }, lastGood: config === undefined ? undefined : { path, config } };
+    } catch (error) {
+        return {
+            read: {
                 config: lastGood?.path === path ? lastGood.config : undefined,
                 error: error instanceof Error ? error : new Error(String(error)),
-            };
-        }
-    };
+            },
+            lastGood,
+        };
+    }
 }
 
 // The reason alone, without the path, for one-line notices.

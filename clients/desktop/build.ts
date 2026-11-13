@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
 
 const root = import.meta.dir;
@@ -32,6 +33,7 @@ if (!preload.success) fail(preload.logs);
 // Each task runs in a process of its own, from a bundle that main.js never loads.
 const TASKS = [
     { entry: join(root, "src", "theme-import", "worker.ts"), file: THEME_TASK_FILE },
+    { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
 ];
 for (const task of TASKS) {
     const bundle = await Bun.build({
@@ -71,7 +73,7 @@ const index = join(root, "index.html");
 if (!existsSync(index)) throw new Error(`Missing ${index}`);
 cpSync(index, join(rendererOut, "index.html"));
 
-// The bundled config code reads provider definitions from beside main.js.
+// Bundled config code reads provider definitions from this folder.
 cpSync(join(root, "..", "..", "src", "providers", "definitions"), join(out, "definitions"), { recursive: true });
 
 function fail(logs: readonly unknown[]): never {

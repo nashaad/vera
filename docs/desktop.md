@@ -662,7 +662,10 @@ The Models browser has four tabs:
   model to all** gives every default the same model. A model you assign that
   is not a favorite becomes one. The window writes `config.json` in the home
   with the same rules as Assign model defaults in the terminal, so it works
-  the same whichever folder the app was started from.
+  the same whichever folder the app was started from. Each read and each
+  change runs in a separate process that starts for the request and stops
+  once it answers. If `config.json` stops loading, the tab keeps the last
+  settings that loaded, says so, and refuses changes until the file is fixed.
 - `Help` explains the marks.
 
 Settings > Providers lists the providers the home is connected to, with how
