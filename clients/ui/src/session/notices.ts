@@ -56,10 +56,7 @@ export function compactionNotice(compaction: CompactionState): CompactionNotice 
     const why = compaction.reason === undefined ? "" : ` ${compaction.reason}`;
     switch (compaction.outcome) {
         case "compacted": {
-            const { tokensBefore, tokensAfter } = compaction;
-            const counts = tokensBefore !== undefined && tokensAfter !== undefined
-                ? ` from ${tokenCount(tokensBefore)} to ${tokenCount(tokensAfter)} tokens`
-                : "";
+            const counts = compactedCounts(compaction.tokensBefore, compaction.tokensAfter);
             return { tone: "info", text: `Compacted the conversation${counts}.` };
         }
         case "not_needed":
@@ -76,6 +73,15 @@ export function compactionNotice(compaction: CompactionState): CompactionNotice 
         default:
             return undefined;
     }
+}
+
+// Rounded counts that read the same hide a small saving, so those show in full.
+function compactedCounts(before: number | undefined, after: number | undefined): string {
+    if (before === undefined || after === undefined) return "";
+    const shortBefore = tokenCount(before);
+    const shortAfter = tokenCount(after);
+    if (shortBefore !== shortAfter) return ` from ${shortBefore} to ${shortAfter} tokens`;
+    return ` from ${before.toLocaleString("en-US")} to ${after.toLocaleString("en-US")} tokens`;
 }
 
 export function tokenCount(tokens: number): string {

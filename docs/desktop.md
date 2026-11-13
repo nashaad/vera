@@ -698,7 +698,9 @@ The session menu (the `…` button) has:
   `Compacting the conversation` with the model doing it and the time so far.
   When it ends, a line in the conversation gives the result, such as
   `Compacted the conversation from 46K to 12K tokens.` or
-  `Nothing to compact yet.` A second `Compact` while one runs does nothing.
+  `Nothing to compact yet.` When both counts round to the same figure, the
+  line gives them in full, such as `from 6,540 to 6,492 tokens`. A second
+  `Compact` while one runs does nothing.
 - `Subagents`, which lists the session's subagents with their status. `Open`
   shows one in a second pane beside the conversation, `Go to` opens its own
   page, and `Stop` stops a running one. Subagents still starting, which the host

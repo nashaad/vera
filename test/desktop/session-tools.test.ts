@@ -223,6 +223,11 @@ describe("context, compaction and background work", () => {
         expect(state.compaction).toEqual({ phase: "started", trigger: "manual", provider: "faux", model: "crow-1", tokensBefore: 9000 });
     });
 
+    test("a compaction whose rounded counts match shows them in full", () => {
+        expect(compactionNotice({ phase: "finished", outcome: "compacted", tokensBefore: 6540, tokensAfter: 6492 })?.text)
+            .toBe("Compacted the conversation from 6,540 to 6,492 tokens.");
+    });
+
     test("a busy compaction says why it waits", () => {
         expect(compactionNotice({ phase: "finished", outcome: "busy" })?.tone).toBe("warning");
         expect(compactionNotice({ phase: "started" })).toBeUndefined();
