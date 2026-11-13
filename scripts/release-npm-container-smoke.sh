@@ -25,14 +25,14 @@ docker run --platform linux/amd64 --rm --init \
     -v "$package:/vera-package.tgz:ro" \
     -v "$root/install:/install:ro" \
     -v "$root/test/fixtures/faux-openai-server.ts:/faux-openai-server.ts:ro" \
-    oven/bun:1.3.6-slim@sha256:9d20d1b535596c4a021ba2087d2d303c4098e96be15f47775729cf7a259bb41e \
+    oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 \
     sh -eu -c '
         export DEBIAN_FRONTEND=noninteractive
         apt-get update >/dev/null
         apt-get install -y --no-install-recommends ca-certificates curl nodejs npm >/dev/null
         export HOME=/tmp/vera-home
         mkdir -p "$HOME"
-        test "$(bun --version)" = "1.3.6"
+        test "$(bun --version)" = "1.4.4"
         export PATH=/tmp/vera-prefix/bin:$PATH
         export VERA_HOME=$HOME/.vera
         export VERA_INSTALL_PREFIX=/tmp/vera-prefix

@@ -13,9 +13,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 docker info >/dev/null 2>&1 || die "docker daemon is not running"
 
-image=oven/bun:1.3.6-slim
+image=oven/bun:1.4.4-slim
 if [ "$(uname -m)" = "x86_64" ]; then
-    image=oven/bun:1.3.6-slim@sha256:9d20d1b535596c4a021ba2087d2d303c4098e96be15f47775729cf7a259bb41e
+    image=oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
 fi
 
 docker run --rm --init \

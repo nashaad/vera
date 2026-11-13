@@ -98,7 +98,7 @@ try {
     if (metadata.repository?.type !== "git" || metadata.repository.url !== REPOSITORY_URL) {
         fail("repository metadata does not match the release repository");
     }
-    if (metadata.engines?.bun !== ">=1.3.6") fail("wrong Bun engine boundary");
+    if (metadata.engines?.bun !== ">=1.4.4") fail("wrong Bun engine boundary");
     if (JSON.stringify(metadata.os) !== JSON.stringify(["darwin", "linux"])) {
         fail("wrong OS boundary");
     }

@@ -14,7 +14,7 @@ done
 root=$(CDPATH= cd -P -- "$(dirname -- "$entrypoint")/.." && pwd)
 
 if ! command -v bun >/dev/null 2>&1; then
-    echo "vera: Bun 1.3.6 or newer is required: https://bun.sh" >&2
+    echo "vera: Bun 1.4.4 or newer is required: https://bun.sh" >&2
     exit 1
 fi
 bun_version=$(bun --version 2>/dev/null || true)
@@ -25,11 +25,11 @@ if ! printf '%s\n' "$bun_version" | grep -Eq \
 fi
 if ! printf '%s\n' "$bun_version" | awk -F. '
     $1 > 1 { ok = 1 }
-    $1 == 1 && $2 > 3 { ok = 1 }
-    $1 == 1 && $2 == 3 && $3 >= 6 { ok = 1 }
+    $1 == 1 && $2 > 4 { ok = 1 }
+    $1 == 1 && $2 == 4 && $3 >= 4 { ok = 1 }
     END { exit ok ? 0 : 1 }
 '; then
-    echo "vera: Bun 1.3.6 or newer is required; found $bun_version" >&2
+    echo "vera: Bun 1.4.4 or newer is required; found $bun_version" >&2
     exit 1
 fi
 

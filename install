@@ -72,11 +72,11 @@ printf '%s\n' "$bun_version" \
     || die "could not determine Bun version"
 if ! printf '%s\n' "$bun_version" | awk -F. '
     $1 > 1 { ok = 1 }
-    $1 == 1 && $2 > 3 { ok = 1 }
-    $1 == 1 && $2 == 3 && $3 >= 6 { ok = 1 }
+    $1 == 1 && $2 > 4 { ok = 1 }
+    $1 == 1 && $2 == 4 && $3 >= 4 { ok = 1 }
     END { exit ok ? 0 : 1 }
 '; then
-    die "Bun 1.3.6 or newer is required; found $bun_version"
+    die "Bun 1.4.4 or newer is required; found $bun_version"
 fi
 
 if [ "$(uname -s)" = "Linux" ]; then
