@@ -1,5 +1,6 @@
 import { showToast } from "../overlays/toasts.ts";
 import { activeSession } from "../session/activeSession.ts";
+import { requestCompaction } from "../session/compact.ts";
 import { conversationText } from "../session/conversationText.ts";
 import { offerDraft } from "../session/drafts.ts";
 import { cyclePaneLayout, setPaneLayout, type PaneLayout } from "../session/paneLayout.ts";
@@ -24,7 +25,6 @@ export const SESSION_COMMANDS = {
 
 const SHEETS: ReadonlyArray<readonly [string, string, SessionSheet]> = [
     [SESSION_COMMANDS.rewind, "Rewind or Fork", "rewind"],
-    [SESSION_COMMANDS.compact, "Compact Conversation", "compact"],
     [SESSION_COMMANDS.subagents, "Show Subagents", "subagents"],
     [SESSION_COMMANDS.tasks, "Show Background Tasks", "tasks"],
 ];
@@ -45,6 +45,14 @@ export function registerSessionCommands(registry: CommandRegistry): () => void {
                 if (activeSession() !== undefined) openSessionSheet(sheet);
             },
         })),
+        registry.register({
+            id: SESSION_COMMANDS.compact,
+            title: "Compact Conversation",
+            run: () => {
+                const session = activeSession();
+                if (session !== undefined) requestCompaction(session);
+            },
+        }),
         registry.register({
             id: SESSION_COMMANDS.copy,
             title: "Copy Conversation",

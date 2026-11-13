@@ -196,6 +196,8 @@ export interface CompactionState {
     readonly reason?: string;
     readonly tokensBefore?: number;
     readonly tokensAfter?: number;
+    readonly provider?: string;
+    readonly model?: string;
 }
 
 export interface TimelineBoundary {

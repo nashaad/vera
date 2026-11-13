@@ -4,6 +4,7 @@ import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { clearActiveSession, publishActiveSession } from "../session/activeSession.ts";
 import { CompanionPane } from "../session/CompanionPane.tsx";
+import { CompactionStatus } from "../session/LiveStatus.tsx";
 import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
 import { usePaneLayout } from "../session/paneLayout.ts";
 import { QueueStrip } from "../session/QueueStrip.tsx";
@@ -44,6 +45,9 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const companion = panes.layout === "single" ? undefined : companionFor(route.agentId, panes.companion, connection.sessionRows);
     const running = watch.status !== "idle";
+    const compacting = watch.compaction?.phase === "started" ? watch.compaction : undefined;
+    // A running turn shows the compaction on its own status line; otherwise the line stands alone at the end.
+    const liveTurn = running && blocks.length > 0;
     const title = watch.title ?? row?.name ?? route.title;
 
     useEffect(() => {
@@ -78,9 +82,11 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                             status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
                             {...(watch.retry === undefined ? {} : { retry: watch.retry })}
                             {...(folder === undefined ? {} : { folder })}
+                            {...(compacting === undefined || !liveTurn ? {} : { compaction: compacting })}
                             replyMenu
                         />
                     )}
+                    {compacting === undefined || liveTurn ? null : <CompactionStatus compaction={compacting} />}
                     {watch.phase === "closed" || watch.phase === "failed" ? (
                         <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
                     ) : null}

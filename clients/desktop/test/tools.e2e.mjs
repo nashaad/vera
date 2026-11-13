@@ -193,14 +193,13 @@ try {
     await until("the prompt back in the composer", async () => (await input.inputValue()) === "Say SECOND");
     await page.locator(`text=${SECOND}`).waitFor({ state: "detached", timeout: 15_000 });
 
-    // Compact from the session menu runs to a finished notice.
+    // Compact from the session menu starts at once and ends in a transcript notice, with no sheet in the way.
     await input.fill("");
     await sessionMenu("Compact");
-    const action = page.locator(".session-sheet-action");
-    await action.click();
-    await until("compaction to finish", async () => (await action.innerText()) === "Done", 45_000);
-    await action.click();
-    await page.locator(".session-sheet").waitFor({ state: "detached", timeout: 5_000 });
+    await page.locator(".transcript-notice", { hasText: /Compacted the conversation|Nothing (older )?to (compact|summarize) yet/ })
+        .waitFor({ timeout: 45_000 });
+    if (await page.locator(".session-sheet").count() !== 0) throw new Error("Compact opened a sheet.");
+    if (!await input.isEnabled()) throw new Error("The composer was not usable after compacting.");
 
     // Rename from the row menu while another page is open: the session opens with its rename sheet.
     const agentId = await page.locator(".session-row[data-active=\"true\"]").getAttribute("data-session");

@@ -238,8 +238,27 @@ describe("session commands", () => {
         });
         registry.execute(SESSION_COMMANDS.rewind);
         expect(openedSessionSheet()).toBe("rewind");
+    });
+
+    test("@core compact sends one request at once and none while a compaction runs", () => {
+        const registry = new CommandRegistry();
+        registerSessionCommands(registry);
+        const sent: string[] = [];
+        const session = {
+            bridge: {} as DesktopBridge,
+            agentId: "agent",
+            title: "Title",
+            chat: false,
+            watch: initialWatch("agent"),
+            send: (line: string) => sent.push(line),
+        };
+        publishActiveSession(session);
         registry.execute(SESSION_COMMANDS.compact);
-        expect(openedSessionSheet()).toBe("compact");
+        expect(openedSessionSheet()).toBeUndefined();
+        expect(sent.map((line) => JSON.parse(line).type)).toEqual(["compact"]);
+        publishActiveSession({ ...session, watch: { ...session.watch, compaction: { phase: "started" } } });
+        registry.execute(SESSION_COMMANDS.compact);
+        expect(sent).toHaveLength(1);
     });
 
     test("layout commands set and cycle the panes, ignoring unknown layouts", () => {

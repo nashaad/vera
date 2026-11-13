@@ -216,6 +216,13 @@ describe("context, compaction and background work", () => {
         expect(state.live.at(-1)).toMatchObject({ kind: "notice", tone: "info", text: "Compacted the conversation from 9.0K to 1.2K tokens." });
     });
 
+    test("a started compaction keeps the model doing it", () => {
+        const state = fold([
+            { type: "compaction", phase: "started", strategy: "summary", trigger: "manual", provider: "faux", model: "crow-1", tokens: 9000 },
+        ]);
+        expect(state.compaction).toEqual({ phase: "started", trigger: "manual", provider: "faux", model: "crow-1", tokensBefore: 9000 });
+    });
+
     test("a busy compaction says why it waits", () => {
         expect(compactionNotice({ phase: "finished", outcome: "busy" })?.tone).toBe("warning");
         expect(compactionNotice({ phase: "started" })).toBeUndefined();

@@ -11,7 +11,7 @@ import { DiffRollup } from "./DiffRollup.tsx";
 import { estimateTokens, LiveStatus, TaskCard } from "./LiveStatus.tsx";
 import { DeliveryRow, NoticeRow, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
-import type { AgentRunStatus, Block, RetryState, ThoughtBlock } from "./model.ts";
+import type { AgentRunStatus, Block, CompactionState, RetryState, ThoughtBlock } from "./model.ts";
 import { RunLine } from "./ToolRuns.tsx";
 import { keepTurns, type Run, type Turn, type TurnRender } from "./turns.ts";
 
@@ -52,9 +52,11 @@ export interface TranscriptProps {
     readonly retry?: RetryState;
     // Only the open session's own transcript, since the menu's commands act on that session.
     readonly replyMenu?: boolean;
+    // A compaction running inside the live turn takes the turn's status line.
+    readonly compaction?: CompactionState;
 }
 
-export function Transcript({ blocks, running, folder, status = "working", retry, replyMenu = false }: TranscriptProps) {
+export function Transcript({ blocks, running, folder, status = "working", retry, replyMenu = false, compaction }: TranscriptProps) {
     const { showReasoning } = useDesktopFlags();
     const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
     const renders = useMemo<readonly TurnRender[]>(() => {
@@ -77,6 +79,7 @@ export function Transcript({ blocks, running, folder, status = "working", retry,
                         live={live}
                         waiting={live && status === "waiting"}
                         retry={live ? retry : undefined}
+                        compaction={live ? compaction : undefined}
                         replyMenu={replyMenu}
                     />
                 );
@@ -94,6 +97,7 @@ interface TurnViewProps {
     readonly live: boolean;
     readonly waiting: boolean;
     readonly retry: RetryState | undefined;
+    readonly compaction: CompactionState | undefined;
     readonly replyMenu: boolean;
 }
 
@@ -103,7 +107,7 @@ function writtenCharacters(turn: Turn): number {
     return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer);
 }
 
-const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry, replyMenu }: TurnViewProps) {
+const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry, compaction, replyMenu }: TurnViewProps) {
     const [open, setOpen] = useState(true);
     const seconds = turnSeconds(turn);
     const showWork = open || live;
@@ -147,6 +151,7 @@ const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, li
                     tokens={estimateTokens(writtenCharacters(turn))}
                     waiting={waiting}
                     {...(retry === undefined ? {} : { retry })}
+                    {...(compaction === undefined ? {} : { compaction })}
                 />
             ) : null}
             {!live && (turn.answer !== undefined || turn.work.length > 0) ? <TurnActions turn={turn} replyMenu={replyMenu} /> : null}
