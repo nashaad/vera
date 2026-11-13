@@ -495,3 +495,32 @@ export function PlayIcon({ className }: IconProps) {
         </Icon>
     );
 }
+
+export function GlobeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M3.5 12h17" />
+            <path d="M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z" />
+        </Icon>
+    );
+}
+
+export function HomeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 11 12 4l8 7" />
+            <path d="M6 9.5V20h12V9.5" />
+        </Icon>
+    );
+}
+
+export function ExternalIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M14 4h6v6" />
+            <path d="M20 4 11 13" />
+            <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+        </Icon>
+    );
+}

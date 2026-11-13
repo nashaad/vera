@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 
-import { ChevronRightIcon } from "../components/Icons.tsx";
+import { sessionRowMenu } from "../commands/session-row-menu.ts";
+import { ChevronRightIcon, MoreIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { groupSessions, type SessionGroup } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
+import { isPinned, usePinnedSessions } from "../state/usePins.ts";
+import { useWorkbench } from "../workbench/context.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
 
 function isRunning(row: SessionRow): boolean {
@@ -13,9 +16,19 @@ function isRunning(row: SessionRow): boolean {
 function Row({ row, nested, now }: { readonly row: SessionRow; readonly nested: boolean; readonly now: number }) {
     const running = isRunning(row);
     const { route, navigate } = useRouter();
+    const { openMenu } = useWorkbench();
     const active = route.kind === "session" && route.agentId === row.id;
+    const menu = (at: { readonly x: number; readonly y: number }): void => openMenu(sessionRowMenu(row, isPinned(row.id)), at);
+    const more = (event: MouseEvent<HTMLButtonElement>): void => {
+        const box = event.currentTarget.getBoundingClientRect();
+        menu({ x: box.left, y: box.bottom });
+    };
+    const context = (event: MouseEvent<HTMLLIElement>): void => {
+        event.preventDefault();
+        menu({ x: event.clientX, y: event.clientY });
+    };
     return (
-        <li>
+        <li className="session-item" onContextMenu={context}>
             <button
                 type="button"
                 className="session-row"
@@ -32,6 +45,16 @@ function Row({ row, nested, now }: { readonly row: SessionRow; readonly nested: 
                 <span className="session-name">{row.name}</span>
                 <span className="session-time">{running ? "" : relativeTime(row.updatedAt, now)}</span>
             </button>
+            <button
+                type="button"
+                className="session-more"
+                aria-label={`${row.name} menu`}
+                aria-haspopup="menu"
+                title="Session menu"
+                onClick={more}
+            >
+                <MoreIcon />
+            </button>
         </li>
     );
 }
@@ -41,7 +64,7 @@ function Group({ group, now }: { readonly group: SessionGroup; readonly now: num
     const { route, navigate } = useRouter();
     const active = route.kind === "workspace" && route.folder === group.workspace;
     return (
-        <section className="session-group" data-workspace={group.workspace} data-open={open}>
+        <section className="session-group" data-group={group.key} data-workspace={group.workspace} data-open={open}>
             <div className="group-head">
                 <button
                     type="button"
@@ -77,6 +100,7 @@ function Group({ group, now }: { readonly group: SessionGroup; readonly now: num
 
 export function SessionsView(_props: ViewProps) {
     const { connection: state } = useViewEnvironment();
+    const pins = usePinnedSessions();
     const rows = state.sessionRows;
     if (state.phase !== "attached" || rows === undefined) {
         return <p className="view-empty">{state.phase === "attached" ? "Loading sessions." : "Not connected to the host."}</p>;
@@ -86,7 +110,7 @@ export function SessionsView(_props: ViewProps) {
     const total = state.sessions;
     return (
         <>
-            {groupSessions(rows).map((group) => <Group key={group.key} group={group} now={now} />)}
+            {groupSessions(rows, pins).map((group) => <Group key={group.key} group={group} now={now} />)}
             {total !== undefined && total > rows.length ? (
                 <p className="view-note">Showing the latest {rows.length} of {total}.</p>
             ) : null}

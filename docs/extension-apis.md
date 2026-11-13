@@ -405,7 +405,7 @@ Declare it in the manifest:
 ```
 
 The page appears in the annex sidebar under its label, at
-`/x/acme.hoard/loot`. Your host code can link to it with
+`/x/acme.hoard/loot`, and as a tab in the desktop's Browser. Your host code can link to it with
 `vera.annex.pageUrl("loot")`, which is `undefined` while the annex is down.
 The address stays the same across host restarts, so a link you send out
 keeps working.

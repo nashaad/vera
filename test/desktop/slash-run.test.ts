@@ -85,13 +85,12 @@ describe("running a slash entry", () => {
     test("@core a command the window cannot run says so and sends nothing", async () => {
         const session = fakeSession(() => undefined);
         const { context, notes, ran } = recorded(session);
-        for (const name of ["animations", "import", "usage", "reload-extensions", "extension"]) {
+        for (const name of ["animations", "import", "reload-extensions", "extension"]) {
             await runSlashEntry(entry(name), "some/file", context);
         }
         expect(notes).toEqual([
             "/animations: Not implemented yet",
             "/import: Not implemented yet",
-            "/usage: Not implemented yet",
             "/reload-extensions: Not implemented yet",
             "/extension: Not implemented yet",
         ]);

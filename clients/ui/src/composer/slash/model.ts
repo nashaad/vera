@@ -1,6 +1,7 @@
 import { LAYOUT_COMMANDS } from "../../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../../commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../commands/overlay-ids.ts";
+import { PAGE_COMMANDS } from "../../commands/page-commands.ts";
 import { SESSION_COMMANDS } from "../../commands/session-commands.ts";
 
 export type SlashGroup = "built-in" | "extension" | "skill";
@@ -93,7 +94,7 @@ export const BUILTIN_SLASH_ENTRIES: readonly SlashEntry[] = [
     builtin("extensions", "/extensions", "Show extensions that failed to load", command(OVERLAY_COMMANDS.extensions.id)),
     builtin("extension", "/extension <op>", "Install, enable, disable or remove an extension", UNSUPPORTED),
     builtin("doctor", "/doctor", "Check Vera's health", command(OVERLAY_COMMANDS.doctor.id)),
-    builtin("usage", "/usage", "Open this machine's usage page", UNSUPPORTED),
+    builtin("usage", "/usage", "Open this machine's usage page", command(PAGE_COMMANDS.usage)),
     builtin("failure-report", "/failure-report", "Find the model failure report", command(OVERLAY_COMMANDS.failures.id)),
     builtin("reload-extensions", "/reload-extensions", "Reload extensions without restarting", UNSUPPORTED),
     builtin("models", "/models", "Browse every model", { kind: "pill", pill: "models" }),

@@ -1,0 +1,180 @@
+/* The right pane browser: address bar, page tabs, start page and the annex frame. */
+
+.browser {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.browser-bar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) / 2);
+    padding: var(--vera-space) calc(var(--vera-space) * 1.5);
+    border-bottom: thin solid var(--vera-border);
+}
+
+/* A merged view's actions button floats over the bar's right end. */
+.view[data-merged="true"] .browser-bar {
+    padding-right: calc(var(--vera-space) * 6.5);
+}
+
+.browser-bar .icon-button:disabled {
+    color: var(--vera-text-disabled);
+    background: transparent;
+    cursor: default;
+}
+
+.browser-address {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    outline: none;
+}
+
+.browser-address::placeholder {
+    color: var(--vera-text-dim);
+}
+
+.browser-address:focus-visible,
+.browser-tab:focus-visible,
+.browser-link:focus-visible,
+.browser-bar .icon-button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -4);
+}
+
+.browser-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: calc(var(--vera-space) / 2);
+    padding: var(--vera-space) calc(var(--vera-space) * 1.5);
+    overflow-x: auto;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.browser-tab {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.browser-tab:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.browser-tab[aria-current="page"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.browser-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    background: var(--vera-surface);
+    border: 0;
+}
+
+.browser-start {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) / 2);
+    padding: calc(var(--vera-space) * 2);
+    overflow-y: auto;
+}
+
+.browser-start h3 {
+    margin: calc(var(--vera-space) * 2) 0 calc(var(--vera-space) / 2);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    font-weight: normal;
+}
+
+.browser-start h3:first-child {
+    margin-top: 0;
+}
+
+.browser-link {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: calc(var(--vera-space) / 2) calc(var(--vera-space) * 2);
+    padding: calc(var(--vera-space) * 1.5);
+    color: var(--vera-text);
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.browser-link:hover {
+    background: var(--vera-surface-hover);
+}
+
+.browser-link-label {
+    font-size: var(--vera-font-size-body);
+}
+
+.browser-link-from {
+    margin-left: var(--vera-space);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-link-path {
+    color: var(--vera-text-dim);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-link-about {
+    grid-column: 1 / -1;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-start-note {
+    margin: 0;
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-start-note:last-child {
+    margin-top: calc(var(--vera-space) * 2);
+}
+
+.browser-missing {
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-missing h3 {
+    margin: 0 0 var(--vera-space);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}

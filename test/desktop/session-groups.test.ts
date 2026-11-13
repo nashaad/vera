@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { CHATS_TITLE, folderName, groupSessions, rowFolderName, rowFolderPath, waitingCount } from "../../clients/ui/src/protocol/sessionGroups.ts";
+import { CHATS_TITLE, folderName, groupSessions, PINNED_TITLE, rowFolderName, rowFolderPath, waitingCount } from "../../clients/ui/src/protocol/sessionGroups.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 
 function row(id: string, workspace: string, extra: Partial<SessionRow> = {}): SessionRow {
@@ -61,6 +61,21 @@ test("@core chats share one Chats group that opens no workspace, ordered by its 
 test("a chat group sits first when its session is the newest, and a folder called chats is not a chat", () => {
     const groups = groupSessions([row("c1", "/h/c1.jsonl.files", { chat: true }), row("x", "chats"), row("y", "")]);
     expect(groups.map((group) => [group.title, group.chats])).toEqual([[CHATS_TITLE, true], ["chats", false], ["No folder", false]]);
+});
+
+test("@core pinned sessions sit first in pin order and leave their own group", () => {
+    const groups = groupSessions([
+        row("a", "/p/crow"),
+        row("c1", "/h/c1.jsonl.files", { chat: true }),
+        row("b", "/p/crow"),
+        row("kid", "/p/crow", { parentId: "b" }),
+    ], ["kid", "gone", "c1"]);
+    expect(groups.map((group) => [group.title, group.workspace, group.entries.map((entry) => [entry.row.id, entry.nested])])).toEqual([
+        [PINNED_TITLE, "", [["kid", false], ["c1", false]]],
+        ["crow", "/p/crow", [["a", false], ["b", false]]],
+    ]);
+    expect(groups[0]?.key).not.toBe(groups[1]?.key);
+    expect(groupSessions([row("a", "/p")], ["gone"]).map((group) => group.title)).toEqual(["p"]);
 });
 
 test("a chat names itself Chat and has no folder path to show", () => {

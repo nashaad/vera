@@ -4,7 +4,6 @@ import type { ModelEntry, ModelSettings } from "../../clients/ui/src/models/sett
 import {
     ANY_PROVIDER,
     cutoffLabel,
-    defaultRows,
     entryKey,
     fromProvider,
     modelFacts,
@@ -87,36 +86,6 @@ describe("modelFacts", () => {
     test("context is shown in thousands or millions", () => {
         expect(value(modelFacts(entry({ contextWindow: 200_000 }), false), "Context")).toBe("200K");
         expect(value(modelFacts(entry({ contextWindow: 1_000_000 }), false), "Context")).toBe("1M");
-    });
-});
-
-describe("defaultRows", () => {
-    test("new sessions name the model and its effort", () => {
-        const rows = defaultRows(settings({ shortlist: [entry({ label: "Fast One" })] }));
-        expect(rows[0]?.label).toBe("New sessions");
-        expect(rows[0]?.value).toBe("Fast One, High effort");
-        expect(rows[0]?.note).toContain("default for new sessions");
-    });
-
-    test("subagents inherit, fixed or none", () => {
-        const subagent = (subagentDefault: ModelSettings["subagentDefault"]) =>
-            defaultRows(settings({ subagentDefault }))[1]?.value;
-        expect(subagent({ mode: "inherit" })).toBe("Same as the parent session");
-        expect(subagent({ mode: "none" })).toBe("None assigned");
-        expect(subagent({ mode: "fixed", choice: { provider: "vera-test", model: "fast-one" } })).toBe("fast-one");
-    });
-
-    test("the reviewer is chosen per review or fixed with a fallback", () => {
-        const reviewer = (reviewerDefault: ModelSettings["reviewerDefault"]) =>
-            defaultRows(settings({ reviewerDefault }))[2]?.value;
-        expect(reviewer({ mode: "agent" })).toBe("Chosen per review");
-        expect(
-            reviewer({
-                mode: "fixed",
-                primary: { model: "fast-one" },
-                fallback: { model: "slow-one" },
-            }),
-        ).toBe("Primary fast-one, fallback slow-one");
     });
 });
 

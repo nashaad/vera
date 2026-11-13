@@ -559,6 +559,12 @@ export function veraConfigProblem(error: Error): string {
     return error instanceof VeraConfigError ? error.problem : error.message;
 }
 
+export function lastGoodConfigNotice(read: LastGoodVeraConfig): string | undefined {
+    if (read.error === undefined) return undefined;
+    const reason = `config.json could not be read: ${veraConfigProblem(read.error).replace(/\.$/, "")}.`;
+    return read.config === undefined ? reason : `${reason} Showing the last settings that loaded.`;
+}
+
 export function loadVeraConfig(
     options: LoadVeraConfigOptions = {},
 ): VeraConfig {

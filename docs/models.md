@@ -156,6 +156,9 @@ with the new value showing. To give every default the same model, choose
 Subagents get it first and keep the rest of their list, and a classifier
 failsafe stays in place. A toast confirms how many defaults changed.
 
+In the desktop app, the Defaults tab of the Models browser assigns the same
+defaults with the same rules. See [Desktop app](desktop.md).
+
 Assigning a default leaves your conversation model unchanged. Subagents use
 an ordered list of allowed models and an optional fallback to the spawning
 conversation's model. See [Agents and delegated work](agents.md).

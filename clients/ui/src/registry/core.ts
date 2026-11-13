@@ -8,6 +8,7 @@ export const CORE_VIEWS = {
     plan: "core.plan",
     files: "core.files",
     preview: "core.preview",
+    browser: "core.browser",
 } as const;
 
 export const CORE_CONTAINERS = {
@@ -18,6 +19,7 @@ export const CORE_CONTAINERS = {
     plan: "core.plan",
     files: "core.files",
     preview: "core.preview",
+    browser: "core.browser",
 } as const;
 
 export function registerCoreContributions(registry: ContributionRegistry): void {
@@ -28,6 +30,7 @@ export function registerCoreContributions(registry: ContributionRegistry): void 
     registry.registerContainer({ id: CORE_CONTAINERS.plan, title: "Plan", icon: "plan", location: "rightPane" });
     registry.registerContainer({ id: CORE_CONTAINERS.files, title: "Files", icon: "files", location: "rightPane" });
     registry.registerContainer({ id: CORE_CONTAINERS.preview, title: "Preview", icon: "preview", location: "rightPane" });
+    registry.registerContainer({ id: CORE_CONTAINERS.browser, title: "Browser", icon: "browser", location: "rightPane" });
     registry.registerView({ id: CORE_VIEWS.sessions, title: "Sessions", container: CORE_CONTAINERS.sessions });
     registry.registerView({ id: CORE_VIEWS.host, title: "Host", container: CORE_CONTAINERS.vera });
     registry.registerView({ id: CORE_VIEWS.output, title: "Output", container: CORE_CONTAINERS.output });
@@ -35,4 +38,5 @@ export function registerCoreContributions(registry: ContributionRegistry): void 
     registry.registerView({ id: CORE_VIEWS.plan, title: "Plan", container: CORE_CONTAINERS.plan });
     registry.registerView({ id: CORE_VIEWS.files, title: "Files", container: CORE_CONTAINERS.files });
     registry.registerView({ id: CORE_VIEWS.preview, title: "Preview", container: CORE_CONTAINERS.preview });
+    registry.registerView({ id: CORE_VIEWS.browser, title: "Browser", container: CORE_CONTAINERS.browser });
 }

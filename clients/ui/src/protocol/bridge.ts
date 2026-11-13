@@ -1,5 +1,7 @@
 import type { LayoutState } from "../layout/model.ts";
+import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
 import type { DesktopFlags } from "../state/desktopFlags.ts";
+import type { SavedPins } from "./pins.ts";
 import type { ThemeName } from "../theme/tokens.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
@@ -158,6 +160,27 @@ export interface ExtensionFailuresAnswer {
 
 export type ExtensionFailuresResult = ExtensionFailuresAnswer | HostRequestFailure;
 
+export interface AnnexPage {
+    readonly label: string;
+    // A path on the annex, such as /usage or /x/<extension>/<page>.
+    readonly path: string;
+    // The extension that adds the page; Vera's own pages have none.
+    readonly extensionId?: string;
+    readonly about?: string;
+}
+
+export interface AnnexPagesAnswer {
+    readonly ok: true;
+    // The annex base URL, ending in a slash.
+    readonly url: string;
+    // Vera's own pages first, then the ones extensions add.
+    readonly pages: readonly AnnexPage[];
+    // Set when the extension pages could not be listed; Vera's own pages are still there.
+    readonly extensionsFailure?: string;
+}
+
+export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -186,10 +209,20 @@ export interface DesktopBridge {
     forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Adds a model to the shortlist, removes it, or probes it with a live request.
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
+    // The home's model assignments, read from its config.json by the shell rather than the host.
+    readAssignments(): Promise<AssignmentsResult>;
+    // Writes one assignment change to the home's config.json; the host picks it up on its next read.
+    editAssignment(change: AssignmentChange): Promise<AssignmentWriteResult>;
+    // Writes one model to every assignment. Subagents keep the rest of their list, the classifier its failsafe.
+    assignToAll(provider: string, model: string): Promise<AssignAllResult>;
     // Searches what was said in the home's sessions; titles are not searched.
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
     // Extensions the host tried to load at start and could not.
     readExtensionFailures(): Promise<ExtensionFailuresResult>;
+    // The host's annex address and the pages it serves.
+    readAnnexPages(): Promise<AnnexPagesResult>;
+    // Opens an annex path in the system browser; false when there is no annex to open it on.
+    openAnnexPage(path: string): Promise<boolean>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.
@@ -215,6 +248,9 @@ export interface DesktopBridge {
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;
+    // Pinned sessions from the desktop's own directory under the home; none when there is no file.
+    loadPins(): Promise<SavedPins>;
+    savePins(pins: SavedPins): void;
     // The desktop's flags from its own directory under the home; every flag at its default when there is no file.
     loadFlags(): Promise<DesktopFlags>;
     onEvent(listener: (event: DesktopEvent) => void): () => void;

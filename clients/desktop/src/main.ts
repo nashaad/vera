@@ -12,8 +12,11 @@ import type {
     FolderListing,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
+import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
+import { AssignmentStore, changeArgument } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
@@ -33,6 +36,7 @@ import {
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
+import { PinStore, pinsPath } from "./pin-store.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
@@ -59,6 +63,8 @@ let stopping = false;
 let activeTheme: ThemeName = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
+// The annex base URL from the last page list the window read; the browser frame may only load from it.
+let annexUrl: string | undefined;
 
 const pipe = new HostPipe(sendEvent);
 const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
@@ -68,6 +74,8 @@ const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
 };
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
+const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+const assignmentStore = new AssignmentStore(selectedVeraHome());
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -119,6 +127,16 @@ function fromWindow(event: { readonly sender: WebContents }): boolean {
     return window !== undefined && event.sender === window.webContents;
 }
 
+function onAnnex(url: string): boolean {
+    if (url === "about:blank" || url === "about:srcdoc") return true;
+    if (annexUrl === undefined) return false;
+    try {
+        return new URL(url).origin === new URL(annexUrl).origin;
+    } catch {
+        return false;
+    }
+}
+
 function trafficLightPosition(titleBarHeight: number): { x: number; y: number } {
     return {
         x: TRAFFIC_LIGHT_INSET_X,
@@ -154,6 +172,11 @@ function createWindow(): BrowserWindow {
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     created.webContents.on("will-navigate", (event) => event.preventDefault());
+    // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
+    created.webContents.on("will-frame-navigate", (event) => {
+        if (event.isMainFrame) return;
+        if (!onAnnex(event.url)) event.preventDefault();
+    });
     // A shortcut handled here never reaches the page or the menu, so it runs once.
     created.webContents.on("before-input-event", (event, input) => {
         const command = shortcutCommand(input, process.platform);
@@ -218,6 +241,10 @@ ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<C
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
     if (fromWindow(event)) layoutStore.save(layout);
+});
+ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load() ?? NO_PINS : NO_PINS));
+ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
+    if (fromWindow(event)) pinStore.save(pins);
 });
 ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
@@ -306,6 +333,19 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
     }
     return operateModel(hostSocketPath, kind, id, name, workspaceArgument(workspace));
 });
+ipcMain.handle(CHANNELS.assignmentsRead, (event) =>
+    fromWindow(event) ? assignmentStore.read() : { ok: false, reason: "That window cannot read assignments." });
+ipcMain.handle(CHANNELS.assignmentsEdit, (event, change: unknown) => {
+    const edit = changeArgument(change);
+    if (!fromWindow(event) || edit === undefined) return { ok: false, reason: "That is not an assignment change." };
+    return assignmentStore.edit(edit);
+});
+ipcMain.handle(CHANNELS.assignmentsAll, (event, provider: unknown, model: unknown) => {
+    const id = providerArgument(provider);
+    const name = modelArgument(model);
+    if (!fromWindow(event) || id === undefined || name === undefined) return { ok: false, reason: "That is not a model Vera knows." };
+    return assignmentStore.assignAll(id, name);
+});
 ipcMain.handle(CHANNELS.sessionsSearch, (event, request: unknown) => {
     const parsed = searchArgument(request);
     if (!fromWindow(event) || parsed === undefined) return { ok: false, reason: "That search could not be sent." };
@@ -317,6 +357,18 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.annexPages, async (event) => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    const result = await readAnnexPages(hostSocketPath);
+    if (result.ok) annexUrl = result.url;
+    return result;
+});
+ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean> => {
+    const address = annexUrl === undefined ? undefined : annexAddress(annexUrl, path);
+    if (!fromWindow(event) || address === undefined) return false;
+    await shell.openExternal(address);
+    return true;
+});
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;
     const color = parseWindowBackground(value);

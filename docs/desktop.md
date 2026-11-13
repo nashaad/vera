@@ -160,7 +160,7 @@ the modifier is Ctrl.
 ## Command palette and sheets
 
 Cmd+K or Cmd+Shift+P opens the command palette. It lists every command that
-needs no argument, grouped as Go, Window, Session, Theme and Help, with each
+needs no argument, grouped as Go, Pages, Window, Session, Theme and Help, with each
 command's shortcut. Typing filters the list by fuzzy match and marks the matched
 letters. Up and Down move, Enter runs the command and Escape closes the
 palette. Cmd+P opens Go to Session, the same list over sessions, each with its
@@ -211,7 +211,7 @@ each an icon and a title. The panel switches them with tabs. A container holds
 one or more views stacked on top of each other, and each view has a header that
 collapses it. The main area is not a location for views.
 
-Seven views ship with the app:
+Eight views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
@@ -227,6 +227,21 @@ Seven views ship with the app:
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
   and the row of the open session is filled.
+
+  Hovering a row shows a `…` button in place of its time; it and a right-click
+  on the row open the row's menu:
+
+  - Rename… opens the session and its rename sheet.
+  - Pin Session moves the row into a `Pinned` group at the top of the list, in
+    the order the sessions were pinned, and Unpin Session puts it back under its
+    folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
+    newer pin past that drops the oldest. The terminal UI keeps its own pins. A
+    pinned session shows only while it is among the sessions the list has loaded.
+  - Open Files Pane opens the session and the right pane on its Files view.
+  - Clone Session copies the session and opens the copy.
+  - Close Session stops the session, and is offered only while the host runs it.
+    Closing the open session returns to New Chat; closing another leaves the page
+    as it is.
 - Host, in the right pane inside the Vera container, shows the connection state
   and tiles for the session count, host build, protocol version, host process id
   and home path. The home path is shortened, with the user's home directory
@@ -234,6 +249,8 @@ Seven views ship with the app:
   full path.
 - Review, Plan, Files and Preview, each in its own container in the right pane,
   follow the open session; see Session tools.
+- Browser, in its own container in the right pane, shows Vera's pages; see
+  Browser.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
   losing and regaining the host, startup questions and the answers sent. It keeps
   the last 200 lines in memory and does not survive a restart. The panel is
@@ -500,7 +517,8 @@ Slash commands:
   turn runs they say `Extension commands are available when the agent is idle`
   and your line goes back into the box. A skill or extension command named like
   a built-in is left out of the menu.
-- The terminal commands `/animations`, `/import`, `/usage`, `/extension` and
+- `/usage` opens the Usage page in the Browser.
+- The terminal commands `/animations`, `/import`, `/extension` and
   `/reload-extensions` are listed with a muted `Not implemented yet`. Running one
   shows `/name: Not implemented yet` under the box and sends nothing.
 - On New Chat the menu lists the built-in commands only, since skills and
@@ -633,9 +651,19 @@ The Models browser has four tabs:
   favorite, verified, images, WA score, listed and blended price, context
   window and model id, with `Run this model`, the favorites button and
   `Probe it`, which sends one short request and says whether the model passed.
-- `Defaults` shows the model and effort new sessions start with, and the
-  subagent and reviewer defaults. The host does not serve a model choice per
-  job, so the window cannot set one.
+- `Defaults` assigns the models background work runs on; the conversation
+  model stays as it is. Each row opens a picker with your favorites first,
+  then other connected models, and the effort levels of the highlighted model
+  (Left and Right change the effort). Tiers are snappy, eco and extra; under
+  each, a line names what uses it, including a job that is not set. The
+  classifier has a failsafe row once it is set, and compaction says which
+  tier it uses while it is not set. Subagents list their models in the order
+  Vera tries them, with buttons to try one earlier or later or remove it, and
+  a switch for falling back to the spawning session's model. **Assign one
+  model to all** gives every default the same model. A model you assign that
+  is not a favorite becomes one. The window writes `config.json` in the home
+  with the same rules as Assign model defaults in the terminal, so it works
+  the same whichever folder the app was started from.
 - `Help` explains the marks.
 
 Settings > Providers lists the providers the home is connected to, with how
@@ -701,6 +729,30 @@ right of the session page opens these views.
 When the host runs a turn on a different model than the one picked, a line in
 the conversation says which model it used, marked `subagent` when a subagent's
 model was swapped. Retries and failures show as strips in the column.
+
+## Browser
+
+The Browser shows Vera's pages: the pages the annex serves on this machine,
+Usage and Runs, and the pages extensions add. Its top row holds Back, Forward,
+the address bar, Reload and Open in your browser. The row under it holds a Home
+button and a tab for each page. Home lists the built-in pages under `Vera` and
+the extension pages under `From extensions`, each with its path, and names the
+address the annex is served at. A page shows in the pane without the annex's
+own menu and title.
+
+The address bar takes a page's name, a path such as `/runs`, or the annex's
+address. Anything else opens nothing: an address off the annex says that only
+the pages Vera serves on this machine open here, and a path the annex does not
+list says the annex serves nothing there. A link inside a page that leaves the
+annex goes nowhere, or shows an error page that Reload clears, and a link that
+opens a new window does nothing. Open in your browser opens the current page in
+the system browser. Back and Forward walk the last 50 pages opened in the
+window, which are forgotten when it closes.
+
+The command palette's Pages group opens Home as `Vera's Pages` or a page by its
+name, and `/usage` in the composer opens Usage. When the host is not running or
+the annex is down, the Browser says so. When only the extension list fails, the
+built-in pages still open and Home says why.
 
 ## Finding the host
 
@@ -782,8 +834,10 @@ node clients/desktop/test/chat.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
+node clients/desktop/test/defaults.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
+node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
 ```
 
@@ -860,9 +914,15 @@ the session it searches for the other model and sends on it, picks the first
 favorite with its number key, lowers its effort, then selects a model in the
 Models browser and probes it.
 
+The defaults test launches the app from a folder outside the checkout and opens
+Models > Defaults. It checks Escape closes a picker and leaves the browser open,
+assigns eco a model that is not a favorite at Low and checks it becomes one,
+clears compaction and checks it falls back to eco, adds a subagent model, turns
+on the switch, and reads each change back from the home's `config.json`.
+
 The slash test serves one skill and starts a session. On New Chat it types `/`
 and checks the menu lists only the built-in group with a muted `Not implemented
-yet` beside `/usage`, runs `/usa`, which names `/usage`, and checks the notice and that nothing
+yet` beside `/import`, runs `/imp`, which names `/import`, and checks the notice and that nothing
 reached the provider, and enters a misspelt name and checks the text stays with
 a `Did you mean` line. In the session it checks the three groups, that the menu
 sits above the box and outside the bar, that it narrows as it is typed and stays
@@ -877,7 +937,17 @@ file and edits it. It checks the turn's edits roll up into one card, opens the
 change from Review, reads the checklist's progress in the Plan view, waits for
 the context pill to fill in, quotes a reply into the composer from its `…`
 menu, rewinds the newest prompt back into the composer and compacts from the
-session menu.
+session menu. From a sidebar row's `…` menu it renames the session while
+another page is open, pins it and reads `pins.json`, opens the Files view,
+unpins it from the right-click menu, clones it and closes the copy.
+
+The browser test opens Usage from the command palette and checks the frame
+loads it from the annex without the annex's menu, that the tabs are Usage, Runs
+and the included Artifacts page, and that the frame stays on the annex when a
+page tries to leave it. It hands the page to a stubbed system browser, opens
+Runs from Home and Artifacts from its tab, walks Back and Forward, types a
+page's name, an outside address and an unknown path into the address bar, and
+opens Usage with `/usage` from the composer.
 
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page

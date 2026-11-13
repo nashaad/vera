@@ -22,11 +22,11 @@ export function startTrial() {
     const apps = [];
 
     // The tour and the bench pass visible: true; every other run stays out of sight.
-    async function launch({ visible = false } = {}) {
+    async function launch({ visible = false, cwd = root } = {}) {
         const app = await electron.launch({
             executablePath: electronPath,
             args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
-            cwd: root,
+            cwd,
             env: {
                 ...process.env,
                 VERA_HOME: home,
@@ -78,7 +78,7 @@ export function startTrial() {
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
-    return { root, home, launch, hostPid, waitForHost, cleanup };
+    return { root, trialRoot, home, launch, hostPid, waitForHost, cleanup };
 }
 
 // Goes through the same path as a key typed on the keyboard: the main process's

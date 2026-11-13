@@ -1,8 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { LayoutState } from "../../ui/src/layout/model.ts";
+import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "../../ui/src/protocol/assignments.ts";
+import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
 import type {
+    AnnexPagesResult,
     BranchSessionResult,
     CloseSessionResult,
     CreateSessionResult,
@@ -37,6 +40,8 @@ const bridge: DesktopBridge = {
         return (layout ?? undefined) as LayoutState | undefined;
     },
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
+    loadPins: async () => (await ipcRenderer.invoke(CHANNELS.pinsLoad)) as SavedPins,
+    savePins: (pins: SavedPins) => ipcRenderer.send(CHANNELS.pinsSave, pins),
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
     createSession: async (workspace: string | undefined, approvalMode?: string) => {
         const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
@@ -81,10 +86,17 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.providerForget, provider, workspace)) as HostModelsResult,
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
+    readAssignments: async () => (await ipcRenderer.invoke(CHANNELS.assignmentsRead)) as AssignmentsResult,
+    editAssignment: async (change: AssignmentChange) =>
+        (await ipcRenderer.invoke(CHANNELS.assignmentsEdit, change)) as AssignmentWriteResult,
+    assignToAll: async (provider: string, model: string) =>
+        (await ipcRenderer.invoke(CHANNELS.assignmentsAll, provider, model)) as AssignAllResult,
     searchSessions: async (request: SessionSearchRequest) =>
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
     readExtensionFailures: async () =>
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
+    readAnnexPages: async () => (await ipcRenderer.invoke(CHANNELS.annexPages)) as AnnexPagesResult,
+    openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);

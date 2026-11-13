@@ -5,8 +5,10 @@ description: "Review spending, tokens, and delegated work across saved conversat
 
 # Usage and cost
 
-Run `/usage` to open Vera's local usage page in your browser. It reads the
-session files in your Vera home and summarizes past work. For reminders and
+Run `/usage` to open Vera's local usage page in your browser. In the desktop
+app it opens in the right pane's Browser instead, where Open in your browser
+hands it on. It reads the session files in your Vera home and summarizes past
+work. For reminders and
 approval during active work, use [conversation budgets](budgets.md).
 
 ![The usage page for the last 30 days: summary cards, daily spend by model, and a table of conversations](/images/usage-page.png)

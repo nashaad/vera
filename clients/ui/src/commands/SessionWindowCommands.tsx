@@ -24,6 +24,7 @@ export function SessionWindowCommands({ commands }: { readonly commands: Command
             if (parent === undefined) return undefined;
             return { kind: "session", agentId: parent.id, title: parent.name, ...sessionPlace(parent.workspace, parent.chat) };
         },
+        bridge: () => window.veraDesktop,
     }), [commands]);
     return null;
 }

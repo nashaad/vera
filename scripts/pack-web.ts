@@ -19,6 +19,8 @@ const SOURCE_FILES = [
     "sessions-table.ts",
     "styles.css",
 ] as const;
+// Files outside clients/annex that the page bundles, relative to the repository root.
+const SHARED_FILES = ["src/annex/built-in-pages.ts"] as const;
 const OUTPUT_FILES = ["index.html", "main.js", "styles.css"] as const;
 const BUILD_ID_FILE = "build-id";
 
@@ -79,6 +81,7 @@ export async function packWebAssets(
     const buildId = releaseBuildId(cwd);
     const inputPaths = [
         ...SOURCE_FILES.map((name) => join(sourceRoot, name)),
+        ...SHARED_FILES.map((name) => join(REPO_ROOT, name)),
         fileURLToPath(import.meta.url),
     ];
     if (options.force !== true && outputIsFresh(target, inputPaths, buildId)) {

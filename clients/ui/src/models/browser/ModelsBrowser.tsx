@@ -139,7 +139,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                     {tab !== "Help" && settings === undefined && (
                         <div className="models-empty">Vera has not listed its models yet.</div>
                     )}
-                    {tab === "Defaults" && settings !== undefined && <DefaultsTab settings={settings} />}
+                    {tab === "Defaults" && settings !== undefined && <DefaultsTab controls={controls} settings={settings} />}
                     {showsList && settings !== undefined && (
                         <>
                             <div className="models-toolbar">
