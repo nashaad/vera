@@ -443,9 +443,10 @@ export function EyeIcon({ className }: IconProps) {
 export function DiffIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
-            <path d="M8 4v10" />
-            <path d="M3 9h10" />
-            <path d="M11 19h10" />
+            <rect x="5" y="3" width="14" height="18" rx="2.5" />
+            <path d="M12 7v5" />
+            <path d="M9.5 9.5h5" />
+            <path d="M9.5 16h5" />
         </Icon>
     );
 }
