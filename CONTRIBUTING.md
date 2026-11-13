@@ -16,6 +16,9 @@ or an agent, and agreeing on that shape first saves everyone rework.
   review.
 - Run the tests for the area you changed, and `bun run typecheck`. A pull
   request adds no new type errors.
+- Fill in the description template in `.github/pull_request_template.md`:
+  what changes, why, how you tested it, and what it breaks. For a behavior
+  change, show what a user sees before and after.
 - We squash-merge pull requests, so your branch commit messages are up
   to you. The final commit gets a one-line conventional title (`feat:`,
   `fix:`, ...).
