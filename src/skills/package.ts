@@ -71,9 +71,11 @@ export async function loadSkillPackage(
     }
 
     const parsed = parseSkillSource(source);
-    if (basename(directory) !== parsed.metadata.name) {
+    // A symlink is named by its entry in the skills directory, not its target.
+    const directoryName = basename(configuredDirectory);
+    if (directoryName !== parsed.metadata.name) {
         throw new Error(
-            `Vera skill name ${parsed.metadata.name} must match directory ${basename(directory)}`,
+            `Vera skill name ${parsed.metadata.name} must match directory ${directoryName}`,
         );
     }
     return {
