@@ -149,7 +149,7 @@ export interface ResolvedProvider {
     readonly declaration?: ProviderDeclaration;
 }
 
-const DEFINITION_DIRECTORY = runtimePath(join(import.meta.dir, "definitions"), "src/providers/definitions");
+const DEFINITION_DIRECTORY = runtimePath(join(import.meta.dirname, "definitions"), "src/providers/definitions");
 const ALLOWED_LAYERS = new Set([
     "openai-chat",
     "openai-sse",

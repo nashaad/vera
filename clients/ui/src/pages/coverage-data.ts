@@ -194,7 +194,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inWindow("The model pill menu searches models"),
             inWindow("Picking a model switches this conversation"),
             inWindow("A model can be added to favorites with its pin button", "Model pill search or Models browser"),
-            inWindow("The Defaults tab shows the models new sessions and jobs use", "Models browser"),
+            inWindow("The Defaults tab assigns the tiers, the classifier and its failsafe, compaction and subagents", "Models browser"),
             partial("Connected providers can be refreshed and forgotten", "Connecting is done in the terminal with /provider"),
             inWindow("The composer's model and effort pills change them"),
             inWindow("The effort pill's slider returns to the model's default"),
@@ -256,7 +256,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inWindow("Settings lists its sections on the left and opens on Appearance"),
             inWindow("Each section names where its values come from"),
             partial("Devices lists this window as the one active connection", "Other attached clients are not listed"),
-            partial("The Defaults tab shows each job's model", "Choosing a job's model is done in the terminal"),
+            inWindow("Assign one model to all gives every default the same model", "Models browser, Defaults tab"),
         ],
     },
 ];

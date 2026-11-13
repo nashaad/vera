@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { LayoutState } from "../../ui/src/layout/model.ts";
+import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "../../ui/src/protocol/assignments.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
 import type {
@@ -84,6 +85,11 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.providerForget, provider, workspace)) as HostModelsResult,
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
+    readAssignments: async () => (await ipcRenderer.invoke(CHANNELS.assignmentsRead)) as AssignmentsResult,
+    editAssignment: async (change: AssignmentChange) =>
+        (await ipcRenderer.invoke(CHANNELS.assignmentsEdit, change)) as AssignmentWriteResult,
+    assignToAll: async (provider: string, model: string) =>
+        (await ipcRenderer.invoke(CHANNELS.assignmentsAll, provider, model)) as AssignAllResult,
     searchSessions: async (request: SessionSearchRequest) =>
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
     readExtensionFailures: async () =>

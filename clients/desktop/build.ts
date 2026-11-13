@@ -53,6 +53,9 @@ const index = join(root, "index.html");
 if (!existsSync(index)) throw new Error(`Missing ${index}`);
 cpSync(index, join(rendererOut, "index.html"));
 
+// The bundled config code reads provider definitions from beside main.js.
+cpSync(join(root, "..", "..", "src", "providers", "definitions"), join(out, "definitions"), { recursive: true });
+
 function fail(logs: readonly unknown[]): never {
     for (const log of logs) console.error(log);
     process.exit(1);

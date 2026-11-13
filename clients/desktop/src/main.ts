@@ -15,6 +15,7 @@ import type {
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
+import { AssignmentStore, changeArgument } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
@@ -71,6 +72,7 @@ const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+const assignmentStore = new AssignmentStore(selectedVeraHome());
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -312,6 +314,19 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
         return { ok: false, reason: "That is not a model Vera knows." };
     }
     return operateModel(hostSocketPath, kind, id, name, workspaceArgument(workspace));
+});
+ipcMain.handle(CHANNELS.assignmentsRead, (event) =>
+    fromWindow(event) ? assignmentStore.read() : { ok: false, reason: "That window cannot read assignments." });
+ipcMain.handle(CHANNELS.assignmentsEdit, (event, change: unknown) => {
+    const edit = changeArgument(change);
+    if (!fromWindow(event) || edit === undefined) return { ok: false, reason: "That is not an assignment change." };
+    return assignmentStore.edit(edit);
+});
+ipcMain.handle(CHANNELS.assignmentsAll, (event, provider: unknown, model: unknown) => {
+    const id = providerArgument(provider);
+    const name = modelArgument(model);
+    if (!fromWindow(event) || id === undefined || name === undefined) return { ok: false, reason: "That is not a model Vera knows." };
+    return assignmentStore.assignAll(id, name);
 });
 ipcMain.handle(CHANNELS.sessionsSearch, (event, request: unknown) => {
     const parsed = searchArgument(request);

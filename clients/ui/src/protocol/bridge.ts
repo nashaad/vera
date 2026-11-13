@@ -1,4 +1,5 @@
 import type { LayoutState } from "../layout/model.ts";
+import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
 import type { DesktopFlags } from "../state/desktopFlags.ts";
 import type { SavedPins } from "./pins.ts";
 import type { ThemeName } from "../theme/tokens.ts";
@@ -187,6 +188,12 @@ export interface DesktopBridge {
     forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Adds a model to the shortlist, removes it, or probes it with a live request.
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
+    // The home's model assignments, read from its config.json by the shell rather than the host.
+    readAssignments(): Promise<AssignmentsResult>;
+    // Writes one assignment change to the home's config.json; the host picks it up on its next read.
+    editAssignment(change: AssignmentChange): Promise<AssignmentWriteResult>;
+    // Writes one model to every assignment. Subagents keep the rest of their list, the classifier its failsafe.
+    assignToAll(provider: string, model: string): Promise<AssignAllResult>;
     // Searches what was said in the home's sessions; titles are not searched.
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
     // Extensions the host tried to load at start and could not.

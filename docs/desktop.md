@@ -648,9 +648,19 @@ The Models browser has four tabs:
   favorite, verified, images, WA score, listed and blended price, context
   window and model id, with `Run this model`, the favorites button and
   `Probe it`, which sends one short request and says whether the model passed.
-- `Defaults` shows the model and effort new sessions start with, and the
-  subagent and reviewer defaults. The host does not serve a model choice per
-  job, so the window cannot set one.
+- `Defaults` assigns the models background work runs on; the conversation
+  model stays as it is. Each row opens a picker with your favorites first,
+  then other connected models, and the effort levels of the highlighted model
+  (Left and Right change the effort). Tiers are snappy, eco and extra; under
+  each, a line names what uses it, including a job that is not set. The
+  classifier has a failsafe row once it is set, and compaction says which
+  tier it uses while it is not set. Subagents list their models in the order
+  Vera tries them, with buttons to try one earlier or later or remove it, and
+  a switch for falling back to the spawning session's model. **Assign one
+  model to all** gives every default the same model. A model you assign that
+  is not a favorite becomes one. The window writes `config.json` in the home
+  with the same rules as Assign model defaults in the terminal, so it works
+  the same whichever folder the app was started from.
 - `Help` explains the marks.
 
 Settings > Providers lists the providers the home is connected to, with how
@@ -797,6 +807,7 @@ node clients/desktop/test/chat.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
+node clients/desktop/test/defaults.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
@@ -874,6 +885,12 @@ New Chat it searches for a model, adds it to favorites, picks it and sends; in
 the session it searches for the other model and sends on it, picks the first
 favorite with its number key, lowers its effort, then selects a model in the
 Models browser and probes it.
+
+The defaults test launches the app from a folder outside the checkout and opens
+Models > Defaults. It checks Escape closes a picker and leaves the browser open,
+assigns eco a model that is not a favorite at Low and checks it becomes one,
+clears compaction and checks it falls back to eco, adds a subagent model, turns
+on the switch, and reads each change back from the home's `config.json`.
 
 The slash test serves one skill and starts a session. On New Chat it types `/`
 and checks the menu lists only the built-in group with a muted `Not implemented

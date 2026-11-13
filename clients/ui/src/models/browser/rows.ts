@@ -1,5 +1,5 @@
 import type { ProbeOutcome } from "../controls.ts";
-import { allModels, effortLabel, formatBlended, formatContext, formatListed, modelName, sameModel } from "../catalog.ts";
+import { allModels, formatBlended, formatContext, formatListed, sameModel } from "../catalog.ts";
 import type { ModelChoice, ModelEntry, ModelSettings } from "../settings.ts";
 
 export type BrowserTab = "Favorites" | "All models" | "Defaults" | "Help";
@@ -9,7 +9,7 @@ export const BROWSER_TABS: readonly BrowserTab[] = ["Favorites", "All models", "
 export const TAB_NOTES: Record<BrowserTab, string> = {
     Favorites: "The models the composer offers first",
     "All models": "Every model your connected providers list",
-    Defaults: "The model and effort each job starts with",
+    Defaults: "Models for background work. Your conversation model stays as it is.",
     Help: "What the marks in these tabs mean",
 };
 
@@ -18,12 +18,6 @@ export interface FactRow {
     readonly value: string;
     readonly good?: boolean;
     readonly mono?: boolean;
-}
-
-export interface DefaultRow {
-    readonly label: string;
-    readonly value: string;
-    readonly note?: string;
 }
 
 const NOT_LISTED = "Not listed";
@@ -102,22 +96,6 @@ export function modelFacts(entry: ModelEntry, pinned: boolean): readonly FactRow
     ];
 }
 
-export function defaultRows(settings: ModelSettings): readonly DefaultRow[] {
-    const name = modelName(settings, settings);
-    const session = settings.effort === undefined
-        ? name
-        : `${name}, ${effortLabel(settings, settings.effort)} effort`;
-    return [
-        {
-            label: "New sessions",
-            value: session,
-            note: "Choosing a model in a session also makes it the default for new sessions.",
-        },
-        { label: "Subagents", value: subagentValue(settings) },
-        { label: "Reviewer", value: reviewerValue(settings) },
-    ];
-}
-
 export function probeLine(outcome: ProbeOutcome): string {
     return outcome.ok ? "Probe passed." : `Probe failed: ${outcome.reason}`;
 }
@@ -125,21 +103,4 @@ export function probeLine(outcome: ProbeOutcome): string {
 function yesNoUnknown(value: boolean | undefined): string {
     if (value === undefined) return "Unknown";
     return value ? "Yes" : "No";
-}
-
-function subagentValue(settings: ModelSettings): string {
-    const subagent = settings.subagentDefault;
-    if (subagent === undefined) return "Not reported";
-    if (subagent.mode === "inherit") return "Same as the parent session";
-    if (subagent.mode === "none") return "None assigned";
-    return subagent.choice === undefined ? "Not set" : modelName(settings, subagent.choice);
-}
-
-function reviewerValue(settings: ModelSettings): string {
-    const reviewer = settings.reviewerDefault;
-    if (reviewer === undefined) return "Not reported";
-    if (reviewer.mode === "agent") return "Chosen per review";
-    const primary = reviewer.primary === undefined ? "Not set" : modelName(settings, reviewer.primary);
-    const fallback = reviewer.fallback === undefined ? "none" : modelName(settings, reviewer.fallback);
-    return `Primary ${primary}, fallback ${fallback}`;
 }

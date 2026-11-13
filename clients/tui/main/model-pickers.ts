@@ -5,18 +5,14 @@ import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { modelBrowse } from "../model-browse.ts";
 import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
-import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
+import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
-import { derivedModelName } from "../../../src/config/model-catalog.ts";
 import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
-import { poolReachability } from "../../../src/model/assignment-reachability.ts";
-import { eligibleForDefault } from "../../../src/model/model-operations.ts";
+import { addedModel, assignModelToAll, assignmentRefusal, assignmentRows, modelRefusal, needsFavorite, writeAssignmentEdit, type AssignmentEdit, type EditedAssignment } from "../../../src/model/assignment-edits.ts";
 import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
-import { isCuratedPoolEntry } from "../../../src/model/pool-file.ts";
-import type { ModelReasoningEffort } from "../../../src/model/types.ts";
 import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected, setupProviders, type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
@@ -254,11 +250,7 @@ export function catalogSizeOf(rt: TuiRuntime, provider: string): number {
 }
 
 export function currentModelAssignmentRows(rt: TuiRuntime): readonly ModelAssignmentRow[] {
-    const configured = readLastGoodConfig(rt).config ?? startingVeraConfig();
-    return configuredModelAssignments(
-        configured,
-        poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
-    );
+    return assignmentRows(readLastGoodConfig(rt).config, { projectRoot: process.cwd() });
 }
 
 export function openModelAssignmentPicker(rt: TuiRuntime, 
@@ -315,92 +307,16 @@ function withKeptSearch(
 }
 
 export function bindModelAssignmentFromPicker(rt: TuiRuntime, 
-    selection: {
-        readonly assignment: ModelAssignmentId;
-        readonly provider?: string;
-        readonly model?: string;
-        readonly reasoningEffort?: ModelReasoningEffort;
-        readonly remove?: boolean;
-        readonly clear?: boolean;
-        readonly allowSelf?: boolean;
-    },
+    selection: AssignmentEdit,
 ): string | undefined {
-    if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
-        const requireVerified = loadOptionalVeraConfig()?.verify_model_assignments === true;
-        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model }, { requireVerified })) {
-            return requireVerified
-                ? "Verify this model before assigning it as a default."
-                : "This model is not permitted by your model policy.";
-        }
-    }
-    const subagents = selection.assignment === "subagents";
-    const row = subagents || selection.assignment === "reviewer"
-        ? currentModelAssignmentRows(rt).find((entry) =>
-            entry.assignment === selection.assignment)
-        : undefined;
-    const currentModels = row?.declared ?? [];
-    const selectedRef = selection.model === undefined
-        ? undefined
-        : `${selection.provider ?? ""}/${selection.model}`;
-    // Changing the classifier's primary keeps the failsafe the Classifier menu set.
-    const failsafe = selection.assignment === "reviewer" && row?.source === "assignment"
-        ? currentModels.slice(1, 2).filter((entry) =>
-            `${entry.provider}/${entry.model}` !== selectedRef)
-        : [];
-    const models = !subagents
-        ? []
-        : selection.clear === true
-        ? []
-        : selection.allowSelf !== undefined
-        ? [...currentModels]
-        : selection.remove === true
-        ? currentModels.filter((entry) =>
-            `${entry.provider}/${entry.model}` !== selectedRef)
-        : [
-            ...currentModels.filter((entry) =>
-                `${entry.provider}/${entry.model}` !== selectedRef),
-            {
-                name: derivedModelName(
-                    selection.provider as VeraProviderId,
-                    selection.model as string,
-                ),
-                provider: selection.provider as VeraProviderId,
-                model: selection.model as string,
-                ...(selection.reasoningEffort === undefined
-                    ? {}
-                    : { reasoning_effort: selection.reasoningEffort }),
-            },
-        ];
-    const allowSelf = selection.allowSelf
-        ?? (selection.clear === true ? false : row?.allowSelf === true);
-    const unbinding = subagents
-        ? models.length === 0 && !allowSelf
-        : selection.model === undefined;
+    const files = { projectRoot: process.cwd() };
+    const refusal = assignmentRefusal(selection, files);
+    if (refusal !== undefined) return refusal;
+    let edited: EditedAssignment;
     try {
-        updateVeraConfigDefaults({
-            model_assignment: {
-                assignment: selection.assignment,
-                binding: unbinding ? null : subagents ? {
-                    models,
-                    ...(allowSelf ? { allow_self: true } : {}),
-                } : {
-                    models: [{
-                        name: derivedModelName(
-                            selection.provider as VeraProviderId,
-                            selection.model as string,
-                        ),
-                        provider: selection.provider as VeraProviderId,
-                        model: selection.model as string,
-                        ...(selection.reasoningEffort === undefined
-                            ? {}
-                            : { reasoning_effort: selection.reasoningEffort }),
-                    }, ...failsafe],
-                },
-            },
-        });
+        edited = writeAssignmentEdit(selection, currentModelAssignmentRows(rt), files);
         requestAgentSettings(rt, focusedAgentClient(rt));
-        if (selectedRef !== undefined && selection.remove !== true
-            && selection.clear !== true && selection.allowSelf === undefined) {
+        if (addedModel(selection) !== undefined) {
             keepAssignedModel(rt, selection.provider ?? "", selection.model as string);
         }
     } catch (error) {
@@ -412,13 +328,14 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     }
     const label = currentModelAssignmentRows(rt).find((entry) =>
         entry.assignment === selection.assignment)?.label ?? selection.assignment;
+    const subagents = selection.assignment === "subagents";
     rt.state = appendTuiNotice(
         rt.state,
-        unbinding
+        edited.binding === null
             ? `${label} unset. The conversation model is unchanged.`
             : subagents
-            ? `Subagent policy updated: ${models.length} assigned, parent fallback ${
-                allowSelf ? "on" : "off"
+            ? `Subagent policy updated: ${edited.models.length} assigned, parent fallback ${
+                edited.allowSelf ? "on" : "off"
             }.`
             : `${label} → ${
                 selection.reasoningEffort === undefined
@@ -445,61 +362,27 @@ export function openAssignAllPicker(rt: TuiRuntime, parent?: TuiSettingsPickerSt
 
 // Each default is its own config write, so a failure part way leaves the earlier ones written.
 export function bindModelToAllAssignments(rt: TuiRuntime, provider: string, model: string): string | undefined {
-    const requireVerified = loadOptionalVeraConfig()?.verify_model_assignments === true;
-    if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider, model }, { requireVerified })) {
-        return requireVerified
-            ? "Verify this model before assigning it as a default."
-            : "This model is not permitted by your model policy.";
-    }
-    const ref = `${provider}/${model}`;
-    const entry = {
-        name: derivedModelName(provider as VeraProviderId, model),
-        provider: provider as VeraProviderId,
-        model,
-    };
-    const assigned: string[] = [];
-    for (const row of currentModelAssignmentRows(rt)) {
-        const others = row.declared.filter((declared) => `${declared.provider}/${declared.model}` !== ref);
-        let models = [entry];
-        if (row.assignment === "subagents") {
-            models = [entry, ...others];
-        } else if (row.assignment === "reviewer" && row.source === "assignment") {
-            // The Classifier menu's failsafe sits second; keep it.
-            models = [entry, ...row.declared.slice(1, 2).filter((declared) =>
-                `${declared.provider}/${declared.model}` !== ref)];
+    const files = { projectRoot: process.cwd() };
+    const refusal = modelRefusal(provider, model, files);
+    if (refusal !== undefined) return refusal;
+    const result = assignModelToAll(provider, model, currentModelAssignmentRows(rt), files);
+    if (result.failure !== undefined) {
+        rt.state = appendTuiError(rt.state, result.failure);
+        if (result.assigned.length > 0) {
+            requestAgentSettings(rt, focusedAgentClient(rt));
+            keepAssignedModel(rt, provider, model);
         }
-        const allowSelf = row.assignment === "subagents" && row.allowSelf === true;
-        try {
-            updateVeraConfigDefaults({
-                model_assignment: {
-                    assignment: row.assignment,
-                    binding: { models, ...(allowSelf ? { allow_self: true } : {}) },
-                },
-            });
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            const message = assigned.length === 0
-                ? `Could not write the assignment: ${reason}`
-                : `Assigned ${model} to ${assigned.join(", ")}, but could not write ${row.label}: ${reason}`;
-            rt.state = appendTuiError(rt.state, message);
-            if (assigned.length > 0) {
-                requestAgentSettings(rt, focusedAgentClient(rt));
-                keepAssignedModel(rt, provider, model);
-            }
-            return message;
-        }
-        assigned.push(row.label);
+        return result.failure;
     }
     requestAgentSettings(rt, focusedAgentClient(rt));
     keepAssignedModel(rt, provider, model);
-    showModeToast(rt, `${model} assigned to all ${assigned.length} defaults`);
+    showModeToast(rt, `${model} assigned to all ${result.assigned.length} defaults`);
     return undefined;
 }
 
 // Subagents only run models in the pool, and an agent can run on any slot, so assigning a model favorites it.
 function keepAssignedModel(rt: TuiRuntime, provider: string, model: string): void {
-    const entry = loadPoolFile({ projectRoot: process.cwd() }).merged.models[`${provider}/${model}`];
-    if (entry !== undefined && isCuratedPoolEntry(entry)) return;
+    if (!needsFavorite(provider, model, { projectRoot: process.cwd() })) return;
     rt.state = appendTuiNotice(rt.state, `Adding ${model} to favorites so subagents can use it.`, "soft");
     runModelOperation(rt, { operation: "keep", models: [{ provider, model }] }, (feedback) => {
         if (feedback.status !== "error") return;
