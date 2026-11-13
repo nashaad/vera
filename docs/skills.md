@@ -51,7 +51,8 @@ Read every file in `hoard/` that changed today. List each item with the crow
 who took it, then append the totals to `ledger.md`. Shiny things go first.
 ```
 
-- `name` is required and must match the directory name. Use lowercase
+- `name` is required and must match the directory name. If the skill folder
+  is a symlink, that is the name of the folder it points to. Use lowercase
   letters, numbers, and hyphens, with no hyphen at either end and no two in a
   row. The skill's command is `/` followed by its name, here `/loot-ledger`.
 - `description` is required. The command palette shows it, and the model reads
@@ -83,6 +84,24 @@ earlier one and Vera reports the replacement as a warning. A project
 To ship skills with an extension, see
 [Contribute skills](extension-apis.md#contribute-skills).
 
+### Link a skill from another folder
+
+A skill folder can be a symlink, so one copy serves several projects or a
+checkout you keep editing. Vera follows the link and compares `name` with the
+folder the link points to, not with the link's own name:
+
+```text
+~/.vera/skills/release-notes -> ~/src/skill-library/changelog
+```
+
+Here `SKILL.md` must say `name: changelog`, and the skill loads as
+`/changelog`. To get `/release-notes`, point the link at a folder of that
+name.
+
+If `SKILL.md` says `name: release-notes` instead, Vera skips the skill and
+says so above the Skills list:
+`Vera skill name release-notes must match directory changelog`.
+
 ### See the change
 
 A new skill's command appears after the next completed turn, or when you
@@ -91,7 +110,7 @@ skill while idle, send any message first, then type its command.
 
 Open `/customize` and choose Skills to confirm it loaded. A skill that fails to
 load is left out while the others still load, and the reason appears above the
-list, such as a name that does not match its directory. Replacement warnings
+list, such as a name that does not match the folder name. Replacement warnings
 appear there too.
 
 ## Require an explicit command
