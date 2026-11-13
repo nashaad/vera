@@ -62,7 +62,7 @@ describe("the slash entries", () => {
         registerNavigationCommands(registry, () => {});
         registerLayoutCommands(registry, () => {});
         registerSessionCommands(registry);
-        registerSessionWindowCommands(registry, { navigate: () => {}, parentRoute: () => undefined });
+        registerSessionWindowCommands(registry, { navigate: () => {}, parentRoute: () => undefined, bridge: () => undefined });
         // The overlay commands are registered by the overlay host, which needs a window.
         const overlayIds = new Set(Object.values(OVERLAY_COMMANDS).map((command) => command.id));
         for (const entry of BUILTIN_SLASH_ENTRIES) {

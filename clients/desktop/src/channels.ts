@@ -11,6 +11,8 @@ export const CHANNELS = {
     theme: "vera:theme",
     layoutLoad: "vera:layout-load",
     layoutSave: "vera:layout-save",
+    pinsLoad: "vera:pins-load",
+    pinsSave: "vera:pins-save",
     flagsLoad: "vera:flags-load",
     sessionCreate: "vera:session-create",
     sessionBranch: "vera:session-branch",

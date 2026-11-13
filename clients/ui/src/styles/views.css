@@ -305,6 +305,50 @@
     font-size: var(--vera-font-size-label);
 }
 
+.session-item {
+    position: relative;
+}
+
+/* Opacity, not visibility, so the button stays in the tab order while hidden. */
+.session-more {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--vera-space) * 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    padding: 0;
+    color: var(--vera-text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-50%);
+}
+
+.session-item:hover .session-more,
+.session-item:focus-within .session-more {
+    opacity: 1;
+}
+
+.session-item:hover .session-time,
+.session-item:focus-within .session-time {
+    visibility: hidden;
+}
+
+.session-more:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.session-more:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
 /* output */
 
 .output {

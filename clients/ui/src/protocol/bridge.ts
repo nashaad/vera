@@ -1,5 +1,6 @@
 import type { LayoutState } from "../layout/model.ts";
 import type { DesktopFlags } from "../state/desktopFlags.ts";
+import type { SavedPins } from "./pins.ts";
 import type { ThemeName } from "../theme/tokens.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
@@ -215,6 +216,9 @@ export interface DesktopBridge {
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;
+    // Pinned sessions from the desktop's own directory under the home; none when there is no file.
+    loadPins(): Promise<SavedPins>;
+    savePins(pins: SavedPins): void;
     // The desktop's flags from its own directory under the home; every flag at its default when there is no file.
     loadFlags(): Promise<DesktopFlags>;
     onEvent(listener: (event: DesktopEvent) => void): () => void;

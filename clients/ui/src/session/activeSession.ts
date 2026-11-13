@@ -35,6 +35,25 @@ export function activeSession(): ActiveSession | undefined {
     return current;
 }
 
+// Runs once a page has published the given session. A page that never opens drops the wait after waitMs.
+export function whenSessionActive(agentId: string, run: () => void, waitMs = 5_000): void {
+    if (current?.agentId === agentId) {
+        run();
+        return;
+    }
+    const stop = (): void => {
+        clearTimeout(timer);
+        listeners.delete(listener);
+    };
+    const listener = (): void => {
+        if (current?.agentId !== agentId) return;
+        stop();
+        run();
+    };
+    const timer = setTimeout(stop, waitMs);
+    listeners.add(listener);
+}
+
 function subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);

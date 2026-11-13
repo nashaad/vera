@@ -227,6 +227,21 @@ Seven views ship with the app:
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
   and the row of the open session is filled.
+
+  Hovering a row shows a `…` button in place of its time; it and a right-click
+  on the row open the row's menu:
+
+  - Rename… opens the session and its rename sheet.
+  - Pin Session moves the row into a `Pinned` group at the top of the list, in
+    the order the sessions were pinned, and Unpin Session puts it back under its
+    folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
+    newer pin past that drops the oldest. The terminal UI keeps its own pins. A
+    pinned session shows only while it is among the sessions the list has loaded.
+  - Open Files Pane opens the session and the right pane on its Files view.
+  - Clone Session copies the session and opens the copy.
+  - Close Session stops the session, and is offered only while the host runs it.
+    Closing the open session returns to New Chat; closing another leaves the page
+    as it is.
 - Host, in the right pane inside the Vera container, shows the connection state
   and tiles for the session count, host build, protocol version, host process id
   and home path. The home path is shortened, with the user's home directory
@@ -877,7 +892,9 @@ file and edits it. It checks the turn's edits roll up into one card, opens the
 change from Review, reads the checklist's progress in the Plan view, waits for
 the context pill to fill in, quotes a reply into the composer from its `…`
 menu, rewinds the newest prompt back into the composer and compacts from the
-session menu.
+session menu. From a sidebar row's `…` menu it renames the session while
+another page is open, pins it and reads `pins.json`, opens the Files view,
+unpins it from the right-click menu, clones it and closes the copy.
 
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page

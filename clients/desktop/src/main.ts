@@ -12,6 +12,7 @@ import type {
     FolderListing,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
+import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { BootSession } from "./boot.ts";
@@ -33,6 +34,7 @@ import {
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
+import { PinStore, pinsPath } from "./pin-store.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
@@ -68,6 +70,7 @@ const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
 };
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
+const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -218,6 +221,10 @@ ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<C
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
     if (fromWindow(event)) layoutStore.save(layout);
+});
+ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load() ?? NO_PINS : NO_PINS));
+ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
+    if (fromWindow(event)) pinStore.save(pins);
 });
 ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {

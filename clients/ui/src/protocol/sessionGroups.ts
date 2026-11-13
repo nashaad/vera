@@ -7,9 +7,9 @@ export interface SessionEntry {
 }
 
 export interface SessionGroup {
-    // Unique among groups; the Chats group has its own key.
+    // Unique among groups; the Pinned and Chats groups have their own keys.
     readonly key: string;
-    // Empty for the Chats group and for sessions with no folder.
+    // Empty for the Pinned and Chats groups and for sessions with no folder.
     readonly workspace: string;
     readonly title: string;
     // Chats share one group and its title opens no workspace page.
@@ -18,6 +18,7 @@ export interface SessionGroup {
 }
 
 export const CHATS_TITLE = "Chats";
+export const PINNED_TITLE = "Pinned";
 export const CHAT_FOLDER_LABEL = "Chat";
 
 // The folder a session is shown under: a chat has none of its own to name.
@@ -38,20 +39,31 @@ export function folderName(path: string): string {
     return parts[parts.length - 1] ?? trimmed;
 }
 
+const PINNED_KEY = "pinned";
 const CHATS_KEY = "chats";
 const FOLDER_KEY = "folder:";
 
-// Groups keep the order of their most recent session; rows keep the host's order, and a
-// row whose parent is in the same group follows that parent. Chats share one group.
-export function groupSessions(rows: readonly SessionRow[]): readonly SessionGroup[] {
+// Pinned rows come first in pin order and leave their own group. The other groups keep the order
+// of their most recent session; rows keep the host's order, and a row whose parent is in the same
+// group follows that parent. Chats share one group.
+export function groupSessions(rows: readonly SessionRow[], pins: readonly string[] = []): readonly SessionGroup[] {
+    const pinned = pinnedRows(rows, pins);
+    const pinnedIds = new Set(pinned.map((row) => row.id));
+    const groups: SessionGroup[] = pinned.length === 0 ? [] : [{
+        key: PINNED_KEY,
+        workspace: "",
+        title: PINNED_TITLE,
+        chats: false,
+        entries: pinned.map((row) => ({ row, nested: false })),
+    }];
     const byKey = new Map<string, SessionRow[]>();
     for (const row of rows) {
+        if (pinnedIds.has(row.id)) continue;
         const key = row.chat ? CHATS_KEY : `${FOLDER_KEY}${row.workspace}`;
         const members = byKey.get(key);
         if (members === undefined) byKey.set(key, [row]);
         else members.push(row);
     }
-    const groups: SessionGroup[] = [];
     for (const [key, members] of byKey) {
         const chats = key === CHATS_KEY;
         const workspace = chats ? "" : key.slice(FOLDER_KEY.length);
@@ -88,6 +100,12 @@ export function groupSessions(rows: readonly SessionRow[]): readonly SessionGrou
         groups.push({ key, workspace, title: chats ? CHATS_TITLE : folderName(workspace), chats, entries });
     }
     return groups;
+}
+
+function pinnedRows(rows: readonly SessionRow[], pins: readonly string[]): readonly SessionRow[] {
+    if (pins.length === 0) return [];
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    return pins.flatMap((id) => rowsById.get(id) ?? []);
 }
 
 export function waitingCount(rows: readonly SessionRow[]): number {

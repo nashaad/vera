@@ -1,6 +1,7 @@
 // Session tools test for the desktop shell. Run with: node clients/desktop/test/tools.e2e.mjs
 // The provider writes a scratch checklist, writes a file and edits it, then answers.
-// The test reads the rollup, the Review and Plan views, quotes a reply, rewinds one prompt and compacts.
+// The test reads the rollup, the Review and Plan views, quotes a reply, rewinds one prompt and compacts,
+// then works the sidebar row's menu.
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -178,6 +179,57 @@ try {
     await until("compaction to finish", async () => (await action.innerText()) === "Done", 45_000);
     await action.click();
     await page.locator(".session-sheet").waitFor({ state: "detached", timeout: 5_000 });
+
+    // Rename from the row menu while another page is open: the session opens with its rename sheet.
+    const agentId = await page.locator(".session-row[data-active=\"true\"]").getAttribute("data-session");
+    const rowItem = (id) => page.locator(`.session-item:has(.session-row[data-session="${id}"])`);
+    const rowMenu = async (id, label) => {
+        await rowItem(id).hover();
+        await rowItem(id).locator(".session-more").click();
+        await page.getByRole("menuitem", { name: label }).click();
+    };
+    await page.locator(".group-title", { hasText: "work" }).click();
+    await page.waitForSelector("main[data-page=\"workspace\"]", { timeout: 10_000 });
+    await rowMenu(agentId, "Rename…");
+    await page.locator(".session-sheet").waitFor({ timeout: 10_000 });
+    await page.locator(`.session-row[data-active="true"][data-session="${agentId}"]`).waitFor({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await page.locator(".session-sheet").waitFor({ state: "detached", timeout: 5_000 });
+
+    // Pin moves the row into Pinned and saves it in the desktop's own file under the home.
+    const pinsFile = join(trial.home, "machine", "desktop", "pins.json");
+    const savedPins = () => {
+        try {
+            return JSON.parse(readFileSync(pinsFile, "utf8")).sessions;
+        } catch {
+            return undefined;
+        }
+    };
+    await rowMenu(agentId, "Pin Session");
+    await page.locator(`[data-group="pinned"] .session-row[data-session="${agentId}"]`).waitFor({ timeout: 5_000 });
+    await until("the pin on disk", async () => savedPins()?.includes(agentId) === true);
+
+    // Open Files Pane brings the right pane back to Files.
+    await page.locator(".switcher-item[aria-label=\"Plan\"]").click();
+    await page.locator(".plan-title").waitFor({ timeout: 5_000 });
+    await rowMenu(agentId, "Open Files Pane");
+    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
+
+    // Right-click opens the same menu; Unpin puts the row back under its folder.
+    await rowItem(agentId).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Unpin Session" }).click();
+    await page.locator("[data-group=\"pinned\"]").waitFor({ state: "detached", timeout: 5_000 });
+    await until("the unpin on disk", async () => savedPins()?.length === 0);
+
+    // Clone opens the copy; closing the open copy from its row returns to New Chat.
+    await rowMenu(agentId, "Clone Session");
+    const rowsInSidebar = page.locator(".session-row");
+    await until("the clone in the sidebar", async () => (await rowsInSidebar.count()) === 2, 30_000);
+    const cloneId = await page.locator(".session-row[data-active=\"true\"]").getAttribute("data-session");
+    if (cloneId === agentId) throw new Error("Clone did not open the copy.");
+    await until("the clone to run", async () => (await rowItem(cloneId).locator(".session-row").getAttribute("data-live")) === "true", 30_000);
+    await rowMenu(cloneId, "Close Session");
+    await page.waitForSelector("main[data-page=\"home\"]", { timeout: 15_000 });
     console.log("tools e2e passed");
 } catch (error) {
     failed = true;
