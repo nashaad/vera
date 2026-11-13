@@ -932,6 +932,8 @@ runs only while the clause holds. The clause reads `view`, `container`,
 start with its id and a dot. A key with no value is false and equals nothing. A
 keybinding is one chord with ctrl, alt or cmd, or a function key. When two
 extensions bind the same key under conditions that can both hold, neither runs.
+A keybinding on a key the desktop already uses, such as Cmd+K on macOS or Ctrl+K
+elsewhere, never runs; the desktop's own command keeps the key.
 
 An extension whose manifest is not valid JSON or fails validation, whose `when`
 does not parse or names an unknown key, whose keybinding cannot be matched, or

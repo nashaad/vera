@@ -82,3 +82,11 @@ export function chordMatches(chord: Chord, event: ChordEvent): boolean {
         && event.shiftKey === chord.shift
         && event.metaKey === chord.meta;
 }
+
+export function sameChord(first: Chord, second: Chord): boolean {
+    return first.key === second.key
+        && first.ctrl === second.ctrl
+        && first.alt === second.alt
+        && first.shift === second.shift
+        && first.meta === second.meta;
+}

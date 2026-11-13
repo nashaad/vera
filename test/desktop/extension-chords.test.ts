@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
+import { NATIVE_SHORTCUTS } from "../../clients/ui/src/commands/keys.ts";
 import { chordMatches, parseChord } from "../../clients/ui/src/extensions/chords.ts";
+import { nativeChord } from "../../clients/ui/src/extensions/keybindings.ts";
 
 function press(key: string, held: Partial<Record<"ctrlKey" | "altKey" | "shiftKey" | "metaKey", boolean>> = {}) {
     return { key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...held };
@@ -31,4 +33,12 @@ test("a chord matches only the exact modifiers", () => {
     expect(chordMatches(chord, press("k", { ctrlKey: true }))).toBe(false);
     expect(chordMatches(chord, press("k", { ctrlKey: true, shiftKey: true, altKey: true }))).toBe(false);
     expect(chordMatches(chord, press("j", { ctrlKey: true, shiftKey: true }))).toBe(false);
+});
+
+test("every desktop shortcut has a chord to compare extension keys against", () => {
+    for (const shortcut of NATIVE_SHORTCUTS) {
+        expect(nativeChord(shortcut, "mac")).toMatchObject({ meta: true, ctrl: false, alt: shortcut.alt, shift: shortcut.shift });
+        expect(nativeChord(shortcut, "other")).toMatchObject({ meta: false, ctrl: true, alt: shortcut.alt, shift: shortcut.shift });
+    }
+    expect(nativeChord({ command: "x", label: "X", accelerator: "CmdOrCtrl+[", code: "BracketLeft", alt: false, shift: false }, "mac")?.key).toBe("[");
 });

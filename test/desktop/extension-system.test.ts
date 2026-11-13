@@ -229,6 +229,31 @@ test("@core two extensions bound to the same key with overlapping conditions run
     }
 });
 
+test("@core an extension binding on one of the desktop's own keys never runs, on either platform", async () => {
+    const taken = manifest("taken", {
+        commands: [{ command: "taken.go", title: "Go" }],
+        keybindings: [{ command: "taken.go", key: "ctrl+k", mac: "cmd+k" }],
+    });
+    const mac = await setup(folders({ directory: "taken", text: taken }), "darwin");
+    expect(mac.system.registry.snapshot().coreConflicts).toHaveLength(1);
+    expect(mac.system.handleKey(key({ key: "k", metaKey: true }))).toBeUndefined();
+    expect(mac.ran).toEqual([]);
+    const other = await setup(folders({ directory: "taken", text: taken }), "linux");
+    expect(other.system.handleKey(key({ key: "k", ctrlKey: true }))).toBeUndefined();
+    expect(other.ran).toEqual([]);
+});
+
+test("a binding taken on one platform still runs on the other", async () => {
+    const split = manifest("split", {
+        commands: [{ command: "split.go", title: "Go" }],
+        keybindings: [{ command: "split.go", key: "ctrl+b", mac: "ctrl+b" }],
+    });
+    const mac = await setup(folders({ directory: "split", text: split }), "darwin");
+    expect(mac.system.handleKey(key({ key: "b", ctrlKey: true }))).toBe("split.go");
+    const other = await setup(folders({ directory: "split", text: split }), "linux");
+    expect(other.system.handleKey(key({ key: "b", ctrlKey: true }))).toBeUndefined();
+});
+
 test("disposing the system ends every worker", async () => {
     const { system, commands } = await setup(folders({ directory: "demo", text: DEMO }));
     commands.execute("demo.hello");

@@ -6,7 +6,7 @@ import { DesktopExtensionRegistry } from "./contributions.ts";
 import type { ToastTone } from "./envelope.ts";
 import { parseDesktopManifest, type DesktopManifest } from "./manifest.ts";
 import { ExtensionRuntime, type ExtensionDefinition, type Timers, type WorkerLink } from "./runtime.ts";
-import type { ContributedKeybinding } from "./keybindings.ts";
+import type { ContributedKeybinding, KeyPlatform } from "./keybindings.ts";
 import { evaluateWhen } from "./when.ts";
 
 export type ExtensionBridge = Pick<DesktopBridge, "listDesktopExtensions" | "readDesktopExtensionMain" | "logDesktopExtension">;
@@ -129,6 +129,7 @@ export class DesktopExtensionSystem {
     }
 
     // Runs the one extension command bound to the key. Two matching bindings run nothing: load order never settles a conflict.
+    // A binding on one of the desktop's own keys never runs.
     // Returns the command it ran, so the caller can stop the key from reaching the page.
     handleKey(event: KeyEventLike): string | undefined {
         if (event.repeat === true || event.isComposing === true) return undefined;
@@ -152,8 +153,13 @@ export class DesktopExtensionSystem {
         const snapshot = this.registry.snapshot();
         if (this.bound?.source !== snapshot) {
             const mac = this.options.platform === "darwin";
+            const platform: KeyPlatform = mac ? "mac" : "other";
+            const taken = new Set(snapshot.coreConflicts
+                .filter((conflict) => conflict.platforms.includes(platform))
+                .map((conflict) => conflict.binding));
             const chords: BoundChord[] = [];
             for (const binding of snapshot.keybindings) {
+                if (taken.has(binding)) continue;
                 const chord = parseChord(mac ? binding.mac ?? binding.key : binding.key);
                 if (typeof chord !== "string") chords.push({ binding, chord });
             }
