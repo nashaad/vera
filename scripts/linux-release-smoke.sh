@@ -53,7 +53,7 @@ printf '%s\n' "$deleted" >"$work/deleted.txt"
 echo "== build: linux/$arch tarball"
 docker run --rm --init --platform "$docker_platform" \
     -v "$work:/smoke" \
-    oven/bun:1.3.6 \
+    oven/bun:1.4.4 \
     sh -eu -c '
         export DEBIAN_FRONTEND=noninteractive
         apt-get update >/dev/null

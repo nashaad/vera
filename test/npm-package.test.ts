@@ -84,7 +84,7 @@ test("npm package contains only the curated runtime and release metadata", () =>
         expect(metadata.version).toBe("1.2.3");
         expect(metadata.private).toBeUndefined();
         expect(metadata.bin).toEqual({ vera: "./bin/vera" });
-        expect(metadata.engines).toEqual({ bun: ">=1.3.6" });
+        expect(metadata.engines).toEqual({ bun: ">=1.4.4" });
         expect(metadata.repository).toEqual({
             type: "git",
             url: "git+https://github.com/nashaad/vera.git",

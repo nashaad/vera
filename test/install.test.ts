@@ -23,7 +23,7 @@ function executable(path: string, body: string): void {
 function fakeCommands(
     directory: string,
     npmBody: string,
-    bunVersion = "1.3.6",
+    bunVersion = "1.4.4",
 ): void {
     mkdirSync(directory);
     executable(
@@ -194,7 +194,7 @@ test("installer enforces Bun, ownership, prefix, and shadow boundaries", () => {
     const home = join(root, "home");
     const prefix = join(home, ".local");
     mkdirSync(home);
-    fakeCommands(commands, successfulNpm("1.2.3"), "1.3.5");
+    fakeCommands(commands, successfulNpm("1.2.3"), "1.4.3");
 
     try {
         const oldBun = Bun.spawnSync(["/bin/sh", installer], {
@@ -203,9 +203,18 @@ test("installer enforces Bun, ownership, prefix, and shadow boundaries", () => {
             stderr: "pipe",
         });
         expect(oldBun.exitCode).not.toBe(0);
-        expect(oldBun.stderr?.toString()).toContain("Bun 1.3.6 or newer");
+        expect(oldBun.stderr?.toString()).toContain("Bun 1.4.4 or newer");
 
         executable(join(commands, "bun"), "#!/bin/sh\necho 1.3.6\n");
+        const oldSeries = Bun.spawnSync(["/bin/sh", installer], {
+            env: installEnvironment(home, commands, prefix),
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(oldSeries.exitCode).not.toBe(0);
+        expect(oldSeries.stderr?.toString()).toContain("Bun 1.4.4 or newer");
+
+        executable(join(commands, "bun"), "#!/bin/sh\necho 1.4.4\n");
         mkdirSync(join(prefix, "bin"), { recursive: true });
         writeFileSync(join(prefix, "bin", "vera"), "foreign\n");
         const foreign = Bun.spawnSync(["/bin/sh", installer], {

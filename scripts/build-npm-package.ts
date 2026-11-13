@@ -136,7 +136,7 @@ try {
         exports: "./index.ts",
         bin: { vera: "./bin/vera" },
         repository: { type: "git", url: REPOSITORY_URL },
-        engines: { bun: ">=1.3.6" },
+        engines: { bun: ">=1.4.4" },
         os: ["darwin", "linux"],
         cpu: ["arm64", "x64"],
         dependencies,
@@ -164,7 +164,7 @@ try {
             name: PACKAGE_NAME,
             version,
             dependencies,
-            engines: { bun: ">=1.3.6" },
+            engines: { bun: ">=1.4.4" },
             os: ["darwin", "linux"],
             cpu: ["arm64", "x64"],
         };
