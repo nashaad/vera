@@ -14,7 +14,8 @@ import type {
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
-import { isThemeName, DEFAULT_THEME, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
+import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
 import { AssignmentStore, changeArgument } from "./assignments.ts";
@@ -44,6 +45,11 @@ import { searchArgument, searchSessions } from "./search-requests.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
+import { startTaskProcess } from "./tasks/process.ts";
+import { TaskRunner } from "./tasks/runner.ts";
+import { parseThemeTaskReply, THEME_TASK_FILE, THEME_TASK_SERVICE, type ThemeTask } from "./theme-import/task-protocol.ts";
+import { ThemeService } from "./theme-service.ts";
+import { themesDirectory } from "./theme-store.ts";
 import { parseWindowBackground } from "./window-background.ts";
 
 const MAX_SEND_BYTES = 1_048_576;
@@ -62,7 +68,7 @@ app.setPath("userData", userData);
 let window: BrowserWindow | undefined;
 let boot: BootSession | undefined;
 let stopping = false;
-let activeTheme: ThemeName = DEFAULT_THEME;
+let activeTheme: ThemeChoice = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
 // The annex base URL from the last page list the window read; the browser frame may only load from it.
@@ -78,6 +84,8 @@ const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 const assignmentStore = new AssignmentStore(selectedVeraHome());
+const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
+const themeService = new ThemeService(themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -104,10 +112,10 @@ function startBoot(): void {
     boot.start();
 }
 
-// Rebuilt when the page reports a theme, so the View menu checks the current one.
+// Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
 function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
-        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme),
+        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes()),
     ));
 }
 
@@ -255,11 +263,28 @@ ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
     const clamped = Math.min(Math.max(height, TITLE_BAR_HEIGHT_RANGE.min), TITLE_BAR_HEIGHT_RANGE.max);
     window?.setWindowButtonPosition(trafficLightPosition(clamped));
 });
-ipcMain.on(CHANNELS.theme, (event, name: unknown) => {
-    if (!fromWindow(event) || typeof name !== "string" || !isThemeName(name) || name === activeTheme) return;
-    activeTheme = name;
+ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
+    if (!fromWindow(event) || typeof choice !== "string" || !isThemeChoice(choice) || choice === activeTheme) return;
+    const slug = importedThemeSlug(choice);
+    if (slug !== undefined && !themeService.has(slug)) return;
+    activeTheme = choice;
     installMenu();
 });
+ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
+ipcMain.handle(CHANNELS.themeImport, async (event): Promise<ThemeImportResult> => {
+    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
+    const result = await dialog.showOpenDialog(window, {
+        properties: ["openFile"],
+        filters: [{ name: "VS Code themes", extensions: ["json", "jsonc", "vsix"] }],
+    });
+    const path = result.filePaths[0];
+    if (result.canceled || path === undefined) return { ok: true, imported: [], themes: themeService.themes(), skipped: [] };
+    return themeService.importFile(path);
+});
+ipcMain.handle(CHANNELS.themesInstalled, async (event) =>
+    fromWindow(event) ? themeService.listInstalled() : { ok: false, reason: "That window cannot list themes." });
+ipcMain.handle(CHANNELS.themeInstalledImport, async (event, key: unknown): Promise<ThemeImportResult> =>
+    fromWindow(event) && typeof key === "string" ? themeService.importInstalled(key) : { ok: false, reason: "That is not a theme in the list." });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -385,6 +410,7 @@ ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
 app.on("before-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(() => {
+    themeService.load();
     installMenu();
     window = createWindow();
 });

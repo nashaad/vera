@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 
 import { switchTheme } from "../../theme/activate.ts";
+import { useImportedThemes } from "../../theme/useImportedThemes.ts";
 import { changeAppearance, DENSITIES, readAppearance, SCALES, type Appearance } from "../../theme/preferences.ts";
-import { THEME_NAMES, type ThemeName } from "../../theme/tokens.ts";
-import { DENSITY_LABELS, SCALE_LABELS, THEME_LABELS, themeFromAttribute, themeSwatch } from "./appearance.ts";
+import { importedThemeId, THEME_NAMES, type ThemeChoice } from "../../theme/tokens.ts";
+import { DENSITY_LABELS, SCALE_LABELS, themeFromAttribute, themeLabel, themeSwatch } from "./appearance.ts";
 import { SettingRow } from "./SettingRow.tsx";
+import { ThemeImport } from "./ThemeImport.tsx";
 
 // The theme can also change from the View menu, so the cards follow the root attribute.
-function useActiveTheme(): ThemeName {
-    const [theme, setTheme] = useState<ThemeName>(() => themeFromAttribute(document.documentElement.getAttribute("data-theme")));
+function useActiveTheme(): ThemeChoice {
+    const [theme, setTheme] = useState<ThemeChoice>(() => themeFromAttribute(document.documentElement.getAttribute("data-theme")));
     useEffect(() => {
         const observer = new MutationObserver(() => {
             setTheme(themeFromAttribute(document.documentElement.getAttribute("data-theme")));
@@ -19,16 +21,23 @@ function useActiveTheme(): ThemeName {
     return theme;
 }
 
-function ThemeCard({ name, active }: { readonly name: ThemeName; readonly active: boolean }) {
-    const swatch = themeSwatch(name);
+function ThemeCard({ choice, active, source }: { readonly choice: ThemeChoice; readonly active: boolean; readonly source?: string }) {
+    const swatch = themeSwatch(choice);
     return (
-        <button type="button" className="appearance-theme" aria-pressed={active} onClick={() => switchTheme(name)}>
+        <button
+            type="button"
+            className="appearance-theme"
+            aria-pressed={active}
+            data-theme-card={choice}
+            title={source}
+            onClick={() => switchTheme(choice)}
+        >
             <span className="appearance-preview" style={{ background: swatch.surface, borderColor: swatch.border }}>
                 <span className="appearance-preview-line" style={{ background: swatch.text }} />
                 <span className="appearance-preview-line short" style={{ background: swatch.text }} />
                 <span className="appearance-preview-dot" style={{ background: swatch.accent }} />
             </span>
-            <span className="appearance-theme-name">{THEME_LABELS[name]}</span>
+            <span className="appearance-theme-name">{themeLabel(choice)}</span>
         </button>
     );
 }
@@ -56,6 +65,7 @@ function Segmented<T extends string>({ label, options, labels, value, onChange }
 export function AppearanceSection() {
     const [appearance, setAppearance] = useState<Appearance>(() => readAppearance());
     const activeTheme = useActiveTheme();
+    const imported = useImportedThemes();
 
     function save(next: Appearance): void {
         changeAppearance(next);
@@ -68,9 +78,14 @@ export function AppearanceSection() {
             <h2 className="settings-sec">Theme</h2>
             <div className="appearance-themes">
                 {THEME_NAMES.map((name) => (
-                    <ThemeCard key={name} name={name} active={name === activeTheme} />
+                    <ThemeCard key={name} choice={name} active={name === activeTheme} />
                 ))}
+                {imported.map((theme) => {
+                    const choice = importedThemeId(theme.slug);
+                    return <ThemeCard key={choice} choice={choice} active={choice === activeTheme} source={theme.source} />;
+                })}
             </div>
+            <ThemeImport />
             <SettingRow name="Text size" description="Scales the text of the interface in this window.">
                 <Segmented
                     label="Text size"

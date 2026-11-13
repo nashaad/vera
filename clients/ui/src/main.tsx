@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.tsx";
+import { syncImportedThemes } from "./theme/sync.ts";
 import "./styles/base.css";
 import "./styles/titlebar.css";
 import "./styles/banner.css";
@@ -38,3 +39,4 @@ if (rootElement === null) {
 }
 
 createRoot(rootElement).render(<App />);
+void syncImportedThemes();

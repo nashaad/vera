@@ -69,6 +69,13 @@ export const THEME_NAMES = ["dark", "light", "high-contrast"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 export const DEFAULT_THEME: ThemeName = "dark";
 
+export const IMPORTED_THEME_PREFIX = "imported:";
+export type ImportedThemeId = `imported:${string}`;
+// A theme the person can choose: one of the built-in names or an imported theme's id.
+export type ThemeChoice = ThemeName | ImportedThemeId;
+
+const THEME_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
 export interface ThemeFile {
     readonly name: string;
     readonly palette: Record<string, string>;
@@ -78,4 +85,27 @@ export interface ThemeFile {
 
 export function isThemeName(value: string): value is ThemeName {
     return (THEME_NAMES as readonly string[]).includes(value);
+}
+
+export function isThemeSlug(value: string): boolean {
+    return THEME_SLUG.test(value);
+}
+
+export function importedThemeId(slug: string): ImportedThemeId {
+    return `${IMPORTED_THEME_PREFIX}${slug}`;
+}
+
+// The slug of a well-formed imported id, which is also the theme file's name without `.json`.
+export function importedThemeSlug(value: string): string | undefined {
+    if (!value.startsWith(IMPORTED_THEME_PREFIX)) return undefined;
+    const slug = value.slice(IMPORTED_THEME_PREFIX.length);
+    return isThemeSlug(slug) ? slug : undefined;
+}
+
+export function isImportedThemeId(value: string): value is ImportedThemeId {
+    return importedThemeSlug(value) !== undefined;
+}
+
+export function isThemeChoice(value: string): value is ThemeChoice {
+    return isThemeName(value) || isImportedThemeId(value);
 }

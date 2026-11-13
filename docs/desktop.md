@@ -114,7 +114,7 @@ workspace and a session.
   search icon. Clicking that icon opens the whole list over the section;
   Escape, a click outside or picking a section closes it again. A setting's
   control moves under its description when there is no room beside it.
-  - Appearance picks the theme and sets text size, code size and density (each
+  - Appearance picks the theme, imports a VS Code theme, and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
     motion stops the status line's dots and sweep and the fade on new words. Past
     approvals, off by default, keeps each answered approval card in the
@@ -174,8 +174,8 @@ Escape, its close button or a click outside it.
 - Choose Agent, in the View menu, lists the agents the open session can run as,
   with the current one checked. A click or its number key switches the session
   to that agent. With no session open it says to open one.
-- Choose Theme lists the three themes with a swatch; a click or a number key
-  applies one.
+- Choose Theme lists the three themes and any imported themes with a swatch; a
+  click or a number key (for the first nine) applies one.
 - Rename Session, in the palette, opens a sheet with the open session's name to
   edit. Enter or `Rename` saves it. The host refuses an empty name, one over
   200 bytes, and a session that cannot be renamed, and the sheet says which.
@@ -289,7 +289,8 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `layout.toggleRightPane`, `layout.togglePanel`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
-`container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`, `go.newChat`,
+`container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`,
+`theme.imported.<name>` (one per imported theme), `theme.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
@@ -799,13 +800,108 @@ Three themes ship as data files:
 - `clients/ui/src/theme/themes/light.json`
 - `clients/ui/src/theme/themes/high-contrast.json`
 
-View > Theme lists Dark, Light and High contrast, with the current theme
-checked; the same choices are the commands `theme.dark`, `theme.light` and
-`theme.highContrast`, View > Choose Theme… opens a sheet with the three, and
+View > Theme lists Dark, Light and High contrast, then the imported themes,
+with the current theme checked; the same choices are the commands `theme.dark`,
+`theme.light` and `theme.highContrast`, and `theme.imported.<name>` for each
+imported theme. View > Choose Theme… opens a sheet with all of them, and
 Settings > Appearance lists them with a swatch. Switching applies the token values and a `data-theme`
 attribute to the root element at once and remembers the choice for the next
 launch. The saved theme is applied by a script in the page head that runs before
-the stylesheet loads, so the first paint already uses it.
+the stylesheet loads, so the first paint already uses it. An imported theme's
+`data-theme` is `imported:<name>`.
+
+### Importing a VS Code theme
+
+The desktop app imports a VS Code color theme from:
+
+- a `.json` or `.jsonc` theme file;
+- a `.vsix` extension package; each theme the package lists becomes its own
+  choice;
+- the extensions installed in VS Code on this machine, listed from
+  `~/.vscode/extensions` and, on macOS, from the VS Code app's built-in
+  extensions. Settings > Appearance > Installed in VS Code > Show themes lists
+  them and a click imports one.
+
+Start an import from Settings > Appearance > Import a VS Code theme > Import…,
+from View > Theme > Import VS Code Theme…, or from the command palette's
+`Theme: Import VS Code Theme…`. The first two open a file picker. After a
+successful import the window switches to the theme at once, the theme sits in
+the lists beside Dark, Light and High contrast, and Settings shows
+`Imported "<name>" and switched to it.` Importing the same name again replaces
+the saved theme. Each import, and each listing of the installed themes, runs in
+a separate process that starts for the request and stops once it answers. The web client has no import; it shows none of these controls.
+
+What carries over, with the first VS Code color in each row that the theme sets:
+
+| Vera token | VS Code colors |
+|---|---|
+| `surface` | `editor.background` |
+| `surface-sidebar` | `sideBar.background` |
+| `surface-panel` | `panel.background`, `sideBar.background` |
+| `surface-raised` | `editorWidget.background` |
+| `surface-menu` | `menu.background`, `quickInput.background` |
+| `surface-input` | `input.background` |
+| `surface-hover` | `list.hoverBackground` |
+| `surface-selected` | `list.activeSelectionBackground` |
+| `surface-code` | `textCodeBlock.background`, `editor.background` |
+| `titlebar` | `titleBar.activeBackground` |
+| `tab-active`, `tab-inactive` | `tab.activeBackground`, `tab.inactiveBackground` |
+| `border` | `panel.border`, `sideBar.border`, `contrastBorder` |
+| `border-input` | `input.border` |
+| `focus` | `focusBorder` |
+| `text` | `foreground`, `editor.foreground` |
+| `text-muted` | `descriptionForeground` |
+| `text-disabled` | `disabledForeground` |
+| `link` | `textLink.foreground` |
+| `accent`, `accent-text` | `button.background`, `button.foreground` |
+| `badge`, `badge-text` | `badge.background`, `badge.foreground` |
+| `danger` | `errorForeground`, `editorError.foreground` |
+| `warning` | `editorWarning.foreground` |
+| `success` | `terminal.ansiGreen` |
+| `diff-added`, `diff-removed` | `diffEditor.insertedTextBackground`, `diffEditor.removedTextBackground` |
+| `selection` | `editor.selectionBackground` |
+| `scrollbar` | `scrollbarSlider.background` |
+| the shadow's color | `widget.shadow` |
+
+Colors may be `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`. The two diff colors
+lose their transparency, because Vera draws them as text and as a light tint.
+A theme's `include` files are followed, up to eight deep, and merged as VS Code
+merges them: the including file's colors replace the included file's, and
+`tokenColors` and `semanticTokenColors` are carried along. The grays a theme
+does not set (borders, raised, hover, menu, input and selected surfaces, the
+sidebar, title bar and tabs, muted, dim and disabled text, the scrollbar and
+slider rails) are worked out from the theme's own `editor.background` and text:
+each sits the same fraction of the way from the surface to the text as it does
+in Vera's built-in theme for the theme's type, so a border stays as visible on
+the theme's background as it is on Dark's. Muted and dim text are moved toward
+the text color until they reach a contrast of 4.5 against the surface, or the
+text color itself. The other tokens a theme does not set, and all of them when
+the theme sets no `editor.background` or no text color, take the value of
+Vera's built-in theme for the theme's type. The type is the theme's `type`,
+else the `uiTheme` its extension declares, else light or dark by the lightness
+of `editor.background`. A high contrast dark theme takes High contrast as its
+base and a high contrast light theme takes Light. Fonts, sizes, corner radius,
+spacing, row height and motion stay Vera's.
+
+The saved file keeps the theme's `tokenColors` and `semanticTokenColors`. Vera
+does not use them yet, so code in the conversation is not recolored.
+
+An import is refused, with the reason in Settings or a toast and the current
+theme unchanged, when the file is not valid JSON, is not a `.json`, `.jsonc` or
+`.vsix` file, is larger than 2 MiB, is a `.vsix` that holds no
+`extension/package.json` or no color theme, is a ZIP64 archive, has an `include`
+that loops, climbs out of the archive or nests too deep, or sets none of the
+colors in the table above. A `.vsix` or an extension with several themes
+imports the ones it can and lists the others as not imported with the reason;
+it is refused only when none can be imported. Theme files in the `.tmTheme`
+format are not read. Vera keeps at most 100 imported themes.
+
+Imported themes are saved one file per theme in `machine/desktop/themes` under
+the home, beside the saved layout. The file holds the mapped tokens, the theme's
+name and source, and the two token tables. Deleting a file there removes the
+theme at the next launch; a window that has it selected falls back to Dark.
+The choice of theme stays in the window's local storage with the other
+appearance settings.
 
 Each time a theme is applied, the page reports its name and its resolved surface
 color to the app. The app checks the theme in the View menu and sets the color as
@@ -888,6 +984,15 @@ Sessions and the theme are still there, resets its location, toggles the sidebar
 the right pane and the panel with the shortcuts, toggles the right pane from the
 main header button, moves a container through its menu, and resets the layout
 from the View menu. It stops the host it started.
+
+The themes test launches the app on a throwaway home with a fake VS Code
+extensions folder and a stubbed file picker. It imports a theme file from Settings >
+Appearance, checks the switch, a mapped color on the page, the saved file and
+the View menu, then refuses an unparsable file and one with none of the mapped
+colors, closes the picker with no change, imports the same theme again and
+checks it replaced the first, imports a theme from the installed list and from
+the command palette, relaunches to check the imported theme is remembered, and
+removes the saved file to check the window falls back to Dark.
 
 The compose test runs a local provider that streams fixed replies and points a
 throwaway home's only model at it. It starts a session from New Chat in a folder

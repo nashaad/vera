@@ -294,3 +294,57 @@
     font-family: var(--vera-font-code);
     font-size: var(--vera-font-size-label);
 }
+
+.appearance-import-note {
+    margin: calc(var(--vera-space) * 2) 0 0;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.appearance-import-note[data-import-ok="false"] {
+    color: var(--vera-danger);
+}
+
+.appearance-installed {
+    max-height: calc(var(--vera-space) * 70);
+    margin: calc(var(--vera-space) * 2) 0 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+}
+
+.appearance-installed button {
+    display: flex;
+    gap: calc(var(--vera-space) * 3);
+    justify-content: space-between;
+    width: 100%;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-body);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.appearance-installed button:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+}
+
+.appearance-installed button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.appearance-installed button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.appearance-installed-extension {
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}

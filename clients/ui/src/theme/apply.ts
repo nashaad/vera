@@ -1,40 +1,42 @@
-import darkTheme from "./themes/dark.json";
-import highContrastTheme from "./themes/high-contrast.json";
-import lightTheme from "./themes/light.json";
+import { BUILTIN_COLOR_SCHEME, BUILTIN_THEMES } from "./builtin.ts";
+import { importedFileById, importedSchemeById } from "./imported-registry.ts";
 import {
     COLOR_TOKENS,
     DEFAULT_THEME,
+    isThemeName,
     VALUE_TOKENS,
+    type ThemeChoice,
     type ThemeFile,
     type ThemeName,
 } from "./tokens.ts";
-
-const THEMES: Record<ThemeName, ThemeFile> = {
-    dark: darkTheme,
-    light: lightTheme,
-    "high-contrast": highContrastTheme,
-};
 
 export interface ThemeRoot {
     setAttribute(name: string, value: string): void;
     readonly style: { setProperty(name: string, value: string): void };
 }
 
-const COLOR_SCHEME: Record<ThemeName, "dark" | "light"> = {
-    dark: "dark",
-    light: "light",
-    "high-contrast": "dark",
-};
-
-export function themeFile(name: ThemeName): ThemeFile {
-    return THEMES[name];
+// An imported theme that is not loaded, such as one whose file was removed, resolves to the default.
+export function resolveThemeChoice(choice: ThemeChoice): ThemeChoice {
+    return isThemeName(choice) || importedFileById(choice) !== undefined ? choice : DEFAULT_THEME;
 }
 
+export function themeFile(choice: ThemeChoice): ThemeFile {
+    if (isThemeName(choice)) return BUILTIN_THEMES[choice];
+    return importedFileById(choice) ?? BUILTIN_THEMES[DEFAULT_THEME];
+}
+
+function colorScheme(choice: ThemeChoice): "dark" | "light" {
+    if (isThemeName(choice)) return BUILTIN_COLOR_SCHEME[choice];
+    return importedSchemeById(choice) ?? BUILTIN_COLOR_SCHEME[DEFAULT_THEME];
+}
+
+// Returns the choice that was applied, which is the default when the one asked for is not loaded.
 export function applyTheme(
-    name: ThemeName,
+    choice: ThemeChoice,
     root: ThemeRoot = document.documentElement,
-): void {
-    const theme = THEMES[name];
+): ThemeChoice {
+    const applied = resolveThemeChoice(choice);
+    const theme = themeFile(applied);
     for (const token of COLOR_TOKENS) {
         const value = theme.palette[theme.colors[token]];
         if (value !== undefined) root.style.setProperty(`--vera-${token}`, value);
@@ -42,8 +44,9 @@ export function applyTheme(
     for (const token of VALUE_TOKENS) {
         root.style.setProperty(`--vera-${token}`, theme.values[token]);
     }
-    root.setAttribute("data-theme", name);
-    root.style.setProperty("color-scheme", COLOR_SCHEME[name]);
+    root.setAttribute("data-theme", applied);
+    root.style.setProperty("color-scheme", colorScheme(applied));
+    return applied;
 }
 
 export function startingThemeName(): ThemeName {

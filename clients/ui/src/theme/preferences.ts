@@ -1,5 +1,5 @@
-import { themeFile, type ThemeRoot } from "./apply.ts";
-import { isThemeName, DEFAULT_THEME, type ThemeName, type ValueToken } from "./tokens.ts";
+import { resolveThemeChoice, themeFile, type ThemeRoot } from "./apply.ts";
+import { DEFAULT_THEME, isThemeChoice, type ThemeChoice, type ValueToken } from "./tokens.ts";
 
 // Appearance choices kept in this window's storage, applied as scaled theme values so every
 // rule that reads a token follows them.
@@ -77,7 +77,7 @@ function scaled(value: string, factor: number): string {
 }
 
 // Runs after the theme's own values are set, since applying a theme resets them.
-export function applyAppearance(appearance: Appearance, theme: ThemeName, root: ThemeRoot = document.documentElement): void {
+export function applyAppearance(appearance: Appearance, theme: ThemeChoice, root: ThemeRoot = document.documentElement): void {
     const values = themeFile(theme).values;
     for (const token of TEXT_TOKENS) root.style.setProperty(`--vera-${token}`, scaled(values[token], SCALE_FACTOR[appearance.textSize]));
     root.style.setProperty("--vera-font-size-code", scaled(values["font-size-code"], SCALE_FACTOR[appearance.codeSize]));
@@ -88,9 +88,9 @@ export function applyAppearance(appearance: Appearance, theme: ThemeName, root: 
     root.setAttribute("data-density", appearance.density);
 }
 
-function currentTheme(): ThemeName {
+function currentTheme(): ThemeChoice {
     const name = document.documentElement.getAttribute("data-theme") ?? "";
-    return isThemeName(name) ? name : DEFAULT_THEME;
+    return isThemeChoice(name) ? resolveThemeChoice(name) : DEFAULT_THEME;
 }
 
 const listeners = new Set<() => void>();

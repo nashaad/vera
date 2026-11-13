@@ -2,7 +2,9 @@ import type { LayoutState } from "../layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
 import type { DesktopFlags } from "../state/desktopFlags.ts";
 import type { SavedPins } from "./pins.ts";
-import type { ThemeName } from "../theme/tokens.ts";
+import type { ImportedThemeSummary } from "../theme/imported.ts";
+import type { ThemeChoice } from "../theme/tokens.ts";
+import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
@@ -254,7 +256,15 @@ export interface DesktopBridge {
     // Tells the shell the page surface color so the native window matches it while it resizes.
     setWindowBackground(color: string): void;
     // Tells the shell which theme is active so the View menu can check it.
-    setTheme(name: ThemeName): void;
+    setTheme(choice: ThemeChoice): void;
+    // The imported themes saved under the home, read again from disk.
+    loadImportedThemes(): Promise<readonly ImportedThemeSummary[]>;
+    // Opens the native picker for a VS Code theme (.json) or extension package (.vsix) and saves the themes in it.
+    importTheme(): Promise<ThemeImportResult>;
+    // The color themes of VS Code extensions installed on this machine.
+    listInstalledThemes(): Promise<InstalledThemesResult>;
+    // Saves one theme from the last listing of installed themes.
+    importInstalledTheme(key: string): Promise<ThemeImportResult>;
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;

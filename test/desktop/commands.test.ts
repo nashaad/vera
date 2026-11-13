@@ -8,7 +8,7 @@ import { defaultLayout, type RegistrySnapshot } from "../../clients/ui/src/layou
 import type { LayoutAction } from "../../clients/ui/src/layout/reducer.ts";
 import { reduceLayout } from "../../clients/ui/src/layout/reducer.ts";
 import { resolveLayout } from "../../clients/ui/src/layout/resolve.ts";
-import { THEME_NAMES, type ThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import { THEME_NAMES, type ThemeChoice } from "../../clients/ui/src/theme/tokens.ts";
 
 const REGISTRY: RegistrySnapshot = {
     containers: [
@@ -167,7 +167,7 @@ test("menus for ids that are not registered are empty", () => {
 
 test("@core each theme has a command that applies that theme, and disposing removes them", () => {
     const registry = new CommandRegistry();
-    const applied: ThemeName[] = [];
+    const applied: ThemeChoice[] = [];
     const dispose = registerThemeCommands(registry, (name) => applied.push(name));
     expect(Object.keys(THEME_COMMANDS).sort()).toEqual([...THEME_NAMES].sort());
     for (const name of THEME_NAMES) expect(registry.execute(THEME_COMMANDS[name])).toBe(true);

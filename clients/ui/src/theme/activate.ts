@@ -1,8 +1,8 @@
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { applyTheme, type ThemeRoot } from "./apply.ts";
+import { applyTheme, resolveThemeChoice, type ThemeRoot } from "./apply.ts";
 import { applyAppearance, readAppearance, type Appearance } from "./preferences.ts";
 import { storeTheme } from "./storage.ts";
-import type { ThemeName } from "./tokens.ts";
+import type { ThemeChoice } from "./tokens.ts";
 
 export interface ThemeEnvironment {
     readonly root?: ThemeRoot;
@@ -18,9 +18,9 @@ function pageSurface(): string {
 // Applies a theme, then reports the resolved surface color so the native window
 // behind the page matches it; the page paints a frame late during a resize.
 // The theme name goes with it so the View menu can check the current theme.
-export function activateTheme(name: ThemeName, environment: ThemeEnvironment = {}): void {
+export function activateTheme(choice: ThemeChoice, environment: ThemeEnvironment = {}): void {
     const root = environment.root ?? document.documentElement;
-    applyTheme(name, root);
+    const name = applyTheme(choice, root);
     applyAppearance(environment.appearance ?? readAppearance(), name, root);
     const bridge = environment.bridge ?? globalThis.window?.veraDesktop;
     if (bridge === undefined) return;
@@ -30,7 +30,7 @@ export function activateTheme(name: ThemeName, environment: ThemeEnvironment = {
 }
 
 // A theme the person picked: applied now and remembered for the next launch.
-export function switchTheme(name: ThemeName): void {
-    activateTheme(name);
-    storeTheme(name);
+export function switchTheme(choice: ThemeChoice): void {
+    activateTheme(choice);
+    storeTheme(resolveThemeChoice(choice));
 }

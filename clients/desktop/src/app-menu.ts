@@ -1,7 +1,7 @@
 import type { MenuItemConstructorOptions } from "electron";
 
-import { THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
-import { DEFAULT_THEME, THEME_NAMES, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import { importedThemeCommand, THEME_COMMANDS, THEME_IMPORT_COMMAND } from "../../ui/src/commands/theme-commands.ts";
+import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
@@ -13,11 +13,17 @@ const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
     "high-contrast": "High contrast",
 };
 
+export interface ImportedMenuTheme {
+    readonly slug: string;
+    readonly name: string;
+}
+
 // Menu items only ask the page to run a command; the page owns the layout and the theme.
 export function buildMenuTemplate(
     platform: string,
     run: (commandId: string) => void,
-    theme: ThemeName = DEFAULT_THEME,
+    theme: ThemeChoice = DEFAULT_THEME,
+    imported: readonly ImportedMenuTheme[] = [],
 ): MenuItemConstructorOptions[] {
     const item = (shortcut: NativeShortcut): MenuItemConstructorOptions => ({
         id: shortcut.command,
@@ -57,6 +63,13 @@ export function buildMenuTemplate(
         checked: name === theme,
         click: () => run(THEME_COMMANDS[name]),
     }));
+    const importedItems: MenuItemConstructorOptions[] = imported.map((entry) => ({
+        id: importedThemeCommand(entry.slug),
+        label: entry.name.replaceAll("&", "&&"),
+        type: "radio",
+        checked: importedThemeId(entry.slug) === theme,
+        click: () => run(importedThemeCommand(entry.slug)),
+    }));
     const [palette, sessions, keys] = HELP_SHORTCUTS.map(item);
     const view: MenuItemConstructorOptions = {
         label: "View",
@@ -69,7 +82,15 @@ export function buildMenuTemplate(
             { type: "separator" },
             { id: "layout.reset", label: "Reset Layout", click: () => run("layout.reset") },
             { type: "separator" },
-            { label: "Theme", submenu: themeItems },
+            {
+                label: "Theme",
+                submenu: [
+                    ...themeItems,
+                    ...(importedItems.length === 0 ? [] : [{ type: "separator" } as const, ...importedItems]),
+                    { type: "separator" },
+                    plain(THEME_IMPORT_COMMAND, "Import VS Code Theme…"),
+                ],
+            },
             sheet("themes"),
             { type: "separator" },
             { role: "reload" },

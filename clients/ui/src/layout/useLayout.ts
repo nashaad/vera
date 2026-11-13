@@ -8,12 +8,21 @@ import { registerThemeCommands } from "../commands/theme-commands.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
 import { registerCoreContributions } from "../registry/core.ts";
 import { switchTheme } from "../theme/activate.ts";
+import { importThemeFromPicker } from "../theme/import-flow.ts";
+import { showToast } from "../overlays/toasts.ts";
+import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import { defaultLayout, type LayoutState } from "./model.ts";
 import { createLayoutSaver } from "./persist.ts";
 import { reduceLayout, type LayoutAction } from "./reducer.ts";
 import { resolveLayout, type ResolvedLayout } from "./resolve.ts";
 
 const SAVE_DELAY_MS = 400;
+
+function importFromCommand(): void {
+    void importThemeFromPicker().then((report) => {
+        if (report !== undefined) showToast(report.message, report.ok ? "success" : "danger");
+    });
+}
 
 export interface LayoutController {
     // False until the saved layout has been read; nothing is drawn or saved before then.
@@ -96,7 +105,11 @@ export function useLayout(): LayoutController {
     }, [contributions]);
 
     useEffect(() => registerLayoutCommands(commands, dispatch), [commands, dispatch]);
-    useEffect(() => registerThemeCommands(commands, switchTheme), [commands]);
+    const importedThemes = useImportedThemes();
+    useEffect(
+        () => registerThemeCommands(commands, switchTheme, importedThemes, window.veraDesktop === undefined ? undefined : importFromCommand),
+        [commands, importedThemes],
+    );
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);
 

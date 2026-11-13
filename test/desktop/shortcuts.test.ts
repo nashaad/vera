@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
-import { THEME_COMMANDS } from "../../clients/ui/src/commands/theme-commands.ts";
-import { THEME_NAMES, type ThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import { THEME_COMMANDS, THEME_IMPORT_COMMAND, importedThemeCommand } from "../../clients/ui/src/commands/theme-commands.ts";
+import { THEME_NAMES, importedThemeId, type ThemeChoice } from "../../clients/ui/src/theme/tokens.ts";
 import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 import { acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
 
@@ -109,25 +109,42 @@ test("the View menu carries each toggle with its accelerator, plus Reset Layout"
     expect(run).toEqual([...LAYOUT_SHORTCUTS.map((shortcut) => shortcut.command), "layout.reset"]);
 });
 
+function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name: string }[] = [], run: (id: string) => void = () => {}) {
+    const template = buildMenuTemplate("darwin", run, current, imported);
+    const view = template.find((entry) => entry.label === "View");
+    const submenu = Array.isArray(view?.submenu) ? view.submenu : [];
+    const themeMenu = submenu.find((entry) => entry.label === "Theme");
+    if (!Array.isArray(themeMenu?.submenu)) throw new Error("The View menu has no Theme submenu.");
+    return themeMenu.submenu;
+}
+
 test("@core the View menu has a Theme submenu of radio items that run the theme commands", () => {
     const run: string[] = [];
-    const themeEntries = (current?: ThemeName) => {
-        const template = buildMenuTemplate("darwin", (id) => run.push(id), current);
-        const view = template.find((entry) => entry.label === "View");
-        const submenu = Array.isArray(view?.submenu) ? view.submenu : [];
-        const themeMenu = submenu.find((entry) => entry.label === "Theme");
-        if (!Array.isArray(themeMenu?.submenu)) throw new Error("The View menu has no Theme submenu.");
-        return themeMenu.submenu;
-    };
-    const items = themeEntries();
+    const items = themeMenuEntries(undefined, [], (id) => run.push(id)).filter((entry) => entry.type === "radio");
     expect(items.map((entry) => entry.label)).toEqual(["Dark", "Light", "High contrast"]);
     expect(items.map((entry) => entry.id)).toEqual(THEME_NAMES.map((name) => THEME_COMMANDS[name]));
-    expect(items.every((entry) => entry.type === "radio")).toBe(true);
     expect(items.map((entry) => entry.checked)).toEqual([true, false, false]);
-    expect(themeEntries("light").map((entry) => entry.checked)).toEqual([false, true, false]);
-    expect(themeEntries("high-contrast").map((entry) => entry.checked)).toEqual([false, false, true]);
+    const radios = (current: ThemeChoice) => themeMenuEntries(current).filter((entry) => entry.type === "radio").map((entry) => entry.checked);
+    expect(radios("light")).toEqual([false, true, false]);
+    expect(radios("high-contrast")).toEqual([false, false, true]);
     for (const item of items) (item.click as () => void)();
     expect(run).toEqual(THEME_NAMES.map((name) => THEME_COMMANDS[name]));
+});
+
+test("@core imported themes follow the built-in ones in the Theme submenu, then Import VS Code Theme", () => {
+    const run: string[] = [];
+    const imported = [{ slug: "pirate-crow", name: "Pirate & Crow" }, { slug: "crow-nest", name: "Crow Nest" }];
+    const entries = themeMenuEntries(importedThemeId("crow-nest"), imported, (id) => run.push(id));
+    const radios = entries.filter((entry) => entry.type === "radio");
+    expect(radios.map((entry) => entry.label)).toEqual(["Dark", "Light", "High contrast", "Pirate && Crow", "Crow Nest"]);
+    expect(radios.map((entry) => entry.checked)).toEqual([false, false, false, false, true]);
+    expect(radios.slice(3).map((entry) => entry.id)).toEqual(imported.map((entry) => importedThemeCommand(entry.slug)));
+    const last = entries[entries.length - 1];
+    expect(last?.label).toBe("Import VS Code Theme…");
+    expect(last?.id).toBe(THEME_IMPORT_COMMAND);
+    for (const item of radios.slice(3)) (item.click as () => void)();
+    (last?.click as () => void)();
+    expect(run).toEqual([...imported.map((entry) => importedThemeCommand(entry.slug)), THEME_IMPORT_COMMAND]);
 });
 
 test("the menu has a File menu with Quit off macOS and the app menu on it", () => {

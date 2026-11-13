@@ -22,7 +22,8 @@ export function startTrial() {
     const apps = [];
 
     // The tour and the bench pass visible: true; every other run stays out of sight.
-    async function launch({ visible = false, cwd = root } = {}) {
+    // `env` adds to the app's environment, such as a HOME that holds a fixture of VS Code extensions.
+    async function launch({ visible = false, cwd = root, env = {} } = {}) {
         const app = await electron.launch({
             executablePath: electronPath,
             args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
@@ -34,6 +35,7 @@ export function startTrial() {
                 VERA_DEV_INSTANCE: `${basename(root)} e2e`,
                 VERA_DESKTOP_DEV_CLI: join(root, "clients", "cli", "main.ts"),
                 VERA_DESKTOP_BUN: bun,
+                ...env,
             },
             timeout: 60_000,
         });

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { THEME_COMMANDS } from "../commands/theme-commands.ts";
+import { themeCommandId } from "../commands/theme-commands.ts";
 import { CheckIcon, ChevronRightIcon, PlayIcon } from "../components/Icons.tsx";
-import { THEME_LABELS, themeFromAttribute } from "./settings/appearance.ts";
+import { themeFromAttribute, themeLabel } from "./settings/appearance.ts";
 import { SettingRow } from "./settings/SettingRow.tsx";
 import { workspaceFolders } from "./settings/workspaces.ts";
-import { THEME_NAMES, type ThemeName } from "../theme/tokens.ts";
+import { useImportedThemes } from "../theme/useImportedThemes.ts";
+import { importedThemeId, isThemeChoice, THEME_NAMES, type ThemeChoice } from "../theme/tokens.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { Page } from "./Page.tsx";
@@ -13,8 +14,8 @@ import { useRouter } from "./router.tsx";
 import { tourGroups, type TourCard } from "./tour.ts";
 
 // The theme can also change from the View menu, so the select follows the root attribute.
-function useActiveTheme(): [ThemeName, (name: ThemeName) => void] {
-    const [theme, setTheme] = useState<ThemeName>(() => themeFromAttribute(document.documentElement.getAttribute("data-theme")));
+function useActiveTheme(): [ThemeChoice, (choice: ThemeChoice) => void] {
+    const [theme, setTheme] = useState<ThemeChoice>(() => themeFromAttribute(document.documentElement.getAttribute("data-theme")));
     useEffect(() => {
         const observer = new MutationObserver(() => {
             setTheme(themeFromAttribute(document.documentElement.getAttribute("data-theme")));
@@ -60,6 +61,8 @@ export function TourPage() {
     const workbench = useWorkbench();
     const [lastClicked, setLastClicked] = useState<string | undefined>(undefined);
     const [theme, setTheme] = useActiveTheme();
+    const imported = useImportedThemes();
+    const choices: readonly ThemeChoice[] = [...THEME_NAMES, ...imported.map((entry) => importedThemeId(entry.slug))];
 
     const rows = connection.sessionRows;
     const newestFolder = rows === undefined ? undefined : workspaceFolders(rows)[0];
@@ -72,9 +75,9 @@ export function TourPage() {
         else workbench.run(card.action.commandId);
     }
 
-    function changeTheme(name: ThemeName): void {
-        workbench.run(THEME_COMMANDS[name]);
-        setTheme(name);
+    function changeTheme(choice: ThemeChoice): void {
+        workbench.run(themeCommandId(choice));
+        setTheme(choice);
     }
 
     return (
@@ -106,10 +109,13 @@ export function TourPage() {
                     className="tour-select"
                     aria-label="Theme"
                     value={theme}
-                    onChange={(event) => changeTheme(event.currentTarget.value as ThemeName)}
+                    onChange={(event) => {
+                        const choice = event.currentTarget.value;
+                        if (isThemeChoice(choice)) changeTheme(choice);
+                    }}
                 >
-                    {THEME_NAMES.map((name) => (
-                        <option key={name} value={name}>{THEME_LABELS[name]}</option>
+                    {choices.map((choice) => (
+                        <option key={choice} value={choice}>{themeLabel(choice)}</option>
                     ))}
                 </select>
             </SettingRow>

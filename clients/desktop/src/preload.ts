@@ -21,7 +21,9 @@ import type {
     SessionSearchResult,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
-import type { ThemeName } from "../../ui/src/theme/tokens.ts";
+import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
+import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
+import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { CHANNELS } from "./channels.ts";
 
 const bridge: DesktopBridge = {
@@ -35,7 +37,12 @@ const bridge: DesktopBridge = {
     unwatchSession: (pane: SessionPane) => ipcRenderer.send(CHANNELS.sessionUnwatch, pane),
     setTitleBarHeight: (height: number) => ipcRenderer.send(CHANNELS.titleBar, height),
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
-    setTheme: (name: ThemeName) => ipcRenderer.send(CHANNELS.theme, name),
+    setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),
+    loadImportedThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesLoad)) as readonly ImportedThemeSummary[],
+    importTheme: async () => (await ipcRenderer.invoke(CHANNELS.themeImport)) as ThemeImportResult,
+    listInstalledThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesInstalled)) as InstalledThemesResult,
+    importInstalledTheme: async (key: string) =>
+        (await ipcRenderer.invoke(CHANNELS.themeInstalledImport, key)) as ThemeImportResult,
     loadLayout: async () => {
         const layout: unknown = await ipcRenderer.invoke(CHANNELS.layoutLoad);
         return (layout ?? undefined) as LayoutState | undefined;

@@ -1,6 +1,8 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
+
 const root = import.meta.dir;
 const out = join(root, "dist");
 
@@ -26,6 +28,22 @@ const preload = await Bun.build({
     naming: "[name].cjs",
 });
 if (!preload.success) fail(preload.logs);
+
+// Each task runs in a process of its own, from a bundle that main.js never loads.
+const TASKS = [
+    { entry: join(root, "src", "theme-import", "worker.ts"), file: THEME_TASK_FILE },
+];
+for (const task of TASKS) {
+    const bundle = await Bun.build({
+        entrypoints: [task.entry],
+        outdir: out,
+        target: "node",
+        format: "cjs",
+        external: ["electron"],
+        naming: task.file,
+    });
+    if (!bundle.success) fail(bundle.logs);
+}
 
 const rendererOut = join(out, "renderer");
 const renderer = await Bun.build({
