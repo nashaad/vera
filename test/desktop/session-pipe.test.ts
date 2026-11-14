@@ -72,7 +72,7 @@ function collect(): { events: DesktopEvent[]; pipe: SessionPipe } {
 const ATTACH_AGENT_A = `${JSON.stringify({
     type: "attach",
     agent_id: "agent-a",
-    requested_capabilities: ["agent.history-paging.v1"],
+    requested_capabilities: ["agent.history-paging.v1", "session.title.v1"],
 })}\n`;
 
 test("@core watch attaches with the history capability and emits each host line", async () => {
@@ -186,7 +186,7 @@ test("a replaced watch emits nothing from its old socket", async () => {
     pipe.watch("agent-b");
     await until(() => fake.received.length === 2);
     expect(fake.received[1]).toBe(
-        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1"] })}\n`,
+        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1", "session.title.v1"] })}\n`,
     );
     fake.sockets[0]?.write(`${JSON.stringify({ type: "stale" })}\n`);
     await settle();

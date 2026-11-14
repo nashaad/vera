@@ -63,7 +63,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const showMessage = blocks.length === 0 && (ended || slowOpening);
     const body = showMessage ? (
         <SessionMessage
-            title={route.title}
+            title={title}
             text={ended ? watch.error ?? "The session closed." : "Opening the session."}
         />
     ) : (
