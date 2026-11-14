@@ -51,10 +51,11 @@ Read every file in `hoard/` that changed today. List each item with the crow
 who took it, then append the totals to `ledger.md`. Shiny things go first.
 ```
 
-- `name` is required and must match the directory name. If the skill folder
-  is a symlink, that is the name of the folder it points to. Use lowercase
-  letters, numbers, and hyphens, with no hyphen at either end and no two in a
-  row. The skill's command is `/` followed by its name, here `/loot-ledger`.
+- `name` is required and must match the folder name as it appears in the
+  skills directory. For a symlink, that is the link's name, not the folder it
+  points to. Use lowercase letters, numbers, and hyphens, with no hyphen at
+  either end and no two in a row. The skill's command is `/` followed by its
+  name, here `/loot-ledger`.
 - `description` is required. The command palette shows it, and the model reads
   it to decide when the skill applies. Put it in quotes if it contains a colon.
 - `disable-model-invocation` is optional. See
@@ -87,20 +88,22 @@ To ship skills with an extension, see
 ### Link a skill from another folder
 
 A skill folder can be a symlink, so one copy serves several projects or a
-checkout you keep editing. Vera follows the link and compares `name` with the
-folder the link points to, not with the link's own name:
+checkout you keep editing. Name the link after the skill:
 
 ```text
 ~/.vera/skills/release-notes -> ~/src/skill-library/changelog
 ```
 
-Here `SKILL.md` must say `name: changelog`, and the skill loads as
-`/changelog`. To get `/release-notes`, point the link at a folder of that
-name.
+Vera compares `name` with the folder name as it appears in the skills
+directory, so the link's name is what counts. The link above loads as
+`/release-notes` when its `SKILL.md` says `name: release-notes`, whatever the
+target folder is called. Vera still reads `SKILL.md` through the link.
 
-If `SKILL.md` says `name: release-notes` instead, Vera skips the skill and
-says so above the Skills list:
-`Vera skill name release-notes must match directory changelog`.
+If the name and the link disagree, as in a link `release-notes` pointing at a
+folder whose `SKILL.md` says `name: changelog`, Vera skips the skill and says
+so above the Skills list:
+`Vera skill name changelog must match directory release-notes`. Rename the
+link or the `name` field so the two match.
 
 ### See the change
 

@@ -148,3 +148,41 @@ Body
         "name review must match directory consult",
     );
 });
+
+test("a symlinked skill is named after its link, not its target", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-skill-link-name-"));
+    const target = join(parent, "bar");
+    mkdirSync(target);
+    writeFileSync(join(target, SKILL_FILENAME), `---
+name: foo
+description: Compare two independent answers.
+---
+Body
+`);
+    const link = join(parent, "foo");
+    symlinkSync(target, link);
+
+    const loaded = await loadSkillPackage(link);
+
+    expect(loaded.metadata.name).toBe("foo");
+    expect(loaded.directory).toBe(realpathSync(target));
+    expect(loaded.skillPath).toBe(join(realpathSync(target), SKILL_FILENAME));
+});
+
+test("a symlinked skill whose name matches neither is skipped", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-skill-link-name-"));
+    const target = join(parent, "bar");
+    mkdirSync(target);
+    writeFileSync(join(target, SKILL_FILENAME), `---
+name: baz
+description: Compare two independent answers.
+---
+Body
+`);
+    const link = join(parent, "foo");
+    symlinkSync(target, link);
+
+    expect(loadSkillPackage(link)).rejects.toThrow(
+        "name baz must match directory foo",
+    );
+});
