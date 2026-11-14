@@ -74,7 +74,7 @@ export function startTrial() {
     }
 
     async function cleanup() {
-        for (const app of apps) await app.close().catch(() => {});
+        for (const app of apps) await closeApp(app);
         const pid = hostPid();
         if (pid !== undefined) await stopProcess(pid);
         rmSync(trialRoot, { recursive: true, force: true });
@@ -94,6 +94,26 @@ export async function press(app, key, modifiers = []) {
 }
 
 export const MODIFIER = process.platform === "darwin" ? "meta" : "control";
+
+// Playwright's close waits for the app's exit event, which a quit occasionally never delivers.
+// After the bound, the app's own process group is killed; nothing else is signalled.
+const CLOSE_LIMIT_MS = 15_000;
+
+async function closeApp(app) {
+    let timer;
+    const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_LIMIT_MS, "limit"); });
+    const outcome = await Promise.race([app.close().then(() => "closed", () => "closed"), limit]);
+    clearTimeout(timer);
+    if (outcome === "closed") return;
+    console.error(`${basename(process.argv[1])}: forced close after ${CLOSE_LIMIT_MS / 1000} s`);
+    const pid = app.process().pid;
+    if (pid === undefined) return;
+    try {
+        process.kill(-pid, "SIGKILL");
+    } catch {
+        // The group has already exited.
+    }
+}
 
 async function stopProcess(pid) {
     try {

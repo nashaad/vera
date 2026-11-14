@@ -34,6 +34,7 @@
     "smoke:codex": "bun run scripts/codex-smoke.ts",
     "test": "bun test",
     "test:core": "bun test --bail --test-name-pattern @core && bun test --bail test/locked",
+    "test:desktop": "bun run scripts/test-desktop.ts",
     "test:soak": "bun test ./dev/soak/memory-soak.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p clients/ui/tsconfig.json && tsc --noEmit -p test/desktop/tsconfig.json"
   },
