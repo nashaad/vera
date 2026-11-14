@@ -489,6 +489,7 @@ function parseKnownAgentUpdate(
                 && (update.warning === undefined
                     || (typeof update.warning === "string"
                         && update.warning.length > 0))
+                && (update.suggestAuto === undefined || update.suggestAuto === true)
                 ? withPermissionInspection(value, update)
                 : undefined;
     }

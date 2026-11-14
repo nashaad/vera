@@ -544,6 +544,12 @@ at the end of the conversation says `Waiting on you`. The card's buttons:
 Allow similar and Always appear only when Vera offers them for that call; a
 subagent's request offers only Allow once and Deny.
 
+In ask mode, once you have allowed five requests and denied none, the card
+adds one line under its buttons: `You've allowed every request so far. Switch
+to Approve for me?` `Switch` does what picking `Approve for me` in the approval
+pill does, and `Not now` dismisses the line. It shows once per conversation in
+this window, and answering the card counts as dismissing it.
+
 A question from Vera shows its choices, numbered. A number key or a click picks
 one. When the question takes a typed answer, a box under the choices sends what
 you write with `Answer` or Enter, and a note box sends a note with the choice.

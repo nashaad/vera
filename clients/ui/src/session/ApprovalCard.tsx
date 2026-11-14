@@ -1,15 +1,23 @@
 import { useState } from "react";
 
 import { HandIcon, TerminalIcon, WarningIcon } from "../components/Icons.tsx";
+import { modeLabel } from "./permissions.ts";
 import { approvalChoices, type ApprovalDecision, type ApprovalRequest } from "./requests.ts";
 import { askTarget, askTitle } from "./toolTitle.ts";
 
 const INPUT_PREVIEW_LIMIT = 400;
 
+export interface AutoNudge {
+    readonly onSwitch: () => void;
+    readonly onDismiss: () => void;
+}
+
 export interface ApprovalCardProps {
     readonly request: ApprovalRequest;
     // Set once the request was answered: the card then shows the answer instead of the choices.
     readonly outcome?: ApprovalDecision;
+    // The one-line suggestion to switch to auto, shown under the choices of an unanswered card.
+    readonly nudge?: AutoNudge;
     readonly onDecide: (decision: ApprovalDecision) => void;
 }
 
@@ -20,7 +28,7 @@ const OUTCOME_TEXT: Readonly<Record<ApprovalDecision, string>> = {
     deny: "Denied",
 };
 
-export function ApprovalCard({ request, outcome, onDecide }: ApprovalCardProps) {
+export function ApprovalCard({ request, outcome, nudge, onDecide }: ApprovalCardProps) {
     const [why, setWhy] = useState(false);
     const offered = approvalChoices(request);
     const path = stringField(request.input, "path");
@@ -68,6 +76,18 @@ export function ApprovalCard({ request, outcome, onDecide }: ApprovalCardProps) 
             ) : (
                 <div className="request-outcome" data-decision={outcome}>{OUTCOME_TEXT[outcome]}</div>
             )}
+            {outcome === undefined && nudge !== undefined ? (
+                <div className="request-actions" data-kind="auto-nudge">
+                    <span className="request-muted">{`You've allowed every request so far. Switch to ${modeLabel("auto")}?`}</span>
+                    <span className="request-spacer" />
+                    <button type="button" className="button request-ghost" onClick={nudge.onSwitch}>
+                        Switch
+                    </button>
+                    <button type="button" className="button request-ghost" onClick={nudge.onDismiss}>
+                        Not now
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }

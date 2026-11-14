@@ -9,14 +9,13 @@ import {
     offeredModeOptions,
     removeGrantCommand,
     removePreferenceCommand,
-    sessionModeCommand,
     type ApprovalState,
     type StandingPermission,
 } from "../session/permissions.ts";
 import { ApprovalMenu, modeChoices } from "./ApprovalMenu.tsx";
 import { ApprovalStanding } from "./ApprovalStanding.tsx";
 import { useFullAccessOffered } from "../session/fullAccess.ts";
-import { freshRequestId } from "./requests.ts";
+import { freshRequestId, sendSessionMode } from "./requests.ts";
 import { FULL_ACCESS_OFF, resolveModeArgument } from "./slash/args.ts";
 import { PILL_DONE, usePillRequests } from "./slash/pillRequests.ts";
 import { useMenuDismiss } from "./useMenuDismiss.ts";
@@ -52,6 +51,11 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
         setSentId(requestId);
         send(line(requestId));
         if (closeMenu) setOpen(false);
+    };
+
+    const pickMode = (mode: string): void => {
+        setSentId(sendSessionMode(send, mode));
+        setOpen(false);
     };
 
     const fullAccess = useFullAccessOffered();
@@ -95,7 +99,7 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                 {waiting ? <span className="pill-sub">after this turn</span> : null}
             </button>
             {open && approval !== undefined ? (
-                <ApprovalMenu style={placed} choices={modeChoices(offeredModeOptions(approval.modes, fullAccess, approval.mode), approval.mode, (mode) => dispatch("mode", (id) => sessionModeCommand(id, mode), true))}>
+                <ApprovalMenu style={placed} choices={modeChoices(offeredModeOptions(approval.modes, fullAccess, approval.mode), approval.mode, pickMode)}>
                     {approval.mode === FULL_ACCESS && !fullAccess ? null : (
                         <>
                             <div className="menu-separator" />

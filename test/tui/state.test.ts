@@ -1672,6 +1672,29 @@ test("TUI state keeps host-reported permissions", () => {
     expect(state.entries).toEqual([]);
 });
 
+test("TUI state follows the host's auto suggestion and clears it when the host drops it", () => {
+    const suggested = applyAgentUpdate(createTuiState(), {
+        type: "permissions",
+        requestId: "permissions-suggest",
+        mode: "ask",
+        pending: false,
+        suggestAuto: true,
+        seq: 1,
+    });
+    expect(suggested.suggestAuto).toBe(true);
+
+    const switched = applyAgentUpdate(suggested, {
+        type: "permissions",
+        requestId: "permissions-switch",
+        mode: "auto",
+        pending: false,
+        seq: 2,
+    });
+    expect(switched.approvalMode).toBe("auto");
+    expect(switched.suggestAuto).toBeUndefined();
+    expect("suggestAuto" in switched).toBe(false);
+});
+
 test("TUI state keeps the new permission mode and shows a sync warning", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "permissions",

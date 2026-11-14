@@ -20,6 +20,8 @@ export interface ApprovalState {
     // Allowed in every session through Always.
     readonly preferences: readonly StandingPermission[];
     readonly warning?: string;
+    // The host's hint that a person in ask mode has allowed everything so far and could switch to auto.
+    readonly suggestAuto?: true;
 }
 
 export interface ModeOption {
@@ -76,6 +78,7 @@ export function parsePermissions(value: Fields): ApprovalState | undefined {
         grants: standing(inspection.activeGrants),
         preferences: standing(inspection.activePreferences),
         ...(warning === undefined ? {} : { warning }),
+        ...(value.suggestAuto === true ? { suggestAuto: true as const } : {}),
     };
 }
 

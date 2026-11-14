@@ -349,6 +349,83 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
     }
 });
 
+test("the auto suggestion shows one line and the a key switches to auto", async () => {
+    const setup = await createTestRenderer({
+        width: 100,
+        height: 24,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(request);
+        await setup.flush();
+        expect(view.autoNudgeVisible()).toBe(false);
+        expect(setup.captureCharFrame()).not.toContain("Switch to Approve for me?");
+        expect(view.handleKey(request, { name: "a" }))
+            .toEqual({ handled: false });
+
+        view.update(request, true);
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(view.autoNudgeVisible()).toBe(true);
+        expect(frame).toContain(
+            "You've allowed every request so far. Switch to Approve for me?",
+        );
+        expect(frame).toContain("a switch");
+        expect(frame).toContain("1 Allow once");
+
+        expect(view.handleKey(request, { name: "a" }))
+            .toEqual({ handled: true, switchToAuto: true });
+        expect(view.handleKey(request, { name: "a", ctrl: true }))
+            .toEqual({ handled: false });
+        expect(view.handleKey(request, { name: "a", meta: true }))
+            .toEqual({ handled: false });
+        expect(view.handleKey(request, { name: "a", shift: true }))
+            .toEqual({ handled: false });
+        // The answers keep working with the line up.
+        expect(view.handleKey(request, { name: "1" }).response).toEqual({
+            type: "ui_response",
+            requestId: "request-1",
+            response: { type: "tool_approval", decision: "allow_once" },
+        });
+
+        view.update(request, false);
+        await setup.flush();
+        expect(view.autoNudgeVisible()).toBe(false);
+        expect(setup.captureCharFrame()).not.toContain("Switch to Approve for me?");
+        expect(view.handleKey(request, { name: "a" }))
+            .toEqual({ handled: false });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("the auto suggestion stays hidden in a terminal too short for it", async () => {
+    const setup = await createTestRenderer({
+        width: 80,
+        height: 12,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(request, true);
+        await setup.flush();
+        expect(view.autoNudgeVisible()).toBe(false);
+        expect(setup.captureCharFrame()).not.toContain("Switch to Approve for me?");
+        expect(view.handleKey(request, { name: "a" }))
+            .toEqual({ handled: false });
+        expect(setup.captureCharFrame()).toContain("1 Allow once");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("a predicate too long for its row is stated in the body", async () => {
     const path = "/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/";
     const longScope: ToolApprovalUiRequestUpdate = {

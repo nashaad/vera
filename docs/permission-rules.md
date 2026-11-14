@@ -141,6 +141,11 @@ Session and Always describe "calls like this one" as narrowly as Vera can: the
 same operation, the same file, or the same shell command name. A prompt from a
 subagent offers only Allow once and Deny.
 
+In ask mode, once you have allowed five requests and denied none, the prompt
+adds one line offering to switch to auto. Press `a` in the terminal to switch, or
+use the Switch button in the desktop app. The line shows once per conversation
+in each window, and the host forgets the count when it restarts.
+
 To see or remove what Session and Always granted, open Ctrl+P and choose
 **Review granted permissions**.
 
