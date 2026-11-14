@@ -1,7 +1,6 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 
-import { CheckIcon, CopyIcon } from "../components/Icons.tsx";
-import { copyText } from "./copyText.ts";
+import { CodeCard } from "./CodeCard.tsx";
 
 // A small subset: headings, paragraphs, lists, fenced code, and inline
 // bold, italic, code and links. Raw HTML is never rendered.
@@ -47,36 +46,22 @@ export function Inline({ text }: { readonly text: string }) {
     return <>{inline(text, "i")}</>;
 }
 
-function CodeCard({ lang, body }: { readonly lang: string; readonly body: string }) {
-    const [copied, setCopied] = useState(false);
-    const copy = async (): Promise<void> => {
-        if (!(await copyText(body))) return;
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1400);
-    };
-    return (
-        <div className="code-card">
-            <div className="code-head">
-                <span className="code-lang">{lang === "" ? "text" : lang}</span>
-                <button type="button" className="icon-button" title={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
-                    {copied ? <CheckIcon /> : <CopyIcon />}
-                </button>
-            </div>
-            <pre className="code-body">{body}</pre>
-        </div>
-    );
-}
-
 const BULLET = /^\s*[-*+]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
+
+// A fenced block is finished when a later line starts with the closing fence; one that ends the text without it is still being written.
+export function isClosedFence(block: string): boolean {
+    const lines = block.split("\n");
+    return lines.length > 1 && (lines[lines.length - 1] ?? "").trimStart().startsWith("```");
+}
 
 function renderBlock(block: string, key: string, fade: boolean): ReactNode {
     if (block.startsWith("```")) {
         const newline = block.indexOf("\n");
         const lang = block.slice(3, newline === -1 ? undefined : newline).trim();
         const body = newline === -1 ? "" : block.slice(newline + 1).replace(/\n?```\s*$/, "");
-        return <CodeCard key={key} lang={lang} body={body} />;
+        return <CodeCard key={key} lang={lang} body={body} ready={isClosedFence(block) || !fade} />;
     }
     const heading = HEADING.exec(block);
     if (heading !== null && !block.includes("\n")) {

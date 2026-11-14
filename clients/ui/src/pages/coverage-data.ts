@@ -132,6 +132,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
         name: "Turn ends",
         items: [
             inWindow("Replies render headings, lists, bold, italics, code and links"),
+            inWindow("A finished code block is colored by its language; an unknown language stays plain"),
             inWindow("A turn that edits files ends with a card of its patches"),
             partial("Names the model that ran, when it was not the one picked", "The reason for the swap is not shown"),
             inWindow("The send button returns when the turn ends"),

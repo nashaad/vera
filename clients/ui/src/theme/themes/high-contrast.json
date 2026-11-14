@@ -28,7 +28,15 @@
         "blue-deep": "#66ccff",
         "rail": "#5e5e5e",
         "stop": "#ffffff99",
-        "knob": "#ffffff"
+        "knob": "#ffffff",
+        "steel": "#b0b0b0",
+        "violet": "#e0b0ff",
+        "lime": "#a6f0a6",
+        "gold": "#ffcc00",
+        "azure": "#66ccff",
+        "teal": "#5ff5e0",
+        "cyan": "#8fe8ff",
+        "coral": "#ff9f9f"
     },
     "colors": {
         "surface": "canvas",
@@ -67,7 +75,15 @@
         "slider-rail": "rail",
         "slider-fill": "blue-deep",
         "slider-stop": "stop",
-        "slider-knob": "knob"
+        "slider-knob": "knob",
+        "syntax-comment": "steel",
+        "syntax-keyword": "violet",
+        "syntax-string": "lime",
+        "syntax-number": "gold",
+        "syntax-function": "azure",
+        "syntax-type": "teal",
+        "syntax-property": "cyan",
+        "syntax-tag": "coral"
     },
     "values": {
         "shadow": "none",
