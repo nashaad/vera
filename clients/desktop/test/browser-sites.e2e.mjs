@@ -125,7 +125,7 @@ try {
     const card = page.locator('.request-card[data-kind="approval"]');
     for (let i = 0; i < 5; i += 1) {
         await card.waitFor({ timeout: 30_000 });
-        await card.getByRole("button", { name: /Allow once/ }).click();
+        await card.locator('[data-choice="allow_once"]').click();
         await card.waitFor({ state: "detached", timeout: 15_000 });
     }
     await page.getByText("Browser turn finished.").waitFor({ timeout: 30_000 });
