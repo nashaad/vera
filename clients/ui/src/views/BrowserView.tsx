@@ -118,7 +118,9 @@ export function BrowserView({ visible }: ViewProps) {
             </nav>
             <div className="browser-controls">
                 <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native.state.toolsEnabled} disabled={!native.state.toolsAvailable} onChange={(event) => void native.command("tools", event.target.checked)} /> Browser tools {native.state.toolsEnabled ? "on" : "off"}</label>
+                <button type="button" disabled={native.clearing} onClick={() => void native.command("forget")}>Forget browsing data</button>
             </div>
+            {native.error === undefined ? null : <p role="alert" className="view-note">{native.error}</p>}
             {activeTab === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
             {activeTab === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
             {activeTab === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} /> : null}

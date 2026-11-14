@@ -12,8 +12,12 @@ site. Links that open a new window open a tab in the pane.
 
 Sign in to sites yourself in the pane. Sign-ins made there are stored in the
 Vera home like provider keys, in an owner-only directory. The cookie store is
-plaintext. A site can end a sign-in or use a session cookie that expires
-when the window closes.
+plaintext. Forget browsing data closes the site tabs and removes their saved
+sign-ins, site storage and cache. A site can also end a sign-in or use a
+session cookie that expires when the window closes.
+The host must be connected to forget browsing data.
+Sites cannot use permission-gated features such as the camera, microphone,
+location or notifications in the pane.
 
 Browser tools are off by default. Turn on Browser tools in the pane to let
 Vera open a page, read it, click, type, scroll, go back and take a screenshot.

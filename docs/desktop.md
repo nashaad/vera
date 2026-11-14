@@ -753,7 +753,7 @@ their paths. A Vera page shows without the annex's own menu and title.
 Enter an address for a site, or a Vera page's name or path such as `/runs`.
 Open in your browser opens the current page in the system browser. Back and
 Forward move through the current tab. Site tabs close with the window; their
-sign-ins and site data stay in the home.
+sign-ins and site data stay in the home until Forget browsing data removes them.
 Sign-ins are stored in the home like provider keys, in an owner-only directory,
 and the cookie store is plaintext. A site may end a sign-in or use a session
 cookie that expires when the window closes.
