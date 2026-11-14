@@ -37,7 +37,10 @@ const provider = createServer((request, response) => {
 
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
-    const app = await trial.launch();
+    // A provider key in the caller's environment counts as connected and skips first run.
+    const withoutProviderKeys = Object.fromEntries(Object.keys(process.env)
+        .filter((name) => name.endsWith("_API_KEY") || name === "OLLAMA_HOST").map((name) => [name, ""]));
+    const app = await trial.launch({ env: withoutProviderKeys });
     const page = await app.firstWindow();
     await trial.waitForHost();
     const wizard = page.getByRole("dialog", { name: "Connect a provider" });
