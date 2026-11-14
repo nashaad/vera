@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { LayoutState } from "../../ui/src/layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "../../ui/src/protocol/assignments.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
+import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
 import type {
     AnnexPagesResult,
@@ -61,6 +62,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionClone, agentId)) as BranchSessionResult,
     closeSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
+    moveSession: async (agentId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionMove, agentId)) as MoveSessionOutcome,
     existingFolders: async (folders: readonly string[]) => {
         const found: unknown = await ipcRenderer.invoke(CHANNELS.foldersExisting, folders);
         return Array.isArray(found) ? found.filter((path): path is string => typeof path === "string") : [];

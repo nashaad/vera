@@ -22,6 +22,7 @@ export const CHANNELS = {
     sessionBranch: "vera:session-branch",
     sessionClone: "vera:session-clone",
     sessionClose: "vera:session-close",
+    sessionMove: "vera:session-move",
     folderChoose: "vera:folder-choose",
     foldersExisting: "vera:folders-existing",
     branchRead: "vera:branch-read",

@@ -27,6 +27,7 @@ export const HOST_CAPABILITY_SESSION_TITLE = "session.title.v1";
 export const HOST_CAPABILITY_SESSION_ROUTING = "host.session-routing.v1";
 export const HOST_CAPABILITY_STOP_WAIT = "host.stop-wait.v1";
 export const HOST_CAPABILITY_RESTART_RECORDS = "host.restart-records.v1";
+export const HOST_CAPABILITY_SESSION_MOVE = "session.move.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -50,6 +51,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_SESSION_ROUTING,
     HOST_CAPABILITY_STOP_WAIT,
     HOST_CAPABILITY_RESTART_RECORDS,
+    HOST_CAPABILITY_SESSION_MOVE,
 ] as const;
 
 /**

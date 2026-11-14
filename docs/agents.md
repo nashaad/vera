@@ -78,6 +78,12 @@ folder, so the branch and its source change files independently; a branch that
 is temporary keeps working in the source's folder. Delegated children of a chat
 work in the same folder and are not chats themselves.
 
+In the desktop, a chat's folder chip has `Move to folder…`, which moves the
+conversation and its files into a folder you pick. The conversation then works
+in that folder and is no longer a chat. The host refuses the move when a file
+in that folder has the same name as one of the chat's files, or while the
+conversation is still working.
+
 ## Allow models for subagents
 
 Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may

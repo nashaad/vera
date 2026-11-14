@@ -2,6 +2,7 @@ import type { LayoutState } from "../layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
 import type { DesktopFlags } from "../state/desktopFlags.ts";
 import type { SavedPins } from "./pins.ts";
+import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
@@ -208,6 +209,9 @@ export interface DesktopBridge {
     cloneSession(agentId: string): Promise<BranchSessionResult>;
     // Stops a session and parks it, as closing its last window would.
     closeSession(agentId: string): Promise<CloseSessionResult>;
+    // Opens the native folder picker and asks the host to move the session to the folder chosen; a chat's files go with it.
+    // The host ends the session's watch connections while it moves, so the page attaches again after "moved".
+    moveSession(agentId: string): Promise<MoveSessionOutcome>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     // With no folder the host creates a chat, a session that works in a folder of its own.
     createSession(workspace: string | undefined, approvalMode?: string): Promise<CreateSessionResult>;

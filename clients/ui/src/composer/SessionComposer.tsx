@@ -15,10 +15,11 @@ import { imagePathsOf } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
-import { arrowUpAction, enterAction, escapeAction, folderMissingNotice } from "./rules.ts";
+import { arrowUpAction, enterAction, escapeAction, folderMissingNotice, MOVE_TO_FOLDER_LABEL } from "./rules.ts";
 import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { useBranch } from "./useBranch.ts";
 import { useFolderMissing } from "./useFolderMissing.ts";
+import { useMoveToFolder } from "./useMoveToFolder.ts";
 import { useSessionImages } from "./useImages.ts";
 
 const IMAGES_WAITING = "The images are still attaching.";
@@ -30,7 +31,7 @@ interface ModelGate {
     readonly prompt: PendingPrompt;
 }
 
-export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: SessionComposerProps) {
+export function SessionComposer({ bridge, agentId, watch, send, folder, chat, onMoved }: SessionComposerProps) {
     const [text, setText] = useState("");
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
@@ -49,6 +50,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     const empty = text.trim().length === 0;
     const branch = useBranch(bridge, chat ? undefined : folder);
     const missing = useFolderMissing(bridge, folder, chat);
+    const move = useMoveToFolder(bridge, agentId, onMoved);
     const onRefused = useCallback((reason: string) => {
         setNotice(reason);
         setAutoSend(false);
@@ -211,11 +213,25 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
 
     return (
         <div className="composer-inner wide">
-            <ContextChips folder={folder} branch={branch} chat={chat} missing={missing} />
+            <ContextChips
+                folder={folder}
+                branch={branch}
+                chat={chat}
+                missing={missing}
+                move={{ onMove: move.run, disabled: move.moving }}
+            />
             <ImageChips chips={chips} onRemove={remove} />
             {missing && folder !== undefined ? (
-                <p className="composer-notice" data-tone="warning" role="status">{folderMissingNotice(folder)}</p>
+                <div className="composer-notice-row">
+                    <p className="composer-notice" data-tone="warning" role="status">{folderMissingNotice(folder)}</p>
+                    <button type="button" className="composer-notice-action" disabled={move.moving} onClick={move.run}>
+                        {MOVE_TO_FOLDER_LABEL}
+                    </button>
+                </div>
             ) : null}
+            {move.problem === undefined ? null : (
+                <p className="composer-notice" data-tone="danger" role="alert">{move.problem}</p>
+            )}
             {notice === undefined ? null : <p className="composer-notice" role="status">{notice}</p>}
             <ComposerBox
                 text={text}
