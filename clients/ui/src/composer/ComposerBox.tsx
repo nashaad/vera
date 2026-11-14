@@ -1,7 +1,7 @@
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 import { ArrowUpIcon, PlusIcon, SquareIcon } from "../components/Icons.tsx";
-import { pastedImagePaths } from "./images.ts";
+import { pastedFilePaths } from "./images.ts";
 import { SlashMenu, slashOptionId, SLASH_MENU_ID, type SlashMenuView } from "./slash/SlashMenu.tsx";
 import { useComposerFit } from "./useComposerFit.ts";
 
@@ -75,7 +75,7 @@ export function ComposerBox({
             onFiles([...event.clipboardData.files]);
             return;
         }
-        const paths = pastedImagePaths(event.clipboardData.getData("text/plain"));
+        const paths = pastedFilePaths(event.clipboardData.getData("text/plain"));
         if (paths.length === 0) return;
         event.preventDefault();
         onPaths(paths);
@@ -111,8 +111,8 @@ export function ComposerBox({
                 <button
                     type="button"
                     className="round-button"
-                    title="Attach images"
-                    aria-label="Attach images"
+                    title="Attach files"
+                    aria-label="Attach files"
                     disabled={!attachEnabled}
                     onClick={onAttach}
                 >

@@ -1,3 +1,7 @@
+import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
+import { prepareTuiFileText, tuiFileLocation } from "../file-preparation.ts";
+import { fileErrorMessage } from "../../../src/attachments/files.ts";
+import { filePathMentions } from "../file-paths.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
 import { renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
@@ -36,6 +40,7 @@ import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 export function submitPrompt(rt: TuiRuntime, 
     interceptedText?: string,
     injectedPrefix?: number,
+    filePrepared?: { readonly content: string; readonly draft: string },
 ): void {
     if (rt.shuttingDown) return;
     disarmQuit(rt);
@@ -70,7 +75,7 @@ export function submitPrompt(rt: TuiRuntime,
     const quoted = interceptedText === undefined && !typed.startsWith("/")
         ? rt.pendingQuote
         : undefined;
-    const prompt = withQuote(typed, quoted);
+    const prompt = filePrepared?.content ?? withQuote(typed, quoted);
     if (prompt.length === 0 && rt.pendingImages.length === 0) {
         if (
             interceptedText === undefined
@@ -1189,6 +1194,35 @@ export function submitPrompt(rt: TuiRuntime,
         openSettingsDestination(rt, { kind: "provider" });
         return;
     }
+    if (filePrepared === undefined && !prompt.startsWith("/")) {
+        const mentions = filePathMentions(prompt);
+        if (mentions.length > 0) {
+            if (mentions.length + rt.pendingImages.length > FILE_COUNT_LIMIT) {
+                rt.state = appendTuiNotice(rt.state, "A message can have up to 8 files.");
+                renderState(rt);
+                return;
+            }
+            const agentId = rt.client.agentId;
+            if (agentId === undefined) {
+                rt.state = appendTuiNotice(rt.state, "The session folder is not available.");
+                renderState(rt);
+                return;
+            }
+            const draft = rt.composer.expandedText().trim();
+            rt.promptSubmitting = true;
+            void tuiFileLocation(rt, agentId).then(async (location) => {
+                const content = await prepareTuiFileText(prompt, location, rt.pendingImages.length);
+                rt.promptSubmitting = false;
+                if (rt.client.agentId === agentId && !rt.shuttingDown) submitPrompt(rt, prompt, injectedPrefix, { content, draft });
+            }).catch((error) => {
+                rt.promptSubmitting = false;
+                rt.state = appendTuiNotice(rt.state, fileErrorMessage(error));
+                renderState(rt);
+            });
+            return;
+        }
+    }
+
     const chipOrder = rt.composer.imageChipRequestIds();
     const attachments = chipOrder
         .flatMap((requestId) => {
@@ -1217,7 +1251,7 @@ export function submitPrompt(rt: TuiRuntime,
             rt.flightRecorder?.record({ type: "submit_accepted" });
             rt.promptSubmitting = false;
             if (rt.shuttingDown) return;
-            if (rt.composer.expandedText().trim() === prompt) {
+            if (rt.composer.expandedText().trim() === (filePrepared?.draft ?? prompt)) {
                 rt.composer.rememberSubmittedPrompt({ text: prompt, attachmentIds });
                 rt.composer.clearComposer();
             }
@@ -1261,7 +1295,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.flightRecorder?.record({ type: "submit_accepted" });
         rt.promptSubmitting = false;
         if (rt.shuttingDown) return;
-        if (rt.composer.expandedText().trim() === prompt) {
+        if (rt.composer.expandedText().trim() === (filePrepared?.draft ?? prompt)) {
             rt.composer.rememberSubmittedText(prompt);
             rt.composer.clearComposer();
         }

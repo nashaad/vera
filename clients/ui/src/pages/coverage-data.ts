@@ -49,7 +49,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inWindow("Type a message, and Shift+Enter adds a line"),
             inWindow("A mistyped slash command names the one you probably meant", "Enter keeps the text and shows the note under the box"),
             partial("A slash menu lists the built-in, extension and skill commands", "Some built-ins say Not implemented yet"),
-            partial("Dropped image files become Image chips on the message", "Other files are not attached in the window"),
+            inWindow("Dropped files become removable chips on the message"),
             inWindow("Pasted text goes into the box and does not send"),
             inTerminal("Ctrl+G moves focus between conversation panes", "The window has no pane focus key"),
         ],
@@ -58,7 +58,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
         name: "Turn starts",
         items: [
             inWindow("Enter sends the message, and it shows in the conversation"),
-            partial("A running turn shows a stop button in place of send", "Escape does not stop it; Enter on an empty box does"),
+            inWindow("A running turn can be stopped with Escape or the stop button"),
             partial("A running turn shows one line with three dots and a sweep across its label", "No activity strip glyphs"),
             inTerminal("The activity strip's motion is set from Off to 3", "/settings, then Animation. Window has Reduce motion, which stops the dots and sweep"),
             inWindow("The status line says Thinking, then the turn clock after two seconds"),

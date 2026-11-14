@@ -71,6 +71,30 @@ export function pastedImagePaths(text: string): readonly string[] {
     return paths.every((path) => path.startsWith("/") && IMAGE_EXTENSION.test(path)) ? paths : [];
 }
 
+export function pastedFilePaths(text: string): readonly string[] {
+    const line = text.trim();
+    if (line.length === 0 || line.includes("\n")) return [];
+    const paths: string[] = [];
+    let current = "";
+    let quote = "";
+    for (let index = 0; index < line.length; index += 1) {
+        const character = line[index]!;
+        if (character === "\\" && index + 1 < line.length) current += line[++index];
+        else if (quote !== "") {
+            if (character === quote) quote = "";
+            else current += character;
+        } else if (character === "'" || character === '"') quote = character;
+        else if (character === " ") {
+            if (current.length > 0) paths.push(current);
+            current = "";
+        } else current += character;
+    }
+    if (quote !== "") return [];
+    if (current.length > 0) paths.push(current);
+    if (paths.every((path) => path.startsWith("/"))) return paths;
+    return line.startsWith("/") ? [line] : [];
+}
+
 export function isImageFile(name: string): boolean {
     return IMAGE_EXTENSION.test(name);
 }

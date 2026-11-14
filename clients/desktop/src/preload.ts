@@ -76,6 +76,10 @@ const bridge: DesktopBridge = {
         const paths: unknown = await ipcRenderer.invoke(CHANNELS.imagesChoose);
         return Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : [];
     },
+    checkComposerFile: async (path: string, workspace: string | undefined, chat: boolean) =>
+        await ipcRenderer.invoke(CHANNELS.filesCheck, path, workspace, chat),
+    prepareComposerFiles: async (paths: readonly string[], workspace: string, chat: boolean) =>
+        await ipcRenderer.invoke(CHANNELS.filesPrepare, paths, workspace, chat),
     pathForFile: (file: File) => {
         const path = webUtils.getPathForFile(file);
         return path.length === 0 ? undefined : path;

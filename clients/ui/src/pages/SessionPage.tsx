@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, type KeyboardEvent } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -19,7 +19,7 @@ import { watchOpening } from "../session/transcript.ts";
 import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
-import { releaseQueuedCommand } from "../session/wire.ts";
+import { abortCommand, releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown } from "../workbench/context.tsx";
 import type { SessionRoute } from "./routes.ts";
@@ -60,6 +60,21 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const title = watch.title ?? row?.name ?? route.title;
     const slowOpening = useSlowOpening(watch);
 
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (event.defaultPrevented || event.key !== "Escape" || event.ctrlKey || event.metaKey
+            || event.altKey || event.shiftKey || event.nativeEvent.isComposing || !running
+            || watch.requests.length > 0) return;
+        const target = event.target;
+        if (!(target instanceof HTMLElement)
+            || !target.matches(".composer-input, .transcript-scroll")) return;
+        if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-popover]') !== null) return;
+        event.preventDefault();
+        const input = event.currentTarget.querySelector<HTMLTextAreaElement>(".composer-input");
+        const hasDraft = (input?.value.trim().length ?? 0) > 0
+            || event.currentTarget.querySelector(".chip-file") !== null;
+        send(!hasDraft && watch.queue.length > 0 ? releaseQueuedCommand("one") : abortCommand());
+    };
+
     useEffect(() => {
         publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send, start });
     }, [bridge, route.agentId, title, folder, chat, watch, send, start]);
@@ -76,7 +91,13 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
             {...(startable ? { onStart: start } : {})}
         />
     ) : (
-        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase}>
+        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase} tabIndex={0}
+            onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
+            onDrop={(event) => {
+                if (event.dataTransfer.files.length === 0) return;
+                event.preventDefault();
+                window.dispatchEvent(new CustomEvent("vera-composer-drop", { detail: { agentId: route.agentId, files: [...event.dataTransfer.files] } }));
+            }}>
             <div className="transcript">
                 <div className="transcript-inner">
                     {watch.hasOlder && watch.history.length >= MAX_HISTORY_BLOCKS ? (
@@ -121,7 +142,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     );
 
     return (
-        <div className="session-page">
+        <div className="session-page" onKeyDown={onKeyDown}>
             <div className="session-body">
                 <div className="agent-panes" data-layout={companion === undefined ? "single" : panes.layout}>
                     {body}
