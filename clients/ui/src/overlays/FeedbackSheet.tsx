@@ -1,5 +1,5 @@
 import { useState, type ClipboardEvent, type DragEvent } from "react";
-import { FileIcon } from "../components/Icons.tsx";
+import { FeedbackIcon } from "../components/Icons.tsx";
 import { baseName, isImageFile } from "../composer/images.ts";
 import { useRouter } from "../pages/router.tsx";
 import { feedbackScreenshot } from "./store.ts";
@@ -66,7 +66,7 @@ export function FeedbackSheet({ onClose }: { readonly onClose: () => void }) {
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the report."); }
         finally { setBusy(false); }
     };
-    return <OverlaySheet title="Report a bug or request a feature" Icon={FileIcon} onClose={onClose} name="feedback" foot={
+    return <OverlaySheet title="Report a bug or request a feature" Icon={FeedbackIcon} onClose={onClose} name="feedback" foot={
         saved === undefined ? <><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="solid-btn" disabled={busy || title.trim() === ""} onClick={() => void save()}>Save report</button></>
             : <button className="ghost-btn" onClick={onClose}>Close</button>
     }>
