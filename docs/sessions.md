@@ -53,6 +53,11 @@ closes that pane instead and leaves the live conversation running.
 Detach matches Keep running: nothing is stopped or sent, and the host closes
 the conversation after ten idle minutes. `vera resume <id>` returns to it.
 
+Closing the terminal counts as exiting, not detaching. The same holds when a
+tmux pane is killed, an SSH connection drops or the terminal app crashes: a
+running turn stops unless another window shows the conversation. To leave work
+running, detach with Ctrl+X then D first.
+
 `/clear` starts a new conversation and asks Close this conversation or Keep
 running. Keep running stays idle for ten minutes, then closes. `/clear stop`
 and `/clear keep` make that choice without asking. `/new` is the same command
