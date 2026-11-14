@@ -81,7 +81,9 @@ workspace and a session.
   extensions, instruction files and memory files. A menu picks the folder; it
   starts on the folder of the session last open, and lists no chats. The page reads through one
   top-level session in that folder, preferring a running one, and names it under
-  the toolbar. Reading through a session that has stopped starts it again. With
+  the toolbar. A session that has stopped is not started by opening the page:
+  the page says the session is not running and offers `Start session`, which
+  resumes it without sending a message and then reads it. With
   no session in the folder the page says so and offers New chat here. Pills
   filter by kind with a count on each, a search box matches names and
   descriptions, and Reload reads again. Items are grouped as This folder, Your
@@ -375,7 +377,11 @@ A reply that is still being written updates about four times a second, and about
 
 When the host is not running, the page says so. When the host closes the
 session, or the connection drops, the page keeps what it showed and adds a
-strip with the reason.
+strip with the reason and `Start session`. The composer is off while the
+session is not running. `Start session` attaches again, which resumes the
+session on the host without sending a message; the conversation, the composer
+and the right pane's views load without another click. A session the host
+cannot find gets the reason and no button.
 
 ### Showing reasoning
 
@@ -688,7 +694,9 @@ measured or estimated, a bar split into the system prompt parts, tool
 definitions, the conversation, anything else the total holds (`Other`) and free
 space, a mark where automatic compaction starts, and the token count it starts
 at. `List every message` lists each message with its size. `Compact` compacts
-the conversation.
+the conversation. When the session is not running, the popover says
+`This session is not running.` and offers `Start session` in place of
+`Compact`.
 
 The session menu (the `…` button) has:
 
@@ -735,8 +743,13 @@ numbers. The window reads at most the first 256 KB and says so when the file is
 longer. A folder, a file that is not text and a file that is gone each show one
 line saying so. The arrows in the bar step back and forward through the files
 opened, up to the last 50, and `Browse files` hides or shows the tree. An open
-file is read again when a turn ends. While the right pane is closed, a rail at
-the right of the session page opens these views.
+file is read again when a turn ends. Plan and Review are built from the
+session's conversation, so when the session is not running and nothing of it
+has loaded, each says `This session is not running. Start it to see its plan.`
+or `This session is not running. Start it to see its changes.` with
+`Start session`. Files, Output and Browser do not need the session. The second
+pane for a subagent is read only and has no `Start session`. While the right
+pane is closed, a rail at the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
 the conversation says which model it used, marked `subagent` when a subagent's
