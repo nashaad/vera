@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 
 import { CheckIcon } from "../components/Icons.tsx";
+import { CORE_VIEWS } from "../registry/core.ts";
 import { useActiveSession, type ActiveSession } from "../session/activeSession.ts";
 import { latestChecklist } from "../session/changes.ts";
+import { gateView } from "../session/liveSession.ts";
 import type { Checklist } from "../session/model.ts";
+import { StartOffer } from "../session/StartSession.tsx";
 import type { ViewProps } from "./env.tsx";
 
 export function PlanView({ visible }: ViewProps) {
@@ -14,10 +17,13 @@ export function PlanView({ visible }: ViewProps) {
 
 function PlanBody({ session, visible }: { readonly session: ActiveSession; readonly visible: boolean }) {
     const { history, live } = session.watch;
+    const gate = gateView(CORE_VIEWS.plan, session.watch);
     const checklist = useMemo<Checklist | undefined>(
         () => (visible ? latestChecklist([...history, ...live]) : undefined),
         [visible, history, live],
     );
+    if (gate.kind === "start") return <StartOffer text="This session is not running. Start it to see its plan." onStart={session.start} />;
+    if (gate.kind === "unavailable") return <p className="view-empty">{gate.reason}</p>;
     if (checklist === undefined) {
         return <p className="view-empty">No plan in this session yet. Plans appear when Vera writes a checklist.</p>;
     }

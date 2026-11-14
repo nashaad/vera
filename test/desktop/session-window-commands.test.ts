@@ -38,6 +38,7 @@ describe("window session commands", () => {
             chat: false,
             watch: initialWatch("crow-1"),
             send: () => undefined,
+            start: () => undefined,
         });
         return { registry, routes };
     }
@@ -129,6 +130,7 @@ describe("window session commands", () => {
             chat: false,
             watch: initialWatch("crow-9"),
             send: () => undefined,
+            start: () => undefined,
         });
         expect(openedSessionSheet()).toBe("rename");
         clearActiveSession("crow-9");

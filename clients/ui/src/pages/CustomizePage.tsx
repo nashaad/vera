@@ -19,6 +19,7 @@ import { useCatalogProbe } from "../customize/useCatalogProbe.ts";
 import type { DesktopBridge, ExtensionFailure } from "../protocol/bridge.ts";
 import { folderName } from "../protocol/sessionGroups.ts";
 import { useActiveSession } from "../session/activeSession.ts";
+import { needsStartToRead } from "../session/liveSession.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
 import { useRouter } from "./router.tsx";
@@ -182,8 +183,12 @@ export function CustomizePage() {
     const [mode, setMode] = useState<CustomizeMode>("yours");
     const yours = mode === "yours";
 
+    // The session the person chose to start; a stopped session is not read until it is one.
+    const [started, setStarted] = useState<string | undefined>(undefined);
+    const needsStart = target !== undefined && needsStartToRead(target, started);
+
     const attached = connection.phase === "attached";
-    const probe = useCatalogProbe(bridge, target?.id, attached, reload);
+    const probe = useCatalogProbe(bridge, needsStart ? undefined : target?.id, attached, reload);
     const failures = useExtensionFailures(bridge, reload);
 
     const failureList = failures.phase === "ok" ? failures.failures : [];
@@ -227,6 +232,18 @@ export function CustomizePage() {
                             onClick={() => navigate(folder === undefined ? { kind: "home" } : { kind: "home", folder })}
                         >
                             New chat here
+                        </button>
+                    </span>
+                </EmptyState>
+            );
+        }
+        if (needsStart) {
+            return (
+                <EmptyState title="This session is not running">
+                    <span>Customize reads what a session in this folder loads. {target.name} has stopped.</span>
+                    <span className="customize-empty-action">
+                        <button type="button" className="solid-btn" data-start-session onClick={() => setStarted(target.id)}>
+                            Start session
                         </button>
                     </span>
                 </EmptyState>
@@ -293,7 +310,7 @@ export function CustomizePage() {
                     </button>
                 </div>
                 {yours ? (
-                    <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)} disabled={target === undefined}>
+                    <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)} disabled={target === undefined || needsStart}>
                         <RefreshIcon />
                         Reload
                     </button>
@@ -311,7 +328,7 @@ export function CustomizePage() {
                     </label>
                 ) : null}
             </div>
-            {yours && target !== undefined && attached ? <p className="customize-source">Read through {target.name}</p> : null}
+            {yours && target !== undefined && attached && !needsStart ? <p className="customize-source">Read through {target.name}</p> : null}
             {yours && probe.phase === "ready" ? probe.warnings.map((warning, index) => (
                 <p key={`${index}:${warning}`} className="customize-note">{warning}</p>
             )) : null}

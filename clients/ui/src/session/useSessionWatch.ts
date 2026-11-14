@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 
 import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
@@ -33,6 +33,8 @@ export interface SessionWatchHandle {
     readonly loadOlder: () => void;
     // Writes one command line on the watch connection; dropped until it is connected.
     readonly send: (line: string) => void;
+    // Attaches again, which resumes a stopped session on the host without sending anything.
+    readonly start: () => void;
 }
 
 let requestCount = 0;
@@ -50,6 +52,7 @@ export function useSessionWatch(
     pane: SessionPane = "main",
 ): SessionWatchHandle {
     const [watch, dispatch] = useReducer(reduce, agentId, initialWatch);
+    const [attempt, setAttempt] = useState(0);
     useEffect(() => {
         dispatch({ type: "reset", agentId });
         if (!connected) return undefined;
@@ -84,7 +87,7 @@ export function useSessionWatch(
             batcher.dispose();
             bridge.unwatchSession(pane);
         };
-    }, [bridge, agentId, connected, pane]);
+    }, [bridge, agentId, connected, pane, attempt]);
     // The approval mode and the model are not part of history, so both are asked for on every attach.
     const attached = watch.phase === "attached";
     useEffect(() => {
@@ -103,5 +106,6 @@ export function useSessionWatch(
         bridge.sendSession(pane, historyPageRequest(`page-${requestCount}`, olderBefore));
     }, [bridge, ready, olderBefore, pane]);
     const send = useCallback((line: string) => bridge.sendSession(pane, line), [bridge, pane]);
-    return { watch, loadOlder, send };
+    const start = useCallback(() => setAttempt((count) => count + 1), []);
+    return { watch, loadOlder, send, start };
 }

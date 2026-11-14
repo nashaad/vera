@@ -5,12 +5,14 @@ import type { DesktopBridge } from "../protocol/bridge.ts";
 import { clearActiveSession, publishActiveSession } from "../session/activeSession.ts";
 import { CompanionPane } from "../session/CompanionPane.tsx";
 import { CompactionStatus } from "../session/LiveStatus.tsx";
+import { canStart, watchEnded } from "../session/liveSession.ts";
 import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
 import { usePaneLayout } from "../session/paneLayout.ts";
 import { QueueStrip } from "../session/QueueStrip.tsx";
 import { RequestCards } from "../session/RequestCards.tsx";
 import { holdsTurn } from "../session/requests.ts";
 import { SessionRail } from "../session/SessionRail.tsx";
+import { StartSessionButton } from "../session/StartSession.tsx";
 import { companionFor } from "../session/subagents.ts";
 import { Transcript } from "../session/Transcript.tsx";
 import { watchOpening } from "../session/transcript.ts";
@@ -37,7 +39,7 @@ export function SessionPage({ route }: SessionPageProps) {
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
     const { connection } = useViewEnvironment();
     const connected = connection.phase === "attached";
-    const { watch, loadOlder, send } = useSessionWatch(bridge, route.agentId, connected);
+    const { watch, loadOlder, send, start } = useSessionWatch(bridge, route.agentId, connected);
     const panes = usePaneLayout();
     const rightPaneShown = useIsShown("rightPane");
     const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
@@ -54,17 +56,19 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const slowOpening = useSlowOpening(watch);
 
     useEffect(() => {
-        publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send });
-    }, [bridge, route.agentId, title, folder, chat, watch, send]);
+        publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send, start });
+    }, [bridge, route.agentId, title, folder, chat, watch, send, start]);
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
 
-    const ended = watch.phase === "failed" || watch.phase === "closed";
+    const ended = watchEnded(watch);
+    const startable = canStart(watch);
     const showMessage = blocks.length === 0 && (ended || slowOpening);
     const body = showMessage ? (
         <SessionMessage
             title={route.title}
             text={ended ? watch.error ?? "The session closed." : "Opening the session."}
+            {...(startable ? { onStart: start } : {})}
         />
     ) : (
         <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase}>
@@ -91,8 +95,11 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                         />
                     )}
                     {compacting === undefined || liveTurn ? null : <CompactionStatus compaction={compacting} />}
-                    {watch.phase === "closed" || watch.phase === "failed" ? (
-                        <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
+                    {ended ? (
+                        <div className="transcript-notice" data-tone="warning" data-start={startable}>
+                            <span>{watch.error ?? "The session closed."}</span>
+                            {startable ? <StartSessionButton onStart={start} /> : null}
+                        </div>
                     ) : null}
                     <RequestCards key={route.agentId} requests={watch.requests} send={send} running={running} />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
@@ -128,7 +135,13 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     );
 }
 
-function SessionMessage({ title, text }: { readonly title: string; readonly text: string }) {
+interface SessionMessageProps {
+    readonly title: string;
+    readonly text: string;
+    readonly onStart?: () => void;
+}
+
+function SessionMessage({ title, text, onStart }: SessionMessageProps) {
     return (
         <div className="transcript-scroll">
             <div className="transcript">
@@ -136,6 +149,11 @@ function SessionMessage({ title, text }: { readonly title: string; readonly text
                     <div className="session-message">
                         <h2 className="empty-state-title">{title}</h2>
                         <p className="empty-state-text">{text}</p>
+                        {onStart === undefined ? null : (
+                            <div className="session-message-action">
+                                <StartSessionButton onStart={onStart} />
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
