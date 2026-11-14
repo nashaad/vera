@@ -7,6 +7,15 @@
     min-height: 0;
 }
 
+.browser-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vera-space);
+    padding: var(--vera-space);
+    font-size: var(--vera-font-size-label);
+}
+
 .browser-bar {
     display: flex;
     flex: 0 0 auto;

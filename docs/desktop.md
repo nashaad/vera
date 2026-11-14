@@ -255,7 +255,7 @@ Six views ship with the app:
     as it is.
 - Review, Plan and Files, each in its own container in the right pane,
   follow the open session; see Session tools.
-- Browser, in its own container in the right pane, shows Vera's pages; see
+- Browser, in its own container in the right pane, opens sites and Vera's pages; see
   Browser.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
   losing and regaining the host, startup questions and the answers sent. It keeps
@@ -814,22 +814,23 @@ model was swapped. Retries and failures show as strips in the column.
 
 ## Browser
 
-The Browser shows Vera's pages: the pages the annex serves on this machine,
-Usage and Runs, and the pages extensions add. Its top row holds Back, Forward,
-the address bar, Reload and Open in your browser. The row under it holds a Home
-button and a tab for each page. Home lists the built-in pages under `Vera` and
-the extension pages under `From extensions`, each with its path, and names the
-address the annex is served at. A page shows in the pane without the annex's
-own menu and title.
+The Browser opens sites in the right pane. Its top row holds Back, Forward,
+the address bar, Reload and Open in your browser. New tab opens another site,
+and a site popup opens a tab. The Vera tab shows the pages the annex serves on
+this machine: Usage, Runs and pages extensions add. Home lists those pages and
+their paths. A Vera page shows without the annex's own menu and title.
 
-The address bar takes a page's name, a path such as `/runs`, or the annex's
-address. Anything else opens nothing: an address off the annex says that only
-the pages Vera serves on this machine open here, and a path the annex does not
-list says the annex serves nothing there. A link inside a page that leaves the
-annex goes nowhere, or shows an error page that Reload clears, and a link that
-opens a new window does nothing. Open in your browser opens the current page in
-the system browser. Back and Forward walk the last 50 pages opened in the
-window, which are forgotten when it closes.
+Enter an address for a site, or a Vera page's name or path such as `/runs`.
+Open in your browser opens the current page in the system browser. Back and
+Forward move through the current tab. Site tabs close with the window; their
+sign-ins and site data stay in the home until Forget browsing data removes them.
+Sign-ins are stored in the home like provider keys, in an owner-only directory,
+and the cookie store is plaintext. A site may end a sign-in or use a session
+cookie that expires when the window closes.
+
+Browser tools are off by default. Turn on Browser tools in the pane to let Vera
+read and act in the selected site tab, under the session's approval mode. You
+can watch and take over in the pane. See [Browser use](browser-use.md).
 
 The command palette's Pages group opens Home as `Vera's Pages` or a page by its
 name, and `/usage` in the composer opens Usage. When the host is not running or

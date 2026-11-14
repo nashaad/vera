@@ -1,8 +1,10 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { annexHost, currentEntry, displayAddress, isAnnexPath, pageAt, resolveAddress } from "../browser/address.ts";
 import { browserHistory, useBrowserHistory } from "../browser/store.ts";
 import { useAnnexPages } from "../browser/useAnnexPages.ts";
+import { useNativeBrowser } from "../browser/useNativeBrowser.ts";
+import { BROWSER_TAB_LIMIT } from "../browser/native-types.ts";
 import { ArrowLeftIcon, ArrowRightIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { AnnexPage, AnnexPagesAnswer, DesktopBridge } from "../protocol/bridge.ts";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
@@ -19,10 +21,24 @@ export function BrowserView({ visible }: ViewProps) {
     const annex = result?.ok === true ? result : undefined;
     const [typed, setTyped] = useState<string | undefined>(undefined);
     const [frameRound, setFrameRound] = useState(0);
+    const native = useNativeBrowser(visible);
+    const activeTab = native.state.tabs.find((tab) => tab.id === native.state.active);
+    const previousEntry = useRef(entry);
+
+    useEffect(() => {
+        if (previousEntry.current !== entry) void native.command("select", null);
+        previousEntry.current = entry;
+    }, [entry, native.command]);
 
     const onKey = (event: KeyboardEvent<HTMLInputElement>): void => {
         if (event.key === "Enter" && typed !== undefined) {
-            browserHistory.browse(resolveAddress(typed, annex?.url, annex?.pages ?? []));
+            const address = resolveAddress(typed, annex?.url, annex?.pages ?? []);
+            if (address === "" || isAnnexPath(address)) {
+                browserHistory.browse(address);
+                void native.command("select", null);
+            }
+            else if (native.state.active === null) void native.command("open", typed);
+            else void native.command("navigate", typed);
             setTyped(undefined);
             event.currentTarget.blur();
         } else if (event.key === "Escape") {
@@ -40,8 +56,8 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Back"
                     title="Back"
-                    disabled={history.at === 0}
-                    onClick={() => browserHistory.step(-1)}
+                    disabled={activeTab === undefined ? history.at === 0 : !activeTab.back}
+                    onClick={() => activeTab === undefined ? browserHistory.step(-1) : void native.command("back")}
                 >
                     <ArrowLeftIcon />
                 </button>
@@ -50,16 +66,17 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Forward"
                     title="Forward"
-                    disabled={history.at >= history.entries.length - 1}
-                    onClick={() => browserHistory.step(1)}
+                    disabled={activeTab === undefined ? history.at >= history.entries.length - 1 : !activeTab.forward}
+                    onClick={() => activeTab === undefined ? browserHistory.step(1) : void native.command("forward")}
                 >
                     <ArrowRightIcon />
                 </button>
                 <input
                     className="browser-address"
                     aria-label="Address"
-                    value={typed ?? displayAddress(entry, annex?.url)}
+                    value={typed ?? (activeTab === undefined ? displayAddress(entry, annex?.url) : activeTab.url)}
                     placeholder={PLACEHOLDER}
+                    disabled={native.clearing}
                     spellCheck={false}
                     onChange={(event) => setTyped(event.target.value)}
                     onFocus={(event) => event.currentTarget.select()}
@@ -72,8 +89,10 @@ export function BrowserView({ visible }: ViewProps) {
                     aria-label="Reload"
                     title="Reload"
                     onClick={() => {
-                        reload();
-                        setFrameRound((round) => round + 1);
+                        if (activeTab === undefined) {
+                            reload();
+                            setFrameRound((round) => round + 1);
+                        } else void native.command("reload");
                     }}
                 >
                     <RefreshIcon />
@@ -83,15 +102,29 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Open in your browser"
                     title="Open in your browser"
-                    disabled={annex === undefined || !isAnnexPath(entry)}
-                    onClick={() => void (window.veraDesktop as DesktopBridge | undefined)?.openAnnexPage(entry)}
+                    disabled={activeTab === undefined && (annex === undefined || !isAnnexPath(entry))}
+                    onClick={() => activeTab === undefined ? void (window.veraDesktop as DesktopBridge | undefined)?.openAnnexPage(entry) : void native.command("external")}
                 >
                     <ExternalIcon />
                 </button>
             </div>
-            {result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
-            {result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
-            {annex === undefined ? null : <BrowserBody annex={annex} entry={entry} frameRound={frameRound} />}
+            <nav className="browser-tabs" aria-label="Browser tabs">
+                <button type="button" className="browser-tab" aria-current={native.state.active === null ? "page" : undefined} onClick={() => void native.command("select", null)}>Vera</button>
+                {native.state.tabs.map((tab) => <span key={tab.id}>
+                    <button type="button" className="browser-tab" aria-current={native.state.active === tab.id ? "page" : undefined} onClick={() => void native.command("select", tab.id)}>{tab.title}</button>
+                    <button type="button" className="browser-tab" aria-label={`Close ${tab.title}`} onClick={() => void native.command("close", tab.id)}>×</button>
+                </span>)}
+                <button type="button" className="browser-tab" aria-label="New tab" disabled={native.state.tabs.length >= BROWSER_TAB_LIMIT} onClick={() => void native.command("open")}>+</button>
+            </nav>
+            <div className="browser-controls">
+                <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native.state.toolsEnabled} disabled={!native.state.toolsAvailable} onChange={(event) => void native.command("tools", event.target.checked)} /> Browser tools {native.state.toolsEnabled ? "on" : "off"}</label>
+                <button type="button" disabled={native.clearing} onClick={() => void native.command("forget")}>Forget browsing data</button>
+            </div>
+            {native.error === undefined ? null : <p role="alert" className="view-note">{native.error}</p>}
+            {activeTab === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
+            {activeTab === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
+            {activeTab === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} /> : null}
+            {activeTab === undefined ? null : <div className="browser-frame" ref={native.surface} />}
         </div>
     );
 }

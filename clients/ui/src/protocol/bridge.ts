@@ -6,6 +6,7 @@ import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
+import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 
 // "installing" is the packaged app putting its bundled release in place before it connects.
 export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
@@ -267,6 +268,7 @@ export interface DesktopBridge {
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.
     openAnnexPage(path: string): Promise<boolean>;
+    browser(command: string, value?: string | number | boolean | null | BrowserBounds): Promise<BrowserState>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.

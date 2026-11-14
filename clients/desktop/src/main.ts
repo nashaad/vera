@@ -23,6 +23,9 @@ import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
+import { BrowserPane } from "./browser/pane.ts";
+import { BrowserCdp } from "./browser/cdp.ts";
+import { BrowserGateway } from "./browser/gateway.ts";
 import { AssignmentService } from "./assignments.ts";
 import { BootSession, type BootPreflight } from "./boot.ts";
 import { bundledInstallPreflight } from "./install-preflight.ts";
@@ -81,6 +84,9 @@ let activeTheme: ThemeChoice = DEFAULT_THEME;
 let hostSocketPath: string | undefined;
 // The annex base URL from the last page list the window read; the browser frame may only load from it.
 let annexUrl: string | undefined;
+let browserPane: BrowserPane | undefined;
+let browserGateway: BrowserGateway | undefined;
+let browserClearing: Promise<void> | undefined;
 
 const pipe = new HostPipe(sendEvent);
 const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
@@ -106,15 +112,18 @@ function receiveEvent(event: DesktopEvent): void {
     if (event.type === "ready") {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
+        browserGateway?.start(event.socketPath);
         for (const pane of panes) pane.connect(event.socketPath);
     } else if (event.type === "disconnected" || event.type === "failed") {
         hostSocketPath = undefined;
+        browserGateway?.stop();
     }
 }
 
 function startBoot(): void {
     boot?.cancel();
     hostSocketPath = undefined;
+    browserGateway?.stop();
     pipe.close();
     for (const pane of panes) pane.close();
     boot = new BootSession(selectedVeraHome(), receiveEvent, installPreflight());
@@ -137,6 +146,9 @@ function installMenu(): void {
 function shutdown(): void {
     if (stopping) return;
     stopping = true;
+    browserGateway?.stop();
+    browserPane?.dispose();
+    browserPane = undefined;
     boot?.cancel();
     boot = undefined;
     hostSocketPath = undefined;
@@ -499,6 +511,39 @@ ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean
     await shell.openExternal(address);
     return true;
 });
+ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown) => {
+    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
+    const pane = browserPane;
+    if (command !== "state" && command !== "bounds" && browserClearing !== undefined) await browserClearing;
+    if (command === "open" && (value === undefined || typeof value === "string")) pane.open(value);
+    if (command === "navigate" && typeof value === "string") {
+        if (pane.current() === undefined) pane.open(value);
+        else await pane.navigate(value).catch(() => {});
+    }
+    if (command === "select" && (value === null || typeof value === "number")) pane.select(value);
+    if (command === "close" && typeof value === "number") pane.close(value);
+    if (command === "back" && pane.current()?.navigationHistory.canGoBack()) pane.current()?.navigationHistory.goBack();
+    if (command === "forward" && pane.current()?.navigationHistory.canGoForward()) pane.current()?.navigationHistory.goForward();
+    if (command === "reload") pane.current()?.reload();
+    if (command === "external") {
+        const url = pane.current()?.getURL();
+        if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
+    }
+    if (command === "forget") {
+        const clearing = browserGateway?.forget() ?? Promise.reject(new Error("The host is not running."));
+        browserClearing = clearing;
+        try { await clearing; } finally { if (browserClearing === clearing) browserClearing = undefined; }
+    }
+    if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
+    if (command === "bounds") {
+        const rect = value as Record<string, unknown> | null;
+        if (rect === null || typeof rect !== "object") pane.layout(undefined);
+        else if ([rect.x, rect.y, rect.width, rect.height].every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 10000)) {
+            pane.layout({ x: Math.round(rect.x as number), y: Math.round(rect.y as number), width: Math.round(rect.width as number), height: Math.round(rect.height as number) });
+        }
+    }
+    return { ...pane.state(), toolsEnabled: browserGateway?.enabled ?? false, toolsAvailable: browserGateway?.available ?? false };
+});
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;
     const color = parseWindowBackground(value);
@@ -511,4 +556,6 @@ app.whenReady().then(() => {
     themeService.load();
     installMenu();
     window = createWindow();
+    browserPane = new BrowserPane(window, selectedVeraHome());
+    browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));
 });

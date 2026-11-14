@@ -13,9 +13,14 @@ export function PageCommands({ commands }: { readonly commands: CommandRegistry 
     const latest = useRef(workbench);
     latest.current = workbench;
 
+    useEffect(() => window.veraDesktop?.onEvent((event) => {
+        if (event.type === "command" && event.id === "browser.reveal") revealContainer(latest.current, CORE_CONTAINERS.browser);
+    }), []);
+
     useEffect(() => registerPageCommands(commands, {
         open: (entry) => {
             browserHistory.browse(entry);
+            void window.veraDesktop?.browser("select", null);
             revealContainer(latest.current, CORE_CONTAINERS.browser);
         },
     }), [commands]);

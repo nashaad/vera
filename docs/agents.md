@@ -62,8 +62,9 @@ instructions and tools. It leaves the conversation model unchanged.
 
 Chat is an included role for conversations that are not about a project. It
 has no instructions of its own. Its tools are `web_search`, `web_fetch`,
-`read`, `list`, `write`, and `edit`, so it can look things up on the web and
-keep files in the conversation's own folder.
+`read`, `list`, `write`, `edit`, and `desktop_browser`, so it can look things up
+on the web, keep files in the conversation's own folder, and use the desktop
+Browser pane when its tools are on.
 
 A conversation started without a project folder is a chat. The host creates
 its folder beside the session file, as `<session-id>.jsonl.files`, works in
