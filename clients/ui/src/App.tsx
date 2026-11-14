@@ -5,7 +5,6 @@ import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
-import { parseModelSettings } from "./models/settings.ts";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { bannerFor } from "./state/connection.ts";
@@ -34,10 +33,8 @@ export function App() {
         const bridge = window.veraDesktop;
         if (state.phase !== "attached" || bridge === undefined) return;
         let live = true;
-        void bridge.readModelSettings().then((result) => {
-            if (!live || !result.ok) return;
-            const settings = parseModelSettings(result.settings);
-            if (settings !== undefined && (settings.providers ?? []).length === 0) setFirstRun(true);
+        void bridge.listProviders().then((result) => {
+            if (live && result.ok && result.needsSetup) setFirstRun(true);
         });
         return () => { live = false; };
     }, [state.phase]);

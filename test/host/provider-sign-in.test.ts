@@ -26,6 +26,7 @@ test("host lists provider status and refuses invalid saves without echoing secre
     try {
         const listed = await request({ type: "provider_list", request_id: "1" });
         expect(listed.type).toBe("provider_list_result");
+        expect(listed.needs_setup).toBe(true);
         for (const [provider, key, endpoint, custom] of [
             ["unknown", "fake-secret", "https://example.invalid", false],
             ["gateway", "", "https://example.invalid", true],

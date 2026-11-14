@@ -210,7 +210,7 @@ export interface ProviderSave {
     readonly custom: boolean;
     readonly editing?: string;
 }
-export type ProviderListResult = { readonly ok: true; readonly providers: readonly ProviderStatus[] } | HostRequestFailure;
+export type ProviderListResult = { readonly ok: true; readonly providers: readonly ProviderStatus[]; readonly needsSetup: boolean } | HostRequestFailure;
 export type ProviderResult = { readonly ok: true; readonly provider: ProviderStatus } | HostRequestFailure;
 
 export interface DesktopBridge {

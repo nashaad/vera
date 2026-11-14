@@ -915,7 +915,7 @@ export interface ModelOperationCompleteResponse {
 }
 
 export interface ProviderListRequest { readonly type: "provider_list"; readonly request_id: string; }
-export interface ProviderListResult { readonly type: "provider_list_result"; readonly request_id: string; readonly providers: readonly ProviderSignInStatus[]; }
+export interface ProviderListResult { readonly type: "provider_list_result"; readonly request_id: string; readonly providers: readonly ProviderSignInStatus[]; readonly needs_setup: boolean; }
 export interface ProviderSaveRequest {
     readonly type: "provider_save";
     readonly request_id: string;

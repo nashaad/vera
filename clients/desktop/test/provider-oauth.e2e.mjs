@@ -40,7 +40,7 @@ const host = createSocketServer((socket) => {
         const answer = request.type === "host_identity" ? { type: "host_identity", pid: process.pid, protocol_version: 37 }
             : request.type === "list_agents" ? { type: "agent_list", agents: [], total: 0 }
                 : request.type === "model_settings" ? { type: "model_settings", settings: settings() }
-                    : request.type === "provider_list" ? { type: "provider_list_result", request_id: request.request_id, providers: [provider()] }
+                    : request.type === "provider_list" ? { type: "provider_list_result", request_id: request.request_id, providers: [provider()], needs_setup: !connected }
                         : request.type === "catalog_refresh" ? { type: "catalog_refresh", settings: settings() }
                             : request.type === "provider_select_model" ? { type: "provider_select_model_result", request_id: request.request_id }
                                 : { type: "protocol_error", reason: "unsupported_or_invalid_command" };

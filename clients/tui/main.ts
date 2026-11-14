@@ -833,7 +833,7 @@ export async function startConfiguredTui(
             }),
             clientBuildId,
             installedBuildId: () => currentReleaseBuildId(),
-            listProviders: async () => listProvidersThroughHost(await pairedSocket()),
+            listProviders: async () => (await listProvidersThroughHost(await pairedSocket())).providers,
             saveProvider: async (input) => saveProviderThroughHost(await pairedSocket(), input),
             saveProviderKey: async (provider, key) => saveKnownProviderKeyThroughHost(await pairedSocket(), provider, key),
             loginProvider: async (provider, onBrowserUnavailable) => {

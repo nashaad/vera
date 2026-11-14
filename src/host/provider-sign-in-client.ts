@@ -3,7 +3,12 @@ import type { ProviderSignInStatus } from "../providers/provider-sign-in.ts";
 import type { SaveProviderInput } from "../providers/save-provider.ts";
 import { connectHost } from "./connection.ts";
 
-export async function listProvidersThroughHost(socketPath: string): Promise<readonly ProviderSignInStatus[]> {
+export interface ProviderListAnswer {
+    readonly providers: readonly ProviderSignInStatus[];
+    readonly needsSetup: boolean;
+}
+
+export async function listProvidersThroughHost(socketPath: string): Promise<ProviderListAnswer> {
     const connection = await connectHost({ socketPath });
     try {
         const requestId = randomUUID();
@@ -11,10 +16,10 @@ export async function listProvidersThroughHost(socketPath: string): Promise<read
         const response = await connection.receiveWithin(10_000, "The host did not list providers") as Record<string, unknown>;
         if (response.request_id !== requestId) throw new Error("Invalid provider response");
         if (response.type === "provider_request_failed") throw new Error(String(response.reason));
-        if (response.type !== "provider_list_result" || !Array.isArray(response.providers)) throw new Error("Invalid provider response");
+        if (response.type !== "provider_list_result" || !Array.isArray(response.providers) || typeof response.needs_setup !== "boolean") throw new Error("Invalid provider response");
         const providers = response.providers.map(parseProviderSignInStatus);
         if (providers.some((provider) => provider === undefined)) throw new Error("Invalid provider response");
-        return providers as ProviderSignInStatus[];
+        return { providers: providers as ProviderSignInStatus[], needsSetup: response.needs_setup };
     } finally { connection.close(); }
 }
 
@@ -61,7 +66,7 @@ export async function loginProviderThroughHost(socketPath: string, provider: str
 }
 
 export async function saveKnownProviderKeyThroughHost(socketPath: string, provider: string, key: string): Promise<void> {
-    const entry = (await listProvidersThroughHost(socketPath)).find((row) => row.id === provider);
+    const entry = (await listProvidersThroughHost(socketPath)).providers.find((row) => row.id === provider);
     if (entry?.endpoint === undefined || entry.protocol === undefined) throw new Error("Provider endpoint is unavailable");
     await saveProviderThroughHost(socketPath, { id: provider, apiKey: key, custom: entry.custom,
         ...(entry.connected ? { editing: provider } : {}),

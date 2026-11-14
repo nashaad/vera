@@ -1,5 +1,5 @@
 import { connectedProviderCatalogs } from "./catalog-state.ts";
-import { loadOptionalVeraConfig } from "../config.ts";
+import { loadOptionalVeraConfig, type VeraConfig } from "../config.ts";
 import { createAuthStorage, type AuthStorage } from "./auth-storage.ts";
 import { loginOpenAICodex } from "./openai-codex-oauth.ts";
 import { isSafeProviderId } from "./provider-id.ts";
@@ -30,6 +30,7 @@ export interface ProviderSignInOptions {
 
 export interface ProviderSignInService {
     list(): readonly ProviderSignInStatus[];
+    needsSetup(): boolean;
     save(input: SaveProviderInput & { readonly custom: boolean; readonly reuseExisting?: boolean }): Promise<ProviderSignInStatus>;
     login(provider: string, signal: AbortSignal, onUrl: (url: string) => void): Promise<ProviderSignInStatus>;
 }
@@ -65,6 +66,7 @@ export function createProviderSignInService(options: ProviderSignInOptions = {})
     };
     return {
         list,
+        needsSetup: () => providerSetupRequired(loadOptionalVeraConfig({ path: options.configPath }), { authStorage: auth, cacheDir: options.cacheDir, env: options.env }),
         async save(input) {
             if (!isSafeProviderId(input.id) || input.id.length > 128) throw new Error("Invalid provider name");
             const provider = findConfiguredProvider(input.id, loadOptionalVeraConfig({ path: options.configPath }));
@@ -110,4 +112,11 @@ function safeEndpoint(value: string | undefined): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+export function providerSetupRequired(
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
+    options: Parameters<typeof connectedProviderCatalogs>[1] = {},
+): boolean {
+    return connectedProviderCatalogs(config, options).length === 0;
 }

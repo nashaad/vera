@@ -1,3 +1,4 @@
+import { providerSetupRequired } from "../../../src/providers/provider-sign-in.ts";
 import type { ProviderSignInStatus } from "../../../src/providers/provider-sign-in.ts";
 import { isRefreshableProvider } from "../../../src/model/refreshable-providers.ts";
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
@@ -659,9 +660,9 @@ export function onboardingInput(
 /** Home is built before the runtime credential store is assigned. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
-        return connectedProviderCatalogs(loadOptionalVeraConfig(), {
+        return providerSetupRequired(loadOptionalVeraConfig(), {
             authStorage: rt.authStorage ?? rt.dependencies.authStorage ?? createAuthStorage(),
-        }).length === 0;
+        });
     } catch {
         return false;
     }

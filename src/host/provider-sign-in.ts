@@ -11,7 +11,7 @@ export class ProviderSignInCoordinator {
     async handle(request: Request, send: (message: object) => Promise<void>, signal: AbortSignal): Promise<void> {
         try {
             if (request.type === "provider_list") {
-                await send({ type: "provider_list_result", request_id: request.request_id, providers: this.service.list() });
+                await send({ type: "provider_list_result", request_id: request.request_id, providers: this.service.list(), needs_setup: this.service.needsSetup() });
                 return;
             }
             if (request.type === "provider_save") {

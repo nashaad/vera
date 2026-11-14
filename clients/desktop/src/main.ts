@@ -356,7 +356,7 @@ ipcMain.handle(CHANNELS.catalogRefresh, (event, provider: unknown, workspace: un
 let providerLogin: AbortController | undefined;
 ipcMain.handle(CHANNELS.providerList, async (event) => {
     if (!fromWindow(event) || hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
-    try { return { ok: true, providers: await listProvidersThroughHost(hostSocketPath) }; }
+    try { return { ok: true, ...await listProvidersThroughHost(hostSocketPath) }; }
     catch { return { ok: false, reason: "The host did not list providers." }; }
 });
 ipcMain.handle(CHANNELS.providerSave, async (event, value: unknown) => {
