@@ -123,6 +123,10 @@ export interface ToolApprovalUiRequest {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    /** The absolute working folder of the session whose tool asks. */
+    readonly workspace?: string;
+    /** True when `workspace` is that session's own chat folder; the host leaves it out otherwise. */
+    readonly chat?: boolean;
 }
 
 export interface ToolApprovalUiResponse {
@@ -132,6 +136,8 @@ export interface ToolApprovalUiResponse {
         | "allow_similar"
         | "allow_always"
         | "deny";
+    /** What the person typed instead; the host rejects it on any decision but `deny`. */
+    readonly notes?: string;
 }
 
 export interface UserQuestionChoice {

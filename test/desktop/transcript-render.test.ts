@@ -77,19 +77,20 @@ const approval: ApprovalRequest = {
     reason: "",
     warning: "",
     grants: [],
+    grantPredicates: [],
 };
 
 test("@core an approval's title is the action and its target", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, onDecide: () => undefined }));
     expect(html).toContain(">Create<");
     expect(html).toContain("/nest/index.html");
-    expect(html).toContain("Allow once");
+    expect(html).toContain(">Allow<");
 });
 
 test("an answered approval shows its answer in place of the choices", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, outcome: "deny", onDecide: () => undefined }));
     expect(html).toContain("Denied");
-    expect(html).not.toContain("Allow once");
+    expect(html).not.toContain(">Allow<");
     expect(html).toContain("data-answered=\"true\"");
 });
 

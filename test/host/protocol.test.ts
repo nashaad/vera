@@ -654,6 +654,20 @@ test("host protocol parses messages after attach", () => {
     });
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
+        requestId: "request-3",
+        response: { type: "tool_approval", decision: "deny", notes: " use rsync " },
+    }))).toEqual({
+        type: "ui_response",
+        requestId: "request-3",
+        response: { type: "tool_approval", decision: "deny", notes: "use rsync" },
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "ui_response",
+        requestId: "request-4",
+        response: { type: "tool_approval", decision: "allow_once", notes: "use rsync" },
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "ui_response",
         requestId: "legacy-request",
         response: { type: "tool_approval", decision: "allow" },
     }))).toBeUndefined();

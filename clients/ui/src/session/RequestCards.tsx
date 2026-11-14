@@ -61,7 +61,16 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
             {past.map((entry) => {
                 const view = pastApprovalView(entry, pastApprovals);
                 if (view === "card") {
-                    return <ApprovalCard key={entry.request.requestId} request={entry.request} outcome={entry.decision} onDecide={noDecision} />;
+                    return (
+                        <ApprovalCard
+                            key={entry.request.requestId}
+                            request={entry.request}
+                            outcome={entry.decision}
+                            {...(entry.request.workspace === undefined ? {} : { workspace: entry.request.workspace })}
+                            chat={entry.request.chat === true}
+                            onDecide={noDecision}
+                        />
+                    );
                 }
                 return view === "line" ? <DeniedLine key={entry.request.requestId} request={entry.request} /> : null;
             })}
@@ -75,7 +84,9 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
                             <ApprovalCard
                                 key={request.requestId}
                                 request={request}
-                                onDecide={(decision) => respond(request, approvalResponse(request.requestId, decision), decision)}
+                                {...(request.workspace === undefined ? {} : { workspace: request.workspace })}
+                                chat={request.chat === true}
+                                onDecide={(decision, notes) => respond(request, approvalResponse(request.requestId, decision, notes), decision)}
                             />
                         );
                     case "question":

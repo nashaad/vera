@@ -1053,6 +1053,10 @@ export async function relayChildToolApproval(_reg: AgentRegistry, parent: Regist
                 timeoutMs: CHILD_TOOL_APPROVAL_TIMEOUT_MS,
                 sourceAgentId,
                 sourceTask,
+                ...(update.request.workspace === undefined
+                    ? {}
+                    : { workspace: update.request.workspace }),
+                ...(update.request.chat === true ? { chat: true as const } : {}),
                 ...(signal === undefined ? {} : { signal }),
             },
         );

@@ -1498,6 +1498,87 @@ test("malformed user question responses are rejected", () => {
     }
 });
 
+function approvalCommand(response: Record<string, unknown>): unknown {
+    return {
+        type: "ui_response",
+        requestId: "approval-1",
+        response: { type: "tool_approval", ...response },
+    };
+}
+
+function approvalResponse(response: Record<string, unknown>): unknown {
+    const command = parseClientCommand(approvalCommand(response));
+    return command?.type === "ui_response" ? command.response : undefined;
+}
+
+test("a denied approval carries the notes the person typed", () => {
+    expect(approvalResponse({
+        decision: "deny",
+        notes: "put it in the Desktop folder instead",
+    })).toStrictEqual({
+        type: "tool_approval",
+        decision: "deny",
+        notes: "put it in the Desktop folder instead",
+    });
+});
+
+test("approval notes are trimmed and empty ones are dropped", () => {
+    expect(approvalResponse({ decision: "deny", notes: "  use rsync \n" }))
+        .toStrictEqual({ type: "tool_approval", decision: "deny", notes: "use rsync" });
+    for (const notes of ["", "   ", "\n\t"]) {
+        expect(approvalResponse({ decision: "deny", notes }))
+            .toStrictEqual({ type: "tool_approval", decision: "deny" });
+    }
+    expect(approvalResponse({ decision: "allow_once", notes: "  " }))
+        .toStrictEqual({ type: "tool_approval", decision: "allow_once" });
+});
+
+test("approval notes are cut to the first 2000 characters", () => {
+    const exact = "a".repeat(2000);
+    expect(approvalResponse({ decision: "deny", notes: exact }))
+        .toStrictEqual({ type: "tool_approval", decision: "deny", notes: exact });
+    expect(approvalResponse({ decision: "deny", notes: `${exact}bbb` }))
+        .toStrictEqual({ type: "tool_approval", decision: "deny", notes: exact });
+    expect(approvalResponse({ decision: "deny", notes: `  ${"c".repeat(3000)}` }))
+        .toStrictEqual({
+            type: "tool_approval",
+            decision: "deny",
+            notes: "c".repeat(2000),
+        });
+});
+
+test("cutting approval notes never leaves half of a surrogate pair", () => {
+    const notes = `${"a".repeat(1999)}\u{1F600}tail`;
+    expect(approvalResponse({ decision: "deny", notes }))
+        .toStrictEqual({
+            type: "tool_approval",
+            decision: "deny",
+            notes: "a".repeat(1999),
+        });
+});
+
+test("approval notes are rejected with any decision but deny", () => {
+    for (const decision of ["allow_once", "allow_similar", "allow_always"]) {
+        expect(parseClientCommand(approvalCommand({ decision, notes: "do it" })))
+            .toBeUndefined();
+    }
+});
+
+test("approval notes that are not text are rejected", () => {
+    for (const notes of [null, 5, true, ["no"], { text: "no" }]) {
+        expect(parseClientCommand(approvalCommand({ decision: "deny", notes })))
+            .toBeUndefined();
+    }
+});
+
+test("an approval without notes keeps its shape", () => {
+    for (const decision of ["allow_once", "allow_similar", "allow_always", "deny"]) {
+        expect(approvalResponse({ decision }))
+            .toStrictEqual({ type: "tool_approval", decision });
+    }
+    expect(parseClientCommand(approvalCommand({ decision: "allow" }))).toBeUndefined();
+});
+
 test("user question requests share the ordered agent update sequence", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
@@ -1540,6 +1621,47 @@ test("user question requests share the ordered agent update sequence", () => {
             seq: 2,
         },
     ]);
+});
+
+test("a tool approval request keeps its folder facts through the encoder", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const toolCall = { id: "call-1", name: "bash", input: { command: "ls" } };
+
+    protocol({
+        type: "ui_request",
+        requestId: "approval-1",
+        request: {
+            type: "tool_approval",
+            toolCall,
+            reason: "This command may read files.",
+            warning: "",
+            workspace: "/work/project",
+            chat: true,
+        },
+    });
+    protocol({
+        type: "ui_request",
+        requestId: "approval-2",
+        request: {
+            type: "tool_approval",
+            toolCall,
+            reason: "This command may read files.",
+            warning: "",
+        },
+    });
+
+    expect(updates[0]).toMatchObject({
+        request: { workspace: "/work/project", chat: true },
+    });
+    const bare = updates[1];
+    if (bare?.type !== "ui_request") throw new Error("Expected a UI request update");
+    expect("workspace" in bare.request).toBe(false);
+    expect("chat" in bare.request).toBe(false);
 });
 
 test("configuration-required responses and requests stay typed", () => {

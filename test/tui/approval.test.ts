@@ -39,7 +39,7 @@ const request: ToolApprovalUiRequestUpdate = {
 
 test("TUI approval shows the exact command and honest warning", () => {
     expect(renderTuiApproval(request)).toBe([
-        "Permission required · bash",
+        "Run curl?",
         "This command may access the network.",
         "",
         "$ curl https://example.com",
@@ -48,10 +48,11 @@ test("TUI approval shows the exact command and honest warning", () => {
         "",
         // The predicate rides on the row that offers it rather than repeating
         // itself as a block above the answers.
-        "1 Allow once",
-        "2 Session curl",
+        "1 Allow",
+        "2 Allow for this chat curl",
         "3 Deny",
-        "4 Always",
+        "4 Always allow",
+        "5 Tell Vera what to do instead",
     ].join("\n"));
 });
 
@@ -74,12 +75,14 @@ test("child approvals identify their agent and task", () => {
     // with it.
     expect(renderTuiApproval(childRequest)).not.toContain("Permission mode");
     expect(renderTuiApproval(childRequest)).not.toContain("ask.default");
-    expect(renderTuiApproval(childRequest)).not.toContain("Session");
-    expect(renderTuiApproval(childRequest)).not.toContain("Always");
+    expect(renderTuiApproval(childRequest)).not.toContain("Allow for this chat");
+    expect(renderTuiApproval(childRequest)).not.toContain("Always allow");
+    expect(renderTuiApproval(childRequest)).not.toContain("Tell Vera");
     expect(tuiApprovalHint(childRequest)).toBe(
-        "approval required · 1 once · 3/esc deny · Ctrl+C stop",
+        "approval required · 1 allow · 3/esc deny · Ctrl+C stop",
     );
-    expect(tuiApprovalHint(request)).toContain("2 session prefix");
+    expect(tuiApprovalHint(request)).toContain("2 this chat");
+    expect(tuiApprovalHint(request)).toContain("5 tell Vera");
     expect(selectableApprovalKeys(childRequest)).toEqual(["1", "3"]);
     expect(createTuiApprovalResponse(childRequest, { name: "2" }))
         .toBeUndefined();
@@ -92,6 +95,7 @@ test("TUI approval accepts numeric once, similar, and deny keys", () => {
     expect(tuiApprovalDecision({ name: "2" })).toBe("allow_similar");
     expect(tuiApprovalDecision({ name: "3" })).toBe("deny");
     expect(tuiApprovalDecision({ name: "4" })).toBe("allow_always");
+    expect(tuiApprovalDecision({ name: "5" })).toBeUndefined();
     expect(tuiApprovalDecision({ name: "escape" })).toBe("deny");
     expect(tuiApprovalDecision({ name: "1", ctrl: true })).toBeUndefined();
     expect(tuiApprovalDecision({ name: "return" })).toBeUndefined();
@@ -122,10 +126,10 @@ test("both remembering rows are unavailable without a derived predicate", () => 
     expect(tuiApprovalDecision({ name: "2" }, false)).toBeUndefined();
     expect(tuiApprovalDecision({ name: "4" }, false)).toBeUndefined();
     const rendered = renderTuiApproval(noGrants);
-    expect(rendered).toContain("2 Session");
-    expect(rendered).toContain("4 Always");
-    expect(rendered).toContain("Session and always are unavailable.");
-    expect(selectableApprovalKeys(noGrants)).toEqual(["1", "3"]);
+    expect(rendered).toContain("2 Allow for this chat");
+    expect(rendered).toContain("4 Always allow");
+    expect(rendered).toContain("Allow for this chat and Always allow are unavailable.");
+    expect(selectableApprovalKeys(noGrants)).toEqual(["1", "3", "5"]);
     expect(createTuiApprovalResponse(noGrants, { name: "4" }))
         .toBeUndefined();
 });
@@ -157,7 +161,7 @@ test("arrow selection moves only across available answers", async () => {
             requestId: "request-no-grants",
             response: { type: "tool_approval", decision: "deny" },
         });
-        // ↑ from the first answer stays put and still confirms Allow once.
+        // ↑ from the first answer stays put and still confirms Allow.
         view.update(request);
         expect(view.handleKey(request, { name: "up" }))
             .toEqual({ handled: true });
@@ -200,10 +204,12 @@ test("answers that cannot be chosen are dimmed", async () => {
             TextAttributes.DIM,
             TextAttributes.NONE,
             TextAttributes.DIM,
+            TextAttributes.NONE,
         ]);
         view.update(request);
         expect(attributes()).toEqual([
             TextAttributes.BOLD,
+            TextAttributes.NONE,
             TextAttributes.NONE,
             TextAttributes.NONE,
             TextAttributes.NONE,
@@ -235,12 +241,18 @@ test("left and right move the approval highlight like up and down and stay at th
             .toEqual({ handled: true });
         expect(decision("return"))
             .toEqual({ type: "tool_approval", decision: "allow_similar" });
-        for (const _ of [1, 2, 3]) view.handleKey(request, { name: "right" });
+        for (const _ of [1, 2]) view.handleKey(request, { name: "right" });
         expect(decision("return"))
             .toEqual({ type: "tool_approval", decision: "allow_always" });
         view.handleKey(request, { name: "left" });
         expect(decision("return"))
             .toEqual({ type: "tool_approval", decision: "deny" });
+        // Tell Vera is the last stop; going further stays on it.
+        for (const _ of [1, 2, 3]) view.handleKey(request, { name: "right" });
+        expect(view.handleKey(request, { name: "return" }))
+            .toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable)
+            .not.toBe(view.details);
     } finally {
         setup.renderer.destroy();
     }
@@ -275,16 +287,15 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
     try {
         await setup.flush();
         let frame = setup.captureCharFrame();
-        expect(frame).toContain("Permission required");
+        expect(frame).toContain("Run curl?");
         expect(frame).toContain("$ grep");
         const lines = frame.split("\n");
-        const headerLine = lines.find((line) =>
-            line.includes("Permission required")
-        );
+        const headerLine = lines.find((line) => line.includes("Run curl?"));
         const commandLine = lines.find((line) => line.includes("$ grep"));
-        expect(headerLine?.indexOf("Permission"))
+        expect(headerLine?.indexOf("Run"))
             .toBe(commandLine?.indexOf("$"));
-        expect(frame).toContain("1 Allow once");
+        expect(frame).toContain("1 Allow");
+        expect(frame).toContain("5 Tell Vera what to do instead");
         expect(frame).toContain("up/down select");
         expect(view.box.bottom).toBe(0);
         expect(view.box.width).toBe(80);
@@ -305,13 +316,12 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(view.box.bottom).toBe(0);
         expect(view.box.width).toBe(42);
         expect(view.box.left).toBe(0);
-        expect(frame).toContain("Permission required");
+        expect(frame).toContain("Run curl?");
         expect(frame).toContain("$ grep");
-        expect(frame).toContain("1 Allow once");
-        // 42 columns cannot hold the button row, so it wraps rather than
-        // clipping an answer off the screen.
+        expect(frame).toContain("1 Allow");
         expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always");
+        expect(frame).toContain("4 Always allow");
+        expect(frame).toContain("5 Tell Vera what to do instead");
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
             .toBe(`┃${" ".repeat(41)}`);
         expect(view.actions.screenY).toBeLessThan(12);
@@ -322,28 +332,30 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
-        expect(setup.captureCharFrame()).toContain("1 Allow once");
+        expect(setup.captureCharFrame()).toContain("1 Allow");
 
         setup.resize(30, 8);
         view.update(requestWithCommand("pwd", "short-terminal"));
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(view.box.left).toBe(0);
-        expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("2 Session curl");
+        expect(frame).toContain("1 Allow");
+        expect(frame).toContain("2 Allow for this chat");
         expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always");
+        expect(frame).toContain("4 Always allow");
+        expect(frame).toContain("5 Tell Vera what to");
         expect(view.bar.visible).toBe(false);
 
         setup.resize(24, 6);
         view.update(requestWithCommand("pwd", "very-short-terminal"));
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).not.toContain("Permission required");
-        expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("2 Session curl");
+        expect(frame).not.toContain("Run curl?");
+        expect(frame).toContain("1 Allow");
+        expect(frame).toContain("2 Allow for this");
         expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always");
+        expect(frame).toContain("4 Always allow");
+        expect(frame).toContain("5 Tell Vera what to");
     } finally {
         setup.renderer.destroy();
     }
@@ -384,17 +396,17 @@ test("a predicate too long for its row is stated in the body", async () => {
         view.update(longScope);
         await setup.flush();
         let frame = setup.captureCharFrame();
-        expect(frame).toContain(`2 Session write ${path}`);
-        expect(frame).not.toContain("Session and always remember:");
+        expect(frame).toContain(`2 Allow for this chat write ${path}`);
+        expect(frame).not.toContain("Allow for this chat and Always allow remember:");
 
         // Narrow enough to clip it, so the body takes it instead.
-        setup.resize(50, 20);
+        setup.resize(56, 28);
         view.update(longScope);
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).not.toContain(`2 Session write ${path}`);
-        expect(frame).toContain("Session and always remember:");
-        expect(frame).toContain("4 Always");
+        expect(frame).not.toContain(`2 Allow for this chat write ${path}`);
+        expect(frame).toContain("Allow for this chat and Always allow remember:");
+        expect(frame).toContain("4 Always allow");
     } finally {
         setup.renderer.destroy();
     }
@@ -435,7 +447,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         expect(view.box.height).toBeLessThanOrEqual(20);
         expect(view.box.screenY + view.box.height).toBe(22);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
-        expect(setup.captureCharFrame()).toContain("1 Allow once");
+        expect(setup.captureCharFrame()).toContain("1 Allow");
     } finally {
         setup.renderer.destroy();
     }

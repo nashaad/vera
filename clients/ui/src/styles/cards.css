@@ -29,6 +29,15 @@
     color: var(--vera-text-muted);
 }
 
+.request-head > .request-close {
+    margin: calc(var(--vera-space) * -1) calc(var(--vera-space) * -1) calc(var(--vera-space) * -1) 0;
+}
+
+.request-head > .request-close:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .request-head-main {
     display: flex;
     flex: 1 1 auto;
@@ -135,15 +144,40 @@
     color: var(--vera-warning);
 }
 
-.request-why {
-    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3.25);
+.request-folder {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.request-fold-toggle {
+    display: inline-flex;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    text-align: left;
+}
+
+.request-fold-toggle:hover {
+    color: var(--vera-text);
+}
+
+.request-fold-toggle[aria-expanded="true"] .chev {
+    transform: rotate(90deg);
+}
+
+.request-fold-body {
+    margin-top: calc(var(--vera-space) * 2);
     color: var(--vera-text-muted);
     font-size: var(--vera-font-size-label);
     line-height: 1.5;
-    border-top: thin solid var(--vera-border);
 }
 
-.request-why > p + p {
+.request-fold-body > * + * {
     margin-top: calc(var(--vera-space) * 1.5);
 }
 
@@ -279,6 +313,11 @@
     width: auto;
 }
 
+.request-custom-mark {
+    flex: 0 0 auto;
+    color: var(--vera-text-muted);
+}
+
 .request-note {
     color: var(--vera-text-muted);
     font-size: var(--vera-font-size-label);
@@ -303,4 +342,142 @@
     font-size: var(--vera-font-size-label);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Choice card (approvals and questions): the keys, the pencil and the chevron share one column, and
+   the text after them lines up across rows. Rows sit flush; the hovered or focused row fills. */
+.choice-card {
+    --request-lead: calc(var(--vera-space) * 5);
+    --request-lead-gap: calc(var(--vera-space) * 2.25);
+    --request-inset: calc(var(--vera-space) * 2);
+}
+
+.choice-card .request-head {
+    padding: calc(var(--vera-space) * 4) calc(var(--vera-space) * 4) calc(var(--vera-space) * 3.5);
+}
+
+.choice-card .request-body {
+    padding: 0 var(--request-inset) calc(var(--vera-space) * 2);
+}
+
+.choice-card .request-body > * + * {
+    margin-top: 0;
+}
+
+.choice-card .request-choices {
+    gap: 0;
+}
+
+.choice-card .request-choice {
+    padding: calc(var(--vera-space) * 0.75) var(--request-inset);
+    border: none;
+    border-radius: var(--vera-radius);
+}
+
+.choice-card .request-choice:focus-visible {
+    outline: none;
+}
+
+.choice-card .request-choice:hover:not(:disabled),
+.choice-card .request-choice:focus-visible {
+    background: color-mix(in srgb, var(--vera-text) 7%, transparent);
+}
+
+.choice-card .request-choice-top {
+    gap: var(--request-lead-gap);
+}
+
+.choice-card .request-choice .kbd {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--request-lead);
+    height: var(--request-lead);
+    padding: 0;
+    color: var(--vera-text-muted);
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius-sm);
+}
+
+.choice-card .request-choice:hover:not(:disabled) .kbd,
+.choice-card .request-choice:focus-visible .kbd {
+    color: var(--vera-surface-raised);
+    background: var(--vera-text);
+    border-color: var(--vera-text);
+}
+
+.choice-card .request-choice-go {
+    margin-left: auto;
+    color: var(--vera-text-muted);
+    visibility: hidden;
+}
+
+.choice-card .request-choice:hover:not(:disabled) .request-choice-go,
+.choice-card .request-choice:focus-visible .request-choice-go {
+    visibility: visible;
+}
+
+/* The Send button sets this row's height, so it takes less padding than a choice to keep the rhythm. */
+.choice-card .request-custom {
+    gap: var(--request-lead-gap);
+    padding: calc(var(--vera-space) * 0.25) var(--request-inset);
+}
+
+/* A fixed box as wide as the keys centres each icon in the key column, whatever its font size. */
+.choice-card .request-custom-mark,
+.choice-card .request-fold-toggle .chev {
+    flex: 0 0 auto;
+    width: var(--request-lead);
+    height: calc(var(--vera-space) * 4);
+    margin: 0;
+}
+
+.choice-card .request-fold-toggle .chev {
+    height: calc(var(--vera-space) * 3.5);
+}
+
+.choice-card .request-custom .request-input {
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+
+.choice-card .request-custom .request-input:focus-visible {
+    outline: none;
+}
+
+.choice-card .request-fold {
+    padding: calc(var(--vera-space) * 0.75) var(--request-inset) 0;
+}
+
+.choice-card .request-fold-toggle {
+    gap: var(--request-lead-gap);
+}
+
+.choice-card .request-fold-body {
+    padding-left: calc(var(--request-lead) + var(--request-lead-gap));
+}
+
+.choice-card .request-choice .request-badge {
+    margin-left: auto;
+    padding: 0;
+    color: var(--vera-text-muted);
+    background: transparent;
+}
+
+.choice-card .request-choice .request-badge + .request-choice-go {
+    margin-left: 0;
+}
+
+.choice-card .request-choice-description {
+    padding-left: calc(var(--request-lead) + var(--request-lead-gap));
+}
+
+/* Text and fields under the rows start where the row labels start. */
+.choice-card .request-field,
+.choice-card .request-note {
+    padding: calc(var(--vera-space) * 0.75) var(--request-inset) 0 calc(var(--request-inset) + var(--request-lead) + var(--request-lead-gap));
 }

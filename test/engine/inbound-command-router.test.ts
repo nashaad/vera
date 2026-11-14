@@ -1825,6 +1825,104 @@ test("an unknown approval response is ignored and denial is explicit", async () 
     });
 });
 
+test("a denial with notes tells the model what the person said", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const approval = router.requestToolApproval(
+        bashToolCall("bun install"),
+        "This command may access the network.",
+        { timeoutMs: 1_000 },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: {
+            type: "tool_approval",
+            decision: "deny",
+            notes: "put it in the Desktop folder instead",
+        },
+    });
+
+    expect(await approval).toEqual({
+        behavior: "deny",
+        reason: "Tool use was denied by the user.",
+        notes: "put it in the Desktop folder instead",
+    });
+});
+
+test("a denial whose notes are blank keeps the plain denial text", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const approval = router.requestToolApproval(
+        bashToolCall("bun install"),
+        "This command may access the network.",
+        { timeoutMs: 1_000 },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "deny", notes: "  " },
+    });
+
+    expect(await approval).toEqual({
+        behavior: "deny",
+        reason: "Tool use was denied by the user.",
+    });
+});
+
+test("an approval request carries the folder facts it was given and no others", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    void router.requestToolApproval(
+        bashToolCall("ls"),
+        "This command may read files.",
+        { timeoutMs: 1_000, workspace: "/work/project", chat: true },
+    );
+    void router.requestToolApproval(
+        bashToolCall("ls"),
+        "This command may read files.",
+        { timeoutMs: 1_000, workspace: "/work/project", chat: false },
+    );
+    void router.requestToolApproval(
+        bashToolCall("ls"),
+        "This command may read files.",
+        { timeoutMs: 1_000 },
+    );
+    const chat = await channel.client.receive();
+    const project = await channel.client.receive();
+    const bare = await channel.client.receive();
+    if (
+        chat.type !== "ui_request"
+        || project.type !== "ui_request"
+        || bare.type !== "ui_request"
+    ) {
+        throw new Error("Expected UI request updates");
+    }
+
+    expect(chat.request).toMatchObject({ workspace: "/work/project", chat: true });
+    expect(project.request).toMatchObject({ workspace: "/work/project" });
+    expect("chat" in project.request).toBe(false);
+    expect("workspace" in bare.request).toBe(false);
+    expect("chat" in bare.request).toBe(false);
+});
+
 test("approval timeout and turn abort both deny and clean up", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

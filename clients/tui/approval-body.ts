@@ -236,7 +236,7 @@ function scopeLines(
     if (grants === undefined) {
         return [
             { text: "", tone: "muted" },
-            { text: "Session and always are unavailable.", tone: "muted" },
+            { text: "Allow for this chat and Always allow are unavailable.", tone: "muted" },
         ];
     }
     if (grants.length === 1 && inlineScope) {
@@ -244,7 +244,7 @@ function scopeLines(
     }
     return [
         { text: "", tone: "muted" },
-        { text: "Session and always remember:", tone: "muted" },
+        { text: "Allow for this chat and Always allow remember:", tone: "muted" },
         ...grants.map((grant) => ({
             text: `- ${describeGrantPredicate(grant.when)}`,
             tone: "muted" as const,

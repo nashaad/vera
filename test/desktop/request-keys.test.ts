@@ -18,6 +18,7 @@ const fullApproval: ApprovalRequest = {
     reason: "",
     warning: "",
     grants: ["bash"],
+    grantPredicates: [{ tool: "bash" }],
 };
 
 const subagentApproval: ApprovalRequest = {
@@ -63,7 +64,7 @@ describe("approval keys", () => {
     });
 
     test("an approval with no grants ignores 2 and 4", () => {
-        const bare: ApprovalRequest = { ...fullApproval, grants: [] };
+        const bare: ApprovalRequest = { ...fullApproval, grants: [], grantPredicates: [] };
         expect(requestKeyAction(bare, "2")).toBeUndefined();
         expect(requestKeyAction(bare, "4")).toBeUndefined();
     });
@@ -165,6 +166,12 @@ describe("focus and modifiers", () => {
         expect(requestKeysAllowed(NO_MODIFIERS, focus({ tagName: "INPUT" }))).toBe(false);
         expect(requestKeysAllowed(NO_MODIFIERS, focus({ tagName: "SELECT" }))).toBe(false);
         expect(requestKeysAllowed(NO_MODIFIERS, focus({ tagName: "DIV", isContentEditable: true }))).toBe(false);
+    });
+
+    test("digits and Escape typed in the approval's answer box do not answer the card", () => {
+        const box = focus({ tagName: "INPUT", classes: ["request-input"] });
+        expect(requestKeysAllowed(NO_MODIFIERS, box)).toBe(false);
+        expect(requestKeysAllowed(NO_MODIFIERS, focus({ tagName: "INPUT", classes: ["request-input"], empty: true }))).toBe(false);
     });
 
     test("a textarea keeps its keys unless it is an empty composer", () => {

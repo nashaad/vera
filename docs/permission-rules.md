@@ -64,8 +64,8 @@ switches it and also makes that mode your default. For a one-shot run, pass
 In every mode, including full access, Vera refuses a recursive `rm` in the
 `bash` tool when it targets a filesystem root, your home directory or everything
 in it (`~/*`), the workspace or everything in it (`./*`), or a folder above the
-workspace. This check runs before the mode, so an Always answer or a Session
-grant cannot allow it. Run the deletion yourself if you mean it. The check reads
+workspace. This check runs before the mode, so an Always allow answer or an Allow
+for this chat grant cannot allow it. Run the deletion yourself if you mean it. The check reads
 the command as written, so a target built from a variable or a command
 substitution, such as `$HOME`, is not caught.
 
@@ -130,18 +130,25 @@ into a shell such as `curl ... | sh`; those follow the mode. Commands like
 
 ## Answer a prompt
 
+The prompt asks what the call does, such as `Write plunder.md outside this
+chat's folder?`, with the folder it lands in on the line below. When Vera
+cannot tell what a shell command does, it names the program, as in `Run curl?`,
+or asks `Run this command?`. The command itself shows under the question.
+
 | Key | Effect |
 |---|---|
-| 1 Allow once | Runs this call. |
-| 2 Session | Allows calls like this one for the rest of the conversation. |
-| 3 Deny | Refuses this call. |
-| 4 Always | Saves an allow rule that applies in every conversation. |
+| 1 Allow | Runs this call. |
+| 2 Allow for this chat | Allows calls like this one for the rest of the conversation. |
+| 3 Deny | Refuses this call. Escape does the same. |
+| 4 Always allow | Saves an allow rule that applies in every conversation. |
+| 5 Tell Vera what to do instead | Opens a line to type in. Enter refuses this call and passes what you typed to Vera; Escape goes back to the choices. |
 
-Session and Always describe "calls like this one" as narrowly as Vera can: the
-same operation, the same file, or the same shell command name. A prompt from a
-subagent offers only Allow once and Deny.
+Allow for this chat and Always allow describe "calls like this one" as
+narrowly as Vera can: the same operation, the same file, or the same shell
+command name. A prompt from a subagent offers only Allow and Deny.
 
-To see or remove what Session and Always granted, open Ctrl+P and choose
+To see or remove what Allow for this chat and Always allow granted, open
+Ctrl+P and choose
 **Review granted permissions**.
 
 ## Write a custom mode
