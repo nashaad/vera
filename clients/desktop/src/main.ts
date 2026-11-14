@@ -1,3 +1,4 @@
+import { listProvidersThroughHost, loginProviderThroughHost, saveProviderThroughHost, selectProviderModelThroughHost } from "../../../src/host/provider-sign-in-client.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -352,6 +353,53 @@ ipcMain.handle(CHANNELS.catalogRefresh, (event, provider: unknown, workspace: un
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
     return refreshProvider(hostSocketPath, id, workspaceArgument(workspace));
 });
+let providerLogin: AbortController | undefined;
+ipcMain.handle(CHANNELS.providerList, async (event) => {
+    if (!fromWindow(event) || hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
+    try { return { ok: true, providers: await listProvidersThroughHost(hostSocketPath) }; }
+    catch { return { ok: false, reason: "The host did not list providers." }; }
+});
+ipcMain.handle(CHANNELS.providerSave, async (event, value: unknown) => {
+    if (!fromWindow(event) || hostSocketPath === undefined || typeof value !== "object" || value === null) return { ok: false, reason: "Could not save provider." };
+    const input = value as Record<string, unknown>;
+    const provider = providerArgument(input.provider);
+    if (provider === undefined || typeof input.key !== "string" || typeof input.endpoint !== "string"
+        || (input.protocol !== "openai-chat" && input.protocol !== "anthropic-messages") || typeof input.custom !== "boolean") return { ok: false, reason: "Could not save provider." };
+    try {
+        const result = await saveProviderThroughHost(hostSocketPath, { id: provider, apiKey: input.key, custom: input.custom,
+            declaration: { protocol: input.protocol, credential: "api_key", base_url: input.endpoint },
+            ...(typeof input.editing === "string" && providerArgument(input.editing) === input.editing ? { editing: input.editing } : {}) });
+        return { ok: true, provider: result };
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : "Could not save provider.";
+        return { ok: false, reason: input.key ? reason.split(input.key).join("[redacted]") : reason };
+    }
+});
+ipcMain.handle(CHANNELS.providerSelectModel, async (event, provider: unknown, model: unknown) => {
+    const id = providerArgument(provider);
+    const name = modelArgument(model);
+    if (!fromWindow(event) || hostSocketPath === undefined || id === undefined || name === undefined) return { ok: false, reason: "That model is unavailable." };
+    try { await selectProviderModelThroughHost(hostSocketPath, id, name); return { ok: true }; }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "The model did not answer." }; }
+});
+ipcMain.handle(CHANNELS.providerSignIn, async (event, value: unknown) => {
+    const provider = providerArgument(value);
+    if (!fromWindow(event) || hostSocketPath === undefined || provider === undefined) return { ok: false, reason: "Could not start sign-in." };
+    providerLogin?.abort();
+    const controller = new AbortController();
+    providerLogin = controller;
+    try {
+        const result = await loginProviderThroughHost(hostSocketPath, provider, (url) => {
+            try {
+                const parsed = new URL(url);
+                if (parsed.protocol === "http:" || parsed.protocol === "https:") void shell.openExternal(url).catch(() => controller.abort());
+            } catch { controller.abort(); }
+        }, controller.signal);
+        return { ok: true, provider: result };
+    } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "Sign-in failed." }; }
+    finally { if (providerLogin === controller) providerLogin = undefined; }
+});
+ipcMain.on(CHANNELS.providerSignInCancel, (event) => { if (fromWindow(event)) providerLogin?.abort(); });
 ipcMain.handle(CHANNELS.providerForget, (event, provider: unknown, workspace: unknown) => {
     const id = providerArgument(provider);
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };

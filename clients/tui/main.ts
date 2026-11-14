@@ -1,3 +1,7 @@
+import { listProvidersThroughHost, loginProviderThroughHost, saveKnownProviderKeyThroughHost, saveProviderThroughHost } from "../../src/host/provider-sign-in-client.ts";
+import { openBrowser } from "../../src/providers/openai-codex-oauth.ts";
+import type { SaveProviderInput } from "../../src/providers/save-provider.ts";
+import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.ts";
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
@@ -553,6 +557,9 @@ export interface TuiDependencies {
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly restartRecords?: HostRestartRecords;
     readonly requestExtension?: ClientExtensionHostRequest;
+    readonly listProviders?: () => Promise<readonly ProviderSignInStatus[]>;
+    readonly saveProvider?: (input: SaveProviderInput & { readonly custom: boolean }) => Promise<ProviderSignInStatus>;
+    readonly saveProviderKey?: (provider: string, key: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
@@ -826,6 +833,14 @@ export async function startConfiguredTui(
             }),
             clientBuildId,
             installedBuildId: () => currentReleaseBuildId(),
+            listProviders: async () => listProvidersThroughHost(await pairedSocket()),
+            saveProvider: async (input) => saveProviderThroughHost(await pairedSocket(), input),
+            saveProviderKey: async (provider, key) => saveKnownProviderKeyThroughHost(await pairedSocket(), provider, key),
+            loginProvider: async (provider, onBrowserUnavailable) => {
+                await loginProviderThroughHost(await pairedSocket(), provider, (url) => {
+                    void openBrowser(url).then((opened) => { if (!opened) onBrowserUnavailable(url); });
+                });
+            },
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),

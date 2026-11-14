@@ -549,9 +549,9 @@ one. When the question takes a typed answer, a box under the choices sends what
 you write with `Answer` or Enter, and a note box sends a note with the choice.
 `Skip` or Escape cancels the question.
 
-A setup request, such as a provider that needs signing in, says what is needed
-and has `Dismiss` (Escape), which tells Vera the setup cannot be done from this
-window. Finish it from the terminal.
+A provider setup request says what is needed and offers `Connect provider`.
+Complete the provider and model steps to answer it, or dismiss it. Other setup
+requests offer `Dismiss` and are completed in the terminal.
 
 The keys answer the first card without an answer. They work when the composer
 is empty or not focused, and not while you type in a field or hold Cmd, Ctrl or
@@ -671,10 +671,12 @@ The Models browser has four tabs:
 Settings > Providers lists the providers the home is connected to, with how
 many models each lists and when it was last listed. `Refresh` lists a
 provider's models again. `Forget` asks first, then removes the provider's saved
-connection and what Vera learned about its models. `Add a provider` explains
-that connecting one is done in the terminal with `vera` and `/provider`; the
-provider appears here once connected. Fallback after failures is not available
-from the window.
+connection and what Vera learned about its models. `Add a provider` connects a
+known provider with its key or browser sign-in, or a custom endpoint with a
+key. Choose a model to check it and make it the default. The same screen opens
+on first run when no provider is connected, and from the Models browser.
+Outrider guided setup remains in the terminal. Fallback after failures is not
+available from the window.
 
 ## Session tools
 

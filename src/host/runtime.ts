@@ -1,3 +1,5 @@
+import { selectOnboardingModel } from "../providers/select-onboarding-model.ts";
+import { createProviderSignInService } from "../providers/provider-sign-in.ts";
 import { join, resolve } from "node:path";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { derivedModelName } from "../config/model-catalog.ts";
@@ -1169,6 +1171,7 @@ async function startHostRuntime(
             ? await timed("scheduler", () => startSchedulerRuntime(schedulerOptions))
             : new SchedulerRuntime(schedulerOptions);
         const providerGenerations = new Map<string, number>();
+        const providerSignIn = createProviderSignInService({ configPath, cacheDir: cacheDirectory, authStorage });
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
@@ -1244,6 +1247,42 @@ async function startHostRuntime(
                 },
 
                 stopWhenIdle,
+                providerSignIn: {
+                    ...providerSignIn,
+                    save: async (input) => {
+                        const saved = catalogRefreshes.then(async () => {
+                            const result = await providerSignIn.save(input);
+                            providerGenerations.set(input.id, (providerGenerations.get(input.id) ?? 0) + 1);
+                            models = modelsFromConnectedCatalogs(currentConfig(), models, { authStorage, cacheDir: cacheDirectory });
+                            announceGlobalChange("config");
+                            announceGlobalChange("catalog");
+                            return result;
+                        });
+                        catalogRefreshes = saved.then(() => undefined, () => undefined);
+                        return await saved;
+                    },
+                },
+                selectProviderModel: async (provider, model) => {
+                    const generation = providerGenerations.get(provider) ?? 0;
+                    await selectOnboardingModel({ provider, model, configPath, poolPath: join(home, "pool.json"),
+                        verify: async () => {
+                            const results = await applyModelOperation({ operation: "verify", models: [{ provider, model }] }, {
+                                isCurrent: () => generation === (providerGenerations.get(provider) ?? 0),
+                                discovered: registry.modelsForClient(),
+                                assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
+                                createAdapter: (id) => createAdapter(id),
+                                catalog: (id, name) => effectiveCatalog(id, { cacheDir: cacheDirectory }).models.find((row) => row.id === name),
+                                path: join(home, "pool.json"),
+                            });
+                            return results[0];
+                        },
+                    });
+                    registry.defaultProvider = provider;
+                    registry.defaultModel = model;
+                    registry.defaultReasoningEffort = undefined;
+                    announceGlobalChange("config");
+                    announceGlobalChange("pool");
+                },
                 forgetProvider: async (provider, workspace) => {
                     const forget = async () => {
                         const write = () => forgetProviderConnection(provider, authStorage, options.processWorker === true ? {

@@ -1,3 +1,4 @@
+import type { ProviderSignInStatus } from "../providers/provider-sign-in.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
@@ -913,9 +914,41 @@ export interface ModelOperationCompleteResponse {
     readonly error?: string;
 }
 
+export interface ProviderListRequest { readonly type: "provider_list"; readonly request_id: string; }
+export interface ProviderListResult { readonly type: "provider_list_result"; readonly request_id: string; readonly providers: readonly ProviderSignInStatus[]; }
+export interface ProviderSaveRequest {
+    readonly type: "provider_save";
+    readonly request_id: string;
+    readonly provider: string;
+    readonly key: string;
+    readonly credential: "api_key" | "none";
+    readonly reuse_existing?: boolean;
+    readonly endpoint: string;
+    readonly protocol: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+    readonly editing?: string;
+    readonly replaces?: string;
+    readonly shipped?: boolean;
+    readonly restore?: boolean;
+}
+export interface ProviderSaveResult { readonly type: "provider_save_result"; readonly request_id: string; readonly provider: ProviderSignInStatus; }
+export interface ProviderSelectModelRequest { readonly type: "provider_select_model"; readonly request_id: string; readonly provider: string; readonly model: string; }
+export interface ProviderSelectModelResult { readonly type: "provider_select_model_result"; readonly request_id: string; }
+export interface ProviderSignInRequest { readonly type: "provider_sign_in"; readonly request_id: string; readonly provider: string; }
+export interface ProviderSignInCancelRequest { readonly type: "provider_sign_in_cancel"; readonly request_id: string; readonly provider: string; }
+export interface ProviderSignInUrl { readonly type: "provider_sign_in_url"; readonly request_id: string; readonly url: string; readonly code?: string; }
+export interface ProviderSignInResult { readonly type: "provider_sign_in_result"; readonly request_id: string; readonly provider: ProviderSignInStatus; }
+export interface ProviderSignInCancelled { readonly type: "provider_sign_in_cancelled"; readonly request_id: string; }
+export interface ProviderRequestFailed { readonly type: "provider_request_failed"; readonly request_id: string; readonly reason: string; }
+
 export interface ProviderForgetRequest { readonly type: "provider_forget"; readonly provider: string; readonly workspace?: string; }
 
 export type HostRequest =
+    | ProviderListRequest
+    | ProviderSaveRequest
+    | ProviderSelectModelRequest
+    | ProviderSignInRequest
+    | ProviderSignInCancelRequest
     | ProviderForgetRequest
     | ModelOperationRequest
     | HostIdentityRequest
@@ -957,6 +990,13 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest
     | HistoryPageRequest;
 export type HostResponse =
+    | ProviderListResult
+    | ProviderSaveResult
+    | ProviderSelectModelResult
+    | ProviderSignInUrl
+    | ProviderSignInResult
+    | ProviderSignInCancelled
+    | ProviderRequestFailed
     | HostStopWaitEvent
     | ModelOperationProgressResponse
     | ModelOperationStepResponse
@@ -1040,8 +1080,47 @@ function parseSessionFactNames(
     return names.length === 0 ? undefined : [...new Set(names)];
 }
 
+function validProviderRequestId(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/u.test(value);
+}
+
+function validProviderId(value: unknown): value is string {
+    return typeof value === "string" && value.length <= 128 && /^[a-z0-9][a-z0-9._-]*$/.test(value);
+}
+
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "provider_list" && validProviderRequestId(value.request_id)) {
+        return { type: "provider_list", request_id: value.request_id };
+    }
+    if (value?.type === "provider_select_model" && validProviderRequestId(value.request_id)
+        && validProviderId(value.provider) && typeof value.model === "string" && value.model.trim().length > 0
+        && value.model.length <= 512 && !/[\u0000-\u001f]/u.test(value.model)) {
+        return { type: "provider_select_model", request_id: value.request_id, provider: value.provider, model: value.model };
+    }
+    if ((value?.type === "provider_sign_in" || value?.type === "provider_sign_in_cancel")
+        && validProviderRequestId(value.request_id) && validProviderId(value.provider)) {
+        return { type: value.type, request_id: value.request_id, provider: value.provider };
+    }
+    if (value?.type === "provider_save" && validProviderRequestId(value.request_id)
+        && validProviderId(value.provider) && typeof value.key === "string" && value.key.length <= 16_384
+        && (value.credential === "api_key" || value.credential === "none")
+        && (value.reuse_existing === undefined || typeof value.reuse_existing === "boolean")
+        && typeof value.endpoint === "string" && value.endpoint.length <= 4096
+        && (value.protocol === "openai-chat" || value.protocol === "anthropic-messages")
+        && typeof value.custom === "boolean"
+        && (value.editing === undefined || validProviderId(value.editing))
+        && (value.replaces === undefined || validProviderId(value.replaces))
+        && (value.shipped === undefined || typeof value.shipped === "boolean")
+        && (value.restore === undefined || typeof value.restore === "boolean")) {
+        return { type: "provider_save", request_id: value.request_id, provider: value.provider,
+            key: value.key, credential: value.credential, endpoint: value.endpoint, protocol: value.protocol, custom: value.custom,
+            ...(typeof value.reuse_existing === "boolean" ? { reuse_existing: value.reuse_existing } : {}),
+            ...(typeof value.editing === "string" ? { editing: value.editing } : {}),
+            ...(typeof value.replaces === "string" ? { replaces: value.replaces } : {}),
+            ...(typeof value.shipped === "boolean" ? { shipped: value.shipped } : {}),
+            ...(typeof value.restore === "boolean" ? { restore: value.restore } : {}) };
+    }
     if (value?.type === "restart_records") {
         return { type: "restart_records" };
     }

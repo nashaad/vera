@@ -1,3 +1,5 @@
+import { ProviderSignInCoordinator } from "./provider-sign-in.ts";
+import type { ProviderSignInService } from "../providers/provider-sign-in.ts";
 import type { JsonValue, SessionEndReason } from "../sdk/hooks.ts";
 import type { ExtensionLoadFailure, ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
@@ -159,6 +161,11 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "cut_stop_wait":
         case "restart_records":
         case "restart_record_dismiss":
+        case "provider_list":
+        case "provider_save":
+        case "provider_select_model":
+        case "provider_sign_in":
+        case "provider_sign_in_cancel":
         case "provider_forget":
         case "model_operation":
         case "model_settings":
@@ -232,6 +239,8 @@ export interface StartHostServerOptions {
     ) => Promise<ModelTurnSettings | undefined>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly handleExtensionRequest?: ExtensionRequestHandler;
+    readonly providerSignIn?: ProviderSignInService;
+    readonly selectProviderModel?: (provider: string, model: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly stopWhenIdle?: StopWhenIdleControl;
     readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
@@ -398,6 +407,7 @@ async function startListener(
         pid: identity.pid,
     });
     const sockets = new Set<Socket>();
+    const providerSignIn = options.providerSignIn === undefined ? undefined : new ProviderSignInCoordinator(options.providerSignIn);
     const closeAgent = options.closeAgent ?? (() => Promise.resolve({ status: "not_found" as const }));
     const interactiveAttachments = options.attachmentCoordinator ?? new InteractiveAttachmentCoordinator(
         async () => options.readAgentTree ?? ((agentId) => [agentId]),
@@ -586,6 +596,8 @@ async function startListener(
             options.refreshCatalogs,
             options.operateModels,
             options.forgetProvider,
+            providerSignIn,
+            options.selectProviderModel,
             options.readAnnex,
             options.readExtensionLoadFailures,
             options.checkpointStores,
@@ -812,6 +824,8 @@ function receiveConnection(
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     operateModels: StartHostServerOptions["operateModels"],
     forgetProvider: StartHostServerOptions["forgetProvider"],
+    providerSignIn: ProviderSignInCoordinator | undefined,
+    selectProviderModel: StartHostServerOptions["selectProviderModel"],
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1523,6 +1537,34 @@ function receiveConnection(
                     }),
                 )
                 .then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "provider_select_model") {
+            clearDeadline(); finished = true;
+            const operationClosed = operationOpened();
+            try {
+                if (selectProviderModel === undefined) throw new Error("Model selection is unavailable");
+                await selectProviderModel(request.provider, request.model);
+                await send({ type: "provider_select_model_result", request_id: request.request_id });
+            } catch (error) {
+                await send({ type: "provider_request_failed", request_id: request.request_id, reason: error instanceof Error ? error.message : "Could not select model" }).catch(() => {});
+            } finally { operationClosed(); socket.end(); }
+            return;
+        }
+        if (request?.type === "provider_list" || request?.type === "provider_save"
+            || request?.type === "provider_sign_in" || request?.type === "provider_sign_in_cancel") {
+            clearDeadline();
+            finished = true;
+            const operationClosed = operationOpened();
+            const controller = new AbortController();
+            socket.once("close", () => controller.abort());
+            if (providerSignIn === undefined) {
+                await send({ type: "provider_request_failed", request_id: request.request_id, reason: "Provider sign-in is unavailable" }).catch(() => {});
+            } else {
+                await providerSignIn.handle(request, send, controller.signal);
+            }
+            operationClosed();
+            socket.end();
             return;
         }
         if (request?.type === "provider_forget") {
