@@ -50,6 +50,7 @@ import type {
     RegisteredAgentSummary,
     RenameSessionOutcome,
 } from "./agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "./agent-registry/move.ts";
 import type {
     ImportableSessionListing,
     SessionImportOutcome,
@@ -177,6 +178,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "import_session":
         case "list_importable_sessions":
         case "rename_session":
+        case "move_session":
             return true;
         default:
             return false;
@@ -300,6 +302,10 @@ export interface StartHostServerOptions {
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>;
+    readonly moveSession?: (
+        targetAgentId: string,
+        request: MoveSessionInput,
+    ) => Promise<MoveSessionOutcome>;
     readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
     readonly listImportableSessions?: (
         workspace: string | undefined,
@@ -558,6 +564,8 @@ async function startListener(
                 ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
+            options.moveSession
+                ?? (() => Promise.resolve({ status: "failed" })),
             options.importSession
                 ?? (() => Promise.resolve({
                     status: "rejected" as const,
@@ -771,6 +779,10 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
+    moveSession: (
+        targetAgentId: string,
+        request: MoveSessionInput,
+    ) => Promise<MoveSessionOutcome>,
     importSession: (path: string) => Promise<SessionImportOutcome>,
     listImportableSessions: (
         workspace: string | undefined,
@@ -2082,6 +2094,32 @@ function receiveConnection(
                 () => send({
                     type: "session_rename_rejected",
                     agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "move_session") {
+            clearDeadline();
+            finished = true;
+            void moveSession(
+                request.session_id,
+                { workspace: request.workspace },
+            ).then(
+                (result) => result.status === "moved"
+                    ? send({
+                        type: "session_moved",
+                        session_id: request.session_id,
+                        workspace: result.workspace,
+                    })
+                    : send({
+                        type: "session_move_rejected",
+                        session_id: request.session_id,
+                        reason: result.status,
+                    }),
+                () => send({
+                    type: "session_move_rejected",
+                    session_id: request.session_id,
                     reason: "failed",
                 }),
             ).then(() => socket.end(), () => socket.destroy());

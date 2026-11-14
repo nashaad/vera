@@ -25,6 +25,7 @@ import {
     type RenameSessionOutcome,
     type RegisteredAgentSummary,
 } from "../agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "../agent-registry/move.ts";
 import type { ClosedMember } from "../agent-registry/support.ts";
 import type { ExtensionLoadFailure } from "../protocol.ts";
 import type { ResidentAgent } from "../resident-agent.ts";
@@ -74,6 +75,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "blockSession"
     | "unblockSession"
     | "renameSession"
+    | "moveSession"
     | "importSession"
     | "listImportableSessions"
     | "readExtensionState"
@@ -90,6 +92,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     readonly findAgentReserved: (agentId: string) => Promise<ResidentAgent | undefined>;
     readonly storedSessionPath: (agentId: string) => Promise<string | undefined>;
     readonly renameSessionReserved: (agentId: string, name: string | null) => Promise<RenameSessionOutcome>;
+    readonly moveSessionReserved: (agentId: string, request: MoveSessionInput) => Promise<MoveSessionOutcome>;
     readonly trashSessionReserved: (agentId: string) => Promise<"trashed" | "busy" | "not_found" | "failed">;
     readonly releaseAgent: (id: string) => Promise<CloseAgentOutcome>;
     readonly searchShard: (query: SessionSearchQuery, includePaths?: readonly string[], excludePaths?: readonly string[]) => Promise<SessionSearchShard>;
@@ -189,6 +192,18 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         const renamed = await renameStoredSession(sessionPath, name);
         if (renamed.status === "renamed") await indexStoredSession(sessionPath, storedSessionIndex);
         return renamed;
+    };
+    const moveSessionReserved = async (targetId: string, request: MoveSessionInput): Promise<MoveSessionOutcome> => {
+        const resident = await registry.moveSession(targetId, request, sessionDirectory);
+        if (resident.status !== "not_found") return resident;
+        const locate = async (): Promise<string | undefined> =>
+            storedSessionPath(targetId, sessionDirectory, await storedSessions);
+        const stored = await registry.moveStoredSession(targetId, request, sessionDirectory, locate);
+        if (stored.status === "moved") {
+            const sessionPath = await locate();
+            if (sessionPath !== undefined) await indexStoredSession(sessionPath, storedSessionIndex);
+        }
+        return stored;
     };
     const closeSession = async (targetId: string, reason?: SessionEndReason, transfer = false): Promise<CloseAgentOutcome> => {
         const outcome = transfer
@@ -316,6 +331,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
         unblockSession: (request) => sessionBlocks.unblock(request),
         renameSession: (targetId, name) => withTarget(targetId, () => renameSessionReserved(targetId, name)),
         renameSessionReserved,
+        moveSession: (targetId, request) => withTarget(targetId, () => moveSessionReserved(targetId, request)),
+        moveSessionReserved,
         importSession: (path, sessionId) => {
             const run = importQueue.then(async () => {
                 await storedSessions;

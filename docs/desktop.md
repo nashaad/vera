@@ -407,8 +407,9 @@ its latest line. The status line still says only `Thinking`, with the clock.
 The composer is a box for your message with a row of chips above it and a bar
 below it. The chips show where the session runs: `This Mac`, the folder by its
 last path segment, and the folder's git branch when it has one. A chat shows
-`Chat` in place of the folder and no branch. Hovering a chip shows the full
-value. The branch is read from the folder's `.git` without
+`Chat` in place of the folder and no branch; on a chat the chip is a menu whose
+one item, `Move to folder…`, moves the chat into a folder. Hovering a chip shows
+the full value. The branch is read from the folder's `.git` without
 running git; a detached checkout shows the short commit id. The bar has a round
 `+` button at the left that attaches images and the send button at the right.
 
@@ -436,7 +437,20 @@ In a session:
   with the full path. The window checks when the session opens and each time the
   window is shown or focused again, not on a timer. The warning goes away once
   the folder is back. Chats are not checked, since the host recreates their
-  folder. The window offers no way to pick another folder for the session.
+  folder. A `Move to folder…` button beside the line moves the session to
+  another folder.
+
+`Move to folder…`, from a chat's chip or from the missing-folder line, opens the
+system folder picker. Cancelling the picker changes nothing. Once you pick a
+folder the host moves the session there. For a chat the host moves the files in
+the chat's own folder into the picked folder. The window then opens the same
+session again, with its chip showing the new folder and its branch, and the
+sidebar row moves from `Chats` to that folder's group on the next listing. The
+box keeps what you had typed. If the host refuses, a line above the box says
+why: a file in the picked folder has the same name as one of the chat's files
+(nothing is moved), Vera is still working in the conversation, the folder can't
+be used, the conversation no longer exists, or the move failed. The terminal has
+no command for this move.
 
 On New Chat the folder chip is a menu: the folders of your eight most recent
 sessions, newest first, then `Open folder…`, which opens the system folder
@@ -945,6 +959,7 @@ node clients/desktop/test/layout.e2e.mjs
 node clients/desktop/test/shortcuts.e2e.mjs
 node clients/desktop/test/compose.e2e.mjs
 node clients/desktop/test/chat.e2e.mjs
+node clients/desktop/test/move.e2e.mjs
 node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
@@ -1025,6 +1040,16 @@ checks the reply, the `Chat` chip, the session under one `Chats` group in the
 sidebar and the chat's own folder under the home's `runtime/sessions`. It then
 picks a folder, removes it and sends, and checks that the error line shows and
 the typed text stays. It stops the host it started.
+
+The move test runs a local provider that writes a file into a chat's folder. It
+answers the native folder picker with folders the test sets. It cancels the
+picker and checks nothing changes, picks a folder that holds a file of the same
+name and checks the refusal line shows and the file stays, then picks an empty
+folder and checks the file arrives there, the chip shows the folder, the row
+leaves `Chats` for the folder's group, the one pane is attached again and the
+text typed in the box stays. It sends another message to the moved session, removes its folder, and checks the
+missing-folder line's button moves the session to a third folder. It stops the
+host it started.
 
 The approve test runs a local provider that asks to run one shell command per
 prompt in a session started in ask mode. It allows the first request with the 1

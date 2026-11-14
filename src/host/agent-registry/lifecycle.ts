@@ -62,8 +62,8 @@ export async function releaseAgentTree(reg: AgentRegistry, id: string): Promise<
         return closeTree(reg, id, undefined);
     }
 
-// Unguarded: a trash closes the tree it holds.
-async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason | undefined): Promise<CloseAgentTreeResult> {
+// Unguarded: a trash or a move closes the tree it holds.
+export async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason | undefined): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
         const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
@@ -202,7 +202,7 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
     }
 
 // Awaited so the listing is current before the caller sees the result.
-async function reportClosedMembers(reg: AgentRegistry, members: readonly ClosedMember[]): Promise<void> {
+export async function reportClosedMembers(reg: AgentRegistry, members: readonly ClosedMember[]): Promise<void> {
         const onSessionsClosed = reg.options.onSessionsClosed;
         if (onSessionsClosed === undefined || members.length === 0) {
             return;
@@ -613,6 +613,9 @@ export async function trashStoredSession(
     }
 
 function requireNotTrashing(reg: AgentRegistry, id: string): void {
+        if (reg.movingIds.has(id)) {
+            throw new UserFacingError("This conversation is being moved to another folder.");
+        }
         if (reg.trashingIds.has(id)) {
             throw new UserFacingError("This conversation is being moved to the trash.");
         }
@@ -670,9 +673,9 @@ export function abandonDistributedTrashRestart(reg: AgentRegistry, id: string): 
         return abandonStart(reg, id, "deleted");
     }
 
-type RestartPlan = TrashRestartPlan;
+export type RestartPlan = TrashRestartPlan;
 
-function restartPlan(reg: AgentRegistry, entry: RegisteredAgentEntry): RestartPlan {
+export function restartPlan(reg: AgentRegistry, entry: RegisteredAgentEntry): RestartPlan {
         return {
             id: entry.agent.id,
             sessionPath: entry.store.path,
@@ -686,7 +689,7 @@ function restartPlan(reg: AgentRegistry, entry: RegisteredAgentEntry): RestartPl
     }
 
 // A child whose parent is in the plan restarts only after that parent restarted and is still live.
-async function restartClosedAgents(reg: AgentRegistry, plans: readonly RestartPlan[]): Promise<void> {
+export async function restartClosedAgents(reg: AgentRegistry, plans: readonly RestartPlan[]): Promise<void> {
         const planned = new Set(plans.map((plan) => plan.id));
         const restarted = new Set<string>();
         for (const plan of plans) {

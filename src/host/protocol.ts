@@ -422,6 +422,13 @@ export interface RenameSessionRequest {
     readonly name: string | null;
 }
 
+// Moves the session to another working folder; a chat's files go with it.
+export interface MoveSessionRequest {
+    readonly type: "move_session";
+    readonly session_id: string;
+    readonly workspace: string;
+}
+
 export interface ImportSessionRequest {
     readonly type: "import_session";
     readonly path: string;
@@ -729,6 +736,25 @@ export interface SessionRenameRejectedResponse {
     readonly reason: "invalid" | "busy" | "not_found" | "failed";
 }
 
+export interface SessionMovedResponse {
+    readonly type: "session_moved";
+    readonly session_id: string;
+    readonly workspace: string;
+}
+
+export type SessionMoveRejectedReason =
+    | "invalid"
+    | "busy"
+    | "not_found"
+    | "collision"
+    | "failed";
+
+export interface SessionMoveRejectedResponse {
+    readonly type: "session_move_rejected";
+    readonly session_id: string;
+    readonly reason: SessionMoveRejectedReason;
+}
+
 export interface SessionImportedResponse {
     readonly type: "session_imported";
     readonly agent_id: string;
@@ -942,6 +968,7 @@ export type HostRequest =
     | UnblockSessionRequest
     | CutStopWaitRequest
     | RenameSessionRequest
+    | MoveSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
     | AnnexUrlRequest
@@ -993,6 +1020,8 @@ export type HostResponse =
     | SessionUnblockRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
+    | SessionMovedResponse
+    | SessionMoveRejectedResponse
     | SessionImportedResponse
     | SessionImportRejectedResponse
     | ImportableSessionsResponse
@@ -1399,6 +1428,20 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "rename_session",
             target_agent_id: value.target_agent_id,
             name: value.name as string | null,
+        };
+    }
+    if (
+        value?.type === "move_session"
+        && typeof value.session_id === "string"
+        && value.session_id.length > 0
+        && typeof value.workspace === "string"
+        && isAbsolute(value.workspace)
+        && !value.workspace.includes("\0")
+    ) {
+        return {
+            type: "move_session",
+            session_id: value.session_id,
+            workspace: value.workspace,
         };
     }
     if (

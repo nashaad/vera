@@ -6,6 +6,8 @@ import type { OutputLog } from "../state/outputLog.ts";
 export interface ViewEnvironment {
     readonly connection: UiState;
     readonly log: OutputLog;
+    // Reads the session list now rather than at the next poll.
+    readonly refreshSessions: () => void;
 }
 
 export const ViewEnvContext = createContext<ViewEnvironment | undefined>(undefined);

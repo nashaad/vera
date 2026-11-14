@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
+import { moveSessionThroughHost } from "../../../src/host/session-move-client.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
 import type {
     BranchSessionResult,
@@ -14,6 +15,7 @@ import type {
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
+import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
@@ -42,6 +44,7 @@ import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
+import { moveSessionToFolder } from "./session-move.ts";
 import { SessionPipe } from "./session-pipe.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
@@ -128,6 +131,11 @@ function shutdown(): void {
     hostSocketPath = undefined;
     pipe.close();
     for (const pane of panes) pane.close();
+}
+
+async function chooseFolder(parent: BrowserWindow): Promise<string | undefined> {
+    const result = await dialog.showOpenDialog(parent, { properties: ["openDirectory", "createDirectory"] });
+    return result.canceled ? undefined : result.filePaths[0];
 }
 
 function paneArgument(value: unknown): SessionPipe | undefined {
@@ -249,6 +257,18 @@ ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<C
     if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a session to stop." };
     return closeSession(hostSocketPath, target);
 });
+ipcMain.handle(CHANNELS.sessionMove, async (event, agentId: unknown): Promise<MoveSessionOutcome> => {
+    const target = idArgument(agentId);
+    const parent = window;
+    if (!fromWindow(event) || parent === undefined) return { status: "rejected", reason: "failed" };
+    if (target === undefined) return { status: "rejected", reason: "not_found" };
+    return moveSessionToFolder({
+        socketPath: hostSocketPath,
+        sessionId: target,
+        chooseFolder: () => chooseFolder(parent),
+        move: moveSessionThroughHost,
+    });
+});
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
     if (fromWindow(event)) layoutStore.save(layout);
@@ -316,8 +336,7 @@ ipcMain.handle(CHANNELS.foldersExisting, async (event, folders: unknown): Promis
     fromWindow(event) ? existingFolders(folderListArgument(folders)) : []);
 ipcMain.handle(CHANNELS.folderChoose, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;
-    const result = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });
-    return result.canceled ? undefined : result.filePaths[0];
+    return chooseFolder(window);
 });
 ipcMain.handle(CHANNELS.imagesChoose, async (event): Promise<readonly string[]> => {
     if (!fromWindow(event) || window === undefined) return [];

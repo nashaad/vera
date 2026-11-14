@@ -131,6 +131,9 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         rename: (id, name, reserved) => reserved
             ? host.handlers.renameSessionReserved(id, name)
             : host.handlers.renameSession(id, name),
+        move: (id, request, reserved) => reserved
+            ? host.handlers.moveSessionReserved(id, request)
+            : host.handlers.moveSession(id, request),
         trash: (id, reserved) => reserved
             ? host.handlers.trashSessionReserved(id)
             : host.handlers.trashSession(id),

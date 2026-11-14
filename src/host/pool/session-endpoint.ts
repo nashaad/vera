@@ -1,4 +1,5 @@
 import type { CreateRegisteredAgentOptions, RegisteredAgentSummary, RenameSessionOutcome } from "../agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "../agent-registry/move.ts";
 import type { PeerSessionServices } from "../agent-registry/peer-services.ts";
 import type { SubagentSessionServices } from "../agent-registry/subagent-services.ts";
 import type { BranchSyncDelta, BranchSyncInfo, BranchSyncOutcome, BranchSyncPrepared } from "../agent-registry/context-sync.ts";
@@ -78,6 +79,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     rememberStored(summary: RegisteredAgentSummary): Promise<void>;
     forgetStored(id: string): Promise<void>;
     rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    move(id: string, request: MoveSessionInput, reserved?: boolean): Promise<MoveSessionOutcome>;
     trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     reserveTrash(ids: readonly string[], rootId: string, registeredIds: readonly string[], reservedIds: readonly string[]): Promise<TrashReservation>;
     quiesceClose(ids: readonly string[]): Promise<readonly CloseTicket[]>;

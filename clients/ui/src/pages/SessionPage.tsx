@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -35,9 +35,14 @@ export function SessionPage({ route }: SessionPageProps) {
 }
 
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
-    const { connection } = useViewEnvironment();
+    const { connection, refreshSessions } = useViewEnvironment();
     const connected = connection.phase === "attached";
-    const { watch, loadOlder, send } = useSessionWatch(bridge, route.agentId, connected);
+    const { watch, loadOlder, send, reattach } = useSessionWatch(bridge, route.agentId, connected);
+    // The host ended this session's watch while it moved; open it again and read the row's new folder.
+    const onMoved = useCallback(() => {
+        reattach();
+        refreshSessions();
+    }, [reattach, refreshSessions]);
     const panes = usePaneLayout();
     const rightPaneShown = useIsShown("rightPane");
     const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
@@ -122,6 +127,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     send={send}
                     folder={folder}
                     chat={chat}
+                    onMoved={onMoved}
                 />
             </div>
         </div>

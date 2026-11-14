@@ -11,6 +11,8 @@ export interface SessionComposerProps {
     readonly send: (line: string) => void;
     readonly folder: string | undefined;
     readonly chat: boolean;
+    // Runs after the host moved the session to another folder.
+    readonly onMoved: () => void;
 }
 
 export interface NewChatComposerProps {
