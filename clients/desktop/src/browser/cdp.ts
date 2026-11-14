@@ -129,7 +129,7 @@ export class BrowserCdp {
             const resolved = await debuggerApi.sendCommand("DOM.resolveNode", { backendNodeId: node, executionContextId: this.contextId }) as { object: { objectId: string } };
             const hit = await debuggerApi.sendCommand("Runtime.callFunctionOn", {
                 objectId: resolved.object.objectId,
-                functionDeclaration: "function(x,y) { const e = document.elementFromPoint(x,y), c = e && e.closest('button,a,input,textarea,select,[role=button],[role=link]'); return !!e && (e === this || this.contains(e)) && (!c || c === this || !this.contains(c)) && !this.disabled; }",
+                functionDeclaration: "function(x,y) { const e = document.elementFromPoint(x,y), c = e && e.closest('button,a,input,textarea,select,[role=button],[role=link]'); return !!e && (e === this || this.contains(e)) && (!c || c === this || !this.contains(c)) && !this.disabled && !this.closest('[aria-disabled=true]'); }",
                 arguments: [{ value: x }, { value: y }], returnByValue: true,
             }) as { result?: { value?: unknown } };
             if (hit.result?.value !== true) throw new Error("The target is hidden, covered, or disabled.");
