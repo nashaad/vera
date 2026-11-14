@@ -1,3 +1,5 @@
+import { OVERLAY_COMMANDS } from "../commands/overlay-ids.ts";
+import { FileIcon } from "../components/Icons.tsx";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
 import { GearIcon, LaptopIcon, PanelIcon, PlayIcon } from "../components/Icons.tsx";
@@ -93,6 +95,8 @@ function hostTitle(state: UiState): string {
 // The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
+    const { run } = useWorkbench();
+    const runFeedback = () => run(OVERLAY_COMMANDS.feedback.id);
     return (
         <footer className="sidebar-foot" aria-label="Status">
             <span
@@ -112,6 +116,7 @@ export function SidebarFoot() {
             <PanelToggle />
             <TourButton />
             <DevicesButton />
+            <button type="button" className="header-button" aria-label="Feedback" title="Feedback" onClick={() => runFeedback()}><FileIcon /></button>
             <SettingsButton />
         </footer>
     );

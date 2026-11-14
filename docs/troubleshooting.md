@@ -297,7 +297,11 @@ Everything saved before the failure is kept.
 
 Use `/failure-report` for a shareable report of recorded model failures.
 Failed compactions are recorded too, with the reason the summary did not land.
-This is a model-failure report, not a general bug-report system.
+To save a bug report or feature request on this computer, use Feedback in the
+window, `/feedback` in the terminal, or ask Vera in a conversation. Reports
+are stored in `machine/feedback/` inside the Vera home. A report includes only
+the details and images you provide, plus version, platform and session metadata.
+Vera does not upload the report.
 
 Session files, request captures, and classifier logs can contain private
 conversation and project material. Review them before sharing.

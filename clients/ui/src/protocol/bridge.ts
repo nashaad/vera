@@ -191,7 +191,18 @@ export interface AnnexPagesAnswer {
 
 export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
 
+export interface FeedbackSaveRequest {
+    readonly kind: "bug" | "feature";
+    readonly title: string;
+    readonly description: string;
+    readonly image_paths: readonly string[];
+    readonly session_id?: string;
+}
+export type FeedbackSaveResult = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string };
+
 export interface DesktopBridge {
+    captureFeedback(): Promise<string | undefined>;
+    saveFeedback(request: FeedbackSaveRequest): Promise<FeedbackSaveResult>;
     readonly platform: string;
     start(): void;
     reconnect(): void;

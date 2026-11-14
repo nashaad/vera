@@ -7,6 +7,7 @@ import { ConfigureSheet } from "./ConfigureSheet.tsx";
 import { DiagnosticsSheet } from "./DiagnosticsSheet.tsx";
 import { DoctorSheet } from "./DoctorSheet.tsx";
 import { ExtensionsSheet } from "./ExtensionsSheet.tsx";
+import { FeedbackSheet } from "./FeedbackSheet.tsx";
 import { FailuresSheet } from "./FailuresSheet.tsx";
 import { NudgesSheet } from "./NudgesSheet.tsx";
 import { ShortcutsSheet } from "./ShortcutsSheet.tsx";
@@ -29,6 +30,7 @@ export function Overlays({ commands }: { readonly commands: CommandRegistry }) {
             {overlay === "doctor" ? <DoctorSheet onClose={onClose} /> : null}
             {overlay === "configure" ? <ConfigureSheet onClose={onClose} /> : null}
             {overlay === "failures" ? <FailuresSheet onClose={onClose} /> : null}
+            {overlay === "feedback" ? <FeedbackSheet onClose={onClose} /> : null}
             {overlay === "nudges" ? <NudgesSheet onClose={onClose} /> : null}
             <Toasts />
         </>

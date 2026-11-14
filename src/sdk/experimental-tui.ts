@@ -233,6 +233,8 @@ export interface VeraExperimentalTuiAgentSurface {
 }
 
 export interface VeraExperimentalTuiSecretRequest {
+    readonly masked?: boolean;
+    readonly allowEmpty?: boolean;
     readonly title: string;
     readonly hint?: string;
 }

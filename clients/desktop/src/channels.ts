@@ -1,4 +1,6 @@
 export const CHANNELS = {
+    feedbackCapture: "vera:feedback-capture",
+    feedbackSave: "vera:feedback-save",
     start: "vera:start",
     reconnect: "vera:reconnect",
     answer: "vera:answer",

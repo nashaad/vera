@@ -29,7 +29,8 @@ full-width title bar and no status bar.
 - The sidebar's bottom row shows a small colored dot with the connection state
   and the host build, at the right a button that toggles the panel, and a gear
   that opens Settings. Hovering the state shows the host build, protocol version, host process id and
-  home path. The host build stays on screen after the connection drops; the live
+  home path. Feedback opens a report form from the footer or the command palette.
+  The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
 - A banner under the main header appears when there is no connection or the
   startup check has a question. A lost connection offers Reconnect. A host that
@@ -191,6 +192,11 @@ Escape, its close button or a click outside it.
 - Configuration Files lists Vera's configuration files and what each holds, and
   shows the Vera home in Finder. Editing them is done with `/configure` in the
   terminal UI.
+- Feedback opens a form to report a bug or request a feature. Choose a kind,
+  enter a title and description, and optionally include a screenshot captured
+  when the form opened or add images by picker, drop or paste. Remove an image
+  before saving if needed. Save report writes it on this computer and offers to
+  show the report folder in the file manager. Escape cancels.
 - Model Failures and Standing Nudges say the window cannot read them and
   name the terminal commands that do: `/failure-report` and `/diagnostics` for
   failures, `/nudges` for nudges.

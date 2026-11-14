@@ -72,7 +72,7 @@ test("@core a create without a workspace makes the session's own folder and reco
         expect(stored.header.cwd).toBe(await realpath(folder));
         expect(stored.selectedAgent()?.name).toBe("chat");
         expect([...(stored.selectedAgent()?.snapshot.tools ?? [])].sort())
-            .toEqual(["edit", "list", "read", "web_fetch", "web_search", "write"]);
+            .toEqual(["edit", "file_feedback", "list", "read", "web_fetch", "web_search", "write"]);
     });
 });
 

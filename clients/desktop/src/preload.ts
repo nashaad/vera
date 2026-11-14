@@ -10,6 +10,8 @@ import type {
     CloseSessionResult,
     CreateSessionResult,
     DesktopBridge,
+    FeedbackSaveRequest,
+    FeedbackSaveResult,
     DesktopEvent,
     ExtensionFailuresResult,
     FilePreview,
@@ -28,6 +30,8 @@ import { CHANNELS } from "./channels.ts";
 
 const bridge: DesktopBridge = {
     platform: process.platform,
+    captureFeedback: async () => (await ipcRenderer.invoke(CHANNELS.feedbackCapture)) as string | undefined,
+    saveFeedback: async (request: FeedbackSaveRequest) => (await ipcRenderer.invoke(CHANNELS.feedbackSave, request)) as FeedbackSaveResult,
     start: () => ipcRenderer.send(CHANNELS.start),
     reconnect: () => ipcRenderer.send(CHANNELS.reconnect),
     answer: (id: string, yes: boolean) => ipcRenderer.send(CHANNELS.answer, { id, yes }),

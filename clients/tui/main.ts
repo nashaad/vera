@@ -1229,7 +1229,13 @@ export async function startTui(
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
-            requestExtension: rt.dependencies.requestExtension,
+            requestExtension: rt.dependencies.requestExtension === undefined ? undefined : (extensionId, name, payload, signal) => {
+                const sessionId = focusedAgentClient(rt).agentId;
+                if (extensionId === "vera.feedback" && name === "save" && payload !== null && typeof payload === "object" && !Array.isArray(payload) && sessionId !== undefined) {
+                    return rt.dependencies.requestExtension!(extensionId, name, { ...payload, session_id: sessionId }, signal);
+                }
+                return rt.dependencies.requestExtension!(extensionId, name, payload, signal);
+            },
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,

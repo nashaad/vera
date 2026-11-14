@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } fr
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
+import { requestExtensionThroughHost } from "../../../src/host/extension-request-client.ts";
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
 import type {
@@ -256,6 +257,32 @@ ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
 ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load() ?? NO_PINS : NO_PINS));
 ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
     if (fromWindow(event)) pinStore.save(pins);
+});
+ipcMain.handle(CHANNELS.feedbackCapture, async (event): Promise<string | undefined> => {
+    if (!fromWindow(event) || window === undefined) return undefined;
+    try {
+        const image = await window.webContents.capturePage();
+        const png = image.toPNG();
+        return png.length <= 10 * 1024 * 1024 ? image.toDataURL() : undefined;
+    } catch { return undefined; }
+});
+ipcMain.handle(CHANNELS.feedbackSave, async (event, request: unknown) => {
+    if (!fromWindow(event) || hostSocketPath === undefined) return { ok: false, reason: "The host is not running. Restart Vera and try again." };
+    if (request === null || typeof request !== "object" || Array.isArray(request)) return { ok: false, reason: "Invalid report." };
+    const value = request as Record<string, unknown>;
+    if ((value.kind !== "bug" && value.kind !== "feature") || typeof value.title !== "string" || typeof value.description !== "string" || !Array.isArray(value.image_paths) || value.image_paths.some((path) => typeof path !== "string") || (value.session_id !== undefined && typeof value.session_id !== "string")) return { ok: false, reason: "Invalid report." };
+    try {
+        const result = await requestExtensionThroughHost(hostSocketPath, "vera.feedback", "save", {
+            kind: value.kind, title: value.title, description: value.description, source: "window", image_paths: value.image_paths as string[],
+            ...(typeof value.session_id === "string" ? { session_id: value.session_id } : {}),
+        }, AbortSignal.timeout(30000));
+        const record = result as { readonly path?: unknown } | null;
+        if (record === null || typeof record !== "object" || typeof record.path !== "string") throw new Error("Restart Vera and try again.");
+        return { ok: true, path: record.path };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save the report.";
+        return { ok: false, reason: /extension|host did not answer|host connection closed|unsupported|protocol|timeout/i.test(message) ? "Restart Vera and try again." : message };
+    }
 });
 ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
