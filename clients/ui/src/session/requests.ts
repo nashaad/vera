@@ -47,6 +47,8 @@ export interface SetupRequest {
     readonly requestId: string;
     readonly reason: string;
     readonly waiting: number;
+    readonly destination?: string;
+    readonly provider?: string;
 }
 
 export type OpenRequest = ApprovalRequest | QuestionRequest | SetupRequest;
@@ -175,7 +177,10 @@ function parseSetup(requestId: string, request: Fields): SetupRequest | undefine
     if (reason === undefined) return undefined;
     const pending = isRecord(request.pendingAction) ? request.pendingAction : {};
     const waiting = typeof pending.count === "number" && Number.isFinite(pending.count) ? pending.count : 1;
-    return { kind: "setup", requestId, reason, waiting };
+    const destination = isRecord(request.destination) ? request.destination : {};
+    return { kind: "setup", requestId, reason, waiting,
+        ...(typeof destination.kind === "string" ? { destination: destination.kind } : {}),
+        ...(typeof destination.provider === "string" ? { provider: destination.provider } : {}) };
 }
 
 // A subagent asked when either source field is set.

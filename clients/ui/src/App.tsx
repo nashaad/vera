@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
+import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
@@ -27,6 +28,16 @@ export function App() {
     const environment = useMemo(() => ({ connection: state, log, refreshSessions }), [state, log, refreshSessions]);
     const platform = window.veraDesktop?.platform ?? "";
 
+    const [firstRun, setFirstRun] = useState(false);
+    useEffect(() => {
+        const bridge = window.veraDesktop;
+        if (state.phase !== "attached" || bridge === undefined) return;
+        let live = true;
+        void bridge.listProviders().then((result) => {
+            if (live && result.ok && result.needsSetup) setFirstRun(true);
+        });
+        return () => { live = false; };
+    }, [state.phase]);
     const banner = bannerFor(state);
     return (
         <WorkbenchProvider layout={layout} dispatch={dispatch} run={run}>
@@ -42,6 +53,7 @@ export function App() {
                             {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
                         />
                     ) : <div className="workbench" />}
+                    {firstRun ? <ProviderWizard onClose={() => setFirstRun(false)} /> : null}
                     <Overlays commands={commands} />
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />

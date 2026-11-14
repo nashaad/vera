@@ -5,7 +5,12 @@ description: "Connect an API, subscription, or local server and make its models 
 
 # Connect and manage providers
 
-Open **Configure providers** from Ctrl+P to add a connection, refresh its
+In the window, choose a provider on first run, enter its key or sign in in the
+browser, then choose a model to check and use. Open the same screen later from
+Settings > Providers or the Models browser. A provider setup request can open it
+from the conversation.
+
+In the terminal, open **Configure providers** from Ctrl+P to add a connection, refresh its
 models, or change its credentials. You can also choose **Connect a provider**
 on Home.
 

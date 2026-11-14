@@ -18,6 +18,9 @@ import type {
     HostModelsResult,
     ModelOperationKind,
     ModelOperationResult,
+    ProviderListResult,
+    ProviderResult,
+    ProviderSave,
     SessionSearchRequest,
     SessionSearchResult,
     SessionPane,
@@ -96,6 +99,12 @@ const bridge: DesktopBridge = {
     readFilePreview: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileRead, path)) as FilePreview,
     readModelSettings: async (workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelsRead, workspace)) as HostModelsResult,
+    listProviders: async () => (await ipcRenderer.invoke(CHANNELS.providerList)) as ProviderListResult,
+    saveProvider: async (input: ProviderSave) => (await ipcRenderer.invoke(CHANNELS.providerSave, input)) as ProviderResult,
+    selectProviderModel: async (provider: string, model: string) =>
+        (await ipcRenderer.invoke(CHANNELS.providerSelectModel, provider, model)) as { readonly ok: true } | { readonly ok: false; readonly reason: string },
+    signInProvider: async (provider: string) => (await ipcRenderer.invoke(CHANNELS.providerSignIn, provider)) as ProviderResult,
+    cancelProviderSignIn: () => ipcRenderer.send(CHANNELS.providerSignInCancel),
     refreshCatalog: async (provider: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.catalogRefresh, provider, workspace)) as HostModelsResult,
     forgetProvider: async (provider: string, workspace?: string) =>

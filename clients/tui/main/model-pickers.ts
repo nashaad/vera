@@ -1,3 +1,5 @@
+import { providerSetupRequired } from "../../../src/providers/provider-sign-in.ts";
+import type { ProviderSignInStatus } from "../../../src/providers/provider-sign-in.ts";
 import { isRefreshableProvider } from "../../../src/model/refreshable-providers.ts";
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
@@ -658,9 +660,9 @@ export function onboardingInput(
 /** Home is built before the runtime credential store is assigned. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
-        return connectedProviderCatalogs(loadOptionalVeraConfig(), {
+        return providerSetupRequired(loadOptionalVeraConfig(), {
             authStorage: rt.authStorage ?? rt.dependencies.authStorage ?? createAuthStorage(),
-        }).length === 0;
+        });
     } catch {
         return false;
     }
@@ -707,18 +709,43 @@ export function providerPickerRows(
     });
 }
 
-export function openProviderPicker(rt: TuiRuntime, 
+export function openProviderPicker(rt: TuiRuntime,
+    parent?: TuiSettingsPickerState,
+    options: { readonly selected?: string; readonly subtitle?: string } = {},
+): void {
+    showProviderPicker(rt, parent, options);
+    const list = rt.dependencies.listProviders;
+    if (list === undefined) return;
+    const opened = rt.settingsPicker;
+    void list().then((statuses) => {
+        const current = rt.settingsPicker;
+        if (current === undefined || current.kind !== "provider" || opened?.kind !== "provider" || current.parent !== opened.parent) return;
+        const selected = current.options[current.selectedIndex]?.value;
+        showProviderPicker(rt, parent, { ...options, selected }, statuses, false);
+        const refreshed = rt.settingsPicker;
+        if (refreshed?.kind !== "provider") return;
+        const searched = updateTuiSettingsPickerSearch(refreshed, current.query, current.queryCursor).state!;
+        rt.settingsPicker = { ...searched, selectedIndex: Math.max(0, searched.options.findIndex((row) => row.value === selected)) };
+        renderState(rt);
+    }).catch(() => {});
+}
+
+function showProviderPicker(rt: TuiRuntime,
     parent?: TuiSettingsPickerState,
     options: {
         readonly selected?: string;
         readonly subtitle?: string;
     } = {},
+    statuses?: readonly ProviderSignInStatus[],
+    focus = true,
 ): void {
     const read = readLastGoodConfig(rt);
     const config = read.config;
-    const connected = new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id));
+    const connected = statuses === undefined
+        ? new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id))
+        : new Set(statuses.filter((row) => row.catalog_connected).map((row) => row.id));
     const declared = new Set(Object.keys(config?.providers ?? {}));
-    const available = setupProviders(config);
+    const available = setupProviders(config).filter((provider) => statuses === undefined || statuses.some((row) => row.id === provider.id));
     const hasLocalRuntime = available.some((provider) => provider.localRuntime !== undefined);
     const rows = providerPickerRows(
         available,
@@ -727,7 +754,8 @@ export function openProviderPicker(rt: TuiRuntime,
             connected,
             declared,
             refreshable: (provider) => isRefreshableProvider(provider.id, config) || provider.protocol === "anthropic-messages",
-            hasCredential: (provider) => providerHasCredential(rt, provider),
+            hasCredential: (provider) => statuses === undefined ? providerHasCredential(rt, provider)
+                : statuses.some((row) => row.id === provider.id && row.connected_by !== undefined && row.connected_by !== "none"),
             catalog: (id) => readProviderCatalogSnapshot(id),
         },
     );
@@ -745,12 +773,12 @@ export function openProviderPicker(rt: TuiRuntime,
         ),
         parent,
     );
-    rt.composer.blur();
-    renderState(rt);
-    focusActiveSurface(rt);
-    // The reading is slower than the screen, so it lands into the section once
-    // it arrives rather than holding the screen shut.
-    if (hasLocalRuntime) void refreshLocalRuntimeStatus(rt);
+    if (focus) {
+        rt.composer.blur();
+        renderState(rt);
+        focusActiveSurface(rt);
+        if (hasLocalRuntime) void refreshLocalRuntimeStatus(rt);
+    }
 }
 
 export function refreshProviderPicker(rt: TuiRuntime, notice?: string): void {

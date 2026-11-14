@@ -195,6 +195,28 @@ export interface AnnexPagesAnswer {
 
 export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
 
+export interface ProviderStatus {
+    readonly id: string;
+    readonly name: string;
+    readonly methods: readonly ("key" | "browser")[];
+    readonly connected: boolean;
+    readonly catalog_connected: boolean;
+    readonly connected_by?: "key" | "browser" | "environment" | "none";
+    readonly endpoint?: string;
+    readonly protocol?: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+}
+export interface ProviderSave {
+    readonly provider: string;
+    readonly key: string;
+    readonly endpoint: string;
+    readonly protocol: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+    readonly editing?: string;
+}
+export type ProviderListResult = { readonly ok: true; readonly providers: readonly ProviderStatus[]; readonly needsSetup: boolean } | HostRequestFailure;
+export type ProviderResult = { readonly ok: true; readonly provider: ProviderStatus } | HostRequestFailure;
+
 export interface DesktopBridge {
     readonly platform: string;
     start(): void;
@@ -220,6 +242,11 @@ export interface DesktopBridge {
     createSession(workspace: string | undefined, approvalMode?: string): Promise<CreateSessionResult>;
     // The host's models, shortlist and connected providers for a folder, or the host's own folder.
     readModelSettings(workspace?: string): Promise<HostModelsResult>;
+    listProviders(): Promise<ProviderListResult>;
+    saveProvider(input: ProviderSave): Promise<ProviderResult>;
+    signInProvider(provider: string): Promise<ProviderResult>;
+    selectProviderModel(provider: string, model: string): Promise<{ readonly ok: true } | HostRequestFailure>;
+    cancelProviderSignIn(): void;
     // Asks one provider for its model list again.
     refreshCatalog(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Removes a provider's saved connection and what Vera learned about its models.

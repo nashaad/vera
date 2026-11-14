@@ -127,6 +127,16 @@ describe("open requests", () => {
         expect(message.request).toEqual({ kind: "setup", requestId: "s1", reason: "Pick a subagent model.", waiting: 2 });
     });
 
+    test("a provider setup request retains its destination", () => {
+        const message = line({ type: "ui_request", requestId: "s2", request: {
+            type: "configuration_required", destination: { kind: "provider", provider: "openrouter" },
+            reason: "Connect a provider.", pendingAction: { count: 1 },
+        } });
+        if (message.type !== "ui_request") throw new Error("expected a request");
+        expect(message.request).toEqual({ kind: "setup", requestId: "s2", reason: "Connect a provider.",
+            waiting: 1, destination: "provider", provider: "openrouter" });
+    });
+
     test("unknown request types and malformed requests are skipped", () => {
         expect(parseSessionLine(JSON.stringify({ type: "ui_request", requestId: "x", request: { type: "other" } }))).toBeUndefined();
         expect(parseSessionLine(JSON.stringify({ type: "ui_request", request: approval.request }))).toBeUndefined();

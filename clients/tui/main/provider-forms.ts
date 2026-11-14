@@ -1,7 +1,4 @@
-import { readModelCatalog } from "../../../src/providers/read-model-catalog.ts";
-import { normalizeOpenRouterModels } from "../../../src/model/openrouter-catalog.ts";
-import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
-import { isProviderConnected, type ProviderDescriptor } from "../../../src/providers/registry.ts";
+import { type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { modelBrowse } from "../model-browse.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
@@ -9,7 +6,6 @@ import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts"
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { RenameSessionResult } from "../../../src/host/session-rename-client.ts";
 import { DEFAULT_PROFILE_NAME } from "../../../src/profile-paths.ts";
-import { loginOpenAICodex } from "../../../src/providers/openai-codex-oauth.ts";
 import { configuredProviders, findConfiguredProvider } from "../../../src/providers/registry.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { SESSION_SWITCH_TIMEOUT_MS, closeSettingsPickerSurface, refreshWorkspaceSidebarRoster } from "../main.ts";
@@ -26,7 +22,7 @@ import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
 import { startTuiSecretPrompt, type TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
-import { MODEL_ASSIGNMENT_ALL_VALUE, mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormInitial, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_ALL_VALUE, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormInitial, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -106,10 +102,8 @@ export async function defaultLoginProvider(rt: TuiRuntime,
     providerId: string,
     onBrowserUnavailable: (url: string) => void,
 ): Promise<void> {
-    if (providerId !== "openai-codex") {
-        throw new Error(`No sign-in flow for provider ${providerId}`);
-    }
-    await loginOpenAICodex({ authStorage: rt.authStorage, onBrowserUnavailable });
+    if (rt.dependencies.loginProvider === undefined) throw new Error("This host does not support provider sign-in.");
+    await rt.dependencies.loginProvider(providerId, onBrowserUnavailable);
 }
 
 export function openProviderEndpointForm(rt: TuiRuntime, 
@@ -256,48 +250,14 @@ export function applyProviderFormTransition(rt: TuiRuntime,
 
 async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, submitted: NonNullable<TuiProviderFormTransition["submitted"]>): Promise<void> {
     try {
-        const config = loadOptionalVeraConfig();
-        const provider = findConfiguredProvider(submitted.id, config);
-        if (form.editing === undefined && provider !== undefined
-            && isProviderConnected(provider, { authStorage: rt.authStorage })
-            && provider.credential !== "none") throw new Error(`${submitted.id} is already connected`);
-        const stored = rt.authStorage.getCredential(submitted.id);
-        const key = submitted.apiKey ?? (stored?.type === "api_key" ? stored.key : undefined)
-            ?? (provider?.envVar === undefined ? undefined : process.env[provider.envVar]);
-        if (submitted.declaration.credential === "api_key" && !key) throw new Error("Missing API key");
-        const catalog = await readModelCatalog({ provider: submitted.id, baseUrl: submitted.declaration.base_url,
-            ...(provider?.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {}),
-            protocol: submitted.declaration.protocol, ...(key === undefined ? {} : { apiKey: key }) });
-        updateVeraConfigDefaults(
-            submitted.shipped === true
-                ? {
-                    provider_endpoint: {
-                        id: submitted.id,
-                        url: submitted.restore === true
-                            ? null
-                            : submitted.declaration.base_url,
-                    },
-                }
-                : {
-                    custom_provider: {
-                        id: submitted.id,
-                        declaration: mergedProviderDeclaration(
-                            form.editing === undefined
-                                ? undefined
-                                : config?.providers?.[form.editing],
-                            submitted.declaration,
-                        ),
-                    },
-                },
-        );
-        if (submitted.apiKey !== undefined) rt.authStorage.setCredential(submitted.id, { type: "api_key", key: submitted.apiKey });
-        writeProviderCatalogSnapshot(catalog);
-        if (submitted.replaces !== undefined) {
-            updateVeraConfigDefaults({ custom_provider: { id: submitted.replaces, declaration: null } });
-            rt.authStorage.deleteCredential(submitted.replaces);
-        }
+        if (rt.dependencies.saveProvider === undefined) throw new Error("This host does not support provider sign-in.");
+        const result = await rt.dependencies.saveProvider({
+            ...submitted,
+            custom: submitted.shipped !== true,
+            ...(form.editing === undefined ? {} : { editing: form.editing }),
+        });
         rt.providerForm = undefined;
-        const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
+        const notice = `${result.name} saved and its catalog read: ${result.models_discovered ?? 0} models discovered. `
             + "Discovery decides nothing: none is in your favorites, verified, or bound.";
         requestAgentSettings(rt, focusedAgentClient(rt));
         const providerList = form.parent?.kind === "provider_actions" ? form.parent.parent : form.parent;
@@ -323,39 +283,32 @@ export function applySecretPromptTransition(rt: TuiRuntime,
         rt.extensionSecretPrompt(transition.submitted);
         return;
     }
-    if (transition.submitted !== undefined) {
-        try {
-            rt.authStorage.setCredential(prompt.providerId, {
-                type: "api_key",
-                key: transition.submitted,
-            });
-            rt.state = appendTuiNotice(rt.state, `stored ${prompt.label} API key`);
-            requestAgentSettings(rt, focusedAgentClient(rt));
-        } catch (error) {
-            rt.state = appendTuiError(
-                rt.state,
-                `could not store the ${prompt.label} API key: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
-        }
-    }
-    // A stored key is the second gate, not the last one. While no provider has
-    // answered, the flow carries straight on to the model step.
-    if (transition.submitted !== undefined && homeNeedsProvider(rt)) {
-        enterWizardModelStep(rt, prompt.providerId);
+    if (transition.submitted === undefined) {
+        rt.settingsPicker = prompt.parent;
+        renderState(rt);
+        focusActiveSurface(rt);
         return;
     }
-    if (transition.submitted !== undefined && prompt.parent?.kind === "provider") {
-        openProviderPicker(rt, prompt.parent.parent);
-        return;
-    }
-    rt.settingsPicker = prompt.parent;
-    if (rt.settingsPicker?.kind === "model") {
+    const key = transition.submitted;
+    const save = rt.dependencies.saveProviderKey;
+    void (save === undefined ? Promise.reject(new Error("This host does not support provider sign-in.")) : save(prompt.providerId, key)).then(() => {
+        rt.state = appendTuiNotice(rt.state, `stored ${prompt.label} API key`);
         requestAgentSettings(rt, focusedAgentClient(rt));
-    }
-    renderState(rt);
-    focusActiveSurface(rt);
+        if (homeNeedsProvider(rt)) {
+            enterWizardModelStep(rt, prompt.providerId);
+        } else if (prompt.parent?.kind === "provider") {
+            openProviderPicker(rt, prompt.parent.parent);
+        } else {
+            rt.settingsPicker = prompt.parent;
+            renderState(rt);
+            focusActiveSurface(rt);
+        }
+    }, (error: unknown) => {
+        rt.state = appendTuiError(rt.state, `could not store the ${prompt.label} API key: ${error instanceof Error ? error.message : String(error)}`);
+        rt.secretPrompt = prompt;
+        renderState(rt);
+        focusActiveSurface(rt);
+    });
 }
 
 export function applySessionRenamePromptTransition(rt: TuiRuntime, 
