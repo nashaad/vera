@@ -1,10 +1,10 @@
 import { baseColor, shadowFor } from "../../../ui/src/theme/imported.ts";
-import type { ColorToken, ThemeName } from "../../../ui/src/theme/tokens.ts";
+import type { ColorToken, SyntaxToken, ThemeName } from "../../../ui/src/theme/tokens.ts";
 import { COLOR_TOKENS } from "../../../ui/src/theme/tokens.ts";
 import { deriveNeutral, NEUTRAL_TOKENS, type NeutralAnchors } from "./neutral-colors.ts";
 import { brightness, parseColor } from "./vscode-color.ts";
 
-type MappedToken = Exclude<ColorToken, "text-dim" | "menu-check" | "slider-value" | "slider-rail" | "slider-fill" | "slider-stop" | "slider-knob">;
+type MappedToken = Exclude<ColorToken, "text-dim" | "menu-check" | "slider-value" | "slider-rail" | "slider-fill" | "slider-stop" | "slider-knob" | SyntaxToken>;
 
 // Each Vera token takes the first VS Code color in its row that the theme sets.
 export const COLOR_ROWS: Readonly<Record<MappedToken, readonly string[]>> = {

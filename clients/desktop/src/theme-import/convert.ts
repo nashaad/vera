@@ -2,6 +2,7 @@ import type { ImportedTheme } from "../../../ui/src/theme/imported.ts";
 import type { LoadedTheme } from "./chain.ts";
 import { classifyType, mapColors } from "./color-map.ts";
 import { ThemeRefusal } from "./refusal.ts";
+import { syntaxColors } from "./syntax-colors.ts";
 
 const MAX_NAME_CHARS = 120;
 const MAX_SLUG_CHARS = 64;
@@ -48,7 +49,7 @@ export function convertTheme(loaded: LoadedTheme, origin: ThemeOrigin): Imported
         name,
         type,
         source: origin.source,
-        colors: mapped.colors,
+        colors: { ...mapped.colors, ...syntaxColors(loaded.tokenColors) },
         values: mapped.shadow === undefined ? {} : { shadow: mapped.shadow },
         tokenColors: loaded.tokenColors,
         semanticTokenColors: loaded.semanticTokenColors,

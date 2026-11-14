@@ -36,6 +36,14 @@ export const COLOR_TOKENS = [
     "slider-fill",
     "slider-stop",
     "slider-knob",
+    "syntax-comment",
+    "syntax-keyword",
+    "syntax-string",
+    "syntax-number",
+    "syntax-function",
+    "syntax-type",
+    "syntax-property",
+    "syntax-tag",
 ] as const;
 
 export const VALUE_TOKENS = [
@@ -59,6 +67,18 @@ export const VALUE_TOKENS = [
     "motion-loop",
 ] as const;
 
+export const SYNTAX_TOKENS = [
+    "syntax-comment",
+    "syntax-keyword",
+    "syntax-string",
+    "syntax-number",
+    "syntax-function",
+    "syntax-type",
+    "syntax-property",
+    "syntax-tag",
+] as const satisfies readonly (typeof COLOR_TOKENS)[number][];
+
+export type SyntaxToken = (typeof SYNTAX_TOKENS)[number];
 export type ColorToken = (typeof COLOR_TOKENS)[number];
 export type ValueToken = (typeof VALUE_TOKENS)[number];
 export type TokenName = ColorToken | ValueToken;
