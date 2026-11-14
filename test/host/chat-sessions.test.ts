@@ -19,6 +19,13 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { indexStoredSession } from "../../src/host/session-host/storage.ts";
 import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { chatFolderPath, isChatFolder } from "../../src/store/chat-folder.ts";
+import type { AgentAttachment } from "../../src/host/resident-agent.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -28,14 +35,18 @@ async function withChats<T>(
         readonly registry: AgentRegistry;
         readonly path: (name: string) => string;
     }) => Promise<T>,
-    options: { readonly agents?: boolean; readonly trash?: (path: string) => Promise<void> } = {},
+    options: {
+        readonly agents?: boolean;
+        readonly trash?: (path: string) => Promise<void>;
+        readonly createAdapter?: () => ModelAdapter;
+    } = {},
 ): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), "vera-chat-"));
     const extensions = await startExtensionRegistry({
         extensions: includedExtensionConfigs([]),
     });
     const registry = new AgentRegistry({
-        createAdapter: () => new FauxAdapter([]),
+        createAdapter: options.createAdapter ?? (() => new FauxAdapter([])),
         model: "faux/test",
         approvalMode: "auto",
         ...(options.agents === false ? {} : { registeredAgents: extensions.agents() }),
@@ -273,5 +284,70 @@ test("a delegated child of a chat works in its parent's folder and is not a chat
         expect(child.workspace).toBe(parent.workspace);
         expect("chat" in row(registry, "child")).toBe(false);
         await expect(stat(chatFolderPath(path("child")))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+});
+
+const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it. When the work is worth keeping, tell them where the files are and offer to move this conversation into a folder they choose.";
+
+function textResponse(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}
+
+async function runPrompt(attachment: AgentAttachment, content: string): Promise<void> {
+    expect((await attachment.receive()).type).toBe("history");
+    attachment.send({ type: "prompt", content });
+    while ((await attachment.receive()).type !== "turn_finished") {
+        // Drain the ordered update stream up to the turn boundary.
+    }
+}
+
+test("a chat's system prompt says its folder is its own, on every turn and after a resume, and a project session's does not", async () => {
+    const requests: ModelRequest[] = [];
+    await withChats(async ({ root, registry, path }) => {
+        const project = join(root, "project");
+        await mkdir(project);
+        const chat = await registry.create({ id: "chat", sessionPath: path("chat") });
+        const plain = await registry.create({ id: "plain", workspace: project, sessionPath: path("plain") });
+
+        const chatAttachment = chat.attach();
+        await runPrompt(chatAttachment, "first");
+        chatAttachment.send({ type: "prompt", content: "second" });
+        while ((await chatAttachment.receive()).type !== "turn_finished") {
+            // Drain the second turn.
+        }
+        await runPrompt(plain.attach(), "first");
+        await registry.closeAgent("chat");
+        const resumed = await registry.resume({ sessionPath: path("chat") });
+        await runPrompt(resumed.attach(), "after resume");
+
+        const promptOf = (request: ModelRequest): string => request.systemPrompt ?? "";
+        const stable = (request: ModelRequest): string =>
+            promptOf(request).split("\n\n## Date")[0]!;
+        expect(requests).toHaveLength(4);
+        const [first, second, plainRequest, afterResume] = requests as [
+            ModelRequest, ModelRequest, ModelRequest, ModelRequest,
+        ];
+        for (const request of [first, second, afterResume]) {
+            expect(promptOf(request)).toContain(
+                `Working directory: ${chat.workspace}\n\n${CHAT_FOLDER_PARAGRAPH}`,
+            );
+        }
+        expect(stable(second)).toBe(stable(first));
+        expect(stable(afterResume)).toBe(stable(first));
+        expect(promptOf(plainRequest)).toContain(`Working directory: ${plain.workspace}`);
+        expect(promptOf(plainRequest)).not.toContain("This conversation has no project folder");
+    }, {
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([textResponse("done")]).stream(request);
+            },
+        }),
     });
 });

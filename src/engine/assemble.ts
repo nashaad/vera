@@ -13,6 +13,7 @@ import {
 export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
@@ -28,6 +29,7 @@ export interface AssembleSystemPromptInput {
 export interface AssembleStableSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
     /** Which contributions render, and in what order. Absent uses the built-in order. */
