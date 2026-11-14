@@ -98,6 +98,14 @@ export function activate(vera: VeraExtensionApi): void {
     vera.requests.handle("forget", async (_payload, { signal }): Promise<JsonValue> => {
         const result = await dispatch({ action: "forget" }, signal);
         if (typeof result.error === "string") throw new Error(result.error);
+        const directory = join(root(), "captures");
+        try {
+            for (const name of readdirSync(directory)) {
+                if (/^capture-[0-9]+-[a-f0-9-]+\.jpg$/.test(name)) unlinkSync(join(directory, name));
+            }
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
         return true;
     });
 
