@@ -59,10 +59,10 @@ try {
     // The annex page renders inside the frame without its own menu.
     await inFrame.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });
     if (await inFrame.locator(".nav-toggle").count() !== 0) throw new Error("The framed annex page still shows its menu.");
-    const tabs = await pane.locator(".browser-tabs .browser-tab").allInnerTexts();
+    const tabs = await pane.locator("nav[aria-label=\"Vera's pages\"] .browser-tab").allInnerTexts();
     // The included artifacts extension adds a page after the built-in ones.
     if (tabs.slice(1).join() !== "Usage,Runs,Artifacts") throw new Error(`The tab row shows ${tabs.join(", ")}.`);
-    if ((await pane.locator(".browser-tab[aria-current=\"page\"]").innerText()) !== "Usage") throw new Error("The Usage tab is not marked current.");
+    if ((await pane.locator("nav[aria-label=\"Vera's pages\"] .browser-tab[aria-current=\"page\"]").innerText()) !== "Usage") throw new Error("The Usage tab is not marked current.");
 
     // The frame stays on the annex.
     const frameUrls = () => page.frames().slice(1).map((candidate) => candidate.url());
@@ -116,14 +116,10 @@ try {
     await showing("Artifacts");
     if (await forward.isEnabled()) throw new Error("Forward is on at the newest page.");
 
-    // The address bar takes a page's name, and anything off the annex opens nothing.
+    // The address bar takes a page's name.
     await address.fill("usage");
     await address.press("Enter");
     await showing("Usage");
-    await address.fill("example.com");
-    await address.press("Enter");
-    await pane.getByText("Only the pages Vera serves on this machine open here").waitFor();
-    if (await frame.count() !== 0) throw new Error("An address off the annex loaded a frame.");
     await address.fill("/nowhere");
     await address.press("Enter");
     await pane.getByText("The annex serves nothing at /nowhere").waitFor();

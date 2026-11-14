@@ -75,7 +75,7 @@ test("included host extensions start with a bounded Explorer and no command hook
             });
         expect(registry.agents().find((entry) => entry.name === "chat"))
             .toMatchObject({
-                tools: ["web_search", "web_fetch", "read", "list", "write", "edit"],
+                tools: ["web_search", "web_fetch", "read", "list", "write", "edit", "desktop_browser"],
                 instructions: "",
             });
         expect(registry.preToolUseHooks()).toEqual([]);

@@ -24,6 +24,7 @@ import type {
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
+import type { BrowserBounds, BrowserState } from "../../ui/src/browser/native-types.ts";
 import { CHANNELS } from "./channels.ts";
 
 const bridge: DesktopBridge = {
@@ -106,6 +107,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
     readAnnexPages: async () => (await ipcRenderer.invoke(CHANNELS.annexPages)) as AnnexPagesResult,
     openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
+    browser: async (command: string, value?: string | number | boolean | null | BrowserBounds) =>
+        (await ipcRenderer.invoke(CHANNELS.browser, command, value)) as BrowserState,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);

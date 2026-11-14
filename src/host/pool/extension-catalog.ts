@@ -4,7 +4,7 @@ import { ToolRuntime } from "../../tools/runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "../../tools/types.ts";
 import type { ControlChannel } from "./control.ts";
 
-export const HOST_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp"]);
+export const HOST_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp", "vera.desktop-browser"]);
 
 export interface CatalogTool {
     readonly extensionId: string;

@@ -41,5 +41,6 @@ export const CHANNELS = {
     extensionFailures: "vera:extension-failures",
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
+    browser: "vera:browser",
     event: "vera:event",
 } as const;

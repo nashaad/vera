@@ -3,6 +3,11 @@
 // renders and Playwright input reaches it as usual.
 const { app } = require("electron");
 
+process.on("uncaughtException", (error) => {
+    console.error(error);
+    app.exit(1);
+});
+
 function hideFromDock() {
     if (process.platform === "darwin") app.setActivationPolicy("accessory");
 }
