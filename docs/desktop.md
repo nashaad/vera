@@ -946,7 +946,17 @@ node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
+node clients/desktop/test/themes.e2e.mjs
 ```
+
+`bun run test:desktop` builds the app once and runs every
+`clients/desktop/test/*.e2e.mjs` in turn. It prints one line per script with
+PASS or FAIL and the seconds it took, then a summary, and exits non-zero if any
+script failed. Each failure prints the path of a log with the script's output
+and its first error line. A name argument filters the scripts, for example
+`bun run test:desktop approve`. Each script has a 300 second limit. Trial
+homes are created under a scratch folder that the runner sets as `TMPDIR`, and
+the runner stops any host a script left behind.
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
