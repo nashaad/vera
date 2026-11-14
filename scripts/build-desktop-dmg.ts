@@ -78,14 +78,18 @@ async function main(): Promise<void> {
     const electronApp = join(dirname(desktop.resolve("electron")), "dist", "Electron.app");
     if (!existsSync(electronApp)) fail(`${electronApp} is missing. Install the desktop dependencies first.`);
 
+    const iconSource = join(root, "docs", "site", "public", "favicon.svg");
+    if (!existsSync(iconSource)) fail(`${iconSource} is missing; the app icon is built from it.`);
+
     const stage = join(args.outputDirectory, "stage");
     const app = join(stage, `${APP_NAME}.app`);
     rmSync(stage, { recursive: true, force: true });
-    assembleApp({
+    await assembleApp({
         electronApp,
         appBuild: join(root, "clients", "desktop", "dist"),
         releaseTarball: tarball,
         releaseManifest: manifestText,
+        iconSource,
         version: manifest.product_version,
         destination: app,
     });

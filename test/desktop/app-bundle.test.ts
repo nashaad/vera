@@ -25,6 +25,7 @@ function fakeElectronApp(parent: string): string {
     mkdirSync(join(contents, "Resources"), { recursive: true });
     writeFileSync(join(contents, "MacOS", "Electron"), "#!/bin/sh\n", { mode: 0o755 });
     writeFileSync(join(contents, "Resources", "default_app.asar"), "asar");
+    writeFileSync(join(contents, "Resources", "electron.icns"), "old icon");
     writeFileSync(join(contents, "Info.plist"), plist(
         "<key>CFBundleName</key><string>Electron</string>"
         + "<key>CFBundleExecutable</key><string>Electron</string>"
@@ -46,7 +47,9 @@ function extract(plistPath: string, key: string): string {
     return run("plutil", ["-extract", key, "raw", plistPath]).trim();
 }
 
-test.skipIf(process.platform !== "darwin")("assembleApp renames the executable and helpers and carries the release", () => {
+const MARK = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 400 400\"><circle cx=\"200\" cy=\"200\" r=\"200\" fill=\"#e8582a\"/></svg>\n";
+
+test.skipIf(process.platform !== "darwin")("assembleApp renames the executable and helpers and carries the release", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-app-bundle-"));
     roots.push(root);
     const appBuild = join(root, "dist");
@@ -57,12 +60,15 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     writeFileSync(tarball, "archive");
     writeFileSync(`${tarball}.sha256`, "abc  vera-release.tar.gz\n");
     const destination = join(root, "stage", "Vera.app");
+    const iconSource = join(root, "mark.svg");
+    writeFileSync(iconSource, MARK);
 
-    assembleApp({
+    await assembleApp({
         electronApp: fakeElectronApp(root),
         appBuild,
         releaseTarball: tarball,
         releaseManifest: "{\"build_id\":\"vera-x\"}\n",
+        iconSource,
         version: "0.1.0",
         destination,
     });
@@ -76,6 +82,11 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     expect(extract(main, "CFBundleIdentifier")).toBe(APP_BUNDLE_ID);
     expect(extract(main, "CFBundleShortVersionString")).toBe("0.1.0");
     expect(run("plutil", ["-p", main])).not.toContain("ElectronAsarIntegrity");
+    expect(extract(main, "CFBundleIconFile")).toBe("Vera.icns");
+    expect(existsSync(join(contents, "Resources", "electron.icns"))).toBe(false);
+    const icon = readFileSync(join(contents, "Resources", "Vera.icns"));
+    expect(icon.subarray(0, 4).toString("latin1")).toBe("icns");
+    expect(icon.readUInt32BE(4)).toBe(icon.length);
 
     for (const [oldName, id] of [
         ["Electron Helper", ""],

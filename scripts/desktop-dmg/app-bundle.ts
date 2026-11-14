@@ -6,12 +6,15 @@ import {
     BUNDLED_RELEASE_MANIFEST,
     BUNDLED_RELEASE_TARBALL,
 } from "../../clients/desktop/src/release-install.ts";
+import { writeAppIcon } from "./app-icon.ts";
 import { run } from "./run.ts";
 
 export const APP_NAME = "Vera";
 export const APP_BUNDLE_ID = "dev.vera.desktop";
 
 const ELECTRON_NAME = "Electron";
+const ICON_NAME = "Vera";
+const ELECTRON_ICON = "electron.icns";
 
 export interface AppBundleOptions {
     // The Electron.app that ships in node_modules/electron/dist.
@@ -21,12 +24,14 @@ export interface AppBundleOptions {
     // A release tarball with its `.sha256` beside it, and the manifest text it holds.
     readonly releaseTarball: string;
     readonly releaseManifest: string;
+    // An SVG of the Vera mark, turned into the app icon.
+    readonly iconSource: string;
     readonly version: string;
     readonly destination: string;
 }
 
 // Electron treats an executable named "electron" as an unpackaged run, so the executable and helpers are renamed.
-export function assembleApp(options: AppBundleOptions): void {
+export async function assembleApp(options: AppBundleOptions): Promise<void> {
     const { destination } = options;
     rmSync(destination, { recursive: true, force: true });
     mkdirSync(join(destination, ".."), { recursive: true });
@@ -43,6 +48,9 @@ export function assembleApp(options: AppBundleOptions): void {
     setPlist(mainPlist, "CFBundleShortVersionString", options.version);
     setPlist(mainPlist, "CFBundleVersion", options.version);
     run("plutil", ["-remove", "ElectronAsarIntegrity", mainPlist]);
+    rmSync(join(resources, ELECTRON_ICON), { force: true });
+    await writeAppIcon(options.iconSource, join(resources, `${ICON_NAME}.icns`));
+    setPlist(mainPlist, "CFBundleIconFile", `${ICON_NAME}.icns`);
 
     renameHelpers(join(contents, "Frameworks"));
 

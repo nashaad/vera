@@ -977,7 +977,9 @@ builds the app, packs a release from the checkout, puts both in a copy of
 Electron renamed Vera, signs the app ad hoc and writes
 `Vera-<platform>-<arch>.dmg` to `dist/desktop-dmg`. `--release <file>` uses an
 existing release file instead of packing one, and `--out <dir>` picks the
-folder. It runs on macOS only and does not install or open anything.
+folder. The app's icon is the Vera mark from `docs/site/public/favicon.svg`,
+drawn onto an `.icns` file during the build. It runs on macOS only and does not
+install or open anything.
 
 `bun run desktop:tour` builds the app and walks it in a visible window against a
 throwaway home and a scripted provider. It saves one screenshot per step and a
