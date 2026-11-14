@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { saveFeedback } from "../../src/feedback/store.ts";
@@ -64,4 +64,14 @@ test("concurrent processes cannot exceed the report cap", async () => {
     const second = Bun.spawn([process.execPath, worker, root], { stdout: "ignore", stderr: "ignore" });
     expect((await Promise.all([first.exited, second.exited])).sort()).toEqual([0, 1]);
     expect(readdirSync(parent)).toHaveLength(500);
+});
+
+test("a lock left by an interrupted save is taken over once it is stale", async () => {
+    const root = home();
+    const lock = join(root, "machine", "feedback", ".lock");
+    mkdirSync(lock, { recursive: true });
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    const path = await saveFeedback(root, report);
+    expect(readdirSync(join(root, "machine", "feedback"))).toEqual([basename(path)]);
 });

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, openSync, closeSync, fstatSync, readSync, opendirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, closeSync, fstatSync, readSync, opendirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { arch, platform } from "node:os";
 import { validateImageBytes, IMAGE_ATTACHMENT_LIMITS } from "../attachments/image.ts";
@@ -22,6 +22,7 @@ export interface FeedbackInput {
 export const FEEDBACK_MAX_REPORTS = 500;
 export const FEEDBACK_MAX_IMAGES = 4;
 export const FEEDBACK_MAX_IMAGE_BYTES = 10 * 1_024 * 1_024;
+export const FEEDBACK_LOCK_STALE_MS = 30_000;
 
 const EXTENSIONS: Readonly<Record<string, string>> = {
     "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
@@ -71,7 +72,9 @@ export async function saveFeedback(home: string, input: FeedbackInput, write: ty
         try { mkdirSync(lock); break; }
         catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-            if (attempt >= 200) throw new Error(`Cannot save a report while ${lock} exists. If no report is being saved, remove that folder and try again.`);
+            // A save holds the lock for seconds at most, so an old one was left by an interrupted save.
+            if (lockAge(lock) > FEEDBACK_LOCK_STALE_MS) { rmSync(lock, { recursive: true, force: true }); continue; }
+            if (attempt >= 200) throw new Error("Another report is being saved. Try again.");
             await new Promise((resolve) => setTimeout(resolve, 25));
         }
     }
@@ -109,4 +112,8 @@ export async function saveFeedback(home: string, input: FeedbackInput, write: ty
     } finally {
         rmSync(lock, { recursive: true, force: true });
     }
+}
+
+function lockAge(lock: string): number {
+    try { return Date.now() - statSync(lock).mtimeMs; } catch { return 0; }
 }
