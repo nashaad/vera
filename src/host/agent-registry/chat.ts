@@ -1,9 +1,6 @@
 import { cp, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { chatFolderPath, isChatFolder } from "../../store/chat-folder.ts";
-import type { AgentRegistry } from "../agent-registry.ts";
-
-export const CHAT_AGENT_NAME = "chat";
 
 export interface CreatedChatFolder {
     readonly cwd: string;
@@ -38,14 +35,6 @@ export async function restoreChatFolder(sessionPath: string, cwd: string): Promi
     }
 }
 
-// A session that cannot select `chat` stays on the default agent.
-export async function selectChatAgent(reg: AgentRegistry, id: string): Promise<void> {
-    try {
-        await reg.selectAgentFor(id, CHAT_AGENT_NAME);
-    } catch {
-    }
-}
-
 // The copy is a real copy: the branch and its source are edited independently.
 export async function copyChatFolder(source: string, destinationSessionPath: string): Promise<CreatedChatFolder> {
     const folder = chatFolderPath(destinationSessionPath);
@@ -53,7 +42,8 @@ export async function copyChatFolder(source: string, destinationSessionPath: str
     await mkdir(folder, { mode: 0o700 });
     try {
         if (await folderExists(source)) {
-            await cp(source, folder, { recursive: true, force: false, errorOnExist: true });
+            // The folder was just made empty, and cp refuses an existing destination folder when errorOnExist is set.
+            await cp(source, folder, { recursive: true, force: false, errorOnExist: false });
         }
         return { cwd: await realpath(folder), created: true };
     } catch (error) {

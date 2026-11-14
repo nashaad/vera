@@ -28,7 +28,7 @@ async function withChats<T>(
         readonly registry: AgentRegistry;
         readonly path: (name: string) => string;
     }) => Promise<T>,
-    options: { readonly agents?: boolean; readonly trash?: (path: string) => Promise<void> } = {},
+    options: { readonly trash?: (path: string) => Promise<void> } = {},
 ): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), "vera-chat-"));
     const extensions = await startExtensionRegistry({
@@ -38,7 +38,7 @@ async function withChats<T>(
         createAdapter: () => new FauxAdapter([]),
         model: "faux/test",
         approvalMode: "auto",
-        ...(options.agents === false ? {} : { registeredAgents: extensions.agents() }),
+        registeredAgents: extensions.agents(),
         trashSessionArtifacts: (artifacts) => trashSessionArtifacts(artifacts, {
             moveToTrash: async ([bundle]) => {
                 await options.trash?.(bundle!);
@@ -70,9 +70,7 @@ test("@core a create without a workspace makes the session's own folder and reco
         expect(agent.workspace).toBe(await realpath(folder));
         const stored = await SessionStore.open(sessionPath);
         expect(stored.header.cwd).toBe(await realpath(folder));
-        expect(stored.selectedAgent()?.name).toBe("chat");
-        expect([...(stored.selectedAgent()?.snapshot.tools ?? [])].sort())
-            .toEqual(["edit", "list", "read", "web_fetch", "web_search", "write"]);
+        expect(stored.selectedAgent()).toBeUndefined();
     });
 });
 
@@ -113,14 +111,17 @@ test("a chat folder is recognised through a symlinked parent and nowhere else", 
     }
 });
 
-test("a chat starts on the default agent when the catalog has no chat agent", async () => {
+test("the chat agent can still be picked in a chat", async () => {
     await withChats(async ({ registry, path }) => {
         await registry.create({ id: "chat", sessionPath: path("chat") });
+        await registry.selectAgentFor("chat", "chat");
 
         const stored = await SessionStore.open(path("chat"));
-        expect(stored.selectedAgent()).toBeUndefined();
+        expect(stored.selectedAgent()?.name).toBe("chat");
+        expect([...(stored.selectedAgent()?.snapshot.tools ?? [])].sort())
+            .toEqual(["edit", "list", "read", "web_fetch", "web_search", "write"]);
         expect(row(registry, "chat").chat).toBe(true);
-    }, { agents: false });
+    });
 });
 
 test("a create with a workspace stays on the default agent", async () => {

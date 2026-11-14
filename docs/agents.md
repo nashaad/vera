@@ -67,10 +67,10 @@ keep files in the conversation's own folder.
 
 A conversation started without a project folder is a chat. The host creates
 its folder beside the session file, as `<session-id>.jsonl.files`, works in
-it, and starts the conversation on the chat agent. If no agent named `chat`
-exists, or selecting it fails, the conversation starts on the default agent.
-`/agent default` leaves chat, and `/agent chat` returns to it. A `chat` agent
-in your own or a project's agents folder replaces the included one.
+it, and starts the conversation on the default agent with all of its tools.
+`/agent chat` switches a chat to the chat agent, and `/agent default` switches
+it back. A `chat` agent in your own or a project's agents folder replaces the
+included one.
 
 Moving a chat to the trash moves its folder with it. Resuming a chat
 recreates its folder when it is missing. Branching or forking a chat copies the
