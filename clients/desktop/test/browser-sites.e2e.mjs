@@ -103,10 +103,10 @@ try {
     await pane.getByRole("button", { name: "Forward", exact: true }).click();
     await until("forward", async () => (await readSite("location.search").catch(() => "")) === "?next=1");
     await readSite("(() => { for (let i = 0; i < 160; i++) { const b = document.createElement('button'); b.textContent = 'Extra ' + i; document.body.append(b); } return true; })()");
-    if ((statSync(join(trial.home, "machine", "desktop", "browser")).mode & 0o777) !== 0o700) throw new Error("Browser directory is not private");
-    if ((statSync(join(trial.home, "machine", "desktop", "browser", "Cookies")).mode & 0o777) !== 0o600) throw new Error("Cookie file is not private");
+    if ((statSync(join(trial.home, "machine", "desktop", "chromium", "browser")).mode & 0o777) !== 0o700) throw new Error("Browser directory is not private");
+    if ((statSync(join(trial.home, "machine", "desktop", "chromium", "browser", "Cookies")).mode & 0o777) !== 0o600) throw new Error("Cookie file is not private");
     await app.evaluate(({ app: electronApp, session }, home) => {
-        const browser = session.fromPath(`${home}/machine/desktop/browser`);
+        const browser = session.fromPath(`${home}/machine/desktop/chromium/browser`);
         browser.once("will-download", (event, item) => {
             event.preventDefault();
             globalThis.downloadDefaults = item.getSaveDialogOptions().defaultPath === `${electronApp.getPath("downloads")}/crow.txt`;

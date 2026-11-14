@@ -31,11 +31,12 @@ export class BrowserPane {
     private clearing = false;
     private browsingSession: Electron.Session | undefined;
 
-    constructor(private readonly window: BrowserWindow, private readonly home: string) {}
+    constructor(private readonly window: BrowserWindow) {}
 
     private session(): Electron.Session {
         if (this.browsingSession !== undefined) return this.browsingSession;
-        const directory = join(this.home, "machine", "desktop", "browser");
+        // Chromium's network sandbox writes only inside userData, which main.ts keeps in the home.
+        const directory = join(app.getPath("userData"), "browser");
         mkdirSync(directory, { recursive: true, mode: 0o700 });
         chmodSync(directory, 0o700);
         process.umask(0o077);

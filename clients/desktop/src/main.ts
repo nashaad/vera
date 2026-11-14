@@ -583,6 +583,6 @@ app.whenReady().then(() => {
     themeService.load();
     installMenu();
     window = createWindow();
-    browserPane = new BrowserPane(window, selectedVeraHome());
+    browserPane = new BrowserPane(window);
     browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));
 });
