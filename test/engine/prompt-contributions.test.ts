@@ -170,6 +170,37 @@ test("a scratch directory adds the scratchpad contribution after the workspace",
     );
 });
 
+const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it. When the work is worth keeping, tell them where the files are and offer to move this conversation into a folder they choose.";
+
+test("the workspace contribution adds the chat folder paragraph only when flagged", () => {
+    const base = {
+        tools: [],
+        workspace: "/chats/one.jsonl.files",
+        scratchDir: "/tmp/vera/session-1",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    };
+    const content = (
+        chatFolder: boolean | undefined,
+        id: string,
+    ) => collectBuiltInPromptContributions({
+        ...base,
+        ...(chatFolder === undefined ? {} : { chatFolder }),
+    }).find((contribution) => contribution.id === id);
+
+    const flagged = content(true, "core.workspace");
+    expect(flagged?.target).toBe("stable");
+    expect(flagged?.content).toBe(
+        `Working directory: /chats/one.jsonl.files\n\n${CHAT_FOLDER_PARAGRAPH}`,
+    );
+    expect(content(false, "core.workspace")?.content)
+        .toBe("Working directory: /chats/one.jsonl.files");
+    expect(content(undefined, "core.workspace")?.content)
+        .toBe("Working directory: /chats/one.jsonl.files");
+    expect(content(true, "core.scratchpad")?.content)
+        .toBe(content(undefined, "core.scratchpad")?.content);
+});
+
 test("disabled contribution ids are omitted from both targets", () => {
     const contributions = collectBuiltInPromptContributions({
         tools: [],

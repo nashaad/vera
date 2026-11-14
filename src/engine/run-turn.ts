@@ -59,6 +59,7 @@ import {
     type ToolDenialClass,
 } from "./events.ts";
 import { createModelFailureRecorder } from "./model-failure-recorder.ts";
+import { isChatFolder } from "../store/chat-folder.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { ReviewLog } from "./review-log.ts";
 import {
@@ -341,6 +342,7 @@ export interface RunTurnState {
     readonly attachToolImage?: (path: string, signal: AbortSignal) => Promise<string>;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly imageSource?: (attachmentId: string) => string | undefined;
+    readonly chatFolder?: boolean;
     readonly scratchDir?: string;
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
@@ -925,6 +927,7 @@ export async function runHeadlessLoop(
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
         imageSource: sessionAttachmentSource(store),
+        ...(isChatFolder(store.path, store.header.cwd) ? { chatFolder: true } : {}),
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
         ...(owned.toolResults === undefined
@@ -1416,6 +1419,7 @@ export async function runTurn(
                     ?? state.messages,
                 tools: scopedTools,
                 workspace: state.toolRuntime.workspace,
+                ...(state.chatFolder === true ? { chatFolder: true } : {}),
                 ...(state.scratchDir === undefined
                     ? {}
                     : { scratchDir: state.scratchDir }),

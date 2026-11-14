@@ -72,6 +72,9 @@ it, and starts the conversation on the default agent with all of its tools.
 it back. A `chat` agent in your own or a project's agents folder replaces the
 included one.
 
+The model is told that a chat's folder is the chat's own, and it may offer to
+move the conversation into a folder you choose.
+
 Moving a chat to the trash moves its folder with it. Resuming a chat
 recreates its folder when it is missing. Branching or forking a chat copies the
 folder, so the branch and its source change files independently; a branch that

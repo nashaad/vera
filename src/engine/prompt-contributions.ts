@@ -35,6 +35,7 @@ export interface PromptContributionMetadata {
 export interface PromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
@@ -53,6 +54,7 @@ export interface PromptContributionInput {
 export interface StablePromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
     /**
@@ -98,6 +100,13 @@ interface ContextualPromptContributor {
 type BuiltInPromptContributor =
     | StablePromptContributor
     | ContextualPromptContributor;
+
+const CHAT_FOLDER_NOTE =
+    "This conversation has no project folder. The working directory is its "
+    + "own folder, created empty when the conversation started, and the "
+    + "person sees its files only under Files. Keep anything they may want "
+    + "in it. When the work is worth keeping, tell them where the files are "
+    + "and offer to move this conversation into a folder they choose.";
 
 const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
     {
@@ -161,7 +170,9 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         target: "stable",
         contribute: (input) => ({
             title: "Workspace",
-            content: `Working directory: ${input.workspace}`,
+            content: input.chatFolder === true
+                ? `Working directory: ${input.workspace}\n\n${CHAT_FOLDER_NOTE}`
+                : `Working directory: ${input.workspace}`,
         }),
     },
     {
