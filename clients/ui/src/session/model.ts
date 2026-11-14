@@ -279,6 +279,8 @@ export interface SessionWatch {
     readonly loaded: boolean;
     // Why the watch failed or closed, in words for the user.
     readonly error?: string;
+    // The host's `attach_failed` reason, set with phase failed.
+    readonly failedReason?: string;
     // Blocks from stored history, oldest first.
     readonly history: readonly Block[];
     // Blocks from live updates since the last `history` event.

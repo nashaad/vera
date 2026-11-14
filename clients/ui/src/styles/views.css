@@ -161,6 +161,19 @@
     font-size: var(--vera-font-size-label);
 }
 
+.start-offer {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 2);
+    align-items: flex-start;
+    padding: 0 calc(var(--vera-space) * 2);
+}
+
+.start-offer .view-empty {
+    padding-right: 0;
+    padding-left: 0;
+}
+
 /* sessions */
 
 .session-group {

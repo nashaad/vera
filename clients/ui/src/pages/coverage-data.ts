@@ -178,6 +178,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             partial("/resume asks whether to stop or keep the one on screen", "In the window, /resume opens Go to Session and stops nothing"),
             inWindow("/clone duplicates the conversation", "Clone Session in the palette"),
             inWindow("/close parks a live conversation and keeps its saved file", "Close Session in the palette"),
+            inWindow("A parked conversation is resumed without sending a message", "Start session on the page, the context pill, Plan, Review and Customize"),
             inTerminal("Ctrl+Shift+Left and Right cycle live conversations", "Cmd+[ and Cmd+] move back and forward in the window"),
         ],
     },

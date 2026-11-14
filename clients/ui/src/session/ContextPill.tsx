@@ -4,8 +4,10 @@ import { GaugeIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import type { ActiveSession } from "./activeSession.ts";
+import { canStart } from "./liveSession.ts";
 import type { ContextState } from "./model.ts";
 import { tokenCount } from "./notices.ts";
+import { StartSessionButton } from "./StartSession.tsx";
 
 export interface ContextPillProps {
     readonly session: ActiveSession;
@@ -28,10 +30,15 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
     useMenuDismiss(open, root, close);
     const placed = usePopoverPlacement(open, root);
     const context = session.watch.context;
+    const stopped = canStart(session.watch);
 
     const compact = () => {
         close();
         onCompact();
+    };
+    const start = () => {
+        close();
+        session.start();
     };
 
     return (
@@ -48,7 +55,7 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
                 <GaugeIcon className="pill-icon" />
                 <span className="pill-label">{pillLabel(context)}</span>
             </button>
-            {open ? <ContextPopover context={context} onCompact={compact} style={placed} /> : null}
+            {open ? <ContextPopover context={context} onCompact={compact} onStart={stopped ? start : undefined} style={placed} /> : null}
         </div>
     );
 }
@@ -67,16 +74,28 @@ function percentOf(tokens: number, capacity: number): number {
 interface ContextPopoverProps {
     readonly context: ContextState | undefined;
     readonly onCompact: () => void;
+    // Set while the session is stopped: compacting needs it running.
+    readonly onStart: (() => void) | undefined;
     readonly style: CSSProperties | undefined;
 }
 
-function ContextPopover({ context, onCompact, style }: ContextPopoverProps) {
+function CompactAction({ onCompact, onStart }: Pick<ContextPopoverProps, "onCompact" | "onStart">) {
+    if (onStart === undefined) return <button type="button" className="context-compact" onClick={onCompact}>Compact</button>;
+    return (
+        <>
+            <p className="context-empty">This session is not running.</p>
+            <StartSessionButton onStart={onStart} />
+        </>
+    );
+}
+
+function ContextPopover({ context, onCompact, onStart, style }: ContextPopoverProps) {
     const [listing, setListing] = useState(false);
     if (context === undefined) {
         return (
             <div className="context-pop" role="dialog" data-popover="below-end" style={style} aria-label="Context usage">
                 <p className="context-empty">No measurement yet.</p>
-                <button type="button" className="context-compact" onClick={onCompact}>Compact</button>
+                <CompactAction onCompact={onCompact} onStart={onStart} />
             </div>
         );
     }
@@ -146,7 +165,7 @@ function ContextPopover({ context, onCompact, style }: ContextPopoverProps) {
                 </ul>
             ) : null}
 
-            <button type="button" className="context-compact" onClick={onCompact}>Compact</button>
+            <CompactAction onCompact={onCompact} onStart={onStart} />
         </div>
     );
 }

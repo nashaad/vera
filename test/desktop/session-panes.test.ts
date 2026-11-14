@@ -235,6 +235,7 @@ describe("session commands", () => {
             chat: false,
             watch: initialWatch("agent"),
             send: () => undefined,
+            start: () => undefined,
         });
         registry.execute(SESSION_COMMANDS.rewind);
         expect(openedSessionSheet()).toBe("rewind");
@@ -251,6 +252,7 @@ describe("session commands", () => {
             chat: false,
             watch: initialWatch("agent"),
             send: (line: string) => sent.push(line),
+            start: () => undefined,
         };
         publishActiveSession(session);
         registry.execute(SESSION_COMMANDS.compact);
@@ -284,6 +286,7 @@ describe("session commands", () => {
             chat: false,
             watch: initialWatch("agent"),
             send: () => undefined,
+            start: () => undefined,
         });
         registry.execute(SESSION_COMMANDS.quote, "  ");
         expect(takeDraft("agent")).toBeUndefined();

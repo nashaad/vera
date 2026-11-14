@@ -172,7 +172,7 @@ export function initialWatch(agentId: string): SessionWatch {
 export function reduceWatch(state: SessionWatch, message: SessionMessage): SessionWatch {
     switch (message.type) {
         case "attach_failed":
-            return { ...state, phase: "failed", error: attachFailure(message.reason) };
+            return { ...state, phase: "failed", error: attachFailure(message.reason), failedReason: message.reason };
         case "attached":
             return { ...state, phase: "attached", ...(message.background === undefined ? {} : { background: message.background }) };
         case "history":

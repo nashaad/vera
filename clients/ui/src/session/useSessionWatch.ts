@@ -35,6 +35,8 @@ export interface SessionWatchHandle {
     readonly send: (line: string) => void;
     // Closes the watch and opens it again on the same session, as after the host moved it.
     readonly reattach: () => void;
+    // Attaches again, which resumes a stopped session on the host without sending anything.
+    readonly start: () => void;
 }
 
 let requestCount = 0;
@@ -107,5 +109,5 @@ export function useSessionWatch(
     }, [bridge, ready, olderBefore, pane]);
     const send = useCallback((line: string) => bridge.sendSession(pane, line), [bridge, pane]);
     const reattach = useCallback(() => setAttempt((count) => count + 1), []);
-    return { watch, loadOlder, send, reattach };
+    return { watch, loadOlder, send, reattach, start: reattach };
 }
