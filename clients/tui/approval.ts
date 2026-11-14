@@ -8,6 +8,7 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { AUTO_NUDGE_KEY, AUTO_NUDGE_LINE } from "./auto-nudge.ts";
 import { dialogHeaderNode } from "./dialog-header.ts";
 
 import type {
@@ -86,7 +87,12 @@ export interface TuiApprovalKey {
 export interface TuiApprovalKeyResult {
     readonly handled: boolean;
     readonly response?: UiResponseCommand;
+    readonly switchToAuto?: true;
 }
+
+// Below this height the card has no room for the suggestion without squeezing the request.
+const NUDGE_MIN_HEIGHT = 16;
+const NUDGE_ROWS = 2;
 
 export interface TuiApprovalView {
     readonly box: BoxRenderable;
@@ -96,8 +102,11 @@ export interface TuiApprovalView {
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
     readonly actions: BoxRenderable;
+    readonly nudgeText: TextRenderable;
     focus(): void;
-    update(update: ToolApprovalUiRequestUpdate): void;
+    // The second argument asks for the auto-approval suggestion; it shows only when the terminal has room.
+    update(update: ToolApprovalUiRequestUpdate, suggestAuto?: boolean): void;
+    autoNudgeVisible(): boolean;
     handleKey(
         update: ToolApprovalUiRequestUpdate,
         key: TuiApprovalKey,
@@ -117,6 +126,7 @@ export function createTuiApprovalView(
     let scopeInline = true;
     let layoutKey = "";
     let editing = false;
+    let nudgeVisible = false;
 
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
@@ -176,6 +186,16 @@ export function createTuiApprovalView(
         overflow: "hidden",
         wrapMode: "none",
     });
+    const nudgeText = new TextRenderable(renderer, {
+        id: "approval-nudge",
+        content: "",
+        width: "100%",
+        height: "auto",
+        marginTop: 1,
+        flexShrink: 0,
+        wrapMode: "word",
+        visible: false,
+    });
     const actions = new BoxRenderable(renderer, {
         id: "approval-actions",
         width: "100%",
@@ -185,6 +205,7 @@ export function createTuiApprovalView(
         flexDirection: "column",
     });
     actions.add(buttons);
+    actions.add(nudgeText);
     actions.add(hints);
 
     const content = new BoxRenderable(renderer, {
@@ -342,6 +363,7 @@ export function createTuiApprovalView(
             width: renderer.width,
             height: renderer.height,
             rows: visibleApprovalRows(update).length,
+            extraRows: nudgeVisible ? NUDGE_ROWS : 0,
             title,
             ...(headline?.folder === undefined
                 ? {}
@@ -393,6 +415,12 @@ export function createTuiApprovalView(
                 : []),
         ]);
         hints.visible = layout.hints;
+        nudgeText.content = new StyledText([
+            fg(TUI_MUTED)(`${AUTO_NUDGE_LINE}  `),
+            fg(TUI_TEXT)(AUTO_NUDGE_KEY),
+            fg(TUI_MUTED)(" switch"),
+        ]);
+        nudgeText.visible = nudgeVisible;
         renderButtons(update);
     }
 
@@ -434,6 +462,7 @@ export function createTuiApprovalView(
         details,
         detailsText,
         actions,
+        nudgeText,
         focus(): void {
             if (editing) {
                 notesEditor.focus();
@@ -441,8 +470,13 @@ export function createTuiApprovalView(
             }
             details.focus();
         },
-        update(update): void {
+        autoNudgeVisible(): boolean {
+            return nudgeVisible;
+        },
+        update(update, suggestAuto = false): void {
             lastUpdate = update;
+            nudgeVisible = suggestAuto && renderer.height >= NUDGE_MIN_HEIGHT;
+            nudgeText.visible = nudgeVisible;
             box.maxHeight = renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
                 ? "100%"
                 : "90%";
@@ -456,6 +490,7 @@ export function createTuiApprovalView(
                 renderer.width,
                 renderer.height,
                 inline,
+                nudgeVisible,
             ].join(":");
             if (currentRequestId === update.requestId) {
                 if (nextKey !== layoutKey) {
@@ -490,6 +525,9 @@ export function createTuiApprovalView(
             }
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
+            }
+            if (nudgeVisible && key.name === AUTO_NUDGE_KEY) {
+                return { handled: true, switchToAuto: true };
             }
             if (
                 key.name === "up"

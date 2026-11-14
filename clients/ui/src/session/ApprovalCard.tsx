@@ -4,12 +4,18 @@ import { approvalHeadline, type HeadlineGrant } from "../../../shared/approval-h
 import { shortenPath } from "../components/homePath.ts";
 import { ChevronRightIcon, WarningIcon } from "../components/Icons.tsx";
 import { ChoiceCard, type ChoiceRow } from "./ChoiceCard.tsx";
+import { modeLabel } from "./permissions.ts";
 import { approvalChoices, isSubagentApproval, type ApprovalDecision, type ApprovalRequest } from "./requests.ts";
 import { actionOf, askTarget, askTitle } from "./toolTitle.ts";
 
 const INPUT_PREVIEW_LIMIT = 400;
 const NOTES_LIMIT = 2000;
 const NOTES_PLACEHOLDER = "Or tell Vera what to do instead";
+
+export interface AutoNudge {
+    readonly onSwitch: () => void;
+    readonly onDismiss: () => void;
+}
 
 export interface ApprovalCardProps {
     readonly request: ApprovalRequest;
@@ -18,6 +24,8 @@ export interface ApprovalCardProps {
     // The session's working folder and whether it is a chat, which the headline needs to say "outside this chat's folder".
     readonly workspace?: string;
     readonly chat?: boolean;
+    // The one-line suggestion to switch to auto, shown under the choices of an unanswered card.
+    readonly nudge?: AutoNudge;
     // `notes` is set only by the typed answer, which always denies.
     readonly onDecide: (decision: ApprovalDecision, notes?: string) => void;
 }
@@ -44,7 +52,7 @@ const CHOICE_KEYS: readonly { readonly decision: ApprovalDecision; readonly key:
     { decision: "allow_always", key: "4" },
 ];
 
-export function ApprovalCard({ request, outcome, workspace, chat = false, onDecide }: ApprovalCardProps) {
+export function ApprovalCard({ request, outcome, nudge, workspace, chat = false, onDecide }: ApprovalCardProps) {
     const offered = approvalChoices(request);
     const answered = outcome !== undefined;
     const shell = actionOf(request.tool) === "shell";
@@ -88,7 +96,7 @@ export function ApprovalCard({ request, outcome, workspace, chat = false, onDeci
             close={{ label: "Deny", title: "Deny (Esc)", onClose: () => onDecide("deny") }}
             rows={rows}
             {...(typed === undefined ? {} : { typed })}
-            footer={answered ? <div className="request-outcome" data-decision={outcome}>{OUTCOME_TEXT[outcome]}</div> : null}
+            footer={answered ? <div className="request-outcome" data-decision={outcome}>{OUTCOME_TEXT[outcome]}</div> : nudge === undefined ? null : <AutoNudgeLine nudge={nudge} />}
         >
             <Fold
                 request={request}
@@ -99,6 +107,21 @@ export function ApprovalCard({ request, outcome, workspace, chat = false, onDeci
                 remember={offered.includes("allow_similar") || offered.includes("allow_always")}
             />
         </ChoiceCard>
+    );
+}
+
+function AutoNudgeLine({ nudge }: { readonly nudge: AutoNudge }) {
+    return (
+        <div className="request-actions" data-kind="auto-nudge">
+            <span className="request-muted">{`You've allowed every request so far. Switch to ${modeLabel("auto")}?`}</span>
+            <span className="request-spacer" />
+            <button type="button" className="button request-ghost" onClick={nudge.onSwitch}>
+                Switch
+            </button>
+            <button type="button" className="button request-ghost" onClick={nudge.onDismiss}>
+                Not now
+            </button>
+        </div>
     );
 }
 

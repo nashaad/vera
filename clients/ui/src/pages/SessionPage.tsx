@@ -99,7 +99,14 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                     {watch.phase === "closed" || watch.phase === "failed" ? (
                         <div className="transcript-notice" data-tone="warning">{watch.error ?? "The session closed."}</div>
                     ) : null}
-                    <RequestCards key={route.agentId} requests={watch.requests} send={send} running={running} />
+                    <RequestCards
+                        key={route.agentId}
+                        agentId={route.agentId}
+                        requests={watch.requests}
+                        suggestAuto={watch.approval?.suggestAuto === true}
+                        send={send}
+                        running={running}
+                    />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>
             </div>

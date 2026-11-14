@@ -44,6 +44,18 @@ describe("permissions", () => {
         });
     });
 
+    test("the auto suggestion is read only when the host sets it to true", () => {
+        const approvalFor = (fields: Record<string, unknown>) => {
+            const message = parseSessionLine(JSON.stringify({ ...reply, mode: "ask", ...fields }));
+            if (message === undefined) throw new Error("expected a message");
+            return reduceWatch(initialWatch("a1"), message).approval;
+        };
+        expect(approvalFor({ suggestAuto: true })?.suggestAuto).toBe(true);
+        expect(approvalFor({})).not.toHaveProperty("suggestAuto");
+        expect(approvalFor({ suggestAuto: false })).not.toHaveProperty("suggestAuto");
+        expect(approvalFor({ suggestAuto: "true" })).not.toHaveProperty("suggestAuto");
+    });
+
     test("a reply without a mode or pending flag is ignored", () => {
         expect(parseSessionLine(JSON.stringify({ ...reply, pending: "no" }))).toBeUndefined();
         expect(parseSessionLine(JSON.stringify({ ...reply, mode: 3 }))).toBeUndefined();

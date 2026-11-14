@@ -1372,6 +1372,13 @@ test("permission results share the ordered agent update sequence", () => {
         requestId: "permissions-2",
         reason: "invalid",
     });
+    protocol({
+        type: "permissions_changed",
+        requestId: "permissions-suggest",
+        mode: "ask",
+        pending: false,
+        suggestAuto: true,
+    });
 
     expect(updates).toEqual([
         {
@@ -1394,6 +1401,14 @@ test("permission results share the ordered agent update sequence", () => {
             requestId: "permissions-2",
             reason: "invalid",
             seq: 3,
+        },
+        {
+            type: "permissions",
+            requestId: "permissions-suggest",
+            mode: "ask",
+            pending: false,
+            suggestAuto: true,
+            seq: 4,
         },
     ]);
 });

@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { sendSessionMode } from "../composer/requests.ts";
 import { useAppearance } from "../theme/useAppearance.ts";
 import { ApprovalCard, DeniedLine } from "./ApprovalCard.tsx";
+import { autoNudgeShown, autoNudgeTarget, markAutoNudgeShown } from "./autoNudge.ts";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { requestKeyAction, requestKeyResponse, requestKeysAllowed, type FocusedElement } from "./requestKeys.ts";
 import { approvalResponse, pastApprovalView, rememberApproval, type ApprovalDecision, type OpenRequest, type PastApproval } from "./requests.ts";
 import { SetupCard } from "./SetupCard.tsx";
 
 export interface RequestCardsProps {
+    readonly agentId: string;
     readonly requests: readonly OpenRequest[];
+    // The host's hint that this session could switch to auto; the line shows once per session in this window.
+    readonly suggestAuto?: boolean;
     readonly send: (line: string) => void;
     // True while a turn runs. The answered approvals of the last turn go when the next one starts.
     readonly running: boolean;
@@ -16,12 +21,19 @@ export interface RequestCardsProps {
 
 // Keys answer the first unanswered request. A question or setup card stays on screen after its answer until the
 // host closes it. An answered approval leaves the cards: a denial keeps one muted line, an allow keeps nothing.
-export function RequestCards({ requests, send, running }: RequestCardsProps) {
+export function RequestCards({ agentId, requests, suggestAuto = false, send, running }: RequestCardsProps) {
     const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
     const [past, setPast] = useState<readonly PastApproval[]>([]);
     const [notes, setNotes] = useState<Readonly<Record<string, string>>>({});
     const { pastApprovals } = useAppearance();
+    const [nudgeSeen, setNudgeSeen] = useState(() => autoNudgeShown(agentId));
     const first = requests.find((request) => !answered.has(request.requestId));
+    const nudgeCard = autoNudgeTarget(first, suggestAuto, nudgeSeen);
+
+    const dismissNudge = useCallback((): void => {
+        markAutoNudgeShown(agentId);
+        setNudgeSeen(true);
+    }, [agentId]);
 
     useEffect(() => {
         if (running) setPast([]);
@@ -34,8 +46,9 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
             if (request.kind === "approval" && decision !== undefined) {
                 setPast((previous) => rememberApproval(previous, { request, decision }));
             }
+            if (request.requestId === nudgeCard) dismissNudge();
         },
-        [send],
+        [send, nudgeCard, dismissNudge],
     );
 
     useEffect(() => {
@@ -86,6 +99,17 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
                                 request={request}
                                 {...(request.workspace === undefined ? {} : { workspace: request.workspace })}
                                 chat={request.chat === true}
+                                {...(request.requestId === nudgeCard
+                                    ? {
+                                        nudge: {
+                                            onSwitch: () => {
+                                                sendSessionMode(send, "auto");
+                                                dismissNudge();
+                                            },
+                                            onDismiss: dismissNudge,
+                                        },
+                                    }
+                                    : {})}
                                 onDecide={(decision, notes) => respond(request, approvalResponse(request.requestId, decision, notes), decision)}
                             />
                         );
