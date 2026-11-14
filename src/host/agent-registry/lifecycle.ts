@@ -15,7 +15,7 @@ import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { announceSessionEnd } from "./session-end.ts";
-import { copyChatFolder, createChatFolder, restoreChatFolder, selectChatAgent } from "./chat.ts";
+import { copyChatFolder, createChatFolder, restoreChatFolder } from "./chat.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
 import type { TrashReservation, TrashRestartPlan } from "./trash.ts";
 
@@ -307,7 +307,6 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                 clientPromptRefusal,
                 options.ephemeral === true,
             );
-            if (workspace === undefined) await selectChatAgent(reg, id);
             return agent;
         } catch (error) {
             await abandonStart(reg, id);
