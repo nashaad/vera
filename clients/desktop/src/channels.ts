@@ -29,6 +29,8 @@ export const CHANNELS = {
     fileRead: "vera:file-read",
     imagesChoose: "vera:images-choose",
     imagePaste: "vera:image-paste",
+    filesCheck: "vera:files-check",
+    filesPrepare: "vera:files-prepare",
     modelsRead: "vera:models-read",
     catalogRefresh: "vera:catalog-refresh",
     providerForget: "vera:provider-forget",

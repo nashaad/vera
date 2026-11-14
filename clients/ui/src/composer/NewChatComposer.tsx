@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { ModelPills } from "../models/ModelPills.tsx";
 import { useDraftModels } from "../models/useDraftModels.ts";
@@ -9,17 +9,18 @@ import { useViewEnvironment } from "../views/env.tsx";
 import type { NewChatComposerProps } from "./Composer.tsx";
 import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
-import { imagePathsOf } from "./files.ts";
+import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { NewApprovalPill } from "./NewApprovalPill.tsx";
 import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { enterAction, FOLDER_MENU_LIMIT, folderChoices, sessionTitle } from "./rules.ts";
 import { useBranch } from "./useBranch.ts";
+import { useFiles } from "./useFiles.ts";
 import { useExistingFolders } from "./useExistingFolders.ts";
 import { addDraftImages, type DraftImage } from "./useImages.ts";
 
 const CREATE_FAILED = "Vera could not create the session.";
-const NOT_IMAGES = "Only image files can be attached.";
+const NO_FILES = "Could not attach this file.";
 
 export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposerProps) {
     const { connection } = useViewEnvironment();
@@ -41,6 +42,8 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const branch = useBranch(bridge, folder);
     const { controls: models, draft } = useDraftModels(bridge, folder, connection.phase === "attached", !busy);
     const mounted = useRef(true);
+    const addImages = useCallback((paths: readonly string[]) => setImages((current) => addDraftImages(current, paths)), []);
+    const { files, add: addPaths, remove: removeFile, busy: checkingFiles } = useFiles(bridge, folder, folder === undefined, images.length, addImages, setProblem);
     const slash = useSlashMenu({ text, setText, session: undefined, notify: setNotice });
 
     useEffect(() => {
@@ -52,7 +55,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
 
     const submit = async (): Promise<void> => {
         const content = text.trim();
-        if (content.length === 0 || busy) return;
+        if (content.length === 0 || busy || checkingFiles) return;
         if (slash.runLine(content)) return;
         setNotice(undefined);
         setBusy(true);
@@ -67,13 +70,15 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
         setPendingPrompt(result.agentId, {
             text: content,
             images: images.map((image) => image.path),
+            files,
             ...(draft === undefined ? {} : { model: draft }),
         });
         navigate({
             kind: "session",
             agentId: result.agentId,
             title: sessionTitle(content),
-            ...(folder === undefined ? { chat: true } : { workspace: result.workspace }),
+            workspace: result.workspace,
+            ...(folder === undefined ? { chat: true } : {}),
         });
     };
 
@@ -92,20 +97,19 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
         if (action === "send") void submit();
     };
 
-    const addPaths = (paths: readonly string[]): void => setImages((current) => addDraftImages(current, paths));
     const addFiles = (files: readonly File[]): void => {
-        void imagePathsOf(bridge, files).then((paths) => {
+        void pathsOfFiles(bridge, files).then(({ paths, refused }) => {
             if (!mounted.current) return;
-            if (paths.length === 0) setProblem(NOT_IMAGES);
-            else addPaths(paths);
+            if (refused || paths.length === 0) setProblem(NO_FILES);
+            if (paths.length > 0) void addPaths(paths);
         });
     };
-    const chips = images.map((image) => ({
+    const chips = [...images.map((image) => ({
         key: image.path,
         label: `Image ${image.number}`,
         name: image.name,
         attaching: false,
-    }));
+    })), ...files.map((path) => ({ key: path, label: path.split("/").at(-1) ?? path, name: path, attaching: false }))];
 
     return (
         <div className="composer-inner">
@@ -122,7 +126,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
                     },
                 }}
             />
-            <ImageChips chips={chips} onRemove={(path) => setImages((current) => current.filter((image) => image.path !== path))} />
+            <ImageChips chips={chips} onRemove={(path) => { removeFile(path); setImages((current) => current.filter((image) => image.path !== path)); }} />
             {problem === undefined ? null : <p className="composer-notice" data-tone="danger" role="alert">{problem}</p>}
             {notice === undefined ? null : <p className="composer-notice" role="status">{notice}</p>}
             <ComposerBox
@@ -134,11 +138,11 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
                 slash={slash.view}
                 onBlur={slash.onBlur}
                 buttonMode="send"
-                buttonEnabled={!empty && !busy}
+                buttonEnabled={!empty && !busy && !checkingFiles}
                 onPress={() => void submit()}
                 onFiles={addFiles}
-                onPaths={addPaths}
-                onAttach={() => void bridge.chooseImages().then(addPaths)}
+                onPaths={(paths) => void addPaths(paths)}
+                onAttach={() => void bridge.chooseImages().then((paths) => addPaths(paths))}
                 attachEnabled={!busy}
                 barStart={<NewApprovalPill mode={approvalMode} onPick={setApprovalMode} disabled={busy} />}
                 barEnd={<ModelPills controls={models} />}

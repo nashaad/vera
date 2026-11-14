@@ -8,6 +8,7 @@ import {
     imageState,
     nextImageNumber,
     pastedImagePaths,
+    pastedFilePaths,
     readyAttachments,
     type ComposerImage,
 } from "../../clients/ui/src/composer/images.ts";
@@ -83,6 +84,12 @@ describe("composer images", () => {
         expect(pastedImagePaths("look at /tmp/b.png")).toEqual([]);
         expect(pastedImagePaths("/tmp/a.png\n/tmp/b.png")).toEqual([]);
         expect(pastedImagePaths("relative.png")).toEqual([]);
+    });
+
+    test("pasted file paths keep spaces and quoted names", () => {
+        expect(pastedFilePaths("/tmp/My report.txt")).toEqual(["/tmp/My report.txt"]);
+        expect(pastedFilePaths('"/tmp/My report.txt" /tmp/other.pdf')).toEqual(["/tmp/My report.txt", "/tmp/other.pdf"]);
+        expect(pastedFilePaths("look at /tmp/a.txt")).toEqual([]);
     });
 });
 

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { fileReferences } from "../../../../src/attachments/file-limits.ts";
 
 import { effortCommand, switchModelCommand } from "../models/commands.ts";
 import { ModelPills } from "../models/ModelPills.tsx";
 import { useSessionModels } from "../models/useSessionModels.ts";
+import type { DesktopBridge } from "../protocol/bridge.ts";
 import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
 import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
@@ -11,7 +13,7 @@ import type { SessionComposerProps } from "./Composer.tsx";
 import { ApprovalPill } from "./ApprovalPill.tsx";
 import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
-import { imagePathsOf } from "./files.ts";
+import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
@@ -20,9 +22,10 @@ import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { useBranch } from "./useBranch.ts";
 import { useFolderMissing } from "./useFolderMissing.ts";
 import { useSessionImages } from "./useImages.ts";
+import { useFiles } from "./useFiles.ts";
 
 const IMAGES_WAITING = "The images are still attaching.";
-const NOT_IMAGES = "Only image files can be attached.";
+const NO_FILES = "Could not attach this file.";
 const MODEL_REFUSED = "Vera could not start this session on the model you chose, so the prompt was not sent.";
 
 interface ModelGate {
@@ -35,6 +38,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
     const [autoSend, setAutoSend] = useState(false);
+    const [preparing, setPreparing] = useState(false);
     const lastSent = useRef<SentPrompt | undefined>(undefined);
     const withdrawing = useRef<string | undefined>(undefined);
     const input = useRef<HTMLTextAreaElement>(null);
@@ -54,6 +58,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
         setAutoSend(false);
     }, []);
     const { images, add, remove, clear } = useSessionImages(send, watch.images, onRefused);
+    const selected = useFiles(bridge, folder, chat, images.length, add, setNotice);
     const ready = readyAttachments(images, watch.images);
     const models = useSessionModels(bridge, watch, send, folder);
     const slash = useSlashMenu({
@@ -104,14 +109,15 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     }, [watch.withdrawn]);
 
     const startPending = useCallback((pending: PendingPrompt): void => {
-        if (pending.images.length === 0) {
+        if (pending.images.length === 0 && (pending.files?.length ?? 0) === 0) {
             lastSent.current = sendPrompt(send, pending.text);
             return;
         }
         setText(pending.text);
         add(pending.images);
+        selected.replace(pending.files ?? []);
         setAutoSend(true);
-    }, [send, add]);
+    }, [send, add, selected.replace]);
 
     // A prompt typed on New Chat goes out once, when the new session's watch attaches.
     useEffect(() => {
@@ -141,47 +147,70 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
             setNotice(MODEL_REFUSED);
             setText(gate.prompt.text);
             if (gate.prompt.images.length > 0) add(gate.prompt.images);
+            selected.replace(gate.prompt.files ?? []);
         }
-    }, [watch.models, watch.modelRefused, startPending, add]);
+    }, [watch.models, watch.modelRefused, startPending, add, selected.replace]);
 
-    const submit = (): void => {
+    const submit = async (): Promise<void> => {
         const content = text.trim();
-        if (!attached || content.length === 0) return;
+        if (!attached || content.length === 0 || preparing || selected.busy) return;
         if (slash.runLine(content)) return;
         if (ready.kind === "waiting") {
             setNotice(IMAGES_WAITING);
             return;
         }
+        let sentContent = content;
+        if (selected.files.length > 0) {
+            if (folder === undefined) { setNotice("The session folder is not available."); return; }
+            setPreparing(true);
+            let result: Awaited<ReturnType<DesktopBridge["prepareComposerFiles"]>>;
+            try {
+                result = await bridge.prepareComposerFiles(selected.files, folder, chat);
+            } catch {
+                setPreparing(false);
+                setNotice("Could not attach these files.");
+                return;
+            }
+            setPreparing(false);
+            if (result.paths === undefined) { setNotice(result.error ?? "Could not attach these files."); return; }
+            sentContent = `${content}\n\n${fileReferences(result.paths)}`;
+        }
         setNotice(undefined);
         setText("");
-        lastSent.current = sendPrompt(send, content, ready.attachmentIds);
+        lastSent.current = sendPrompt(send, sentContent, ready.attachmentIds);
         clear();
+        selected.clear();
     };
 
     useEffect(() => {
         if (!autoSend || ready.kind !== "ready") return;
         setAutoSend(false);
-        submit();
+        void submit();
     });
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
         if (slash.onKeyDown(event)) return;
         const composing = event.nativeEvent.isComposing;
         if (event.key === "Enter") {
+            if (!event.shiftKey && !composing && empty && (images.length > 0 || selected.files.length > 0)) {
+                event.preventDefault();
+                return;
+            }
             const action = enterAction({ shift: event.shiftKey, composing, empty, running, queued });
             if (action === "passthrough") return;
             event.preventDefault();
-            if (action === "send") submit();
+            if (action === "send") void submit();
             else if (action === "release-all") send(releaseQueuedCommand("all"));
             else if (action === "abort") send(abortCommand());
         } else if (event.key === "Escape") {
             if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
                 || watch.requests.length > 0
                 || document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-popover]') !== null) return;
-            if (escapeAction({ composing, empty: empty && images.length === 0, queued }) !== "release-one") return;
+            if (escapeAction({ composing, empty: empty && images.length === 0 && selected.files.length === 0, queued }) !== "release-one") return;
             event.preventDefault();
             send(releaseQueuedCommand("one"));
         } else if (event.key === "ArrowUp") {
+            if (images.length > 0 || selected.files.length > 0) return;
             if (arrowUpAction({ composing, empty, held }) !== "withdraw") return;
             event.preventDefault();
             const requestId = freshRequestId("withdraw");
@@ -191,11 +220,20 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     };
 
     const addFiles = (files: readonly File[]): void => {
-        void imagePathsOf(bridge, files).then((paths) => {
-            if (paths.length === 0) setNotice(NOT_IMAGES);
-            else add(paths);
+        void pathsOfFiles(bridge, files).then(({ paths, refused }) => {
+            if (refused || paths.length === 0) setNotice(NO_FILES);
+            if (paths.length > 0) void selected.add(paths);
         });
     };
+
+    useEffect(() => {
+        const onDrop = (event: Event): void => {
+            const detail = (event as CustomEvent<{ agentId: string; files: readonly File[] }>).detail;
+            if (detail?.agentId === agentId) addFiles(detail.files);
+        };
+        window.addEventListener("vera-composer-drop", onDrop);
+        return () => window.removeEventListener("vera-composer-drop", onDrop);
+    });
 
     const stopping = running && empty;
     const placeholder = slowOpening
@@ -205,17 +243,17 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
             : running
                 ? "Queue a message for when this turn ends"
                 : "Reply to Vera";
-    const chips = images.map((image) => ({
+    const chips = [...images.map((image) => ({
         key: image.requestId,
         label: imageLabel(image),
         name: image.name,
         attaching: imageState(image, watch.images).kind === "attaching",
-    }));
+    })), ...selected.files.map((path) => ({ key: path, label: path.split("/").at(-1) ?? path, name: path, attaching: false }))];
 
     return (
         <div className="composer-inner wide">
             <ContextChips folder={folder} branch={branch} chat={chat} missing={missing} />
-            <ImageChips chips={chips} onRemove={remove} />
+            <ImageChips chips={chips} onRemove={(key) => { remove(key); selected.remove(key); }} />
             {missing && folder !== undefined ? (
                 <p className="composer-notice" data-tone="warning" role="status">{folderMissingNotice(folder)}</p>
             ) : null}
@@ -224,18 +262,18 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
                 text={text}
                 onText={setText}
                 placeholder={placeholder}
-                disabled={!attached}
+                disabled={!attached || preparing}
                 onKeyDown={onKeyDown}
                 slash={slash.view}
                 onBlur={slash.onBlur}
                 inputRef={input}
                 buttonMode={stopping ? "stop" : "send"}
-                buttonEnabled={stopping ? attached : attached && !empty && ready.kind === "ready"}
-                onPress={() => (stopping ? send(abortCommand()) : submit())}
+                buttonEnabled={!preparing && !selected.busy && (stopping ? attached : attached && !empty && ready.kind === "ready")}
+                onPress={() => (stopping ? send(abortCommand()) : void submit())}
                 onFiles={addFiles}
-                onPaths={add}
-                onAttach={() => void bridge.chooseImages().then(add)}
-                attachEnabled={attached}
+                onPaths={(paths) => void selected.add(paths)}
+                onAttach={() => void bridge.chooseImages().then((paths) => selected.add(paths))}
+                attachEnabled={attached && !preparing}
                 barStart={
                     <ApprovalPill approval={watch.approval} refused={watch.approvalRefused} send={send} enabled={attached} running={running} />
                 }

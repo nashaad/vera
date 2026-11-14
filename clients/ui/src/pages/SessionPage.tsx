@@ -82,7 +82,13 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
             text={ended ? watch.error ?? "The session closed." : "Opening the session."}
         />
     ) : (
-        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase} tabIndex={0}>
+        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase} tabIndex={0}
+            onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
+            onDrop={(event) => {
+                if (event.dataTransfer.files.length === 0) return;
+                event.preventDefault();
+                window.dispatchEvent(new CustomEvent("vera-composer-drop", { detail: { agentId: route.agentId, files: [...event.dataTransfer.files] } }));
+            }}>
             <div className="transcript">
                 <div className="transcript-inner">
                     {watch.hasOlder && watch.history.length >= MAX_HISTORY_BLOCKS ? (

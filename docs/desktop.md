@@ -403,7 +403,7 @@ last path segment, and the folder's git branch when it has one. A chat shows
 `Chat` in place of the folder and no branch. Hovering a chip shows the full
 value. The branch is read from the folder's `.git` without
 running git; a detached checkout shows the short commit id. The bar has a round
-`+` button at the left that attaches images and the send button at the right.
+`+` button at the left that attaches files and the send button at the right.
 
 In a session:
 
@@ -448,16 +448,27 @@ attached. The page title is the first line of the message until the session is
 named. When the host cannot start the session, a line in the error colour above
 the box says so, and the text you typed stays in the box.
 
-Images:
+Files and images:
 
-- The `+` button opens the system file picker for PNG, JPEG, GIF and WebP
-  files. You can also drop image files on the box, paste an image, or paste one
-  line of absolute image paths, such as a path copied from Finder.
+- The `+` button opens the system file picker. You can also drop files on the
+  composer or transcript, paste files, or paste a line of absolute paths.
+  A pasted non-image file needs a path on disk.
+- A message can hold up to eight files, each at most 20 MB. A file over a limit
+  is refused and the other selected files stay in the composer. Each file has
+  a removable chip; removing it does not change the original.
+- When you send, a chat copies each non-image file into its own folder. A name
+  already in use gets a number before its extension. The copy stays with the
+  chat. In a folder session, files and folders remain where they are: paths
+  inside the folder are relative and paths outside it are absolute. A chat
+  refuses folders. Reading an outside path follows the usual approval rules.
+- The message names the attached files and their paths. Vera's read tool reads
+  UTF-8 text; binary files, including local PDFs, need another way to inspect
+  their contents. An image still goes to the model as an image.
 - A pasted image that is not a file yet is written to
   `machine/desktop/pasted-images` under the home, up to 20 MB, and files there
   are deleted after an hour, the next time an image is pasted.
 - Each image shows as a chip, `Image 1`, `Image 2` and so on, with an `x` that
-  removes it. A message holds up to eight images. The host copies each image
+  removes it. The host copies each image
   into the session; while it does, the chip says `attaching` and the message
   cannot be sent. An image the host refuses is removed, and a line above the box
   names it and gives the reason.

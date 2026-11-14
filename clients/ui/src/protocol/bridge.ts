@@ -241,6 +241,8 @@ export interface DesktopBridge {
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.
     chooseImages(): Promise<readonly string[]>;
+    checkComposerFile(path: string, workspace: string | undefined, chat: boolean): Promise<{ readonly kind?: "file" | "folder"; readonly error?: string }>;
+    prepareComposerFiles(paths: readonly string[], workspace: string, chat: boolean): Promise<{ readonly paths?: readonly string[]; readonly error?: string }>;
     // The file's path on disk, or undefined for data with no file behind it, such as a pasted bitmap.
     pathForFile(file: File): string | undefined;
     // Writes pasted image bytes to a file the host can read; undefined when the type or size is refused.

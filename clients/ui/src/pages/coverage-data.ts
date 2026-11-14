@@ -49,7 +49,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inWindow("Type a message, and Shift+Enter adds a line"),
             inWindow("A mistyped slash command names the one you probably meant", "Enter keeps the text and shows the note under the box"),
             partial("A slash menu lists the built-in, extension and skill commands", "Some built-ins say Not implemented yet"),
-            partial("Dropped image files become Image chips on the message", "Other files are not attached in the window"),
+            inWindow("Dropped files become removable chips on the message"),
             inWindow("Pasted text goes into the box and does not send"),
             inTerminal("Ctrl+G moves focus between conversation panes", "The window has no pane focus key"),
         ],

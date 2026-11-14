@@ -1,3 +1,7 @@
+import { prepareTuiFileText, tuiFileLocation } from "../file-preparation.ts";
+import { filePathMentions } from "../file-paths.ts";
+import { fileErrorMessage } from "../../../src/attachments/files.ts";
+import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import type { AttachmentRef } from "../../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { routeTuiAgentMessage } from "../agent-message-routing.ts";
@@ -109,9 +113,18 @@ export function routeVisibleAgentPrompt(rt: TuiRuntime, prompt: string): boolean
         void attachImagesToSidebar(rt, side, imagePaths, controller.signal)
             .then(async (attachments) => {
                 if (rt.shuttingDown) return;
+                let sentText = route.text;
+                if (filePathMentions(sentText).length > 0) {
+                    try {
+                        const location = await tuiFileLocation(rt, side.agentId);
+                        sentText = await prepareTuiFileText(sentText, location, attachments.length);
+                    } catch (error) {
+                        throw new Error(fileErrorMessage(error));
+                    }
+                }
                 await side.client.send({
                     type: "prompt",
-                    content: route.text,
+                    content: sentText,
                     ...(attachments.length === 0
                         ? {}
                         : {
@@ -125,17 +138,17 @@ export function routeVisibleAgentPrompt(rt: TuiRuntime, prompt: string): boolean
                 if (
                     !userEntryShows(
                         side.state.state.entries.at(-1),
-                        route.text,
+                        sentText,
                         attachments,
                     )
                 ) {
                     side.state.state = queueing
                         ? hostOwnsPromptQueue(rt, side.client)
                             ? side.state.state
-                            : queueTuiPrompt(side.state.state, route.text)
+                            : queueTuiPrompt(side.state.state, sentText)
                         : beginTuiTurn(
                             side.state.state,
-                            route.text,
+                            sentText,
                             attachments,
                         );
                 } else if (!queueing) {
@@ -243,6 +256,11 @@ export function offerMessageToExtensions(rt: TuiRuntime, prompt: string): void {
 }
 
 export function attachPastedImage(rt: TuiRuntime, path: string): void {
+    if (rt.pendingImages.length + filePathMentions(rt.composer.expandedText()).length >= FILE_COUNT_LIMIT) {
+        rt.state = appendTuiNotice(rt.state, "A message can have up to 8 files.");
+        renderState(rt);
+        return;
+    }
     const requestId = randomUUID();
     rt.pendingImages.push({ requestId, path });
     rt.composer.attachImageChip(requestId);

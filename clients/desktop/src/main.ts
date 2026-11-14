@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
+import { checkFile, prepareFiles } from "../../../src/attachments/files.ts";
+import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
 import type {
     BranchSessionResult,
@@ -323,9 +325,29 @@ ipcMain.handle(CHANNELS.imagesChoose, async (event): Promise<readonly string[]> 
     if (!fromWindow(event) || window === undefined) return [];
     const result = await dialog.showOpenDialog(window, {
         properties: ["openFile", "multiSelections"],
-        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
     });
     return result.canceled ? [] : result.filePaths;
+});
+ipcMain.handle(CHANNELS.filesCheck, async (event, path: unknown, workspace: unknown, chat: unknown): Promise<{ kind?: "file" | "folder"; error?: string }> => {
+    if (!fromWindow(event) || typeof path !== "string" || !isAbsolute(path) || typeof chat !== "boolean") return { error: "Could not attach this file." };
+    try {
+        return { kind: await checkFile(path, { workspace: typeof workspace === "string" && isAbsolute(workspace) ? workspace : "/", chat }) };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        return { error: message.startsWith("Folders cannot") || message.startsWith("Files must") || message.startsWith("That is not")
+            ? message : "Could not attach this file." };
+    }
+});
+ipcMain.handle(CHANNELS.filesPrepare, async (event, paths: unknown, workspace: unknown, chat: unknown) => {
+    if (!fromWindow(event) || !Array.isArray(paths) || paths.length > FILE_COUNT_LIMIT
+        || !paths.every((path) => typeof path === "string" && isAbsolute(path))
+        || typeof workspace !== "string" || !isAbsolute(workspace) || typeof chat !== "boolean") return { error: "Could not attach these files." };
+    try {
+        return { paths: await prepareFiles(paths, { workspace, chat }) };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        return { error: message.startsWith("Folders cannot") || message.startsWith("Files must") ? message : "Could not attach these files." };
+    }
 });
 ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unknown): Promise<string | undefined> => {
     if (!fromWindow(event) || !(data instanceof Uint8Array) || typeof mediaType !== "string") return undefined;
