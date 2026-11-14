@@ -20,6 +20,7 @@ const DISABLED_BUILTINS = [
     "vera.web-search",
     "vera.context",
     "vera.recap",
+    "vera.feedback",
 ] as const;
 
 function fakeRegistry(
