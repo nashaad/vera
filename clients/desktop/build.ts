@@ -56,7 +56,9 @@ const renderer = await Bun.build({
     define: {
         "process.env.NODE_ENV": JSON.stringify("production"),
     },
-    naming: "[name].[ext]",
+    // Code grammars load on demand, each from its own chunk next to main.js.
+    splitting: true,
+    naming: { entry: "[name].[ext]", chunk: "chunks/[name]-[hash].[ext]", asset: "[name].[ext]" },
 });
 if (!renderer.success) fail(renderer.logs);
 

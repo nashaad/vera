@@ -355,8 +355,11 @@ right. Under each message:
   the status line says only `Thinking`. See Showing reasoning below.
 - Replies render a small part of Markdown: headings, paragraphs, lists, bold,
   italic, inline code, links and fenced code. Fenced code has its language and a
-  copy button. Links are shown with their address on hover and are not opened.
-  Raw HTML is never rendered.
+  copy button, which copies the plain code. Once a block's closing fence arrives
+  (or the reply ends), the block is colored by its language from the theme's
+  syntax colors, in the built-in themes and in imported VS Code themes; a block
+  whose language Vera does not know stays plain. Links are shown with their
+  address on hover and are not opened. Raw HTML is never rendered.
 - Notices from Vera, such as errors, show as a strip in the column.
 - The end of each turn has a copy button, a `…` button and the time since its
   last step (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact

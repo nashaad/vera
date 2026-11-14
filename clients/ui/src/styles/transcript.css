@@ -289,6 +289,17 @@
     line-height: 1.65;
 }
 
+.tok-comment { color: var(--vera-syntax-comment); }
+.tok-keyword { color: var(--vera-syntax-keyword); }
+.tok-string { color: var(--vera-syntax-string); }
+.tok-number { color: var(--vera-syntax-number); }
+.tok-function { color: var(--vera-syntax-function); }
+.tok-type { color: var(--vera-syntax-type); }
+.tok-property { color: var(--vera-syntax-property); }
+.tok-tag { color: var(--vera-syntax-tag); }
+.tok-added { color: var(--vera-diff-added); }
+.tok-removed { color: var(--vera-diff-removed); }
+
 /* Runs of calls: one past-tense line, opened into flat rows. */
 
 .run {
