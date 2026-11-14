@@ -550,25 +550,35 @@ Slash commands:
 ## Approvals and questions
 
 When the session asks before running a tool, a card appears under the
-conversation. Its title is the action and what it acts on, such as `Create
-index.html` or `Run git push crow-nest main`, with the command or arguments
-and any warning Vera gives below it. While a card is unanswered the status line
-at the end of the conversation says `Waiting on you`. The card's buttons:
+conversation. Its title asks what the call does, such as `Write plunder.md
+outside this chat's folder?`. When Vera cannot tell what a shell command does,
+the title names the program, as in `Run curl?`, or asks `Run this command?`.
+While a card is unanswered the status line at the end of the conversation says
+`Waiting on you`. The card's choices:
 
-- `Allow once` (key 1) runs this call.
-- `Allow similar` (key 2) runs it and allows calls like it for the rest of the
-  session.
-- `Always` (key 4) runs it and allows calls like it in every session.
-- `Deny` (key 3 or Escape) refuses it; the turn goes on without it.
-- `Why?` shows Vera's reason and what Allow similar would allow.
+- `Allow` (key 1) runs this call.
+- `Allow for this chat` (key 2) runs it and allows calls like it for the rest
+  of the session.
+- `Deny` (key 3, Escape or the `✕`) refuses it; the turn goes on without it.
+- `Always allow` (key 4) runs it and allows calls like it in every session.
+- `Or tell Vera what to do instead` takes a line of text. Enter refuses the
+  call and passes what you typed to Vera, so it can try another way.
 
-Allow similar and Always appear only when Vera offers them for that call; a
-subagent's request offers only Allow once and Deny.
+`Show command` opens the folder the call lands in, the command, Vera's reason,
+any warning, and what Allow for this chat and Always allow would allow. It
+starts open when the title does not say what the command does. For a tool other
+than a shell the card shows its preview, such as a diff, and the same fold is
+called `Show details`.
 
-A question from Vera shows its choices, numbered. A number key or a click picks
-one. When the question takes a typed answer, a box under the choices sends what
-you write with `Answer` or Enter, and a note box sends a note with the choice.
-`Skip` or Escape cancels the question.
+Allow for this chat and Always allow appear only when Vera offers them for that
+call; a subagent's request offers only Allow and Deny.
+
+A question from Vera shows its choices, numbered, in the same card. A number
+key or a click picks one. When the question takes a typed answer, a box under
+the choices sends what you write with `Answer` or Enter, and a note box sends a
+note with the choice. The `✕` or Escape skips the question.
+
+Up and Down move between a card's choices and its typed answer.
 
 A setup request, such as a provider that needs signing in, says what is needed
 and has `Dismiss` (Escape), which tells Vera the setup cannot be done from this
@@ -599,9 +609,9 @@ and opens a menu:
 - `Make this the default for new sessions` saves the session's mode as the
   home's default. It is left out for a session in `Full access` while Full
   access is not offered.
-- `This session allows` lists what Allow similar has allowed, and
-  `Every session allows` lists what Always has allowed, each with an `x` that
-  removes it.
+- `This session allows` lists what Allow for this chat has allowed, and
+  `Every session allows` lists what Always allow has allowed, each with an `x`
+  that removes it.
 
 When Vera refuses a change, the pill's menu says so. On New Chat the pill says
 `Default approvals` and starts the new session in the home's default mode until

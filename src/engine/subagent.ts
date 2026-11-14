@@ -63,6 +63,7 @@ import {
 import { createCompactionController } from "./compaction-controller.ts";
 import type { ToolResultLimits } from "./tool-result-history.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
+import { isChatFolder } from "../store/chat-folder.ts";
 import type {
     ApplyToolEffect,
     RegisteredTool,
@@ -902,6 +903,9 @@ export async function runSubagent(
             ...(options.scratchDir === undefined
                 ? {}
                 : { scratchDir: options.scratchDir }),
+            ...(isChatFolder(store.path, options.workspace)
+                ? { chatFolder: true as const }
+                : {}),
             ...(options.disabledPromptContributions === undefined ? {} : {
                 disabledPromptContributions:
                     options.disabledPromptContributions,

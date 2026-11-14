@@ -2991,6 +2991,8 @@ async function executePreparedTool(
                     ...(grantProposals.length === 0
                         ? {}
                         : { permissionGrants: grantProposals }),
+                    workspace: permissionContext.workspace,
+                    ...(state.chatFolder === true ? { chat: true as const } : {}),
                 },
             );
             if (approval.behavior === "deny") {
@@ -2999,6 +3001,7 @@ async function executePreparedTool(
                         toolCall,
                         approval.reason,
                         scratchNote,
+                        approval.notes,
                     ),
                 };
             }
@@ -3645,15 +3648,18 @@ function deniedToolResult(
     toolCall: ToolCallContent,
     reason: string,
     note?: string,
+    said?: string,
 ): ToolResultMessage {
+    const text = [
+        reason,
+        ...(note === undefined ? [] : [note]),
+        ...(said === undefined ? [] : [`They said: ${said}`]),
+    ].join(" ");
     return {
         role: "tool_result",
         toolCallId: toolCall.id,
         toolName: toolCall.name,
-        content: [{
-            type: "text",
-            text: note === undefined ? reason : `${reason} ${note}`,
-        }],
+        content: [{ type: "text", text }],
         isError: true,
         withheld: true,
     };

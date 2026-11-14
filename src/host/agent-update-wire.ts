@@ -537,6 +537,11 @@ function parseKnownAgentUpdate(
                 && (request.sourceTask === undefined
                     || (typeof request.sourceTask === "string"
                         && request.sourceTask.length > 0))
+                && (request.workspace === undefined
+                    || (typeof request.workspace === "string"
+                        && request.workspace.length > 0))
+                && (request.chat === undefined
+                    || typeof request.chat === "boolean")
                 && (
                     request.permissionGrants === undefined
                     || (

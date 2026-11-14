@@ -2,7 +2,7 @@
 // The provider asks to run one shell command per prompt; the session runs in ask mode.
 // Ask mode allows writes inside the workspace, so each command writes outside it.
 // An allowed card leaves nothing, a denied one leaves a muted line until the next turn, and
-// Settings > Appearance > Past approvals keeps the answered card.
+// Settings > Appearance > Past approvals keeps the answered card. A typed answer denies with its text.
 
 import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -20,6 +20,7 @@ function commandFor(text) {
     if (text.includes("FIRST")) return `touch ${join(outside, "first-crow.txt")}`;
     if (text.includes("SECOND")) return `touch ${join(outside, "second-crow.txt")}`;
     if (text.includes("THIRD")) return `touch ${join(outside, "third-crow.txt")}`;
+    if (text.includes("FOURTH")) return `touch ${join(outside, "fourth-crow.txt")}`;
     return undefined;
 }
 
@@ -37,7 +38,7 @@ const provider = createServer((request, response) => {
         const last = messages.at(-1);
         const user = [...messages].reverse().find((message) => message.role === "user");
         const text = JSON.stringify(user?.content ?? "");
-        requests.push({ role: last?.role, text });
+        requests.push({ role: last?.role, text, last: JSON.stringify(last?.content ?? "") });
         if (body.stream === false) {
             response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify({
@@ -98,9 +99,15 @@ try {
     const card = page.locator(".request-card[data-kind=\"approval\"]");
     await card.waitFor({ timeout: 30_000 });
     await page.waitForSelector(".request-card:has-text(\"first-crow.txt\")");
-    // The title is the action and its target.
-    if ((await card.locator(".request-tool").innerText()) !== "Run") throw new Error("The approval title does not start with its action.");
-    if (!(await card.locator(".card-target").innerText()).includes("first-crow.txt")) throw new Error("The approval title does not name its target.");
+    // The headline says what is written; where it lands and the command stay folded until asked for.
+    if ((await card.locator(".request-title").innerText()) !== "Write first-crow.txt outside the work folder?") throw new Error("The approval headline does not name the file and the folder.");
+    const fold = card.locator(".request-fold-toggle");
+    if ((await fold.getAttribute("aria-expanded")) !== "false") throw new Error("The command is not folded.");
+    if (await card.locator(".request-fold-body").count() !== 0) throw new Error("A folded command is on screen.");
+    await fold.click();
+    if (!(await card.locator(".request-fold-body").innerText()).includes("touch")) throw new Error("The folded command does not show.");
+    if (!(await card.locator(".request-folder").innerText()).endsWith("outside")) throw new Error("The fold does not say where the file goes.");
+    await fold.click();
     await input.focus();
     await page.keyboard.press("1");
     await card.waitFor({ state: "detached", timeout: 15_000 });
@@ -115,7 +122,7 @@ try {
     await input.fill("Run the SECOND command");
     await input.press("Enter");
     await card.waitFor({ timeout: 30_000 });
-    await card.getByRole("button", { name: /Deny/ }).click();
+    await card.getByRole("button", { name: "Deny", exact: true }).click();
     await card.waitFor({ state: "detached", timeout: 15_000 });
     await until("the second turn to end", async () => (await send.getAttribute("data-mode")) === "send");
     if (existsSync(join(outside, "second-crow.txt"))) throw new Error("A denied command ran.");
@@ -129,6 +136,25 @@ try {
     await input.press("Enter");
     await denied.waitFor({ state: "detached", timeout: 15_000 });
     await until("the next turn to end", async () => (await send.getAttribute("data-mode")) === "send");
+
+    // A typed answer denies with its text. Digits typed in the box do not answer the card.
+    await input.fill("Run the FOURTH command");
+    await input.press("Enter");
+    await card.waitFor({ timeout: 30_000 });
+    const box = card.getByPlaceholder("Or tell Vera what to do instead");
+    await box.focus();
+    await page.keyboard.type("1 2 3 4");
+    if ((await box.inputValue()) !== "1 2 3 4") throw new Error("Digits did not reach the answer box.");
+    if ((await card.count()) !== 1) throw new Error("A digit typed in the answer box answered the card.");
+    await box.fill("Use the notes folder instead");
+    await box.press("Enter");
+    await card.waitFor({ state: "detached", timeout: 15_000 });
+    await until("the fourth turn to end", async () => (await send.getAttribute("data-mode")) === "send");
+    if (existsSync(join(outside, "fourth-crow.txt"))) throw new Error("A command ran after a typed answer.");
+    if (!requests.some((entry) => entry.role === "tool" && entry.last.includes("Use the notes folder instead"))) {
+        throw new Error("The typed answer did not reach the model.");
+    }
+    await page.locator(".request-denied").waitFor({ timeout: 10_000 });
 
     // Past approvals keeps the answered card, and the setting survives leaving the session.
     const agentId = await page.locator("[data-session]").first().getAttribute("data-session");
@@ -154,8 +180,8 @@ try {
     await input.fill("Run the THIRD command");
     await input.press("Enter");
     await card.waitFor({ timeout: 30_000 });
-    await card.getByRole("button", { name: /Allow once/ }).click();
-    await page.waitForSelector(".request-card[data-answered=\"true\"]:has-text(\"Allowed once\")", { timeout: 15_000 });
+    await card.locator(".request-choice[data-choice=\"allow_once\"]").click();
+    await page.waitForSelector(".request-card[data-answered=\"true\"] .request-outcome:text-is(\"Allowed\")", { timeout: 15_000 });
     await until("the third turn to end", async () => (await send.getAttribute("data-mode")) === "send");
     await until("the third file", async () => existsSync(join(outside, "third-crow.txt")));
 
