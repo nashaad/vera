@@ -175,7 +175,10 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
             else if (action === "release-all") send(releaseQueuedCommand("all"));
             else if (action === "abort") send(abortCommand());
         } else if (event.key === "Escape") {
-            if (escapeAction({ composing, empty, queued }) !== "release-one") return;
+            if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+                || watch.requests.length > 0
+                || document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-popover]') !== null) return;
+            if (escapeAction({ composing, empty: empty && images.length === 0, queued }) !== "release-one") return;
             event.preventDefault();
             send(releaseQueuedCommand("one"));
         } else if (event.key === "ArrowUp") {

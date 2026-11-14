@@ -421,6 +421,8 @@ In a session:
   to edit. Releasing a message ends the running turn so the message goes next.
 - With the box empty and a turn running, the send button becomes a stop button,
   and Enter with nothing queued stops the turn too.
+- Escape stops a running turn from the composer or transcript. An open card,
+  menu, popover or dialog keeps its own Escape action.
 - When the host refuses a message, the box gets its text back if you have not
   typed since, and a line above the box says why.
 - When the session's folder no longer exists, the folder chip turns to the

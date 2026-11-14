@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type KeyboardEvent } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -17,7 +17,7 @@ import { watchOpening } from "../session/transcript.ts";
 import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
-import { releaseQueuedCommand } from "../session/wire.ts";
+import { abortCommand, releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown } from "../workbench/context.tsx";
 import type { SessionRoute } from "./routes.ts";
@@ -53,6 +53,21 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     const title = watch.title ?? row?.name ?? route.title;
     const slowOpening = useSlowOpening(watch);
 
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (event.defaultPrevented || event.key !== "Escape" || event.ctrlKey || event.metaKey
+            || event.altKey || event.shiftKey || event.nativeEvent.isComposing || !running
+            || watch.requests.length > 0) return;
+        const target = event.target;
+        if (!(target instanceof HTMLElement)
+            || !target.matches(".composer-input, .transcript-scroll")) return;
+        if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-popover]') !== null) return;
+        event.preventDefault();
+        const input = event.currentTarget.querySelector<HTMLTextAreaElement>(".composer-input");
+        const hasDraft = (input?.value.trim().length ?? 0) > 0
+            || event.currentTarget.querySelector(".chip-file") !== null;
+        send(!hasDraft && watch.queue.length > 0 ? releaseQueuedCommand("one") : abortCommand());
+    };
+
     useEffect(() => {
         publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send });
     }, [bridge, route.agentId, title, folder, chat, watch, send]);
@@ -67,7 +82,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
             text={ended ? watch.error ?? "The session closed." : "Opening the session."}
         />
     ) : (
-        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase}>
+        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase} tabIndex={0}>
             <div className="transcript">
                 <div className="transcript-inner">
                     {watch.hasOlder && watch.history.length >= MAX_HISTORY_BLOCKS ? (
@@ -102,7 +117,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
     );
 
     return (
-        <div className="session-page">
+        <div className="session-page" onKeyDown={onKeyDown}>
             <div className="session-body">
                 <div className="agent-panes" data-layout={companion === undefined ? "single" : panes.layout}>
                     {body}

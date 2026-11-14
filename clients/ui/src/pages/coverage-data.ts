@@ -58,7 +58,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
         name: "Turn starts",
         items: [
             inWindow("Enter sends the message, and it shows in the conversation"),
-            partial("A running turn shows a stop button in place of send", "Escape does not stop it; Enter on an empty box does"),
+            inWindow("A running turn can be stopped with Escape or the stop button"),
             partial("A running turn shows one line with three dots and a sweep across its label", "No activity strip glyphs"),
             inTerminal("The activity strip's motion is set from Off to 3", "/settings, then Animation. Window has Reduce motion, which stops the dots and sweep"),
             inWindow("The status line says Thinking, then the turn clock after two seconds"),

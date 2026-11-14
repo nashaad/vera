@@ -127,6 +127,23 @@ try {
     await until("the stopped turn", async () => (await sendMode()) === "send"
         && (await input.getAttribute("placeholder")) === "Reply to Vera");
 
+    for (const target of [input, page.locator(".transcript-scroll[data-session]")]) {
+        await input.fill("SLOW escape");
+        await input.press("Enter");
+        await until("the stop button", async () => (await sendMode()) === "stop");
+        if (target === input) {
+            await input.fill("/mo");
+            await page.waitForSelector('[role="listbox"]');
+            await input.press("Escape");
+            await page.waitForSelector('[role="listbox"]', { state: "detached" });
+            if (await sendMode() !== "send") throw new Error("Closing the menu stopped the turn.");
+        }
+        await target.press("Escape");
+        await until("the stopped turn", async () => (await input.getAttribute("placeholder")) === "Reply to Vera");
+        if (target === input && await input.inputValue() !== "/mo") throw new Error("Escape lost the draft.");
+        await input.fill("");
+    }
+
     // Attach an image from the picker; the prompt carries it once the host has a copy.
     await page.getByRole("button", { name: "Attach images" }).click();
     await page.waitForSelector(".chip-file[data-attaching=\"false\"]", { timeout: 15_000 });
