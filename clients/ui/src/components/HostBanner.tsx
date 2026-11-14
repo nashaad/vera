@@ -6,6 +6,7 @@ export interface HostBannerProps {
     readonly banner: BannerState;
     readonly onAnswer: (id: string, yes: boolean) => void;
     readonly onReconnect: () => void;
+    readonly onDismiss: () => void;
 }
 
 function BannerIcon({ tone }: { readonly tone: Tone }) {
@@ -14,7 +15,7 @@ function BannerIcon({ tone }: { readonly tone: Tone }) {
     return <InfoIcon className="banner-icon" />;
 }
 
-export function HostBanner({ banner, onAnswer, onReconnect }: HostBannerProps) {
+export function HostBanner({ banner, onAnswer, onReconnect, onDismiss }: HostBannerProps) {
     return (
         <section
             className="banner"
@@ -44,6 +45,10 @@ export function HostBanner({ banner, onAnswer, onReconnect }: HostBannerProps) {
                             No
                         </button>
                     </>
+                ) : banner.kind === "install_notice" ? (
+                    <button type="button" className="button" onClick={onDismiss}>
+                        Dismiss
+                    </button>
                 ) : (
                     <>
                         <button type="button" className="button" onClick={onReconnect}>

@@ -8,8 +8,18 @@ const IDLE_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2_000;
 const STDERR_TAIL_BYTES = 4_096;
 
-// Runs before the Vera command is resolved. A returned string is a failure message; undefined means go on.
-export type BootPreflight = () => Promise<string | undefined>;
+export interface PreflightHooks {
+    // The preflight is about to replace the Vera command; the window shows an installing state until it returns.
+    readonly installing: () => void;
+}
+
+// `continue` boots with the Vera command in place, and a notice is shown beside the attached window.
+export type PreflightResult =
+    | { readonly kind: "continue"; readonly notice?: string }
+    | { readonly kind: "stop"; readonly message: string };
+
+// Runs before the Vera command is resolved.
+export type BootPreflight = (hooks: PreflightHooks) => Promise<PreflightResult>;
 
 export class BootSession {
     private child: ChildProcessWithoutNullStreams | undefined;
@@ -19,6 +29,7 @@ export class BootSession {
     private started = false;
     private finished = false;
     private cancelled = false;
+    private installing = false;
 
     constructor(
         private readonly home: string,
@@ -34,19 +45,28 @@ export class BootSession {
             this.launch();
             return;
         }
-        void this.preflight().then(
-            (failure) => this.afterPreflight(failure),
-            (error: unknown) => this.afterPreflight(messageOf(error)),
+        void this.preflight({ installing: () => this.showInstalling() }).then(
+            (result) => this.afterPreflight(result),
+            (error: unknown) => this.afterPreflight({ kind: "stop", message: messageOf(error) }),
         );
     }
 
-    private afterPreflight(failure: string | undefined): void {
+    private showInstalling(): void {
+        if (this.cancelled || this.finished || this.installing) return;
+        this.installing = true;
+        this.emit({ type: "phase", phase: "installing" });
+    }
+
+    private afterPreflight(result: PreflightResult): void {
         if (this.cancelled) return;
-        if (failure !== undefined) {
+        if (result.kind === "stop") {
             this.finished = true;
-            this.emit({ type: "failed", message: failure });
+            this.emit({ type: "failed", message: result.message });
             return;
         }
+        if (result.notice !== undefined) this.emit({ type: "install_notice", message: result.notice });
+        // The host boot that follows is the connecting state again.
+        if (this.installing) this.emit({ type: "phase", phase: "starting" });
         this.launch();
     }
 

@@ -29,10 +29,17 @@ installs nothing when the `vera` command already runs the app's release or a
 newer one. It installs the app's release when the command is missing, does not
 run, or runs an older release, and the release it replaces stays as the
 rollback, as in [`vera rollback`](installed-command.md). The install does not
-stop a host that is already running.
+stop a host that is already running, and that host keeps its own build until it
+is restarted.
 
-If the install fails, the app shows `Vera did not start` with the reason and a
-Try again button, and a `vera` command you had before is left as it was. See
+While the install runs, which takes a few seconds the first time, the
+connection state at the bottom of the sidebar reads `Installing Vera…`.
+
+If the install fails and a `vera` command already works, the app attaches with
+that command and shows a banner saying the app's release could not be
+installed, with the reason and a Dismiss button. If no working command exists,
+the app shows `Vera did not start` with the reason and a Try again button. A
+`vera` command you had before is left as it was. See
 [Desktop app](desktop.md#finding-the-host).
 
 ## Install a release

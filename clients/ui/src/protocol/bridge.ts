@@ -6,7 +6,8 @@ import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 
-export type DesktopPhase = "starting" | "waiting" | "attached";
+// "installing" is the packaged app putting its bundled release in place before it connects.
+export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
 
 // The session page shows one session and, beside it, at most one of its subagents.
 // The probe pane is a short attach that reads a folder's catalogs for Customize.
@@ -22,6 +23,8 @@ export type DesktopEvent =
         readonly home: string;
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
+    // The bundled release could not be installed and the Vera already on the machine is used instead.
+    | { readonly type: "install_notice"; readonly message: string }
     | { readonly type: "frame"; readonly text: string }
     // False while the window is hidden or minimized.
     | { readonly type: "window_shown"; readonly shown: boolean }

@@ -44,12 +44,15 @@ export type InstallOutcome =
     | { readonly kind: "absent" }
     | { readonly kind: "kept"; readonly buildId: string }
     | { readonly kind: "installed"; readonly buildId: string; readonly reason: "missing" | "older" }
-    | { readonly kind: "failed"; readonly message: string };
+    // `kept` is true when a working Vera command is still in place after the failure.
+    | { readonly kind: "failed"; readonly reason: string; readonly kept: boolean };
 
 export interface InstallOptions {
     // The directory holding the three bundled release files.
     readonly bundleDirectory: string;
     readonly prefix?: string;
+    // Called once, when the install is about to start and not when the installed release is kept.
+    readonly onInstalling?: () => void;
 }
 
 // Equal versions are common because the product version only changes on a release, so the later build wins.
@@ -73,14 +76,14 @@ export async function installBundledRelease(options: InstallOptions): Promise<In
         const bundled = parseReleaseManifest(readFileSync(manifestPath, "utf8"));
         const decision = decideInstall(bundled, readInstalledManifest(prefix));
         if (decision === "keep") return { kind: "kept", buildId: bundled.build_id };
+        options.onInstalling?.();
         await installFromTarball(bundled, join(options.bundleDirectory, BUNDLED_RELEASE_TARBALL), prefix);
         return { kind: "installed", buildId: bundled.build_id, reason: decision };
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        const kept = isUsableLauncher(prefix) ? " The Vera command you had was left as it was." : "";
         return {
             kind: "failed",
-            message: `Vera could not install the release inside this app. ${reason}${kept} Choose Try again to retry.`,
+            reason: error instanceof Error ? error.message : String(error),
+            kept: isUsableLauncher(prefix),
         };
     }
 }

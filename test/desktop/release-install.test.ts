@@ -150,8 +150,8 @@ test("@core a failed install reports the failure and leaves the previous command
     const outcome = await installBundledRelease({ bundleDirectory: where.bundle, prefix: where.prefix });
     expect(outcome.kind).toBe("failed");
     if (outcome.kind !== "failed") return;
-    expect(outcome.message).toContain("does not match its checksum");
-    expect(outcome.message).toContain("left as it was");
+    expect(outcome.reason).toContain("does not match its checksum");
+    expect(outcome.kept).toBe(true);
     expect(currentReleaseBuildId(where.prefix)).toBe("vera-old");
     expect(runLauncher(where.prefix)).toBe(0);
     expect(readdirSync(releasesDirectory(where.prefix)).sort()).toEqual(["vera-old"]);
@@ -163,19 +163,20 @@ test("a release that fails verification is removed and the previous command keep
     const outcome = await install(where, { ...release("vera-new", "0.2.0"), omit: "docs/index.md" });
     expect(outcome.kind).toBe("failed");
     if (outcome.kind !== "failed") return;
-    expect(outcome.message).toContain("missing docs/index.md");
+    expect(outcome.reason).toContain("missing docs/index.md");
+    expect(outcome.kept).toBe(true);
     expect(existsSync(releaseDirectory("vera-new", where.prefix))).toBe(false);
     expect(currentReleaseBuildId(where.prefix)).toBe("vera-old");
     expect(runLauncher(where.prefix)).toBe(0);
     expect(readdirSync(releasesDirectory(where.prefix)).sort()).toEqual(["vera-old"]);
 });
 
-test("a failed first install leaves no launcher and says nothing was kept", async () => {
+test("a failed first install leaves no launcher and reports nothing kept", async () => {
     const where = scratch();
     const outcome = await install(where, { ...release("vera-new", "0.2.0"), omit: "docs/index.md" });
     expect(outcome.kind).toBe("failed");
     if (outcome.kind !== "failed") return;
-    expect(outcome.message).not.toContain("left as it was");
+    expect(outcome.kept).toBe(false);
     expect(existsSync(launcherPath(where.prefix))).toBe(false);
     expect(currentReleaseBuildId(where.prefix)).toBeUndefined();
 });
@@ -208,4 +209,26 @@ test("staging left by an install killed long ago is removed", async () => {
     await install(where, release("vera-new", "0.2.0"));
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
+});
+
+test("the install announces itself once, and not when the installed release is kept", async () => {
+    const where = scratch();
+    let announced = 0;
+    const run = async (bundled: FixtureRelease) => {
+        rmSync(where.bundle, { recursive: true, force: true });
+        writeFixtureBundle(where.bundle, bundled);
+        return installBundledRelease({
+            bundleDirectory: where.bundle,
+            prefix: where.prefix,
+            onInstalling: () => {
+                announced += 1;
+            },
+        });
+    };
+    await run(release("vera-new", "0.2.0"));
+    expect(announced).toBe(1);
+    await run(release("vera-new", "0.2.0"));
+    expect(announced).toBe(1);
+    await run({ ...release("vera-newer", "0.3.0"), omit: "docs/index.md" });
+    expect(announced).toBe(2);
 });

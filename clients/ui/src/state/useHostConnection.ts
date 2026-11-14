@@ -11,6 +11,7 @@ export interface HostConnection {
     readonly state: UiState;
     reconnect(): void;
     answer(id: string, yes: boolean): void;
+    dismissInstallNotice(): void;
 }
 
 export function useHostConnection(log: OutputLog): HostConnection {
@@ -106,6 +107,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
             log.append("info", `Answered ${yes ? "yes" : "no"}.`);
             dispatch({ type: "answered" });
         },
+        dismissInstallNotice: () => dispatch({ type: "dismiss_install_notice" }),
     };
 }
 
