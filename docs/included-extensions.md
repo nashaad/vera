@@ -135,6 +135,17 @@ Tick Send to Vera on a comment to also send it to the conversation. It starts
 a turn right away, or after the running one, without asking. Disable it with
 `/extension disable vera.artifacts`.
 
+## Save feedback
+
+`vera.feedback` provides `/feedback` in the terminal and the `file_feedback`
+tool for requests made in conversation. The window's Feedback form uses the
+same host handler. Reports stay under `machine/feedback/` in the Vera home.
+Each report has a title, description and optional images. The tool follows the
+normal approval rules. A report holds up to four images of 10 MB each, and Vera
+refuses new reports after 500 until reports are moved out of that folder. If Vera
+reports a lock left after an interruption, remove the named lock folder after any
+save has finished.
+
 ## Configure or disable included copies
 
 Use the extension manager for available controls. To suppress included copies

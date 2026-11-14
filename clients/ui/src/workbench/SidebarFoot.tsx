@@ -1,6 +1,7 @@
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
-import { GearIcon, LaptopIcon, PanelIcon, PlayIcon } from "../components/Icons.tsx";
+import { OVERLAY_COMMANDS } from "../commands/overlay-ids.ts";
+import { FeedbackIcon, GearIcon, LaptopIcon, PanelIcon, PlayIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { buildLabel, phaseLabel, toneOf, type UiState } from "../state/connection.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -90,9 +91,10 @@ function hostTitle(state: UiState): string {
     return lines.join("\n");
 }
 
-// The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices and Settings.
+// The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices, Feedback and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
+    const { run } = useWorkbench();
     return (
         <footer className="sidebar-foot" aria-label="Status">
             <span
@@ -112,6 +114,7 @@ export function SidebarFoot() {
             <PanelToggle />
             <TourButton />
             <DevicesButton />
+            <button type="button" className="header-button" aria-label="Feedback" title="Feedback" onClick={() => run(OVERLAY_COMMANDS.feedback.id)}><FeedbackIcon /></button>
             <SettingsButton />
         </footer>
     );

@@ -5,6 +5,10 @@ import type { Overlay } from "../commands/overlay-ids.ts";
 export type { Overlay };
 
 let open: Overlay | undefined;
+let screenshot: string | undefined;
+let generation = 0;
+
+export function feedbackScreenshot(): string | undefined { return screenshot; }
 const listeners = new Set<() => void>();
 
 function set(next: Overlay | undefined): void {
@@ -14,10 +18,21 @@ function set(next: Overlay | undefined): void {
 }
 
 export function openOverlay(overlay: Overlay): void {
-    set(overlay);
+    const current = ++generation;
+    if (overlay !== "feedback") { set(overlay); return; }
+    set(undefined);
+    screenshot = undefined;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        void (window.veraDesktop?.captureFeedback() ?? Promise.resolve(undefined)).catch(() => undefined).then((image) => {
+            if (generation !== current) return;
+            screenshot = image;
+            set("feedback");
+        });
+    }));
 }
 
 export function closeOverlay(): void {
+    generation++;
     set(undefined);
 }
 

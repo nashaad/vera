@@ -48,6 +48,7 @@ export const SHEET_DESCS: Readonly<Record<Overlay, string>> = {
     configure: "The files Vera reads its settings from",
     failures: "Where Vera records model failures",
     nudges: "Where standing nudges are managed",
+    feedback: "Save a bug report or feature request",
 };
 
 // The newest row with the status. Timed rows beat untimed ones; ties and untimed rows keep the host's order.

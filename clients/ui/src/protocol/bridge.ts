@@ -218,7 +218,18 @@ export interface ProviderSave {
 export type ProviderListResult = { readonly ok: true; readonly providers: readonly ProviderStatus[]; readonly needsSetup: boolean } | HostRequestFailure;
 export type ProviderResult = { readonly ok: true; readonly provider: ProviderStatus } | HostRequestFailure;
 
+export interface FeedbackSaveRequest {
+    readonly kind: "bug" | "feature";
+    readonly title: string;
+    readonly description: string;
+    readonly image_paths: readonly string[];
+    readonly session_id?: string;
+}
+export type FeedbackSaveResult = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string };
+
 export interface DesktopBridge {
+    captureFeedback(): Promise<string | undefined>;
+    saveFeedback(request: FeedbackSaveRequest): Promise<FeedbackSaveResult>;
     readonly platform: string;
     start(): void;
     reconnect(): void;

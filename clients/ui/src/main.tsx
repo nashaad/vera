@@ -40,3 +40,5 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(<App />);
 void syncImportedThemes();
+
+import "./styles/feedback.css";

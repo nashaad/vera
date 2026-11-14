@@ -29,6 +29,7 @@ import {
 
 export interface TuiSecretPromptState {
     readonly masked?: boolean;
+    readonly allowEmpty?: boolean;
     readonly title?: string;
     /** Bumped for each prompt, so reopening the card starts the field empty rather than showing the last key. */
     readonly editorSession: number;
@@ -106,7 +107,7 @@ export function handleTuiSecretPromptKey(
     }
     if (key.name === "return" || key.name === "enter") {
         const value = state.value.trim();
-        return value.length === 0
+        return value.length === 0 && !state.allowEmpty
             ? { handled: true }
             : { handled: true, submitted: value };
     }

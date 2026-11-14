@@ -422,6 +422,16 @@ export function AgentIcon({ className }: IconProps) {
     );
 }
 
+export function FeedbackIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+            <path d="M12 7.5v3.5" />
+            <path d="M12 13.5v.01" />
+        </Icon>
+    );
+}
+
 export function FileIcon({ className }: IconProps) {
     return (
         <Icon className={className}>

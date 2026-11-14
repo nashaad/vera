@@ -664,7 +664,7 @@ export function syncConfigurationRequiredRequest(rt: TuiRuntime,
 
 export function requestExtensionSecret(
     rt: TuiRuntime,
-    request: { readonly title: string; readonly hint?: string },
+    request: { readonly title: string; readonly hint?: string; readonly masked?: boolean; readonly allowEmpty?: boolean },
     signal: AbortSignal,
 ): Promise<string | undefined> {
     if (signal.aborted) return Promise.reject(signal.reason);
@@ -682,7 +682,7 @@ export function requestExtensionSecret(
         const abort = (): void => finish();
         rt.extensionSecretPrompt = finish;
         signal.addEventListener("abort", abort, { once: true });
-        rt.secretPrompt = { ...startTuiSecretPrompt({ id: "extension", label: request.title, hint: request.hint }), masked: true, title: request.title };
+        rt.secretPrompt = { ...startTuiSecretPrompt({ id: "extension", label: request.title, hint: request.hint }), masked: request.masked ?? true, allowEmpty: request.allowEmpty ?? false, title: request.title };
         rt.composer.blur();
         renderState(rt);
         focusActiveSurface(rt);
