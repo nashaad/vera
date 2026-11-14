@@ -51,7 +51,8 @@ for (const name of scripts) {
     outcomes.push(outcome);
     const status = outcome.passed ? "PASS" : "FAIL";
     const note = outcome.timedOut ? "  (timed out)" : "";
-    console.log(`${status}  ${name}  ${outcome.seconds.toFixed(1)}s${note}`);
+    const forced = outcome.output.includes("forced close after") ? "  (forced close)" : "";
+    console.log(`${status}  ${name}  ${outcome.seconds.toFixed(1)}s${note}${forced}`);
     if (!outcome.passed) {
         const logPath = join(logDir, `${name}.log`);
         writeFileSync(logPath, outcome.output);

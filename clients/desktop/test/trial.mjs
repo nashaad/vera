@@ -105,6 +105,7 @@ async function closeApp(app) {
     const outcome = await Promise.race([app.close().then(() => "closed", () => "closed"), limit]);
     clearTimeout(timer);
     if (outcome === "closed") return;
+    console.error(`${basename(process.argv[1])}: forced close after ${CLOSE_LIMIT_MS / 1000} s`);
     const pid = app.process().pid;
     if (pid === undefined) return;
     try {
