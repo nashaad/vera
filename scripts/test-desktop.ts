@@ -41,6 +41,15 @@ if (build.status !== 0) {
     process.exit(build.status ?? 1);
 }
 
+// The browser script needs the annex page; a built one is left as it is.
+if (!existsSync(join(root, "dist", "release", "annex", "index.html"))) {
+    const pack = spawnSync("bun", ["run", "pack:web"], { cwd: root, stdio: "inherit" });
+    if (pack.status !== 0) {
+        console.error("Annex build failed; no e2e script was run.");
+        process.exit(pack.status ?? 1);
+    }
+}
+
 // A macOS socket path is limited to 85 characters, so the default temp folder is too long to nest trial homes in.
 const scratch = mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "vera-desktop-run-"));
 const logDir = mkdtempSync(join(tmpdir(), "vera-desktop-logs-"));
