@@ -75,8 +75,8 @@ workspace and a session.
   machine, with the connection state and host build. Picking it shows the host's
   state, its home and the newest sessions on it.
 - A session page opens when you pick a row in the Sessions view, on Work, on
-  Search or on a workspace or device page. Its title is the session name. It is
-  described under Session view.
+  Search or on a workspace or device page. Its title is the session's title, as
+  its sidebar row shows it. It is described under Session view.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
   starts on the folder of the session last open, and lists no chats. The page reads through one
@@ -222,11 +222,18 @@ Six views ship with the app:
   the host's order inside a group. A child session in the same folder is listed
   under its parent, indented. A child of a child is listed under the same top
   parent. A group collapses and expands from its heading; the state is not kept
-  across launches. Each row has a dot, the session name, and the time since its
+  across launches. Each row has a dot, the session's title, and the time since its
   last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
   and the row of the open session is filled.
+
+  A session's title is its name, whether you gave it or Vera's automatic titles
+  did, or else the start of its first prompt, the same as in the terminal UI.
+  Only a session with neither shows its generated name, such as
+  `swift-stone:d14d`. The row and the window's title bar follow a rename within
+  the sidebar's three-second refresh, without another turn. The title bar and
+  the empty session page read the title of the open session from the host.
 
   Hovering a row shows a `…` button in place of its time; it and a right-click
   on the row open the row's menu:
@@ -943,6 +950,7 @@ node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/defaults.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
+node clients/desktop/test/rename.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
@@ -1047,6 +1055,12 @@ Escape, the arrow keys and Tab work. It runs `/subagents`, `/import`, an
 extension command and the skill, and checks the provider received the skill's
 line. It renames, clones and closes the session from the box, and checks that
 `/parent` says there is no parent.
+
+The rename test starts a session against a local provider, checks its row and
+the title bar show the title and not the generated name, then renames it with
+`/rename` and from the row menu's sheet, which starts from the shown title. It
+checks the row and the title bar show each new name within one three-second poll,
+with no turn in between.
 
 The tools test runs a local provider that writes a scratch checklist, writes a
 file and edits it. It checks the turn's edits roll up into one card, opens the

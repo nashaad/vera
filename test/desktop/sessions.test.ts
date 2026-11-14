@@ -21,6 +21,17 @@ test("@core session rows carry a name, folder, status and the last activity, and
     ]);
 });
 
+test("@core a row shows the title, which carries a rename, and falls back to the identity name before there is a title", () => {
+    const rows = sessionRows({
+        agents: [
+            { id: "renamed1", name: "swift-stone:d14d", title: "crow map" },
+            { id: "untitled", name: "mellow-summit:a5bd", title: "  " },
+            { id: "identity", name: "glad-fern:17b8" },
+        ],
+    });
+    expect(rows.map((item) => item.name)).toEqual(["crow map", "mellow-summit:a5bd", "glad-fern:17b8"]);
+});
+
 test("a row the host marks as a chat is a chat, and only an exact true counts", () => {
     const rows = sessionRows({
         agents: [

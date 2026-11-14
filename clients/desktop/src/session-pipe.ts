@@ -1,7 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 
-import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE } from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
 import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
 import { describeFailure } from "./host-pipe.ts";
@@ -149,7 +149,7 @@ function attachLine(agentId: string): string {
     return `${JSON.stringify({
         type: "attach",
         agent_id: agentId,
-        requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING],
+        requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE],
     })}\n`;
 }
 

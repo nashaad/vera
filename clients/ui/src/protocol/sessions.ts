@@ -49,8 +49,9 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
     return rows;
 }
 
+// The title carries a rename; the identity name labels a session that has no title yet.
 function displayName(fields: Record<string, unknown>): string {
-    for (const candidate of [fields.name, fields.title]) {
+    for (const candidate of [fields.title, fields.name]) {
         if (typeof candidate === "string" && candidate.trim().length > 0) return candidate.trim();
     }
     return (fields.id as string).slice(0, SHORT_ID_LENGTH);

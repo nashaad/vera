@@ -106,8 +106,9 @@ export function reduceRouter(state: RouterState, action: RouterAction): RouterSt
     }
 }
 
-export function routeTitle(route: Route): string {
-    if (route.kind === "session") return route.title;
+// A session route keeps the title its row had when it was opened; the live title of the same session replaces it.
+export function routeTitle(route: Route, liveSession?: { readonly agentId: string; readonly title: string }): string {
+    if (route.kind === "session") return liveSession?.agentId === route.agentId ? liveSession.title : route.title;
     if (route.kind === "workspace") return folderName(route.folder);
     return PAGE_TITLES[route.kind];
 }
