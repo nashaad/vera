@@ -20,7 +20,7 @@ function reportTitleBarHeight(height: number): void {
 
 export function App() {
     const [log] = useState(() => new OutputLog());
-    const { state, reconnect, answer, refreshSessions } = useHostConnection(log);
+    const { state, reconnect, answer, refreshSessions, dismissInstallNotice } = useHostConnection(log);
     const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout();
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
@@ -37,7 +37,7 @@ export function App() {
                         <Workbench
                             platform={platform}
                             banner={banner !== undefined ? (
-                                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} />
+                                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} onDismiss={dismissInstallNotice} />
                             ) : null}
                             {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
                         />

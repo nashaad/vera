@@ -35,7 +35,9 @@ full-width title bar and no status bar.
   startup check has a question. A lost connection offers Reconnect. A host that
   did not start and a missing install offer Try again and Run doctor, which opens
   the health check described under Sheets. The banner shows the reason; long
-  reasons scroll inside it.
+  reasons scroll inside it. A bundled release that could not be installed, when
+  a working `vera` command was already there, shows a warning banner with the
+  reason and a Dismiss button instead.
 
 While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
@@ -845,7 +847,26 @@ The command is found in this order:
    own CLI. `VERA_DESKTOP_BUN` names the Bun executable, defaulting to `bun`.
 2. The installed launcher at `~/.local/bin/vera`.
 3. Nothing. The banner says `Vera is not installed`, names the path it checked,
-   and offers Reconnect. There is no install action in this build.
+   and offers Reconnect.
+
+The app installed from the disk image carries a Vera release, and before it
+looks for the command it installs that release as the `vera` command when the
+command is missing, does not run, or runs an older release. The release goes
+under `~/.local/share/vera/` and the launcher at `~/.local/bin/vera`, the same
+place the release installer uses, and the install does not stop a running host:
+a host that is already running keeps its own build until it is restarted. While
+the install runs, the connection state at the bottom of the sidebar reads
+`Installing Vera…`, and it reads Starting again once the host boots. When the
+command already runs that release or a newer one, nothing is installed.
+
+If the install fails and a working `vera` command was already there, the app
+starts with that command and shows the banner `Vera could not install its
+bundled release` with the reason and a Dismiss button. The banner stays until
+it is dismissed or the connection is restarted. If it fails and no working
+command exists, the banner says `Vera did not start` with the reason and offers
+Try again and Run doctor. In both cases the command you had is left as it was.
+Running the app from a checkout with `bun run dev:desktop` installs nothing.
+See [Install from the disk image](installation.md#install-from-the-disk-image).
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including
@@ -1028,6 +1049,15 @@ the runner stops any host a script left behind.
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
+
+`bun run desktop:dmg` builds the macOS disk image for this machine's chip. It
+builds the app, packs a release from the checkout, puts both in a copy of
+Electron renamed Vera, signs the app ad hoc and writes
+`Vera-<platform>-<arch>.dmg` to `dist/desktop-dmg`. `--release <file>` uses an
+existing release file instead of packing one, and `--out <dir>` picks the
+folder. The app's icon is the Vera mark from `docs/site/public/favicon.svg`,
+drawn onto an `.icns` file during the build. It runs on macOS only and does not
+install or open anything.
 
 `bun run desktop:tour` builds the app and walks it in a visible window against a
 throwaway home and a scripted provider. It saves one screenshot per step and a
