@@ -4,7 +4,7 @@ import type { LayoutState } from "../../ui/src/layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "../../ui/src/protocol/assignments.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
-import type { DesktopFlags } from "../../ui/src/state/desktopFlags.ts";
+import type { DesktopFlags, FlagPatch } from "../../ui/src/state/desktopFlags.ts";
 import type {
     AnnexPagesResult,
     BranchSessionResult,
@@ -60,6 +60,8 @@ const bridge: DesktopBridge = {
     loadPins: async () => (await ipcRenderer.invoke(CHANNELS.pinsLoad)) as SavedPins,
     savePins: (pins: SavedPins) => ipcRenderer.send(CHANNELS.pinsSave, pins),
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
+    saveFlags: async (patch: FlagPatch) => ((await ipcRenderer.invoke(CHANNELS.flagsSave, patch)) ?? undefined) as DesktopFlags | undefined,
+    reportHiddenCommands: (ids: readonly string[]) => ipcRenderer.send(CHANNELS.flagsHidden, ids),
     createSession: async (workspace: string | undefined, approvalMode?: string) => {
         const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
         return result as CreateSessionResult;

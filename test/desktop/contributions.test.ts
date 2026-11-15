@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 
+import { defaultLayout } from "../../clients/ui/src/layout/model.ts";
+import { reduceLayout } from "../../clients/ui/src/layout/reducer.ts";
+import { resolveLayout } from "../../clients/ui/src/layout/resolve.ts";
 import { ContributionRegistry } from "../../clients/ui/src/registry/contributions.ts";
 import { CORE_CONTAINERS, CORE_VIEWS, registerCoreContributions } from "../../clients/ui/src/registry/core.ts";
 
@@ -71,4 +74,57 @@ test("subscribers hear registrations and unregistrations until they unsubscribe"
     unsubscribe();
     registry.registerView(view);
     expect(heard).toBe(2);
+});
+
+test("@core an unavailable container leaves the snapshot with its views, and comes back when available", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    const all = registry.snapshot();
+    registry.setUnavailable(new Set([CORE_CONTAINERS.review, CORE_CONTAINERS.output]));
+    const reduced = registry.snapshot();
+    expect(reduced.containers.map((entry) => entry.id)).not.toContain(CORE_CONTAINERS.review);
+    expect(reduced.containers.map((entry) => entry.id)).not.toContain(CORE_CONTAINERS.output);
+    expect(reduced.views.map((entry) => entry.id)).not.toContain(CORE_VIEWS.review);
+    expect(reduced.views.map((entry) => entry.id)).not.toContain(CORE_VIEWS.output);
+    expect(reduced.containers.length).toBe(all.containers.length - 2);
+    registry.setUnavailable(new Set());
+    expect(registry.snapshot().containers.map((entry) => entry.id).sort()).toEqual(all.containers.map((entry) => entry.id).sort());
+});
+
+test("setting the same unavailable ids again changes nothing and tells no one", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    registry.setUnavailable(new Set([CORE_CONTAINERS.plan]));
+    const before = registry.snapshot();
+    let heard = 0;
+    registry.subscribe(() => heard++);
+    registry.setUnavailable(new Set([CORE_CONTAINERS.plan]));
+    expect(heard).toBe(0);
+    expect(registry.snapshot()).toBe(before);
+    registry.setUnavailable(new Set());
+    expect(heard).toBe(1);
+});
+
+test("@core layout actions keep a saved arrangement for a container that is unavailable", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    const moved = reduceLayout(defaultLayout(), { type: "moveContainer", container: CORE_CONTAINERS.review, location: "panel" }, registry.snapshot());
+    expect(moved.containerLocation[CORE_CONTAINERS.review]).toBe("panel");
+    registry.setUnavailable(new Set([CORE_CONTAINERS.review]));
+    const snapshot = registry.snapshot();
+    expect(resolveLayout(moved, snapshot).locations.panel.all.map((entry) => entry.id)).not.toContain(CORE_CONTAINERS.review);
+    const after = reduceLayout(moved, { type: "moveContainer", container: CORE_CONTAINERS.plan, location: "panel" }, snapshot);
+    expect(after.containerLocation[CORE_CONTAINERS.review]).toBe("panel");
+    const toggled = reduceLayout(after, { type: "toggleLocation", location: "rightPane" }, snapshot);
+    expect(toggled.containerLocation[CORE_CONTAINERS.review]).toBe("panel");
+    registry.setUnavailable(new Set());
+    expect(resolveLayout(toggled, registry.snapshot()).locations.panel.all.map((entry) => entry.id)).toContain(CORE_CONTAINERS.review);
+});
+
+test("a pane reveal for an unavailable container is ignored", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    registry.setUnavailable(new Set([CORE_CONTAINERS.files]));
+    const state = defaultLayout();
+    expect(reduceLayout(state, { type: "activateContainer", container: CORE_CONTAINERS.files }, registry.snapshot())).toBe(state);
 });

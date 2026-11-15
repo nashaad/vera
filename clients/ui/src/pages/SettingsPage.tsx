@@ -9,6 +9,7 @@ import { DevicesSection } from "./settings/DevicesSection.tsx";
 import { GitSection } from "./settings/GitSection.tsx";
 import { KeyboardSection } from "./settings/KeyboardSection.tsx";
 import { ProvidersSection } from "./settings/ProvidersSection.tsx";
+import { ShowSection } from "./settings/ShowSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
 import { useNarrowRail } from "./settings/useNarrowRail.ts";
@@ -104,6 +105,7 @@ export function SettingsPage() {
                     {current?.id === "git" ? <GitSection /> : null}
                     {current?.id === "devices" ? <DevicesSection /> : null}
                     {current?.id === "keyboard" ? <KeyboardSection /> : null}
+                    {current?.id === "show" ? <ShowSection /> : null}
                     {current?.id === "data" ? <DataSection /> : null}
                 </div>
             </div>

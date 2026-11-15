@@ -6,6 +6,7 @@ import { useRouter } from "../pages/router.tsx";
 import { groupSessions, type SessionGroup } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { isPinned, usePinnedSessions } from "../state/usePins.ts";
+import { useSurface } from "../state/useSurfaces.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
 
@@ -17,8 +18,9 @@ function Row({ row, nested, now }: { readonly row: SessionRow; readonly nested: 
     const running = isRunning(row);
     const { route, navigate } = useRouter();
     const { openMenu } = useWorkbench();
+    const files = useSurface("files");
     const active = route.kind === "session" && route.agentId === row.id;
-    const menu = (at: { readonly x: number; readonly y: number }): void => openMenu(sessionRowMenu(row, isPinned(row.id)), at);
+    const menu = (at: { readonly x: number; readonly y: number }): void => openMenu(sessionRowMenu(row, isPinned(row.id), files), at);
     const more = (event: MouseEvent<HTMLButtonElement>): void => {
         const box = event.currentTarget.getBoundingClientRect();
         menu({ x: box.left, y: box.bottom });

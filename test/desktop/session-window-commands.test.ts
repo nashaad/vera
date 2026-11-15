@@ -196,6 +196,11 @@ describe("session row menu", () => {
         expect(labels(sessionRowMenu(row, true))[1]).toBe("Unpin Session");
     });
 
+    test("@core the files entry is offered only while the window shows Files", () => {
+        expect(labels(sessionRowMenu(row, false, false))).toEqual(["Rename…", "Pin Session", "-", "Clone Session", "Close Session"]);
+        expect(labels(sessionRowMenu(row, false, true))).toContain("Open Files Pane");
+    });
+
     test("a stopped session has nothing to close", () => {
         expect(labels(sessionRowMenu({ ...row, live: false }, false))).not.toContain("Close Session");
     });

@@ -161,3 +161,33 @@ test("shortcut groups merge a command's accelerators and list page keys by where
     expect(composer?.rows.map((row) => row.chords[0]?.[0])).toContain("↑");
     expect(groups.map((group) => group.title).slice(0, 4)).toEqual(["Window", "Go", "Session", "Help"]);
 });
+
+test("@core the menu leaves out the commands the window hides and tidies the separators around them", () => {
+    const hidden = new Set(["go.search", "go.work", "go.customize", "go.devices", "go.tour", "go.coverage", "help.diagnostics", "help.doctor", "help.configure", "help.failures", "help.nudges", "help.extensions", "layout.togglePanel"]);
+    const template = buildMenuTemplate("darwin", () => {}, undefined, [], hidden);
+    const ids: string[] = [];
+    const walk = (items: readonly { id?: string; submenu?: unknown }[]): void => {
+        for (const entry of items) {
+            if (entry.id !== undefined) ids.push(entry.id);
+            if (Array.isArray(entry.submenu)) walk(entry.submenu);
+        }
+    };
+    walk(template);
+    for (const id of hidden) expect(ids).not.toContain(id);
+    expect(ids).toContain("go.newChat");
+    expect(ids).toContain("go.settings");
+    for (const label of ["Go", "View", "Help"]) {
+        const menu = template.find((entry) => entry.label === label || entry.role === label.toLowerCase());
+        if (!Array.isArray(menu?.submenu)) throw new Error(`There is no ${label} menu.`);
+        const types = menu.submenu.map((entry) => entry.type);
+        expect(types[0]).not.toBe("separator");
+        expect(types[types.length - 1]).not.toBe("separator");
+        types.forEach((type, index) => {
+            if (type === "separator") expect(types[index - 1]).not.toBe("separator");
+        });
+    }
+});
+
+test("the menu with nothing hidden is the same as the one built before the window reports", () => {
+    expect(JSON.stringify(buildMenuTemplate("darwin", () => {}, undefined, [], new Set()))).toBe(JSON.stringify(buildMenuTemplate("darwin", () => {})));
+});

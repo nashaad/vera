@@ -189,6 +189,8 @@ const provider = createServer((request, response) => {
 });
 
 const trial = startTrial();
+// Work and the panel wait for a second session and for log entries under Auto; the shortcuts are what is under test.
+trial.writeFlags({ work: "on", output: "on" });
 const ctx = {};
 let failed = false;
 let page;

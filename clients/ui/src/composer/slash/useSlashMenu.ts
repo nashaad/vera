@@ -35,9 +35,9 @@ interface Moved {
 // The slash menu and slash lines of one composer. The menu is open while the box holds a
 // slash and a name with no space; once a space is typed the rest is the command's arguments.
 export function useSlashMenu({ text, setText, session, notify }: SlashMenuInput): SlashMenu {
-    const { run } = useWorkbench();
+    const { run, hidden } = useWorkbench();
     const catalog = useSlashCatalog(session, text.trimStart().startsWith("/"));
-    const entries = useMemo(() => buildSlashEntries(catalog.extensions, catalog.skills), [catalog]);
+    const entries = useMemo(() => buildSlashEntries(catalog.extensions, catalog.skills, hidden), [catalog, hidden]);
     const suggestions = useMemo(() => suggestSlash(entries, text), [entries, text]);
     // Escape and leaving the box close the menu for this text; typing more opens it again.
     const [dismissed, setDismissed] = useState<string | undefined>(undefined);

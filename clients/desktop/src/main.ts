@@ -21,6 +21,7 @@ import type {
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
+import { hiddenCommandsFor, parseHiddenIds } from "../../ui/src/state/surfaces.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
@@ -31,7 +32,7 @@ import { AssignmentService } from "./assignments.ts";
 import { BootSession, type BootPreflight } from "./boot.ts";
 import { bundledInstallPreflight } from "./install-preflight.ts";
 import { CHANNELS } from "./channels.ts";
-import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
+import { DEFAULT_DESKTOP_FLAGS, FlagsStore, flagsPath } from "./desktop-flags.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readFilePreview } from "./file-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
@@ -98,6 +99,9 @@ const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
+// Until the window reports, the menus hide every part the flags file does not turn on.
+let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
@@ -140,7 +144,7 @@ function installPreflight(): BootPreflight | undefined {
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
 function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
-        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes()),
+        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes(), hiddenCommands),
     ));
 }
 
@@ -327,7 +331,14 @@ ipcMain.handle(CHANNELS.feedbackSave, async (event, request: unknown) => {
         return { ok: false, reason: /extension|host did not answer|host connection closed|unsupported|protocol|timeout/i.test(message) ? "Restart Vera and try again." : message };
     }
 });
-ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
+ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? flagsStore.read() : DEFAULT_DESKTOP_FLAGS));
+ipcMain.handle(CHANNELS.flagsSave, (event, patch: unknown) => (fromWindow(event) ? flagsStore.update(patch) ?? null : null));
+ipcMain.on(CHANNELS.flagsHidden, (event, ids: unknown) => {
+    const next = fromWindow(event) ? parseHiddenIds(ids) : undefined;
+    if (next === undefined || (next.size === hiddenCommands.size && [...next].every((id) => hiddenCommands.has(id)))) return;
+    hiddenCommands = next;
+    installMenu();
+});
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
     if (!fromWindow(event) || process.platform !== "darwin") return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;

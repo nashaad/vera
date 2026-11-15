@@ -101,13 +101,17 @@ export const BUILTIN_SLASH_ENTRIES: readonly SlashEntry[] = [
     builtin("palette", "/palette", "Open the command palette", command(OVERLAY_COMMANDS.palette.id)),
 ];
 
-// A command from an extension or a skill that shares a built-in's name or alias is left out, as in the terminal.
+// A command from an extension or a skill that shares a built-in's name or alias is left out, as in the terminal,
+// including a built-in the window has hidden. `hidden` names window commands; a built-in that runs one is left out.
 export function buildSlashEntries(
     extensions: readonly ExtensionCommandInfo[],
     skills: readonly SkillCommandInfo[],
+    hidden: ReadonlySet<string> = new Set(),
 ): readonly SlashEntry[] {
     const taken = new Set(BUILTIN_SLASH_ENTRIES.flatMap((entry) => [entry.name, ...entry.aliases]));
-    const entries: SlashEntry[] = [...BUILTIN_SLASH_ENTRIES];
+    const entries: SlashEntry[] = BUILTIN_SLASH_ENTRIES.filter(
+        (entry) => entry.action.kind !== "command" || !hidden.has(entry.action.id),
+    );
     for (const info of extensions) {
         if (taken.has(info.name)) continue;
         taken.add(info.name);

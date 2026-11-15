@@ -10,6 +10,7 @@ import {
     LaptopIcon,
     LayersIcon,
     ShieldIcon,
+    ViewIcon,
     type IconProps,
 } from "../../components/Icons.tsx";
 
@@ -89,6 +90,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         Icon: KeyIcon,
         terms: "keyboard shortcut key binding hotkey accelerator",
         file: "Built into this window",
+    },
+    {
+        id: "show",
+        name: "Show",
+        group: "Desktop",
+        Icon: ViewIcon,
+        terms: "show hide visible auto on off sidebar pane panel page search work customize review plan files output browser reasoning doctor developer tour coverage devices",
+        file: "flags.json under machine/desktop in the Vera home",
     },
     {
         id: "data",

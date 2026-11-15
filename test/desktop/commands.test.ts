@@ -176,3 +176,19 @@ test("@core each theme has a command that applies that theme, and disposing remo
     dispose();
     expect(registry.list()).toEqual([]);
 });
+
+test("@core a hidden command leaves the list the palette reads but still runs", () => {
+    const registry = new CommandRegistry();
+    const ran: string[] = [];
+    registry.register({ id: "a.shown", title: "Shown", run: () => ran.push("shown") });
+    registry.register({ id: "a.hidden", title: "Hidden", run: () => ran.push("hidden") });
+    registry.setHidden(new Set(["a.hidden"]));
+    expect(registry.list().map((command) => command.id)).toEqual(["a.shown"]);
+    expect(registry.isHidden("a.hidden")).toBe(true);
+    expect(registry.isHidden("a.shown")).toBe(false);
+    expect(registry.has("a.hidden")).toBe(true);
+    expect(registry.execute("a.hidden")).toBe(true);
+    expect(ran).toEqual(["hidden"]);
+    registry.setHidden(new Set());
+    expect(registry.list().map((command) => command.id)).toEqual(["a.shown", "a.hidden"]);
+});

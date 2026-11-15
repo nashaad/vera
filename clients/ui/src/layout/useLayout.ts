@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { CommandRegistry } from "../commands/registry.ts";
 import { registerLayoutCommands } from "../commands/layout-commands.ts";
@@ -45,9 +45,12 @@ function createServices(): Services {
     return { contributions, commands: new CommandRegistry() };
 }
 
-export function useLayout(): LayoutController {
+// `unavailable` names the containers the show flags turn off; they are left out of the layout, not removed from it.
+export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
     const [services] = useState(createServices);
     const { contributions, commands } = services;
+    // Set before paint so a pane that just turned off never draws once more.
+    useLayoutEffect(() => contributions.setUnavailable(unavailable), [contributions, unavailable]);
     const [state, setState] = useState<LayoutState>(defaultLayout);
     const [loaded, setLoaded] = useState(false);
     // The state that came from disk or the last save, so loading alone never writes.
@@ -113,9 +116,10 @@ export function useLayout(): LayoutController {
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);
 
-    // Native menu items and shortcuts arrive as command events.
+    // Native menu items and shortcuts arrive as command events. A hidden command has no menu item,
+    // so one that arrives is a shortcut for a part that is off.
     useEffect(() => window.veraDesktop?.onEvent((event) => {
-        if (event.type === "command") commands.execute(event.id);
+        if (event.type === "command" && !commands.isHidden(event.id)) commands.execute(event.id);
     }), [commands]);
 
     const run = useCallback((command: string, args?: unknown): void => {

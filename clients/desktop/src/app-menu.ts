@@ -18,12 +18,26 @@ export interface ImportedMenuTheme {
     readonly name: string;
 }
 
+// Drops the items the window has hidden, then any separator left first, last or doubled.
+function withoutHidden(items: readonly MenuItemConstructorOptions[], hidden: ReadonlySet<string>): MenuItemConstructorOptions[] {
+    const kept: MenuItemConstructorOptions[] = [];
+    for (const entry of items) {
+        if (entry.id !== undefined && hidden.has(entry.id)) continue;
+        if (entry.type === "separator" && (kept.length === 0 || kept[kept.length - 1]?.type === "separator")) continue;
+        kept.push(entry);
+    }
+    while (kept[kept.length - 1]?.type === "separator") kept.pop();
+    return kept;
+}
+
 // Menu items only ask the page to run a command; the page owns the layout and the theme.
+// `hidden` names the commands the window has taken out of its menus.
 export function buildMenuTemplate(
     platform: string,
     run: (commandId: string) => void,
     theme: ThemeChoice = DEFAULT_THEME,
     imported: readonly ImportedMenuTheme[] = [],
+    hidden: ReadonlySet<string> = new Set(),
 ): MenuItemConstructorOptions[] {
     const item = (shortcut: NativeShortcut): MenuItemConstructorOptions => ({
         id: shortcut.command,
@@ -38,7 +52,7 @@ export function buildMenuTemplate(
     const [newChat, back, forward, settings] = GO_SHORTCUTS.map(item);
     const go: MenuItemConstructorOptions = {
         label: "Go",
-        submenu: [
+        submenu: withoutHidden([
             newChat,
             { type: "separator" },
             back,
@@ -54,7 +68,7 @@ export function buildMenuTemplate(
             plain(NAVIGATION_COMMANDS.coverage, "Coverage"),
         ].filter(
             (entry): entry is MenuItemConstructorOptions => entry !== undefined,
-        ),
+        ), hidden),
     };
     const themeItems: MenuItemConstructorOptions[] = THEME_NAMES.map((name) => ({
         id: THEME_COMMANDS[name],
@@ -73,7 +87,7 @@ export function buildMenuTemplate(
     const [palette, sessions, keys] = HELP_SHORTCUTS.map(item);
     const view: MenuItemConstructorOptions = {
         label: "View",
-        submenu: [
+        submenu: withoutHidden([
             ...[palette, sessions].filter((entry): entry is MenuItemConstructorOptions => entry !== undefined),
             { type: "separator" },
             ...layoutItems,
@@ -102,7 +116,7 @@ export function buildMenuTemplate(
             { role: "zoomOut" },
             { type: "separator" },
             { role: "togglefullscreen" },
-        ],
+        ], hidden),
     };
     return [
         platform === "darwin"
@@ -114,7 +128,7 @@ export function buildMenuTemplate(
         { role: "windowMenu" },
         {
             role: "help",
-            submenu: [
+            submenu: withoutHidden([
                 ...(keys === undefined ? [] : [keys]),
                 { type: "separator" },
                 sheet("diagnostics"),
@@ -124,7 +138,7 @@ export function buildMenuTemplate(
                 sheet("configure"),
                 sheet("failures"),
                 sheet("nudges"),
-            ],
+            ], hidden),
         },
     ];
 }

@@ -4,6 +4,7 @@ import { OVERLAY_COMMANDS } from "../commands/overlay-ids.ts";
 import { FeedbackIcon, GearIcon, LaptopIcon, PanelIcon, PlayIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { buildLabel, phaseLabel, toneOf, type UiState } from "../state/connection.ts";
+import { useVisibility } from "../state/useSurfaces.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown, useWorkbench } from "./context.tsx";
 import { shortcutLabel } from "./hints.ts";
@@ -94,7 +95,8 @@ function hostTitle(state: UiState): string {
 // The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices, Feedback and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
-    const { run } = useWorkbench();
+    const { run, layout } = useWorkbench();
+    const visible = useVisibility();
     return (
         <footer className="sidebar-foot" aria-label="Status">
             <span
@@ -105,15 +107,15 @@ export function SidebarFoot() {
             >
                 <span className="sidebar-foot-dot" aria-hidden="true" />
                 {phaseLabel(state)}
-                {state.ready !== undefined ? (
+                {state.ready !== undefined && visible.buildLine ? (
                     <span className="sidebar-foot-build" data-item="host" data-protocol={state.identity?.protocol_version}>
                         {" · "}{buildLabel(state)}
                     </span>
                 ) : null}
             </span>
-            <PanelToggle />
-            <TourButton />
-            <DevicesButton />
+            {layout.locations.panel.all.length > 0 ? <PanelToggle /> : null}
+            {visible.tour ? <TourButton /> : null}
+            {visible.devices ? <DevicesButton /> : null}
             <button type="button" className="header-button" aria-label="Feedback" title="Feedback" onClick={() => run(OVERLAY_COMMANDS.feedback.id)}><FeedbackIcon /></button>
             <SettingsButton />
         </footer>

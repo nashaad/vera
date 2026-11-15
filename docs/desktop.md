@@ -27,8 +27,8 @@ full-width title bar and no status bar.
 - The sidebar and the main area are separated by one soft line. Other regions
   are set apart by surface shade.
 - The sidebar's bottom row shows a small colored dot with the connection state
-  and the host build, at the right a button that toggles the panel, and a gear
-  that opens Settings. Hovering the state shows the host build, protocol version, host process id and
+  and, when Host build is shown, the host build, at the right a button that
+  toggles the panel when a view is placed there, and a gear that opens Settings. Hovering the state shows the host build, protocol version, host process id and
   home path. Feedback opens a report form from the footer or the command palette.
   The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
@@ -48,7 +48,9 @@ connection, ends the attachment and shows the banner.
 
 The main area shows one page at a time. Its title is in the main header. The
 pages are New Chat, Search, Work, Customize, Settings, Devices, Tour, Coverage, a
-workspace and a session.
+workspace and a session. Search, Work, Customize, Devices, Tour and Coverage are
+parts of the window that Settings > Show can hide; see Showing parts of the
+window.
 
 - New Chat is the home page. It has a greeting, a composer that starts a new
   session, and under it the sidebar, the right pane and the panel, each with the
@@ -103,8 +105,8 @@ workspace and a session.
 - Tour lists every screen, sheet and session state in the window as cards, one
   click from each. Session cards open the newest session that is working,
   waiting on you, finished or idle, and say None right now when there is none.
-  Page cards open a page and sheet cards open a sheet. A Theme menu at the
-  bottom switches the theme. Nothing on the Tour is staged; every card opens
+  Page cards open a page and sheet cards open a sheet; a part that is off has no
+  card. A Theme menu at the bottom switches the theme. Nothing on the Tour is staged; every card opens
   the real screen on the host the window is attached to.
 - Coverage lists the steps of a session and, for each behavior in it, whether
   the window does it, does part of it, leaves it to the terminal, or cannot do
@@ -142,14 +144,19 @@ workspace and a session.
     time it attached. Other clients attached to the same host are not listed.
   - Keyboard lists every shortcut by group with a search box. Shortcuts cannot
     be changed.
+  - Show, under Desktop, has one row per part of the window that can be hidden,
+    each with Auto, On and Off, or On and Off where Auto does not apply. It is
+    described under Showing parts of the window.
   - Data, under Desktop, counts the sessions the host lists, shows the
     desktop's folder `machine/desktop` in the home with Show in Finder (Open
     folder on other platforms), and has Reset for the appearance and for the
     layout.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
+New Chat is always there; the others show when their part of the window is shown.
 The row of the current page is filled. Work shows a count of sessions waiting on
-you. Tour, Devices and Settings open from the buttons in the sidebar's footer.
+you. Tour, Devices and Settings open from the buttons in the sidebar's footer,
+where Tour and Devices show only when their parts are on.
 
 Back and forward sit in the sidebar's top row, or in the main header when the
 sidebar is hidden. Each is disabled when there is no page in its direction.
@@ -159,14 +166,14 @@ the forward pages, as a browser does, and opening the current page adds nothing.
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
 Settings. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
 Devices, Settings, Tour and Coverage. Search, Work, Customize, Devices, Tour and
-Coverage have no shortcut; the command palette reaches them. On other platforms
-the modifier is Ctrl.
+Coverage have no shortcut; the command palette reaches them. The menus leave out
+the entries of parts that are off. On other platforms the modifier is Ctrl.
 
 ## Command palette and sheets
 
 Cmd+K or Cmd+Shift+P opens the command palette. It lists every command that
-needs no argument, grouped as Go, Pages, Window, Session, Theme and Help, with each
-command's shortcut. Typing filters the list by fuzzy match and marks the matched
+needs no argument and whose part of the window is shown, grouped as Go, Pages,
+Window, Session, Theme and Help, with each command's shortcut. Typing filters the list by fuzzy match and marks the matched
 letters. Up and Down move, Enter runs the command and Escape closes the
 palette. Cmd+P opens Go to Session, the same list over sessions, each with its
 folder and age and a dot while it is working or waiting on you; Enter opens the
@@ -254,13 +261,15 @@ Six views ship with the app:
     folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
     newer pin past that drops the oldest. The terminal UI keeps its own pins. A
     pinned session shows only while it is among the sessions the list has loaded.
-  - Open Files Pane opens the session and the right pane on its Files view.
+  - Open Files Pane opens the session and the right pane on its Files view. The
+    row is offered while Files is shown.
   - Clone Session copies the session and opens the copy.
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
     as it is.
 - Review, Plan and Files, each in its own container in the right pane,
-  follow the open session; see Session tools.
+  follow the open session; see Session tools. Each can be shown or hidden in
+  Settings > Show.
 - Browser, in its own container in the right pane, opens sites and Vera's pages; see
   Browser.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
@@ -325,6 +334,62 @@ every default. If it names a view or container that is not registered, that
 entry is ignored and the rest applies; when the view is registered again it
 returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
+
+## Showing parts of the window
+
+Optional parts of the window have one setting each, in Settings > Show. A
+setting is Auto, On or Off. A choice applies at once, with no restart, and is
+kept in `machine/desktop/flags.json` under the home:
+
+```
+{"work": "on", "devices": "off", "showReasoning": "on"}
+```
+
+The file holds only the choices made, so a part it does not name follows its
+default. Saving a choice leaves any other key in the file as it was. The window
+reads the file when it starts or its page reloads, so a hand edit needs a
+restart. A missing, oversized (over 4 KB) or invalid file puts every part at its
+default. The host does not read the file.
+
+The core of the window has no setting and is always shown: New Chat, the
+Sessions view, the composer, Choose Agent, Settings and Feedback.
+
+On shows a part. Off removes its entry points: its page row or button, its
+commands in the command palette, the menus and the slash menu, its shortcut, its
+Tour card, and a pane toggle when no pane is left to open. Off deletes no data and
+stops no work. Changes, plans and files stay with their sessions, the connection
+log keeps recording, and the browser keeps running. A part turned on again shows
+what it held, and a pane keeps its place in the saved layout while hidden. A page
+that is open when its part is turned off stays open until you leave it. Run
+doctor on the host banner works whether or not the health check is shown.
+
+Auto shows a part once it has something to show:
+
+- Search, once the host lists a session.
+- Work, once the host lists two sessions.
+- Customize, once the host lists a session in a folder; a chat does not count.
+- Review, once the open session has changed files.
+- Plan, once the open session has a checklist.
+- Files, in a session that has a folder.
+- Output, once the connection log holds a warning or an error.
+- Context use, once the open session has reported it or can be started.
+- Check Vera's Health, once the connection to the host has failed.
+
+A part that Auto has shown stays shown until the window closes. Review, Plan,
+Files and Context use follow the open session: what that session has had so far
+counts, so they stay while it is open, and another session may show different
+ones. A page with no session, such as New Chat or Settings, shows none of the
+four under Auto.
+
+Some parts have no Auto, because nothing in the window says when they have
+something to show. They offer On and Off, and an `auto` in the file for one of
+them reads as its default:
+
+- Browser, On by default.
+- Reasoning, Off by default; see Showing reasoning.
+- For developers: Devices, Tour, Coverage, Session Diagnostics, Model Failures,
+  Configuration Files, Standing Nudges, Extensions and Host build. Each is Off in
+  the packaged app and On when the window runs from a source checkout.
 
 ## Session view
 
@@ -403,19 +468,11 @@ cannot find gets the reason and no button.
 
 ### Showing reasoning
 
-The window hides reasoning by default and has no setting or command for it. A
-flag in `machine/desktop/flags.json` under the home turns it on:
+The window hides reasoning by default. Settings > Show > Reasoning turns it on,
+and the choice applies at once. A `showReasoning` value of `true` in the flags
+file reads as On, and `false`, a missing value or `auto` as Off.
 
-```
-{"showReasoning": true}
-```
-
-The window reads the file once, when it starts or its page reloads, so restart
-the window after editing it. A missing, oversized (over 4 KB) or invalid file,
-and any value other than `true`, leaves reasoning hidden. The host does not read
-the file.
-
-With the flag on, each thought shows as `Thought` and its length in seconds,
+With Reasoning on, each thought shows as `Thought` and its length in seconds,
 and opens to show its text. A thought still being written shows three dots and
 its latest line. The status line still says only `Thinking`, with the clock.
 
@@ -752,14 +809,18 @@ when work is running, the context pill and the session menu.
 
 The context pill shows how full the context window is, as a percent when the
 model's window is known and as a token count otherwise. Before the first
-measurement it shows a dash. It opens a popover with the total, whether it was
+measurement it shows a dash. Under Auto the pill is not drawn until the
+session has reported its context use, or while the session is stopped; Context
+use On draws it always and Off never. It opens a popover with the total, whether it was
 measured or estimated, a bar split into the system prompt parts, tool
 definitions, the conversation, anything else the total holds (`Other`) and free
 space, a mark where automatic compaction starts, and the token count it starts
 at. `List every message` lists each message with its size. `Compact` compacts
 the conversation. When the session is not running, the popover says
 `This session is not running.` and offers `Start session` in place of
-`Compact`.
+`Compact`. With the pill hidden, `Compact` stays in the session menu and as
+`/compact`, and a stopped session keeps the `Start session` strip under its
+conversation.
 
 The session menu (the `…` button) has:
 
@@ -793,7 +854,7 @@ does not list background shell processes, and the sheet says so.
 
 When a turn edits files, its end shows a card with the number of files edited
 and the lines added and removed. Each file row opens to its patch, cut at 400
-lines. `Review` opens the Review view. Review lists the files changed in the
+lines. `Review` opens the Review view; the button is drawn while Review is shown. Review lists the files changed in the
 last turn, or in the whole session, with their patches. Plan shows the newest
 checklist Vera wrote in its scratch folder: the title, how many items are done,
 a bar and the items, with the item just finished marked. Files shows the

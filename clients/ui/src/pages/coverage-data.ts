@@ -73,12 +73,12 @@ export const COVERAGE: readonly CoveragePhase[] = [
     {
         name: "Thinking streams",
         items: [
-            partial("Reasoning arrives as a Thought that is still being written", "Off by default; the showReasoning flag turns it on"),
-            partial("A pending Thought shows three dots and its latest line", "Off by default; the showReasoning flag turns it on"),
-            partial("The latest line is replaced as new reasoning arrives", "Off by default; the showReasoning flag turns it on"),
-            partial("Reasoning ends and the live line goes", "Off by default; the showReasoning flag turns it on"),
-            partial("A finished thought shows Thought and its length in seconds", "Off by default; the showReasoning flag turns it on"),
-            partial("Thought opens to show its full text", "Off by default; the showReasoning flag turns it on"),
+            partial("Reasoning arrives as a Thought that is still being written", "Off by default; Settings, Show, Reasoning turns it on"),
+            partial("A pending Thought shows three dots and its latest line", "Off by default; Settings, Show, Reasoning turns it on"),
+            partial("The latest line is replaced as new reasoning arrives", "Off by default; Settings, Show, Reasoning turns it on"),
+            partial("Reasoning ends and the live line goes", "Off by default; Settings, Show, Reasoning turns it on"),
+            partial("A finished thought shows Thought and its length in seconds", "Off by default; Settings, Show, Reasoning turns it on"),
+            partial("Thought opens to show its full text", "Off by default; Settings, Show, Reasoning turns it on"),
         ],
     },
     {

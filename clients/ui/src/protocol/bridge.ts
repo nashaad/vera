@@ -1,6 +1,6 @@
 import type { LayoutState } from "../layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
-import type { DesktopFlags } from "../state/desktopFlags.ts";
+import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
 import type { SavedPins } from "./pins.ts";
 import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
@@ -320,8 +320,12 @@ export interface DesktopBridge {
     // Pinned sessions from the desktop's own directory under the home; none when there is no file.
     loadPins(): Promise<SavedPins>;
     savePins(pins: SavedPins): void;
-    // The desktop's flags from its own directory under the home; every flag at its default when there is no file.
+    // The desktop's flags from its own directory under the home, each at the file's value or the build default.
     loadFlags(): Promise<DesktopFlags>;
+    // Writes the chosen flags and resolves to every flag after the change; undefined when the change was not saved.
+    saveFlags(patch: FlagPatch): Promise<DesktopFlags | undefined>;
+    // Tells the shell which commands the window has taken out of its menus.
+    reportHiddenCommands(ids: readonly string[]): void;
     onEvent(listener: (event: DesktopEvent) => void): () => void;
 }
 

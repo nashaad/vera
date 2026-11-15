@@ -7,10 +7,13 @@ import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
+import { SessionEvidenceReporter } from "./session/SessionEvidence.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
+import { hiddenCommands, unavailableContainers } from "./state/surfaces.ts";
 import { useDesktopFlagsLoaded } from "./state/useDesktopFlags.ts";
 import { useHostConnection } from "./state/useHostConnection.ts";
+import { useVisibility, useWindowEvidence } from "./state/useSurfaces.ts";
 import { ViewEnvContext } from "./views/env.tsx";
 import { Workbench } from "./workbench/Workbench.tsx";
 import { WorkbenchProvider } from "./workbench/WorkbenchProvider.tsx";
@@ -22,7 +25,21 @@ function reportTitleBarHeight(height: number): void {
 export function App() {
     const [log] = useState(() => new OutputLog());
     const { state, reconnect, answer, refreshSessions, dismissInstallNotice } = useHostConnection(log);
-    const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout();
+    useWindowEvidence(state, log);
+    const visible = useVisibility();
+    const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
+    const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout(unavailable);
+    const rightPaneEmpty = layout.locations.rightPane.all.length === 0;
+    const panelEmpty = layout.locations.panel.all.length === 0;
+    const hidden = useMemo(
+        () => hiddenCommands(visible, { rightPane: rightPaneEmpty, panel: panelEmpty }),
+        [visible, rightPaneEmpty, panelEmpty],
+    );
+    // The palette and slash menu read the registry; the shell rebuilds its menus from the same set.
+    useEffect(() => {
+        commands.setHidden(hidden);
+        window.veraDesktop?.reportHiddenCommands([...hidden]);
+    }, [commands, hidden]);
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
     const environment = useMemo(() => ({ connection: state, log, refreshSessions }), [state, log, refreshSessions]);
@@ -40,7 +57,7 @@ export function App() {
     }, [state.phase]);
     const banner = bannerFor(state);
     return (
-        <WorkbenchProvider layout={layout} dispatch={dispatch} run={run}>
+        <WorkbenchProvider layout={layout} dispatch={dispatch} run={run} hidden={hidden}>
             <RouterProvider commands={commands}>
             <ViewEnvContext.Provider value={environment}>
                 <div className="app" data-platform={platform} data-sessions={state.sessions}>
@@ -57,6 +74,7 @@ export function App() {
                     <Overlays commands={commands} />
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
+                    <SessionEvidenceReporter />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>

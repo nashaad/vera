@@ -20,6 +20,8 @@ export const CHANNELS = {
     pinsLoad: "vera:pins-load",
     pinsSave: "vera:pins-save",
     flagsLoad: "vera:flags-load",
+    flagsSave: "vera:flags-save",
+    flagsHidden: "vera:flags-hidden",
     sessionCreate: "vera:session-create",
     sessionBranch: "vera:session-branch",
     sessionClone: "vera:session-clone",

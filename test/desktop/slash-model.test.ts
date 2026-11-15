@@ -197,3 +197,23 @@ describe("unknownSlashMessage", () => {
         expect(unknownSlashMessage(ENTRIES, "/./x")).toBeUndefined();
     });
 });
+
+describe("hidden window commands", () => {
+    test("@core a built-in that runs a hidden command leaves the list", () => {
+        const all = buildSlashEntries([], []);
+        const hidden = new Set([OVERLAY_COMMANDS.doctor.id, OVERLAY_COMMANDS.nudges.id]);
+        const entries = buildSlashEntries([], [], hidden);
+        expect(names(all).filter((name) => !names(entries).includes(name)).sort()).toEqual(["doctor", "nudges"]);
+        for (const entry of entries) expect(entry.action.kind === "command" && hidden.has(entry.action.id)).toBe(false);
+    });
+
+    test("a skill cannot take the name of a built-in that is hidden", () => {
+        const hidden = new Set([OVERLAY_COMMANDS.doctor.id]);
+        const entries = buildSlashEntries([], [{ name: "doctor", description: "A skill named like the built-in" }], hidden);
+        expect(names(entries)).not.toContain("doctor");
+    });
+
+    test("an empty hidden set lists every built-in", () => {
+        expect(names(buildSlashEntries([], [], new Set()))).toEqual(names(BUILTIN_SLASH_ENTRIES));
+    });
+});

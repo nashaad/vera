@@ -5,6 +5,8 @@ import { BellIcon, BlocksIcon, ComposeIcon, SearchIcon, type IconProps } from ".
 import { useRouter } from "../pages/router.tsx";
 import type { PageKind } from "../pages/routes.ts";
 import { waitingCount } from "../protocol/sessionGroups.ts";
+import type { FlagKey } from "../state/desktopFlags.ts";
+import { useVisibility } from "../state/useSurfaces.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useWorkbench } from "./context.tsx";
 
@@ -13,13 +15,15 @@ interface NavEntry {
     readonly title: string;
     readonly command: string;
     readonly Icon: (props: IconProps) => ReactNode;
+    // Absent on New Chat, which is always there.
+    readonly flag?: FlagKey;
 }
 
 const ENTRIES: readonly NavEntry[] = [
     { page: "home", title: "New Chat", command: NAVIGATION_COMMANDS.newChat, Icon: ComposeIcon },
-    { page: "search", title: "Search", command: NAVIGATION_COMMANDS.search, Icon: SearchIcon },
-    { page: "work", title: "Work", command: NAVIGATION_COMMANDS.work, Icon: BellIcon },
-    { page: "customize", title: "Customize", command: NAVIGATION_COMMANDS.customize, Icon: BlocksIcon },
+    { page: "search", title: "Search", command: NAVIGATION_COMMANDS.search, Icon: SearchIcon, flag: "search" },
+    { page: "work", title: "Work", command: NAVIGATION_COMMANDS.work, Icon: BellIcon, flag: "work" },
+    { page: "customize", title: "Customize", command: NAVIGATION_COMMANDS.customize, Icon: BlocksIcon, flag: "customize" },
 ];
 
 // The pages of the main area; they stay above the sidebar's view containers wherever those move.
@@ -27,10 +31,11 @@ export function SidebarNav() {
     const { run } = useWorkbench();
     const { route } = useRouter();
     const { connection } = useViewEnvironment();
+    const visible = useVisibility();
     const waiting = waitingCount(connection.sessionRows ?? []);
     return (
         <nav className="sidebar-nav" aria-label="Pages">
-            {ENTRIES.map(({ page, title, command, Icon }) => (
+            {ENTRIES.filter((entry) => entry.flag === undefined || visible[entry.flag]).map(({ page, title, command, Icon }) => (
                 <button
                     key={page}
                     type="button"

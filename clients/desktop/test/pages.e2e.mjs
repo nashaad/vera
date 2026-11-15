@@ -78,6 +78,8 @@ async function openPage(kind) {
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port, "auto");
+    // Work waits for a second session under Auto; this run has one.
+    trial.writeFlags({ work: "on" });
     const folder = join(trial.home, "..", "nest");
     mkdirSync(folder, { recursive: true });
 

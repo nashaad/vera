@@ -2,9 +2,11 @@ import { expect, test } from "bun:test";
 
 import { OVERLAY_COMMANDS, type Overlay } from "../../clients/ui/src/commands/overlay-ids.ts";
 import type { SessionRow, SessionStatus } from "../../clients/ui/src/protocol/sessions.ts";
+import { ALL_VISIBLE } from "../../clients/ui/src/state/surfaces.ts";
 import {
     foundSessionDesc,
     newestWithStatus,
+    pageCards,
     sessionRoute,
     SHEET_DESCS,
     sessionCards,
@@ -95,4 +97,17 @@ test("a session card with a matching row opens that session", () => {
         kind: "route",
         route: { kind: "session", agentId: "a", title: "Session a" },
     });
+});
+
+test("@core the tour lists a page or sheet only while its surface is shown", () => {
+    const hidden = { ...ALL_VISIBLE, work: false, search: false, devices: false, doctor: false, extensions: false };
+    const pages = pageCards("/work/vera", hidden).map((card) => card.id);
+    for (const id of ["work", "search", "devices"]) expect(pages).not.toContain(id);
+    for (const id of ["new-chat", "workspace", "customize", "settings", "coverage"]) expect(pages).toContain(id);
+    const sheets = sheetCards(hidden).map((card) => card.id);
+    expect(sheets).not.toContain("sheet-doctor");
+    expect(sheets).not.toContain("sheet-extensions");
+    expect(sheets).toContain("sheet-diagnostics");
+    expect(sheets).toContain("sheet-feedback");
+    expect(sheetCards().length).toBe(Object.keys(OVERLAY_COMMANDS).length);
 });

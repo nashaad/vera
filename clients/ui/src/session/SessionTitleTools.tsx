@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import type { MenuEntry } from "../commands/menus.ts";
 import { SESSION_COMMANDS } from "../commands/session-commands.ts";
 import { MoreIcon } from "../components/Icons.tsx";
+import { useSurface } from "../state/useSurfaces.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { shortcutLabel } from "../workbench/hints.ts";
 import { useActiveSession, type ActiveSession } from "./activeSession.ts";
@@ -47,6 +48,7 @@ export function SessionTitleTools() {
     const sheet = useSessionSheet();
     const { openMenu } = useWorkbench();
     const panes = usePaneLayout();
+    const contextPill = useSurface("contextPill");
     if (session === undefined) return null;
     const more = (event: MouseEvent<HTMLButtonElement>): void => {
         const box = event.currentTarget.getBoundingClientRect();
@@ -56,7 +58,7 @@ export function SessionTitleTools() {
     return (
         <span className="title-tools">
             <TasksIndicator session={session} onOpen={() => openSessionSheet("tasks")} />
-            <ContextPill session={session} onCompact={() => requestCompaction(session)} />
+            {contextPill ? <ContextPill session={session} onCompact={() => requestCompaction(session)} /> : null}
             <button
                 type="button"
                 className="header-button"

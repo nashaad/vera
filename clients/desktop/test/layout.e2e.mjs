@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
+// Under Auto these parts wait for a session or for something to report; the layout is what is under test.
+trial.writeFlags({ work: "on", output: "on", review: "on", plan: "on", files: "on" });
 const sessionsHeader = "[data-view-header=\"core.sessions\"]";
 
 function location(name) {

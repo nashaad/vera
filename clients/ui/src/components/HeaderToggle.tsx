@@ -17,9 +17,11 @@ export interface HeaderToggleProps {
 }
 
 export function HeaderToggle({ location, lit = false }: HeaderToggleProps) {
-    const { run } = useWorkbench();
+    const { run, layout } = useWorkbench();
     const shown = useIsShown(location);
     const { label, command, Icon } = TOGGLES[location];
+    // A right pane with nothing placed in it opens to nothing.
+    if (location === "rightPane" && layout.locations.rightPane.all.length === 0) return null;
     const hint = shortcutLabel(command, window.veraDesktop?.platform ?? "");
     return (
         <button

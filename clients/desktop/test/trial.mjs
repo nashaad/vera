@@ -2,7 +2,7 @@
 // built app. Stopping only ever signals the host recorded under that home.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -73,6 +73,13 @@ export function startTrial() {
         throw new Error("The trial host never appeared in the lock.");
     }
 
+    // Writes the desktop's flags file into the trial home, as a person's choices in Settings do.
+    function writeFlags(flags) {
+        const folder = join(home, "machine", "desktop");
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "flags.json"), `${JSON.stringify(flags)}\n`);
+    }
+
     async function cleanup() {
         for (const app of apps) await closeApp(app);
         const pid = hostPid();
@@ -80,7 +87,7 @@ export function startTrial() {
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
-    return { root, trialRoot, home, launch, hostPid, waitForHost, cleanup };
+    return { root, trialRoot, home, launch, hostPid, waitForHost, writeFlags, cleanup };
 }
 
 // Goes through the same path as a key typed on the keyboard: the main process's

@@ -57,13 +57,13 @@ export interface TranscriptProps {
 }
 
 export function Transcript({ blocks, running, folder, status = "working", retry, replyMenu = false, compaction }: TranscriptProps) {
-    const { showReasoning } = useDesktopFlags();
+    const reasoning = useDesktopFlags().showReasoning === "on";
     const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
     const renders = useMemo<readonly TurnRender[]>(() => {
-        const next = keepTurns(kept.current, blocks, { reasoning: showReasoning });
+        const next = keepTurns(kept.current, blocks, { reasoning });
         kept.current = next.byKey;
         return next.renders;
-    }, [blocks, showReasoning]);
+    }, [blocks, reasoning]);
     return (
         <>
             {renders.map((render, index) => {
