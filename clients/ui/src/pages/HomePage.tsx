@@ -17,7 +17,7 @@ interface Hint {
 
 const HINTS: readonly Hint[] = [
     { title: "Sidebar", detail: "Pages and sessions", command: LAYOUT_COMMANDS.toggleSidebar, Icon: SidebarIcon },
-    { title: "Right pane", detail: "The host this window is attached to", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
+    { title: "Right pane", detail: "Review, plan, files and browser", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
     { title: "Panel", detail: "Connection output", command: LAYOUT_COMMANDS.togglePanel, Icon: PanelIcon },
 ];
 
