@@ -45,6 +45,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
     return {
         canonicalPath,
         setSessionTitle: (id, title) => host.localExtensionSessions.setSessionTitle(id, title),
+        showInSession: (id, target) => host.localExtensionSessions.showInSession(id, target),
         sendToSession: (extensionId, id, text) => host.localExtensionSessions.sendToSession(extensionId, id, text),
         askSession: (call, signal) => host.localExtensionSessions.askSession(call, signal),
         investigate: (call, signal) => host.localExtensionSessions.investigate(call, signal),

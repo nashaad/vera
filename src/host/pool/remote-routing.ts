@@ -3,7 +3,7 @@ import type { HostRouter } from "./router.ts";
 import type { ControlChannel } from "./control.ts";
 
 type WorkerRouter = Pick<HostRouter,
-    "setSessionTitle" | "sendToSession" | "askSession" | "investigate"
+    "setSessionTitle" | "showInSession" | "sendToSession" | "askSession" | "investigate"
     | "peerRoster" | "peerSend" | "peerLabel" | "messageSubagent" | "closeSubagent"
     | "notifyParent" | "deliverCompletion" | "completionFailure" | "childApproval"
     | "parentClosing" | "reserveSubagentStart" | "releaseSubagentStart"
@@ -12,7 +12,7 @@ type WorkerRouter = Pick<HostRouter,
 >;
 
 const ROUTER_METHODS = {
-    setSessionTitle: true, sendToSession: true, askSession: true, investigate: true,
+    setSessionTitle: true, showInSession: true, sendToSession: true, askSession: true, investigate: true,
     peerRoster: true, peerSend: true, peerLabel: true, messageSubagent: true,
     closeSubagent: true, notifyParent: true, deliverCompletion: true, completionFailure: true,
     childApproval: true, parentClosing: true, reserveSubagentStart: true, releaseSubagentStart: true,

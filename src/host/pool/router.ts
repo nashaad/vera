@@ -10,7 +10,7 @@ import type { SessionEndReason } from "../../sdk/hooks.ts";
 import type { SessionFactName } from "../../store/session-facts.ts";
 import type { SessionSearchQuery, SessionSearchResults } from "../../store/session-search.ts";
 import type { ExtensionSessionAskCall, ExtensionInvestigateCall } from "../../extensions/host-services.ts";
-import type { VeraInvestigateResult, VeraSessionAskResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
+import type { VeraInvestigateResult, VeraSessionAskResult, VeraSessionSendOutcome, VeraSessionShowOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
 import type { ExtensionSessionServices } from "../session-host/types.ts";
 import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "../agent-registry/peer-services.ts";
 import type { AgentSendEffect, ToolOutput } from "../../tools/types.ts";
@@ -473,6 +473,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     setSessionTitle(id: string, title: string): Promise<VeraSessionTitleOutcome> {
         return this.extensionOperation(id, (endpoint) => endpoint.setSessionTitle(id, title));
+    }
+
+    showInSession(id: string, target: string): Promise<VeraSessionShowOutcome> {
+        return this.extensionOperation(id, (endpoint) => endpoint.showInSession(id, target));
     }
 
     sendToSession(extensionId: string, id: string, text: string): Promise<VeraSessionSendOutcome> {

@@ -164,6 +164,7 @@ it once, during activation.
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |
 | `vera.sessions.ask(request)` | `sessions.ask` | Asks an open session's own model a side question. |
 | `vera.sessions.send(sessionId, text)` | `sessions.send` | Puts a message in an open session's inbox. |
+| `vera.sessions.show(sessionId, target)` | `sessions.show` | Asks the windows and terminals attached to a session to open one of Vera's own screens. |
 | `vera.agents.investigate(request)` | `agents.investigate` | Runs the explorer agent read-only under an open session and returns its answer. |
 
 These calls work once the host has started its sessions. Called earlier, or
@@ -271,6 +272,25 @@ What you can rely on:
 
 When the provider reports usage, the call is billed to that conversation and
 counted in [`/usage`](usage.md) with its spend and requests.
+
+### Show a screen in a conversation
+
+`sessions.show` asks the windows and terminals attached to a conversation to
+open one of Vera's own screens, so an extension can point at where something
+is. The `target` is an id from the fixed list Vera keeps, such as
+`dialog.themes`, `settings.providers` or `page.work`; an id that is not on the
+list rejects with `Unknown screen`.
+
+```ts
+const outcome = await vera.sessions.show(sessionId, "settings.providers");
+```
+
+It resolves `{ window, terminal, terminalCannot }`: how many windows were
+told, how many terminals were told, and how many attached terminals have no
+screen for that target. All three are zero when nothing is attached to the
+conversation. The request opens a screen and changes nothing in it: it never
+sets a value or answers a dialog. A window or terminal that attaches later is
+not told.
 
 ### Send a conversation a message
 

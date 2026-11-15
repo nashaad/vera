@@ -126,6 +126,7 @@ const CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY = "hooks.context_size_trigger";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
+const SESSION_SHOW_CAPABILITY = "sessions.show";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
@@ -817,6 +818,12 @@ async function activateExtension(
                     throw new Error(`Extension did not declare ${SESSION_TITLE_CAPABILITY}`);
                 }
                 return host.setTitle(sessionId, title);
+            },
+            async show(sessionId: string, target: string) {
+                if (!loaded.manifest.capabilities.includes(SESSION_SHOW_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_SHOW_CAPABILITY}`);
+                }
+                return host.showInSession(sessionId, target);
             },
             async ask(request: VeraSessionAskRequest) {
                 if (!loaded.manifest.capabilities.includes(SESSION_ASK_CAPABILITY)) {

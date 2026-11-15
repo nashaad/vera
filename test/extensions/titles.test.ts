@@ -73,6 +73,7 @@ test("the included extension titles a first turn through the snappy slot", async
                 calls.push(call);
                 return { text: "\"Brig lock lessons.\"", model: "crow-mini" };
             },
+            async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
             async setSessionTitle(sessionId, title) {
                 titles.push([sessionId, title]);
                 return "set";
@@ -104,6 +105,7 @@ test("a failed title request is reported, not thrown", async () => {
         let named = false;
         registry.bindHost({
             async oneshot() { throw new Error("provider overloaded"); },
+            async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
             async setSessionTitle() { named = true; return "set"; },
             async askSession() { throw new Error("Not used by titles"); },
             async sendToSession() { throw new Error("Not used by titles"); },
@@ -129,6 +131,7 @@ test("a missing snappy assignment titles nothing and reports nothing", async () 
         let named = false;
         registry.bindHost({
             async oneshot() { calls += 1; throw new ModelAssignmentUnavailableError("snappy"); },
+            async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
             async setSessionTitle() { named = true; return "set"; },
             async askSession() { throw new Error("Not used by titles"); },
             async sendToSession() { throw new Error("Not used by titles"); },

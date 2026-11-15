@@ -1,13 +1,7 @@
+import type { VeraSessionShowOutcome } from "../sdk/extensions.ts";
 import { surfaceCanShow, type ShowSurface, type ShowTarget } from "../help/show-targets.ts";
 
-export interface SessionShowOutcome {
-    /** Windows the target was sent to. */
-    readonly window: number;
-    /** Terminals the target was sent to. */
-    readonly terminal: number;
-    /** Terminals that are attached but have no screen for the target. */
-    readonly terminalCannot: number;
-}
+export type SessionShowOutcome = VeraSessionShowOutcome;
 
 export type SessionShowListener = (target: ShowTarget) => void;
 

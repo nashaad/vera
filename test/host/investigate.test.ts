@@ -9,6 +9,7 @@ import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentRegistryOptions } from "../../src/host/agent-registry/support.ts";
 import { createExtensionHostServices } from "../../src/host/extension-host-services.ts";
+import { createSessionShowHub } from "../../src/host/session-show.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import type { ModelAdapter, ModelMessage, ModelTool } from "../../src/model/types.ts";
 import { defaultSessionPath, SessionStore } from "../../src/store/session-store.ts";
@@ -132,6 +133,7 @@ async function openVoyage(
     await registry.create({ id: "parent", workspace: root, sessionPath: parentPath });
     const services = createExtensionHostServices({
         registry,
+        showHub: createSessionShowHub(),
         currentConfig: () => ({}) as VeraConfig,
         reachability: () => () => true,
         availableModels: () => registry.availableModels,
