@@ -1,5 +1,6 @@
 // Notes offer test for the desktop shell. Run with: node clients/desktop/test/notesoffer.e2e.mjs
-// Settings > Agents > Suggest keeping notes decides whether a session created afterwards carries the notes offer.
+// Settings > Agents > Suggest keeping notes decides whether a session created afterwards carries the notes offer,
+// and only the first sessions created after the switch is turned on carry it.
 
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -117,13 +118,31 @@ try {
     await until("the follow-up turn", async () => turnsOf("Hello offered").length >= 2);
     if (!hasNotes("Hello offered").every(Boolean)) throw new Error("A later turn of the first session lost the notes section.");
 
-    // The switch reads the stored choice again when Settings opens, and turning it on applies to the next session.
+    // The switch reads the stored choice again when Settings opens, and turning it on applies to the next sessions.
     const again = await openAgentsSettings();
     if ((await again.getAttribute("aria-checked")) !== "false") throw new Error("The setting did not stay off.");
     await again.click();
     await newChat();
     const third = await startSession("Hello offered again");
     if (headerOf(third).notesOffer !== true) throw new Error("A session created after turning the setting on again has no notes offer.");
+    await newChat();
+    const fourth = await startSession("Hello offered twice");
+    if (headerOf(fourth).notesOffer !== true) throw new Error("The second session after turning the setting on has no notes offer.");
+
+    // The third session after turning it on is created without the offer, though the switch is still on.
+    await newChat();
+    const fifth = await startSession("Hello past the limit");
+    if ("notesOffer" in headerOf(fifth)) throw new Error("A session past the limit carries the notes offer.");
+    if (hasNotes("Hello past the limit").some(Boolean)) throw new Error("A session past the limit has a notes section.");
+    const stillOn = await openAgentsSettings();
+    if ((await stillOn.getAttribute("aria-checked")) !== "true") throw new Error("Reaching the limit turned the switch off.");
+
+    // Turning the switch off and on again starts the count over.
+    await stillOn.click();
+    await stillOn.click();
+    await newChat();
+    const sixth = await startSession("Hello offered after reset");
+    if (headerOf(sixth).notesOffer !== true) throw new Error("A session created after the switch was turned off and on has no notes offer.");
     console.log("notesoffer e2e passed");
 } catch (error) {
     failed = true;

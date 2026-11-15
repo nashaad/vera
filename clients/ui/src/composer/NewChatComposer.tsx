@@ -5,7 +5,7 @@ import { useDraftModels } from "../models/useDraftModels.ts";
 import { useRouter } from "../pages/router.tsx";
 import { MAX_FOLDER_CHECKS, type CreateSessionResult, type DesktopBridge } from "../protocol/bridge.ts";
 import { setPendingPrompt } from "../session/pendingPrompt.ts";
-import { readNotesOffer } from "../state/notesOffer.ts";
+import { notesOfferForNewSession, recordNotesOfferSent } from "../state/notesOffer.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import type { NewChatComposerProps } from "./Composer.tsx";
 import { ComposerBox } from "./ComposerBox.tsx";
@@ -61,7 +61,9 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
         setNotice(undefined);
         setBusy(true);
         setProblem(undefined);
-        const result = await createSession(bridge, folder, approvalMode, readNotesOffer());
+        const offer = notesOfferForNewSession();
+        const result = await createSession(bridge, folder, approvalMode, offer);
+        if (offer && result.ok) recordNotesOfferSent();
         if (!mounted.current) return;
         if (!result.ok) {
             setProblem(result.reason);

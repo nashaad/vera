@@ -78,20 +78,26 @@ move the conversation into a folder you choose.
 
 ## Suggest keeping notes
 
-A session the desktop window creates while Settings > Agents > Suggest keeping
-notes is on carries a short instruction in its system prompt. It tells the model
-that you can keep notes from the conversation, and to offer once, in one
-sentence, when documents were shared, a long discussion reached a conclusion, a
-topic keeps coming back or a decision was settled. If you decline or ignore the
+The first two sessions the desktop window creates after Settings > Agents >
+Suggest keeping notes is turned on, chats and folder sessions alike, carry a
+short instruction in their system prompt. The switch is on by default, so the
+first two sessions in a new home carry it. The instruction tells the model that
+you can keep notes from the conversation, and to offer once, in one sentence,
+when documents were shared, a long discussion reached a conclusion, a topic
+keeps coming back or a decision was settled. If you decline or ignore the
 offer, the model does not offer again. If you agree, it creates a `notes/`
 folder in the working directory with an `index.md` that links one page per
 topic, and keeps the pages current.
 
 The choice is made when the session is created and does not change for that
-session, so the start of its system prompt stays the same. Turning the switch
-off affects new sessions only. Branches and clones keep the choice of the
-session they came from; subagents do not get the instruction. Sessions started
-from the terminal, `vera -p` or the web client never have it.
+session, so the start of its system prompt stays the same. Sessions after the
+first two are created without it while the switch stays on. Turning the switch
+off affects new sessions only, and turning it off and on again counts from the
+first session again. The window counts a session only when the host started it
+with the instruction, and keeps the count in the desktop's browser storage next
+to the switch. Branches and clones keep the choice of the session they came
+from; subagents do not get the instruction. Sessions started from the terminal,
+`vera -p` or the web client never have it.
 
 Moving a chat to the trash moves its folder with it. Resuming a chat
 recreates its folder when it is missing. Branching or forking a chat copies the

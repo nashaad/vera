@@ -130,13 +130,15 @@ workspace and a session.
   - Agents has the Suggest keeping notes switch, on by default, and lists the
     agents a session in the folder of the last open session can run as, with
     their scope and description, read the same way as Customize. The list does
-    not change them; Choose Agent does. With the switch on, each session the
-    window creates afterwards is told to offer to keep notes once, when a
-    conversation produces something worth keeping. A session keeps the choice
-    it was created with, so changing the switch affects new sessions only. The
-    switch is kept in the desktop's browser storage like the Appearance
-    settings, so other clients do not use it. The terminal, `vera -p` and the
-    web client never offer notes.
+    not change them; Choose Agent does. With the switch on, each of the first
+    two sessions the window creates afterwards is told to offer to keep notes
+    once, when a conversation produces something worth keeping; later sessions
+    are created without the offer while the switch stays on, and turning the
+    switch off and on again counts from the first session again. A session keeps
+    the choice it was created with, so changing the switch affects new sessions
+    only. The switch and the count are kept in the desktop's browser storage
+    like the Appearance settings, so other clients do not use them. The
+    terminal, `vera -p` and the web client never offer notes.
   - Approvals is described under Approvals and questions and Providers under
     Models.
   - Workspaces lists the folders of the listed sessions, leaving out chats, the most recently
