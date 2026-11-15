@@ -38,6 +38,7 @@ import {
 import { buildWorkIndex, type WorkAgentFacts, type WorkIndexSnapshot, type WorkScheduleFacts } from "../work-index.ts";
 
 import type { CloseAgentOutcome, StartHostServerOptions } from "../server.ts";
+import type { SessionShowHub } from "../session-show.ts";
 import {
     commandSessionPath,
     enrichSessionsWithFacts,
@@ -84,6 +85,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "canShutdown"
     | "canReplace"
     | "onAgentStartFailure"
+    | "subscribeSessionShow"
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
     readonly importSession: (path: string, sessionId?: string) => Promise<SessionImportOutcome>;
@@ -107,6 +109,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
 
 interface SessionHandlerOptions {
     readonly registry: AgentRegistry;
+    readonly showHub: SessionShowHub;
     readonly extensions: ExtensionRegistry;
     readonly remoteExtensions?: WorkerExtensionServices;
     readonly extensionLoadFailures: readonly ExtensionLoadFailure[];
@@ -221,6 +224,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             : { status: "not_found" } as const;
     };
     return {
+        subscribeSessionShow: options.showHub.subscribe,
         blockParts: sessionBlocks,
         rememberStored(summary) {
             if (!storedSessionIndex.has(summary.id)) storedSessionIndex.set(summary.id, summary);

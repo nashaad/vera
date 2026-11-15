@@ -202,6 +202,7 @@ test("core and shipped extensions load from their own folders", () => {
     const shipped = includedExtensions().filter((extension) => !extension.core).map((extension) => extension.id);
     expect(core).toContain("vera.chat");
     expect(core).toContain("vera.customize");
+    expect(core).toContain("vera.help");
     expect(core).toContain("vera.session-identity");
     expect(shipped).toContain("vera.btw");
     expect(shipped).toContain("vera.mcp");

@@ -4,6 +4,7 @@ import { isAbsolute } from "node:path";
 import {
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
     HOST_CAPABILITY_SESSION_TITLE,
 } from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
@@ -106,7 +107,7 @@ export class SessionPipe {
         let firstLine = true;
         socket.once("connect", () => {
             state.connected = true;
-            socket.write(attachLine(agentId, this.hidesReasoning()));
+            socket.write(attachLine(agentId, this.hidesReasoning(), this.pane));
         });
         socket.on("data", (chunk: string) => {
             buffered += chunk;
@@ -157,9 +158,11 @@ export class SessionPipe {
     }
 }
 
-export function attachLine(agentId: string, hidesReasoning: boolean): string {
+// Only the main pane is asked to open screens; the companion is a read-only view.
+export function attachLine(agentId: string, hidesReasoning: boolean, pane: SessionPane = "main"): string {
     const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE];
     if (hidesReasoning) capabilities.push(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
+    if (pane === "main") capabilities.push(HOST_CAPABILITY_SESSION_SHOW_WINDOW);
     return `${JSON.stringify({ type: "attach", agent_id: agentId, requested_capabilities: capabilities })}\n`;
 }
 

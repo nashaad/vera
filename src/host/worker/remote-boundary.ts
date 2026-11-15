@@ -132,6 +132,9 @@ export function createRemoteHostBoundary(
             ...(registered.invocation === undefined
                 ? {}
                 : { invocation: registered.invocation }),
+            ...(registered.agents === undefined
+                ? {}
+                : { agents: registered.agents }),
             async execute(
                 input: Readonly<Record<string, unknown>>,
                 context: ToolRuntime,

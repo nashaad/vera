@@ -197,6 +197,8 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
             return { ...state, loadingOlder: false };
         case "session_title":
             return { ...state, title: message.title };
+        case "session_show":
+            return state;
         case "prompt_queue":
             return { ...state, queue: message.queue };
         case "prompt_withdrawn":

@@ -81,6 +81,8 @@ export interface AttachedAgentClient {
     // Undefined both before the first report and when the session has no title.
     readonly sessionTitle: string | undefined;
     onSessionTitle(listener: (title: string | undefined) => void): () => void;
+    /** Hears a request to open a screen, as an id from the show target list. Only a client that negotiated a show capability gets one. */
+    onSessionShow(listener: (target: string) => void): () => void;
     /** The open stop or update wait, undefined when none is open or the attachment did not negotiate `host.stop-wait.v1`. */
     readonly stopWait: HostStopWaitResponse | undefined;
     /** Stop, update and restart events as the host sends them. */
@@ -309,6 +311,7 @@ function createAttachedClient(
     const sessionTitleListeners = new Set<
         (title: string | undefined) => void
     >();
+    const sessionShowListeners = new Set<(target: string) => void>();
     let isClosed = false;
     let failed = initiallyFailed;
     let isDetaching = false;
@@ -402,6 +405,12 @@ function createAttachedClient(
             sessionTitleListeners.add(listener);
             return (): void => {
                 sessionTitleListeners.delete(listener);
+            };
+        },
+        onSessionShow(listener): () => void {
+            sessionShowListeners.add(listener);
+            return (): void => {
+                sessionShowListeners.delete(listener);
             };
         },
         send(command): Promise<void> {
@@ -633,6 +642,9 @@ function createAttachedClient(
                     continue;
                 }
                 if (receiveSessionTitle(value)) {
+                    continue;
+                }
+                if (receiveSessionShow(value)) {
                     continue;
                 }
                 if (receiveHistoryPage(value)) {
@@ -969,6 +981,28 @@ function createAttachedClient(
         for (const listener of [...sessionTitleListeners]) {
             try {
                 listener(title);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
+        return true;
+    }
+
+    function receiveSessionShow(value: unknown): boolean {
+        const record = asRecord(value);
+        if (record?.type !== "session_show") {
+            return false;
+        }
+        if (
+            record.agent_id !== agentId
+            || typeof record.target !== "string"
+            || record.target.length === 0
+        ) {
+            throw new Error("Host sent an invalid show request");
+        }
+        for (const listener of [...sessionShowListeners]) {
+            try {
+                listener(record.target);
             } catch {
                 // A listener that throws must not close the attachment.
             }

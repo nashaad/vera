@@ -28,6 +28,8 @@ export const HOST_CAPABILITY_SESSION_ROUTING = "host.session-routing.v1";
 export const HOST_CAPABILITY_STOP_WAIT = "host.stop-wait.v1";
 export const HOST_CAPABILITY_RESTART_RECORDS = "host.restart-records.v1";
 export const HOST_CAPABILITY_SESSION_MOVE = "session.move.v1";
+export const HOST_CAPABILITY_SESSION_SHOW_WINDOW = "session.show-window.v1";
+export const HOST_CAPABILITY_SESSION_SHOW_TERMINAL = "session.show-terminal.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -52,14 +54,23 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_STOP_WAIT,
     HOST_CAPABILITY_RESTART_RECORDS,
     HOST_CAPABILITY_SESSION_MOVE,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
+    HOST_CAPABILITY_SESSION_SHOW_TERMINAL,
 ] as const;
 
 /**
- * What a client requests. Attach is pages only, so this includes history paging. Reasoning
- * progress replaces reasoning text, so a client asks for it by name and is not in this list.
+ * What a client requests. Attach is pages only, so this includes history paging. A client asks
+ * by name for reasoning progress, which replaces reasoning text, and for the screen-opening
+ * request of the surface it is, so those are not in this list.
  */
+const REQUESTED_BY_NAME: readonly string[] = [
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
+    HOST_CAPABILITY_SESSION_SHOW_TERMINAL,
+];
+
 export const CLIENT_CAPABILITIES: readonly string[] = HOST_CAPABILITIES.filter(
-    (capability) => capability !== HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    (capability) => !REQUESTED_BY_NAME.includes(capability),
 );
 
 export function parseHostCapabilities(

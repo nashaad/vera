@@ -2,7 +2,7 @@ import type { SessionEndpoint } from "./session-endpoint.ts";
 import type { ControlPeer } from "./control.ts";
 
 const METHODS = {
-    setSessionTitle: true, sendToSession: true, askSession: true, investigate: true,
+    setSessionTitle: true, showInSession: true, sendToSession: true, askSession: true, investigate: true,
     peerRoster: true, peerSend: true, peerLabel: true, messageSubagent: true,
     closeSubagent: true, notifyParent: true, deliverCompletion: true,
     completionFailure: true, childApproval: true, parentClosing: true,

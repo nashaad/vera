@@ -142,6 +142,7 @@ export function toolDefinitionsForCapabilities(
     enableUserInteraction = false,
     extensionTools: readonly RegisteredTool[] = [],
     invocation: ToolRuntime["invocation"] = "top_level",
+    agentName?: string,
 ): readonly ModelTool[] {
     const enabled = new Set(enabledEffects);
     return [...registeredTools, ...extensionTools]
@@ -152,8 +153,14 @@ export function toolDefinitionsForCapabilities(
                 || enableUserInteraction
             )
             && (tool.invocation !== "top_level" || invocation === "top_level")
+            && toolOpenToAgent(tool, agentName)
         )
         .map((tool) => tool.definition);
+}
+
+function toolOpenToAgent(tool: RegisteredTool, agentName: string | undefined): boolean {
+    return tool.agents === undefined
+        || (agentName !== undefined && tool.agents.includes(agentName));
 }
 
 export function toolMayRunInParallel(
@@ -235,6 +242,11 @@ export async function executeToolHandler(
     if (tool.invocation === "top_level" && runtime.invocation !== "top_level") {
         return errorOutput(
             `The ${toolCall.name} tool is available only to top-level sessions.`,
+        );
+    }
+    if (!toolOpenToAgent(tool, runtime.agentName)) {
+        return errorOutput(
+            `The agent you are wearing does not offer the ${toolCall.name} tool.`,
         );
     }
     if (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, type KeyboardEvent } from "react";
 
+import { showTarget } from "../commands/show-target.ts";
 import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { clearActiveSession, publishActiveSession } from "../session/activeSession.ts";
@@ -19,9 +20,10 @@ import { watchOpening } from "../session/transcript.ts";
 import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
+import { useStartAgent } from "../session/useStartAgent.ts";
 import { abortCommand, releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
-import { useIsShown } from "../workbench/context.tsx";
+import { useIsShown, useWorkbench } from "../workbench/context.tsx";
 import type { SessionRoute } from "./routes.ts";
 
 export interface SessionPageProps {
@@ -39,7 +41,13 @@ export function SessionPage({ route }: SessionPageProps) {
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
     const { connection, refreshSessions } = useViewEnvironment();
     const connected = connection.phase === "attached";
-    const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, route.agentId, connected);
+    const { run } = useWorkbench();
+    // The host asks the window to open a screen; an id it does not know is ignored.
+    const onShow = useCallback((target: string) => {
+        showTarget(target, run);
+    }, [run]);
+    const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, route.agentId, connected, "main", onShow);
+    const startRefused = useStartAgent(bridge, route.agentId, watch.phase === "attached", send);
     // The host ended this session's watch while it moved; open it again and read the row's new folder.
     const onMoved = useCallback(() => {
         reattach();
@@ -127,6 +135,11 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                             {startable ? <StartSessionButton onStart={start} /> : null}
                         </div>
                     ) : null}
+                    {startRefused === undefined ? null : (
+                        <div className="transcript-notice" data-tone="warning">
+                            <span>{`Help did not start. ${startRefused}`}</span>
+                        </div>
+                    )}
                     <RequestCards
                         key={route.agentId}
                         agentId={route.agentId}

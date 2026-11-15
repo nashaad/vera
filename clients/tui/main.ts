@@ -355,6 +355,7 @@ import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, mo
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { setTerminalFocused, streamRenderIntervalMs } from "./main/terminal-focus.ts";
+import { watchSessionShow } from "./main/show-target.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -2605,6 +2606,8 @@ export async function startTui(
         rt.stopWatchingWorkIndex = undefined;
         rt.stopWatchingSessionTitle?.();
         rt.stopWatchingSessionTitle = undefined;
+        rt.stopWatchingSessionShow?.();
+        rt.stopWatchingSessionShow = undefined;
         rt.stopWatchingStopWait?.();
         rt.stopWatchingStopWait = undefined;
         rt.stopWait = undefined;
@@ -2679,6 +2682,7 @@ export async function startTui(
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     watchSessionTitle(rt, rt.dependencies.client);
+    watchSessionShow(rt, rt.dependencies.client);
     watchStopWait(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 

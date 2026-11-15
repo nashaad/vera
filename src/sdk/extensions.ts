@@ -153,6 +153,13 @@ export type VeraSessionTitleOutcome = "set" | "named" | "not_found";
 /** `queued` means the message is in the session's inbox; its admission rules decide whether a turn starts. */
 export type VeraSessionSendOutcome = "queued" | "not_found";
 
+/** How many attached clients were told to open the screen. `terminalCannot` counts terminals that have no such screen. */
+export interface VeraSessionShowOutcome {
+    readonly window: number;
+    readonly terminal: number;
+    readonly terminalCannot: number;
+}
+
 export interface VeraSessionAskRequest {
     readonly sessionId: string;
     readonly question: string;
@@ -182,6 +189,12 @@ export interface VeraExtensionSessions {
      * extension. The text is what the session's model reads if a turn starts.
      */
     send(sessionId: string, text: string): Promise<VeraSessionSendOutcome>;
+    /**
+     * Needs `sessions.show`. Asks the windows and terminals attached to a
+     * session to open one of Vera's own screens, by the id Vera lists for it.
+     * Nothing is changed or answered, and a client that attaches later is not told.
+     */
+    show(sessionId: string, target: string): Promise<VeraSessionShowOutcome>;
 }
 
 /**
@@ -332,6 +345,8 @@ export interface VeraExtensionToolSpec {
     readonly permissionInputs?: readonly PermissionInputSpec[];
     /** Restrict this tool to sessions that were not spawned by another agent. */
     readonly invocation?: "top_level";
+    /** Offer and run this tool only while one of these agents is selected. */
+    readonly agents?: readonly string[];
     /** Per-call deadline. Omitted uses the registry default. */
     readonly timeoutMs?: number;
     readonly run: VeraExtensionToolHandler;

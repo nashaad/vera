@@ -126,6 +126,7 @@ const CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY = "hooks.context_size_trigger";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
+const SESSION_SHOW_CAPABILITY = "sessions.show";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
@@ -818,6 +819,12 @@ async function activateExtension(
                 }
                 return host.setTitle(sessionId, title);
             },
+            async show(sessionId: string, target: string) {
+                if (!loaded.manifest.capabilities.includes(SESSION_SHOW_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_SHOW_CAPABILITY}`);
+                }
+                return host.showInSession(sessionId, target);
+            },
             async ask(request: VeraSessionAskRequest) {
                 if (!loaded.manifest.capabilities.includes(SESSION_ASK_CAPABILITY)) {
                     throw new Error(`Extension did not declare ${SESSION_ASK_CAPABILITY}`);
@@ -1283,6 +1290,7 @@ function registerTool(
         permissionOperation,
         permissionInputs,
         invocation,
+        agents,
         timeoutMs,
         run,
     } = spec;
@@ -1301,6 +1309,7 @@ function registerTool(
             ))
         || !validPermissionInputs(permissionInputs)
         || (invocation !== undefined && invocation !== "top_level")
+        || !validToolAgents(agents)
         || !validHandlerTimeout(timeoutMs)
         || typeof run !== "function"
     ) {
@@ -1333,6 +1342,7 @@ function registerTool(
             inputSchema: structuredClone(inputSchema),
         },
         ...(invocation === undefined ? {} : { invocation }),
+        ...(agents === undefined ? {} : { agents: [...agents] }),
         ...(parallel === undefined ? {} : { parallel }),
         ...(permissionOperation === undefined
             ? {}
@@ -1487,6 +1497,15 @@ function hasExactKeys(
     const expected = [...keys].sort();
     return actual.length === expected.length
         && actual.every((key, index) => key === expected[index]);
+}
+
+function validToolAgents(value: unknown): boolean {
+    return value === undefined
+        || (
+            Array.isArray(value)
+            && value.length > 0
+            && value.every((entry) => typeof entry === "string" && entry.trim().length > 0)
+        );
 }
 
 function validPermissionInputs(value: unknown): boolean {

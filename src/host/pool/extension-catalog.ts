@@ -104,6 +104,7 @@ function toolMetadata(tool: RegisteredTool): Omit<RegisteredTool, "execute"> {
     return {
         definition: tool.definition,
         ...(tool.invocation === undefined ? {} : { invocation: tool.invocation }),
+        ...(tool.agents === undefined ? {} : { agents: tool.agents }),
         ...(tool.parallel === undefined ? {} : { parallel: tool.parallel }),
         ...(tool.effectType === undefined ? {} : { effectType: tool.effectType }),
         ...(tool.permissionOperation === undefined ? {} : { permissionOperation: tool.permissionOperation }),

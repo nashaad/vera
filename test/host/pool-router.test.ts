@@ -21,6 +21,7 @@ function deferred() {
 function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
     return {
         canonicalPath: async (path) => path,
+        showInSession: async () => ({ window: 0, terminal: 0, terminalCannot: 0 }),
         setSessionTitle: async () => "not_found",
         sendToSession: async () => "not_found",
         askSession: async () => { throw new Error("unused"); },
@@ -773,6 +774,26 @@ test("an in-flight extension request leaves other sessions available and prevent
     await expect(pending).rejects.toThrow();
     expect(ownerSawAbort).toBe(true);
     expect(await router.resume(session.sessionPath)).toEqual(session);
+});
+
+test("@core a show request runs on the process that owns the session", async () => {
+    const onHost = { id: "deck", workspace: "/work", sessionPath: "/sessions/deck.jsonl" };
+    const onWorker = { id: "hold", workspace: "/work", sessionPath: "/sessions/hold.jsonl" };
+    const host = endpoint(new Map([[onHost.id, onHost]]));
+    const worker = endpoint(new Map([[onWorker.id, onWorker]]));
+    const calls: string[] = [];
+    host.showInSession = async (id, target) => {
+        calls.push(`host:${id}:${target}`);
+        return { window: 1, terminal: 0, terminalCannot: 0 };
+    };
+    worker.showInSession = async (id, target) => {
+        calls.push(`worker:${id}:${target}`);
+        return { window: 0, terminal: 1, terminalCannot: 0 };
+    };
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    expect(await router.showInSession(onHost.id, "dialog.themes")).toEqual({ window: 1, terminal: 0, terminalCannot: 0 });
+    expect(await router.showInSession(onWorker.id, "settings.providers")).toEqual({ window: 0, terminal: 1, terminalCannot: 0 });
+    expect(calls).toEqual(["host:deck:dialog.themes", "worker:hold:settings.providers"]);
 });
 
 test("a closed session is not reopened on another owner until its write completes", async () => {

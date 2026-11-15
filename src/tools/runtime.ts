@@ -35,6 +35,8 @@ export class ToolRuntime {
     readonly isSubagent: boolean;
     readonly invocation: "top_level" | "subagent";
     allowedTools: readonly string[] | undefined;
+    // The selected agent's name, set by the turn. A tool limited to named agents never runs while this is unset.
+    agentName: string | undefined;
     sessionId: string | undefined;
     // Set by a host that owns skill settings; unset, the read tool checks locally.
     checkSkillFile: CheckSkillFile | undefined;
@@ -72,6 +74,7 @@ export class ToolRuntime {
         this.allowedSkills = undefined;
         this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
+        this.agentName = undefined;
         this.sessionId = undefined;
         this.checkSkillFile = undefined;
     }

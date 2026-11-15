@@ -98,6 +98,8 @@ import {
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_SHOW_TERMINAL,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
     HOST_CAPABILITY_SESSION_TITLE,
     HOST_CAPABILITY_SESSION_ROUTING,
     HOST_CAPABILITY_STOP_WAIT,
@@ -108,6 +110,7 @@ import {
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
 import { forwardSessionConnection } from "./pool/forward.ts";
+import type { SessionShowHub } from "./session-show.ts";
 import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./attachment-coordinator.ts";
 
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
@@ -273,6 +276,8 @@ export interface StartHostServerOptions {
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
     readonly onRosterChanged?: (listener: () => void) => () => void;
+    /** Where a show request for an attached session is heard. Absent when nothing can ask a client to open a screen. */
+    readonly subscribeSessionShow?: SessionShowHub["subscribe"];
     readonly createAgent?: (
         options: Pick<
             CreateRegisteredAgentOptions,
@@ -614,6 +619,7 @@ async function startListener(
             options.stopWaitObserver ?? options.stopWhenIdle,
             options.restartRecords ?? { list: () => [], dismiss: () => 0 },
             resolveHostLimits(options.limits),
+            options.subscribeSessionShow,
         );
     });
     let ownedSocketStat: Stats | undefined;
@@ -854,6 +860,7 @@ function receiveConnection(
     stopWaitObserver: Pick<StopWhenIdleControl, "observe"> | undefined,
     restartRecords: RestartRecordsPort,
     limits: HostLimits,
+    subscribeSessionShow: SessionShowHub["subscribe"] | undefined,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -895,6 +902,7 @@ function receiveConnection(
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
     let stopWatchingStopWait: (() => void) | undefined;
+    let stopWatchingShow: (() => void) | undefined;
     let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     let sentSessionTitle: { readonly title: string | undefined } | undefined;
@@ -923,6 +931,8 @@ function receiveConnection(
         stopWatchingRoster = undefined;
         stopWatchingStopWait?.();
         stopWatchingStopWait = undefined;
+        stopWatchingShow?.();
+        stopWatchingShow = undefined;
         attachment?.detach();
         attachment = undefined;
         attachedAgent = undefined;
@@ -1069,6 +1079,8 @@ function receiveConnection(
             stopWatchingRoster = undefined;
             stopWatchingStopWait?.();
             stopWatchingStopWait = undefined;
+            stopWatchingShow?.();
+            stopWatchingShow = undefined;
             const detachedAgentId = attachedAgentId;
             attachment.detach();
             attachment = undefined;
@@ -1118,6 +1130,8 @@ function receiveConnection(
             stopWatchingRoster = undefined;
             stopWatchingStopWait?.();
             stopWatchingStopWait = undefined;
+            stopWatchingShow?.();
+            stopWatchingShow = undefined;
             const releasedAgentId = attachedAgentId;
             const releasedClientId = attachedClientId;
             const releasedLease = interactiveAttachment;
@@ -2322,6 +2336,7 @@ function receiveConnection(
             if (wantsWorkIndex) sendWorkIndex();
             if (wantsSessionTitle) sendSessionTitle(attachedId);
         });
+        stopWatchingShow = watchSessionShow(attachedId, negotiated);
         void send({
             type: "attached",
             agent_id: attachedId,
@@ -2424,6 +2439,30 @@ function receiveConnection(
         }
         return send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
             .catch(() => { socket.destroy(); });
+    }
+
+    function watchSessionShow(
+        attachedAgentId: string,
+        negotiated: readonly string[],
+    ): (() => void) | undefined {
+        if (subscribeSessionShow === undefined) return undefined;
+        const stops: (() => void)[] = [];
+        const surfaces = [
+            [HOST_CAPABILITY_SESSION_SHOW_WINDOW, "window"],
+            [HOST_CAPABILITY_SESSION_SHOW_TERMINAL, "terminal"],
+        ] as const;
+        for (const [capability, surface] of surfaces) {
+            if (!negotiated.includes(capability)) continue;
+            stops.push(subscribeSessionShow(attachedAgentId, surface, (target) => {
+                void send({
+                    type: "session_show",
+                    agent_id: attachedAgentId,
+                    target: target.id,
+                }, () => !finished && attachment !== undefined)
+                    .catch(() => socket.destroy());
+            }));
+        }
+        return stops.length === 0 ? undefined : () => stops.forEach((stop) => stop());
     }
 
     function sendSessionTitle(attachedAgentId: string): void {

@@ -1106,6 +1106,7 @@ export async function runTurn(
             state.contextualContributionsForTurn = undefined;
         }
         state.toolRuntime.allowedTools = turnToolExecutionScope(selected);
+        state.toolRuntime.agentName = selected?.name;
         state.toolRuntime.allowedSkills = selected?.skills;
         state.toolRuntime.userInvokedSkill = turn.userInvokedSkill;
         const offered = state.offerTools === false
@@ -1117,6 +1118,7 @@ export async function runTurn(
                 state.enableUserInteraction === true,
                 state.extensionTools,
                 state.toolRuntime.invocation,
+                state.toolRuntime.agentName,
             );
         let scopedTools = selected?.tools === undefined
             ? offered

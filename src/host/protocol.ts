@@ -625,6 +625,17 @@ export interface SessionTitleResponse {
     readonly title?: string;
 }
 
+/**
+ * Sent to an attached client that asked for `session.show-window.v1` or
+ * `session.show-terminal.v1` when something asks it to open a screen. `target` is
+ * an id from the show target list. Sent once and not replayed on a later attach.
+ */
+export interface SessionShowResponse {
+    readonly type: "session_show";
+    readonly agent_id: string;
+    readonly target: string;
+}
+
 export type AttachFailureReason = "not_found" | "unavailable" | "history_paging_required";
 
 export interface AttachFailedResponse {
@@ -1076,6 +1087,7 @@ export type HostResponse =
     | BackgroundAgentsResponse
     | WorkIndexResponse
     | SessionTitleResponse
+    | SessionShowResponse
     | AttachFailedResponse
     | DetachedResponse
     | AttachmentReleasedResponse
