@@ -1,8 +1,10 @@
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../commands/overlay-ids.ts";
-import { FeedbackIcon, GearIcon, LaptopIcon, PanelIcon, PlayIcon } from "../components/Icons.tsx";
+import { FeedbackIcon, GearIcon, LaptopIcon, PanelIcon, PlayIcon, QuestionIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
+import type { DesktopBridge } from "../protocol/bridge.ts";
+import { startHelpChat } from "../session/startHelp.ts";
 import { buildLabel, phaseLabel, toneOf, type UiState } from "../state/connection.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown, useWorkbench } from "./context.tsx";
@@ -63,6 +65,27 @@ function DevicesButton() {
     );
 }
 
+function HelpButton() {
+    const { navigate } = useRouter();
+    const { connection } = useViewEnvironment();
+    return (
+        <button
+            type="button"
+            className="header-button"
+            aria-label="Help"
+            title="Help"
+            data-page="help"
+            disabled={connection.phase !== "attached"}
+            onClick={() => {
+                const bridge = window.veraDesktop as DesktopBridge | undefined;
+                if (bridge !== undefined) void startHelpChat(bridge, navigate);
+            }}
+        >
+            <QuestionIcon />
+        </button>
+    );
+}
+
 function SettingsButton() {
     const { run } = useWorkbench();
     const { route } = useRouter();
@@ -91,7 +114,7 @@ function hostTitle(state: UiState): string {
     return lines.join("\n");
 }
 
-// The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices, Feedback and Settings.
+// The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices, Feedback, Help and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
     const { run } = useWorkbench();
@@ -115,6 +138,7 @@ export function SidebarFoot() {
             <TourButton />
             <DevicesButton />
             <button type="button" className="header-button" aria-label="Feedback" title="Feedback" onClick={() => run(OVERLAY_COMMANDS.feedback.id)}><FeedbackIcon /></button>
+            <HelpButton />
             <SettingsButton />
         </footer>
     );

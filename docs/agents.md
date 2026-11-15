@@ -88,6 +88,24 @@ in that folder and is no longer a chat. The host refuses the move when a file
 in that folder has the same name as one of the chat's files, or while the
 conversation is still working.
 
+## Use the help agent
+
+Help is an included role that answers questions about using Vera. It reads
+Vera's product guide a section at a time and answers from it. It can list
+which model providers are connected and which extensions failed to load, and
+it can open a screen to show where something is. It cannot change a setting,
+answer a dialog, read your files or run commands, and the other agents do not
+have its tools.
+
+In the desktop, the Help button in the sidebar's footer starts a new chat on
+the help agent each time you press it. The chat is an ordinary session and
+appears in the session list. When the agent shows you something, the window
+opens that dialog, Settings section or page. In the terminal, `/agent help`
+selects the agent. It opens the terminal's own dialog for a screen that has
+one, and says so when the terminal has none. If a dialog is already open in
+the terminal, the agent's request is declined and the notice asks you to close
+the dialog and ask again.
+
 ## Allow models for subagents
 
 Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may

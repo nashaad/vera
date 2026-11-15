@@ -30,6 +30,9 @@ full-width title bar and no status bar.
   and the host build, at the right a button that toggles the panel, and a gear
   that opens Settings. Hovering the state shows the host build, protocol version, host process id and
   home path. Feedback opens a report form from the footer or the command palette.
+  Help starts a new chat on the help agent each time it is pressed; the agent
+  answers questions about Vera and can open a dialog, a Settings section or a
+  page in the window to show where something is.
   The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
 - A banner under the main header appears when there is no connection or the
@@ -149,7 +152,7 @@ workspace and a session.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 The row of the current page is filled. Work shows a count of sessions waiting on
-you. Tour, Devices and Settings open from the buttons in the sidebar's footer.
+you. Tour, Devices, Feedback, Help and Settings open from the buttons in the sidebar's footer.
 
 Back and forward sit in the sidebar's top row, or in the main header when the
 sidebar is hidden. Each is disabled when there is no page in its direction.

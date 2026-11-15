@@ -141,7 +141,7 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Side panes from `/btw` and `/pair` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer; with a side pane focused, the same key closes that pane instead.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=29]
+## Tools, permissions, and agents [lines=30]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -168,6 +168,7 @@ A delegated child starts without the parent conversation; put the task in the sp
 Vera's delegation guidance defaults to direct work, prefers waiting for delegated results, and reserves background delegation for substantial independent work.
 A chat is a conversation started without a project folder. The host gives it its own folder beside its session file (`<id>.jsonl.files`) and starts it on the default agent with all of that agent's tools. The included chat agent, from the core extension `vera.chat`, is a narrower role a person can pick with `/agent chat`: web search, web fetch, reading and writing files in that folder, the desktop Browser pane when its tools are on, and saving feedback reports, with no shell and no subagents. `/agent` switches agents in a chat as anywhere else. The model is told that a chat's folder is the chat's own, and it may offer to move the conversation into a folder the user chooses.
 A chat's folder goes to the trash with the chat, is recreated empty when a chat whose folder is missing is resumed, and is copied for a branch or fork; a temporary branch shares it. Delegated children of a chat work in the same folder.
+The Help button in the window's sidebar starts a new chat on the included help agent, which answers questions about using Vera and can open a dialog or a page of the window to show where something is; `/agent help` selects it in the terminal.
 If a conversation's working folder is deleted, `bash`, `read`, `list`, `grep`, `write`, and `edit` report `The working folder <path> does not exist.` Vera does not recreate it, except a chat's own folder on resume.
 Manual: `docs/agents.md`, `docs/permission-rules.md`, `docs/how-vera-works.md`.
 

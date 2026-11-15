@@ -20,6 +20,7 @@ import { watchOpening } from "../session/transcript.ts";
 import { usePinnedScroll } from "../session/usePinnedScroll.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
+import { useStartAgent } from "../session/useStartAgent.ts";
 import { abortCommand, releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown, useWorkbench } from "../workbench/context.tsx";
@@ -46,6 +47,7 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
         showTarget(target, run);
     }, [run]);
     const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, route.agentId, connected, "main", onShow);
+    const startRefused = useStartAgent(bridge, route.agentId, watch.phase === "attached", send);
     // The host ended this session's watch while it moved; open it again and read the row's new folder.
     const onMoved = useCallback(() => {
         reattach();
@@ -133,6 +135,11 @@ function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readon
                             {startable ? <StartSessionButton onStart={start} /> : null}
                         </div>
                     ) : null}
+                    {startRefused === undefined ? null : (
+                        <div className="transcript-notice" data-tone="warning">
+                            <span>{`Help did not start. ${startRefused}`}</span>
+                        </div>
+                    )}
                     <RequestCards
                         key={route.agentId}
                         agentId={route.agentId}
