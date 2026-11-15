@@ -1,7 +1,9 @@
 import { dialog, ipcMain, type BrowserWindow, type WebContents } from "electron";
 
+import type { CatalogListResult, CatalogPreviewResult } from "../../../ui/src/protocol/extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../../ui/src/protocol/extensions.ts";
 import { CHANNELS } from "../channels.ts";
+import type { ExtensionCatalogService } from "./catalog-service.ts";
 import type { ExtensionService } from "./service.ts";
 
 const MAX_TOKEN_CHARS = 64;
@@ -10,6 +12,7 @@ const NOT_THE_WINDOW = "That window cannot change desktop extensions.";
 
 interface Wiring {
     readonly service: ExtensionService;
+    readonly catalog: ExtensionCatalogService;
     readonly window: () => BrowserWindow | undefined;
     readonly fromWindow: (event: { readonly sender: WebContents }) => boolean;
 }
@@ -19,7 +22,7 @@ function text(value: unknown, limit: number): string | undefined {
 }
 
 // The file picker lives here, in the main process; the package is read in a task process.
-export function registerExtensionHandlers({ service, window, fromWindow }: Wiring): void {
+export function registerExtensionHandlers({ service, catalog, window, fromWindow }: Wiring): void {
     const refused: { readonly ok: false; readonly reason: string } = { ok: false, reason: NOT_THE_WINDOW };
     ipcMain.handle(CHANNELS.desktopExtensionsList, (event): ExtensionChangeResult => (fromWindow(event) ? service.list() : refused));
     ipcMain.handle(CHANNELS.desktopExtensionPreview, async (event): Promise<ExtensionPreviewResult> => {
@@ -48,5 +51,14 @@ export function registerExtensionHandlers({ service, window, fromWindow }: Wirin
     ipcMain.handle(CHANNELS.desktopExtensionRemove, (event, id: unknown): ExtensionChangeResult => {
         const valid = text(id, MAX_ID_CHARS);
         return fromWindow(event) && valid !== undefined ? service.remove(valid) : refused;
+    });
+    ipcMain.handle(CHANNELS.extensionCatalogOpen, (event): Promise<CatalogListResult> | CatalogListResult =>
+        fromWindow(event) ? catalog.open() : refused);
+    ipcMain.handle(CHANNELS.extensionCatalogPreview, (event, id: unknown): Promise<CatalogPreviewResult> | CatalogPreviewResult => {
+        const valid = text(id, MAX_ID_CHARS);
+        return fromWindow(event) && valid !== undefined ? catalog.preview(valid) : refused;
+    });
+    ipcMain.on(CHANNELS.extensionCatalogClose, (event) => {
+        if (fromWindow(event)) catalog.close();
     });
 }

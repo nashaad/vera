@@ -5,7 +5,7 @@ import type { DesktopExtensionEntry } from "../../../ui/src/protocol/extensions.
 import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import { MAX_EXTENSIONS, MAX_LISTED_THEMES } from "./limits.ts";
 import { STAGING_PREFIX } from "./paths.ts";
-import { readExtension, readManifest } from "./read-extension.ts";
+import { readExtension, readManifest, type ExtensionTheme } from "./read-extension.ts";
 import type { ExtensionStateStore } from "./state.ts";
 
 export type CommitResult =
@@ -28,6 +28,11 @@ interface Found {
 // extension named `imported.<slug>` and keeps the slug as its key, so a choice made before extensions still resolves.
 export function themeKey(extensionId: string, slug: string): string {
     return extensionId === `imported.${slug}` ? slug : `${extensionId}.${slug}`;
+}
+
+// A theme as the picker lists it: keyed by its extension and named by the manifest's label.
+export function pickerTheme(extensionId: string, theme: ExtensionTheme): ImportedThemeSummary {
+    return { ...theme.summary, slug: themeKey(extensionId, theme.summary.slug), name: theme.label };
 }
 
 // Installed extensions are folders under `root`; included ones are folders in the app. The host never reads them.
@@ -108,8 +113,8 @@ export class ExtensionStore {
             const read = readExtension(entry.folder);
             if (!read.ok) continue;
             for (const theme of read.themes) {
-                const key = themeKey(entry.id, theme.summary.slug);
-                if (!themes.has(key)) themes.set(key, { ...theme.summary, slug: key, name: theme.label });
+                const listed = pickerTheme(entry.id, theme);
+                if (!themes.has(listed.slug)) themes.set(listed.slug, listed);
             }
             if (themes.size >= MAX_LISTED_THEMES) break;
         }

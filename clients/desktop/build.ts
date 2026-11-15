@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
 import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
@@ -36,6 +37,7 @@ const TASKS = [
     { entry: join(root, "src", "theme-import", "worker.ts"), file: THEME_TASK_FILE },
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
+    { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
 ];
 for (const task of TASKS) {
     const bundle = await Bun.build({

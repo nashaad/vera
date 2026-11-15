@@ -28,6 +28,7 @@ import type {
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
+import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/protocol/extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
@@ -62,6 +63,10 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionEnable, id, enabled)) as ExtensionChangeResult,
     removeDesktopExtension: async (id: string) =>
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionRemove, id)) as ExtensionChangeResult,
+    openExtensionCatalog: async () => (await ipcRenderer.invoke(CHANNELS.extensionCatalogOpen)) as CatalogListResult,
+    previewCatalogTheme: async (id: string) =>
+        (await ipcRenderer.invoke(CHANNELS.extensionCatalogPreview, id)) as CatalogPreviewResult,
+    closeExtensionCatalog: () => ipcRenderer.send(CHANNELS.extensionCatalogClose),
     loadLayout: async () => {
         const layout: unknown = await ipcRenderer.invoke(CHANNELS.layoutLoad);
         return (layout ?? undefined) as LayoutState | undefined;

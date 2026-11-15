@@ -4,9 +4,11 @@ import type {
     ExtensionChangeResult,
     ExtensionPreviewResult,
 } from "../../../ui/src/protocol/extensions.ts";
+import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import type { ThemeService } from "../theme-service.ts";
 import type { InstallReply, InstallTask } from "../extension-install/task-protocol.ts";
-import type { ExtensionStore } from "./store.ts";
+import { readExtension } from "./read-extension.ts";
+import { pickerTheme, type ExtensionStore } from "./store.ts";
 
 export type RunInstallTask = (task: InstallTask) => Promise<InstallReply>;
 
@@ -54,6 +56,13 @@ export class ExtensionService {
         this.pending = { token, staging };
         const replaces = this.store.installedVersion(reply.preview.id);
         return { ok: true, preview: { token, ...reply.preview, ...(replaces === undefined ? {} : { replaces }) } };
+    }
+
+    // The themes of the waiting package as the picker will list them once it is installed; undefined when none is waiting.
+    stagedThemes(token: string): readonly ImportedThemeSummary[] | undefined {
+        if (this.pending?.token !== token) return undefined;
+        const read = readExtension(this.pending.staging);
+        return read.ok ? read.themes.map((theme) => pickerTheme(read.manifest.id, theme)) : undefined;
     }
 
     confirm(token: string): ExtensionChangeResult {

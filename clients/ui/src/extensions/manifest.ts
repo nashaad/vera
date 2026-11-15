@@ -7,13 +7,13 @@ export const DESKTOP_ENGINE = "vera-gui@^1";
 // The keys the desktop window sets in every when-clause context. Any other key must carry the extension id.
 export const CORE_WHEN_KEYS: readonly string[] = ["view", "container", "entryKind", "sessionBusy", "hasSession"];
 
-const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
+export const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
 const MANIFEST_KEYS = ["id", "version", "engine", "main", "contributes"];
 const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes"];
 const MAX_TITLE_LENGTH = 100;
 const MAX_CATEGORY_LENGTH = 40;
 // Long enough for `imported.` and a 64-character saved-theme slug.
-const MAX_ID_LENGTH = 80;
+export const MAX_ID_LENGTH = 80;
 export const MAX_THEMES_PER_EXTENSION = 32;
 const MAX_THEME_LABEL_LENGTH = 120;
 

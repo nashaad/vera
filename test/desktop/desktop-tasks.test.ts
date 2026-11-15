@@ -264,6 +264,7 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(main.files, "theme-import")).toEqual(["theme-import/roots.ts", "theme-import/task-protocol.ts"]);
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
+    expect(inDesktop(main.files, "extension-catalog")).toEqual(["extension-catalog/task-protocol.ts"]);
     expect(main.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect([...main.packages].filter((name) => name.startsWith("zod"))).toEqual([]);
 
@@ -286,5 +287,14 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(themes.files, "extension-install")).toEqual([]);
     expect(install.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect(install.packages.has("electron")).toBe(false);
-    for (const worker of [themes, assignments, install]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+
+    const catalog = reachable(join(DESKTOP_SOURCE, "extension-catalog", "worker.ts"));
+    for (const file of ["extension-catalog/fetch.ts", "extension-catalog/parse-catalog.ts", "extension-catalog/run-task.ts"]) {
+        expect(inDesktop(catalog.files, "extension-catalog")).toContain(file);
+    }
+    expect(inDesktop(catalog.files, "extension-install")).toEqual([]);
+    expect(inDesktop(install.files, "extension-catalog")).toEqual([]);
+    expect(catalog.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
+    expect(catalog.packages.has("electron")).toBe(false);
+    for (const worker of [themes, assignments, install, catalog]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
 });
