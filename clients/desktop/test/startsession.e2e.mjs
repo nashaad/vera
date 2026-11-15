@@ -118,7 +118,8 @@ try {
     const offer = page.locator(".empty-state", { hasText: "This session is not running" });
     await offer.waitFor({ timeout: 10_000 });
     await offer.locator("[data-start-session]").waitFor({ timeout: 5_000 });
-    if (await page.locator(".customize-card").count() !== 0) throw new Error("Customize listed items before the session started.");
+    // The desktop extensions are listed with or without a session, so only the session's own items are counted.
+    if (await page.locator(".customize-card:not([data-desktop-extension])").count() !== 0) throw new Error("Customize listed items before the session started.");
     // Sessions refresh every few seconds; the row stays stopped across several of them.
     await new Promise((resolve) => setTimeout(resolve, 8_000));
     if (await row.getAttribute("data-live") !== "false") throw new Error("Opening Customize started the session.");

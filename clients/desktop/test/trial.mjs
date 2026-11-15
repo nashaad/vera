@@ -13,6 +13,8 @@ const { _electron: electron } = require("playwright-core");
 const electronPath = require("electron");
 
 export const OUT_OF_SIGHT = ["-r", join(root, "clients", "desktop", "test", "out-of-sight.cjs")];
+// Counts utility processes by service name from the start of main; see globalThis.utilityStarts.
+export const COUNT_PROCESSES = ["-r", join(root, "clients", "desktop", "test", "count-processes.cjs")];
 
 export function startTrial() {
     const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
@@ -23,10 +25,11 @@ export function startTrial() {
 
     // The tour and the bench pass visible: true; every other run stays out of sight.
     // `env` adds to the app's environment, such as a HOME that holds a fixture of VS Code extensions.
-    async function launch({ visible = false, cwd = root, env = {} } = {}) {
+    // `args` are more node options placed ahead of the app, such as COUNT_PROCESSES.
+    async function launch({ visible = false, cwd = root, env = {}, args = [] } = {}) {
         const app = await electron.launch({
             executablePath: electronPath,
-            args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
+            args: [...(visible ? [] : OUT_OF_SIGHT), ...args, join(root, "clients", "desktop")],
             cwd,
             env: {
                 ...process.env,

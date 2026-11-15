@@ -196,7 +196,10 @@ try {
 
     await openCustomize(page);
     await page.locator("[data-desktop-extension=\"imported.legacy-crow\"]").waitFor({ timeout: 10_000 });
-    expectEqual(await page.locator("[data-desktop-extension]").count(), 1, "the extensions listed");
+    // The theme importer ships with the app, so it is listed beside the installed extension and cannot be removed.
+    await page.locator("[data-desktop-extension=\"vera.vscode-theme-import\"]").waitFor({ timeout: 10_000 });
+    expectEqual(await page.locator("[data-desktop-extension]").count(), 2, "the extensions listed");
+    expectEqual(await page.locator("[data-desktop-extension-remove=\"vera.vscode-theme-import\"]").count(), 0, "the remove buttons of the importer");
 
     // A package shows what it holds, and nothing is installed until it is confirmed.
     const previewSeconds = await previewPackage(app, page, packages.one, 1);
