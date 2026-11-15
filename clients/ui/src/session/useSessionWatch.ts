@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
@@ -52,8 +52,12 @@ export function useSessionWatch(
     agentId: string,
     connected: boolean,
     pane: SessionPane = "main",
+    // Called when the host asks this pane's window to open a screen. Never batched with the transcript.
+    onShow?: (target: string) => void,
 ): SessionWatchHandle {
     const [watch, dispatch] = useReducer(reduce, agentId, initialWatch);
+    const showRef = useRef(onShow);
+    showRef.current = onShow;
     const [attempt, setAttempt] = useState(0);
     useEffect(() => {
         dispatch({ type: "reset", agentId });
@@ -67,7 +71,8 @@ export function useSessionWatch(
         const off = bridge.onEvent((event) => {
             if (event.type === "session_frame" && event.pane === pane && event.agentId === agentId) {
                 const message = parseSessionLine(event.text);
-                if (message !== undefined) batcher.push(message);
+                if (message?.type === "session_show") showRef.current?.(message.target);
+                else if (message !== undefined) batcher.push(message);
             } else if (event.type === "session_closed" && event.pane === pane && event.agentId === agentId) {
                 batcher.flush();
                 dispatch({ type: "closed", reason: event.reason });

@@ -93,6 +93,30 @@ test("@core watch attaches with the history capability and emits each host line"
     ]);
 });
 
+test("@core only the main pane asks to have screens opened for it", async () => {
+    const fake = serve((socket) => {
+        socket.write(`${JSON.stringify({ type: "session_show", agent_id: "agent-a", target: "dialog.themes" })}\n`);
+    });
+    const events: DesktopEvent[] = [];
+    const pipe = new SessionPipe((event) => events.push(event), "main");
+    cleanups.push(() => pipe.close());
+    pipe.connect(fake.path);
+    pipe.watch("agent-a");
+    await until(() => events.length === 1);
+    expect(JSON.parse(fake.received[0] ?? "{}").requested_capabilities).toEqual([
+        "agent.history-paging.v1",
+        "session.title.v1",
+        "session.show-window.v1",
+    ]);
+    expect(events[0]).toEqual({
+        type: "session_frame",
+        pane: "main",
+        agentId: "agent-a",
+        text: `${JSON.stringify({ type: "session_show", agent_id: "agent-a", target: "dialog.themes" })}\n`,
+    });
+    expect(JSON.parse(ATTACH_AGENT_A).requested_capabilities).not.toContain("session.show-window.v1");
+});
+
 test("send writes a request line on the open watch", async () => {
     const fake = serve();
     const { pipe } = collect();

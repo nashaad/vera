@@ -159,6 +159,12 @@ export interface SessionTitleMessage {
     readonly title?: string;
 }
 
+// One-shot: the host asks the window to open a screen. `target` is an id from the show target list.
+export interface SessionShowMessage {
+    readonly type: "session_show";
+    readonly target: string;
+}
+
 export interface UserPromptMessage {
     readonly type: "user_prompt";
     readonly content: string;
@@ -329,6 +335,7 @@ export type SessionMessage =
     | HistoryPageMessage
     | HistoryPageFailedMessage
     | SessionTitleMessage
+    | SessionShowMessage
     | PromptQueueMessage
     | PromptWithdrawnMessage
     | PromptRefusedMessage
@@ -405,6 +412,10 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
             return parseHistoryPageFailed(value);
         case "session_title":
             return { type: "session_title", title: str(value.title) };
+        case "session_show": {
+            const target = str(value.target);
+            return target === undefined || target.length === 0 ? undefined : { type: "session_show", target };
+        }
         case "prompt_queue": {
             const queue = isRecord(value.queue) ? queueOf(value.queue.prompts) : undefined;
             return queue === undefined ? undefined : { type: "prompt_queue", queue };

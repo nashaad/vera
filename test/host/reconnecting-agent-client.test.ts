@@ -690,6 +690,43 @@ test("session titles come from the current attachment only", async () => {
     expect(recoveredListeners.size).toBe(0);
 });
 
+test("show requests come from the current attachment only", async () => {
+    const initialListeners = new Set<(target: string) => void>();
+    const recoveredListeners = new Set<(target: string) => void>();
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4),
+        onSessionShow(listener) {
+            initialListeners.add(listener);
+            return () => initialListeners.delete(listener);
+        },
+    };
+    const recovered: AttachedAgentClient = {
+        ...fakeClient([
+            { type: "assistant_delta", text: "continued", seq: 5 },
+        ], 4),
+        onSessionShow(listener) {
+            recoveredListeners.add(listener);
+            return () => recoveredListeners.delete(listener);
+        },
+    };
+    const client = createReconnectingAgentClient(initial, async () => recovered);
+    const targets: string[] = [];
+    client.onSessionShow(() => {
+        throw new Error("observer failed");
+    });
+    client.onSessionShow((target) => targets.push(target));
+
+    for (const listener of initialListeners) listener("dialog.themes");
+    await client.receive();
+    for (const listener of initialListeners) listener("dialog.stale");
+    for (const listener of recoveredListeners) listener("settings.providers");
+
+    expect(initialListeners.size).toBe(0);
+    expect(targets).toEqual(["dialog.themes", "settings.providers"]);
+    client.close();
+    expect(recoveredListeners.size).toBe(0);
+});
+
 test("a second concurrent receive is rejected explicitly", async () => {
     const updates = new AsyncQueue<AgentUpdate>();
     const initial = fakeClientFromQueue(updates);
@@ -853,6 +890,7 @@ function fakeClientFromQueue(
         onWorkIndex: () => () => undefined,
         sessionTitle: undefined,
         onSessionTitle: () => () => undefined,
+        onSessionShow: () => () => undefined,
         stopWait: undefined,
         onStopWait: () => () => undefined,
         send: async () => undefined,

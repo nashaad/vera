@@ -848,6 +848,10 @@ class FakeAttachedAgentClient implements AttachedAgentClient {
         return () => undefined;
     }
 
+    onSessionShow(): () => void {
+        return () => undefined;
+    }
+
     readonly stopWait = undefined;
 
     onStopWait(): () => void {

@@ -1,7 +1,11 @@
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 
-import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE } from "../../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
+    HOST_CAPABILITY_SESSION_TITLE,
+} from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
 import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
 import { describeFailure } from "./host-pipe.ts";
@@ -94,7 +98,7 @@ export class SessionPipe {
         let firstLine = true;
         socket.once("connect", () => {
             state.connected = true;
-            socket.write(attachLine(agentId));
+            socket.write(attachLine(agentId, this.pane));
         });
         socket.on("data", (chunk: string) => {
             buffered += chunk;
@@ -145,11 +149,16 @@ export class SessionPipe {
     }
 }
 
-function attachLine(agentId: string): string {
+// Only the main pane is asked to open screens; the companion is a read-only view.
+function attachLine(agentId: string, pane: SessionPane): string {
     return `${JSON.stringify({
         type: "attach",
         agent_id: agentId,
-        requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE],
+        requested_capabilities: [
+            HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+            HOST_CAPABILITY_SESSION_TITLE,
+            ...(pane === "main" ? [HOST_CAPABILITY_SESSION_SHOW_WINDOW] : []),
+        ],
     })}\n`;
 }
 
