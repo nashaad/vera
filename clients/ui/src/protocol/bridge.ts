@@ -251,7 +251,8 @@ export interface DesktopBridge {
     moveSession(agentId: string): Promise<MoveSessionOutcome>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     // With no folder the host creates a chat, a session that works in a folder of its own.
-    createSession(workspace: string | undefined, approvalMode?: string): Promise<CreateSessionResult>;
+    // With notesOffer true the session may offer to keep notes; the host fixes that when it creates the session.
+    createSession(workspace: string | undefined, approvalMode?: string, notesOffer?: boolean): Promise<CreateSessionResult>;
     // The host's models, shortlist and connected providers for a folder, or the host's own folder.
     readModelSettings(workspace?: string): Promise<HostModelsResult>;
     listProviders(): Promise<ProviderListResult>;

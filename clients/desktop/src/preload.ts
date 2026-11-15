@@ -60,8 +60,8 @@ const bridge: DesktopBridge = {
     loadPins: async () => (await ipcRenderer.invoke(CHANNELS.pinsLoad)) as SavedPins,
     savePins: (pins: SavedPins) => ipcRenderer.send(CHANNELS.pinsSave, pins),
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
-    createSession: async (workspace: string | undefined, approvalMode?: string) => {
-        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
+    createSession: async (workspace: string | undefined, approvalMode?: string, notesOffer?: boolean) => {
+        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode, notesOffer);
         return result as CreateSessionResult;
     },
     branchSession: async (agentId: string, boundaryId: string) =>
