@@ -54,7 +54,7 @@ export class ContributionRegistry {
         this.changed();
     }
 
-    // Whether tabs of the container are left out of the saved layout. True also for a container a flag turned off.
+    // Whether tabs of the container are left out of the saved layout. A show flag turning it off does not change this.
     keepsTabsOut(id: string): boolean {
         return this.containers.get(id)?.transientTabs === true;
     }
