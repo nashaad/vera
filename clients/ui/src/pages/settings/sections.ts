@@ -40,8 +40,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Agents",
         group: "Settings",
         Icon: AgentIcon,
-        terms: "agent default persona subagent tools skills posture",
-        file: "agents/*.md in the folder and the Vera home",
+        terms: "agent default persona subagent tools skills posture notes suggest offer keep",
+        file: "agents/*.md in the folder and the Vera home; the notes setting in the desktop's storage",
     },
     {
         id: "approvals",

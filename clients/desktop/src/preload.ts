@@ -77,8 +77,8 @@ const bridge: DesktopBridge = {
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
     saveFlags: async (patch: FlagPatch) => ((await ipcRenderer.invoke(CHANNELS.flagsSave, patch)) ?? undefined) as DesktopFlags | undefined,
     reportHiddenCommands: (ids: readonly string[]) => ipcRenderer.send(CHANNELS.flagsHidden, ids),
-    createSession: async (workspace: string | undefined, approvalMode?: string) => {
-        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode);
+    createSession: async (workspace: string | undefined, approvalMode?: string, notesOffer?: boolean) => {
+        const result: unknown = await ipcRenderer.invoke(CHANNELS.sessionCreate, workspace, approvalMode, notesOffer);
         return result as CreateSessionResult;
     },
     branchSession: async (agentId: string, boundaryId: string) =>

@@ -96,6 +96,8 @@ export interface SessionHeader {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    // Fixed at creation: the prompt prefix must not change when a setting does.
+    readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
 }
 
@@ -365,6 +367,7 @@ export interface CreateSessionStoreOptions {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
     readonly now?: () => Date;
     readonly createId?: () => string;
@@ -801,6 +804,7 @@ export class SessionStore {
             ...(options.contextAssemblyMode === undefined
                 ? {}
                 : { contextAssemblyMode: options.contextAssemblyMode }),
+            ...(options.notesOffer === true ? { notesOffer: true } : {}),
             ...(options.importedFrom === undefined
                 ? {}
                 : { importedFrom: options.importedFrom }),
@@ -4247,6 +4251,7 @@ export function parseHeaderRecord(
             && value.parentId !== undefined
             && (value.delegation as SessionDelegation).parentId !== value.parentId)
         || storedContextAssemblyModeInvalid(value)
+        || (value.notesOffer !== undefined && value.notesOffer !== true)
         || (value.importedFrom !== undefined
             && !isSessionImportProvenance(value.importedFrom))
     ) {

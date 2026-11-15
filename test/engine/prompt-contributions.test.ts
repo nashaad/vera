@@ -201,6 +201,67 @@ test("the workspace contribution adds the chat folder paragraph only when flagge
         .toBe(content(undefined, "core.scratchpad")?.content);
 });
 
+const NOTES_PARAGRAPH = "The person can keep notes from this conversation. Offer once, in a single sentence, when it would pay off: documents were shared, a long discussion reached a conclusion, a topic keeps coming back, or a decision was settled. Do not offer again if they decline or ignore it. Only after they agree, create a notes/ folder in the working directory with an index.md that links one page per topic, and keep those pages current as the conversation goes on.";
+
+test("the notes contribution is stable, in the validated order, and present only when the offer is on", () => {
+    const base = {
+        tools: [],
+        workspace: "/work/vera",
+        scratchDir: "/tmp/vera/session-1",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    };
+    const ids = (notesOffer: boolean | undefined): readonly string[] =>
+        collectBuiltInPromptContributions({
+            ...base,
+            ...(notesOffer === undefined ? {} : { notesOffer }),
+        }).map((contribution) => contribution.id);
+
+    const on = collectBuiltInPromptContributions({ ...base, notesOffer: true });
+    const notes = on.find((contribution) => contribution.id === "core.notes");
+    expect(notes).toEqual({
+        id: "core.notes",
+        owner: "core",
+        target: "stable",
+        title: "Notes",
+        content: NOTES_PARAGRAPH,
+    });
+    expect(NOTES_PARAGRAPH.split(/\s+/).length).toBeLessThan(120);
+    expect(ids(true)).toContain("core.notes");
+    expect(ids(false)).not.toContain("core.notes");
+    expect(ids(undefined)).not.toContain("core.notes");
+    expect(ids(true).filter((id) => id !== "core.notes")).toEqual([...ids(undefined)]);
+
+    const stableIds = on.filter((entry) => entry.target === "stable").map((entry) => entry.id);
+    expect(stableIds.indexOf("core.notes")).toBe(stableIds.indexOf("core.scratchpad") + 1);
+    expect(on.findIndex((entry) => entry.id === "core.notes"))
+        .toBeLessThan(on.findIndex((entry) => entry.id === "core.date"));
+    expect(DEFAULT_PROMPT_CONTRIBUTION_ORDER).toContain("core.notes");
+    expect(() => validatePromptContributionOrder(DEFAULT_PROMPT_CONTRIBUTION_ORDER)).not.toThrow();
+});
+
+test("a configured order places the notes contribution, and may not leave it out or put it after the contextual band", () => {
+    const moved = DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) => id !== "core.notes");
+    moved.splice(moved.indexOf("core.workspace"), 0, "core.notes");
+    expect(() => validatePromptContributionOrder(moved)).not.toThrow();
+    const rendered = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        notesOffer: true,
+        contributionOrder: moved,
+    }).map((entry) => entry.id);
+    expect(rendered.indexOf("core.notes")).toBeLessThan(rendered.indexOf("core.workspace"));
+
+    expect(() => validatePromptContributionOrder(moved.filter((id) => id !== "core.notes")))
+        .toThrow(/leaves out: core\.notes/);
+    expect(() => validatePromptContributionOrder([
+        ...moved.filter((id) => id !== "core.notes"),
+        "core.notes",
+    ])).toThrow(/core\.notes after core\./);
+});
+
 test("disabled contribution ids are omitted from both targets", () => {
     const contributions = collectBuiltInPromptContributions({
         tools: [],

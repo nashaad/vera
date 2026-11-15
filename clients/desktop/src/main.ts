@@ -428,7 +428,7 @@ const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
 ipcMain.handle(
     CHANNELS.sessionCreate,
-    async (event, workspace: unknown, approvalMode: unknown): Promise<CreateSessionResult> => {
+    async (event, workspace: unknown, approvalMode: unknown, notesOffer: unknown): Promise<CreateSessionResult> => {
         if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
         if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
         // No folder asks for a chat; a folder that is given must be an absolute path.
@@ -439,7 +439,7 @@ ipcMain.handle(
         }
         const mode = typeof approvalMode === "string" && APPROVAL_MODE_PATTERN.test(approvalMode) ? approvalMode : undefined;
         try {
-            const ready = await createAgentThroughHost(hostSocketPath, folder, mode);
+            const ready = await createAgentThroughHost(hostSocketPath, folder, mode, undefined, "default", notesOffer === true);
             return { ok: true, agentId: ready.id, workspace: ready.workspace };
         } catch (error) {
             if (error instanceof AgentStartError && error.reason !== undefined) {

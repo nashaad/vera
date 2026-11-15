@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { probeTarget } from "../../customize/probe.ts";
 import { useCatalogProbe } from "../../customize/useCatalogProbe.ts";
 import type { DesktopBridge } from "../../protocol/bridge.ts";
+import { readNotesOffer, storeNotesOffer } from "../../state/notesOffer.ts";
 import { useViewEnvironment } from "../../views/env.tsx";
 import { agentMeta } from "./agents.ts";
 import { SettingRow } from "./SettingRow.tsx";
@@ -10,12 +11,17 @@ import { SettingRow } from "./SettingRow.tsx";
 export function AgentsSection() {
     const { connection } = useViewEnvironment();
     const [reload, setReload] = useState(0);
+    const [notesOffer, setNotesOffer] = useState<boolean>(() => readNotesOffer());
     const rows = connection.sessionRows ?? [];
     const target = probeTarget(rows);
     const attached = connection.phase === "attached";
     const bridge: DesktopBridge | undefined = window.veraDesktop;
     const probe = useCatalogProbe(bridge, target?.id, attached, reload);
     const again = (): void => setReload((count) => count + 1);
+    const toggleNotesOffer = (): void => {
+        storeNotesOffer(!notesOffer);
+        setNotesOffer(!notesOffer);
+    };
 
     let body: ReactNode;
     if (!attached) {
@@ -56,6 +62,21 @@ export function AgentsSection() {
     return (
         <>
             <h1>Agents</h1>
+            <SettingRow
+                name="Suggest keeping notes"
+                description="A new session offers to keep notes in its folder when a conversation produces something worth keeping. Sessions already started are not changed."
+            >
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={notesOffer}
+                    aria-label="Suggest keeping notes"
+                    className="appearance-switch"
+                    onClick={toggleNotesOffer}
+                >
+                    <span className="appearance-switch-knob" />
+                </button>
+            </SettingRow>
             {target !== undefined && attached ? <p className="settings-muted">Read through the session {target.name}.</p> : null}
             {body}
             <p className="settings-note">

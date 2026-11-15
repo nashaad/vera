@@ -23,6 +23,7 @@ import { collectSessionBranch, collectSessionEntries, collectSessionUsage } from
 import type { SessionCompactionEntry, SessionImageAttachmentMetadata, SessionMessageEntry } from "../../src/store/session-store.ts";
 import { projectTranscript, summarizeSessionModelUsage } from "../../src/engine/protocol.ts";
 import { scanSessionLines, SESSION_SCAN_CHUNK_BYTES } from "../../src/store/session-lines.ts";
+import { createSessionBranch } from "../../src/store/session-branch.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -218,6 +219,30 @@ test("context assembly mode persists in the session header", async () => {
     const header = JSON.parse(readFileSync(path, "utf8").split("\n")[0]!);
     expect(header.contextAssemblyMode).toBe("bare");
     expect(header.startupProfile).toBeUndefined();
+});
+
+test("the notes offer persists in the session header, is copied to a branch, and only true is accepted", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "offered.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "offered", cwd: "/work/vera", notesOffer: true });
+    const plain = await SessionStore.create(join(directory, "plain.jsonl"), { sessionId: "plain", cwd: "/work/vera" });
+
+    expect(store.header.notesOffer).toBe(true);
+    expect("notesOffer" in plain.header).toBe(false);
+    expect((await SessionStore.open(path)).header.notesOffer).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8").split("\n")[0]!).notesOffer).toBe(true);
+
+    const branch = await createSessionBranch({ source: store, destinationPath: join(directory, "branch.jsonl"), sessionId: "branch", position: "at" });
+    expect(branch.store.header.notesOffer).toBe(true);
+    const plainBranch = await createSessionBranch({ source: plain, destinationPath: join(directory, "plain-branch.jsonl"), sessionId: "plain-branch", position: "at" });
+    expect("notesOffer" in plainBranch.store.header).toBe(false);
+
+    const lines = readFileSync(path, "utf8").split("\n");
+    for (const value of [false, "yes", 1]) {
+        const bad = join(directory, `bad-${String(value)}.jsonl`);
+        writeFileSync(bad, `${JSON.stringify({ ...JSON.parse(lines[0]!), notesOffer: value })}\n`, { mode: 0o600 });
+        await expect(SessionStore.open(bad)).rejects.toThrow();
+    }
 });
 
 test("old startupProfile header field still loads as context assembly mode", async () => {

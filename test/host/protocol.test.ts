@@ -150,6 +150,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         .toEqual({ type: "create_agent" });
     expect(parseHostRequest(JSON.stringify({
         type: "create_agent",
+        workspace: "/work/one",
+        notes_offer: true,
+    }))).toEqual({ type: "create_agent", workspace: "/work/one", notes_offer: true });
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: false })))
+        .toEqual({ type: "create_agent" });
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: "yes" })))
+        .toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: 1 })))
+        .toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "create_agent",
         approval_mode: "readonly",
     }))).toEqual({ type: "create_agent", approval_mode: "readonly" });
     expect(parseHostRequest('{"type":"create_agent","workspace":7}'))

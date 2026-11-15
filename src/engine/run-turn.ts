@@ -343,6 +343,7 @@ export interface RunTurnState {
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly imageSource?: (attachmentId: string) => string | undefined;
     readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
@@ -928,6 +929,7 @@ export async function runHeadlessLoop(
             readSessionImageContent(store, attachmentId),
         imageSource: sessionAttachmentSource(store),
         ...(isChatFolder(store.path, store.header.cwd) ? { chatFolder: true } : {}),
+        ...(store.header.notesOffer === true ? { notesOffer: true } : {}),
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
         ...(owned.toolResults === undefined
@@ -1422,6 +1424,7 @@ export async function runTurn(
                 tools: scopedTools,
                 workspace: state.toolRuntime.workspace,
                 ...(state.chatFolder === true ? { chatFolder: true } : {}),
+                ...(state.notesOffer === true ? { notesOffer: true } : {}),
                 ...(state.scratchDir === undefined
                     ? {}
                     : { scratchDir: state.scratchDir }),

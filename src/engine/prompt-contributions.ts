@@ -36,6 +36,7 @@ export interface PromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
     readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
@@ -55,6 +56,7 @@ export interface StablePromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
     readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
     /**
@@ -107,6 +109,15 @@ const CHAT_FOLDER_NOTE =
     + "person sees its files only under Files. Keep anything they may want "
     + "in it. When the work is worth keeping, tell them where the files are "
     + "and offer to move this conversation into a folder they choose.";
+
+const NOTES_OFFER =
+    "The person can keep notes from this conversation. Offer once, in a "
+    + "single sentence, when it would pay off: documents were shared, a long "
+    + "discussion reached a conclusion, a topic keeps coming back, or a "
+    + "decision was settled. Do not offer again if they decline or ignore "
+    + "it. Only after they agree, create a notes/ folder in the working "
+    + "directory with an index.md that links one page per topic, and keep "
+    + "those pages current as the conversation goes on.";
 
 const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
     {
@@ -193,6 +204,15 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                     + "The OS deletes this directory; keep nothing you need "
                     + "later.",
             },
+    },
+    {
+        id: "core.notes",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            input.notesOffer === true
+                ? { title: "Notes", content: NOTES_OFFER }
+                : null,
     },
     {
         id: "core.agent-instructions",

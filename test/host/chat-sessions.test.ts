@@ -351,3 +351,57 @@ test("a chat's system prompt says its folder is its own, on every turn and after
         }),
     });
 });
+
+const NOTES_PARAGRAPH = "The person can keep notes from this conversation. Offer once, in a single sentence, when it would pay off: documents were shared, a long discussion reached a conclusion, a topic keeps coming back, or a decision was settled. Do not offer again if they decline or ignore it. Only after they agree, create a notes/ folder in the working directory with an index.md that links one page per topic, and keep those pages current as the conversation goes on.";
+
+test("a session created with the notes offer keeps it fixed in its header and its stable prompt, through turns, a resume and a branch", async () => {
+    const requests: ModelRequest[] = [];
+    await withChats(async ({ root, registry, path }) => {
+        const project = join(root, "project");
+        await mkdir(project);
+        const offered = await registry.create({ id: "offered", sessionPath: path("offered"), notesOffer: true });
+        const inProject = await registry.create({ id: "project", workspace: project, sessionPath: path("project"), notesOffer: true });
+        const plain = await registry.create({ id: "plain", sessionPath: path("plain") });
+
+        expect((await SessionStore.open(path("offered"))).header.notesOffer).toBe(true);
+        expect((await SessionStore.open(path("project"))).header.notesOffer).toBe(true);
+        expect("notesOffer" in (await SessionStore.open(path("plain"))).header).toBe(false);
+
+        const attachment = offered.attach();
+        await runPrompt(attachment, "first");
+        attachment.send({ type: "prompt", content: "second" });
+        while ((await attachment.receive()).type !== "turn_finished") {
+            // Drain the second turn.
+        }
+        await runPrompt(inProject.attach(), "first");
+        await runPrompt(plain.attach(), "first");
+        await registry.closeAgent("offered");
+        const resumed = await registry.resume({ sessionPath: path("offered") });
+        await runPrompt(resumed.attach(), "after resume");
+        const branched = await registry.branch({ sourceId: "offered", id: "copy", sessionPath: path("copy"), position: "at" });
+        await runPrompt(branched!.agent.attach(), "in the copy");
+
+        expect((await SessionStore.open(path("copy"))).header.notesOffer).toBe(true);
+        const promptOf = (request: ModelRequest): string => request.systemPrompt ?? "";
+        const stable = (request: ModelRequest): string => promptOf(request).split("\n\n## Date")[0]!;
+        expect(requests).toHaveLength(6);
+        const [first, second, projectRequest, plainRequest, afterResume, copyRequest] = requests as [
+            ModelRequest, ModelRequest, ModelRequest, ModelRequest, ModelRequest, ModelRequest,
+        ];
+        for (const request of [first, second, projectRequest, afterResume, copyRequest]) {
+            expect(promptOf(request)).toContain(`## Notes\n${NOTES_PARAGRAPH}`);
+        }
+        expect(promptOf(plainRequest)).not.toContain("## Notes");
+        expect(promptOf(plainRequest)).not.toContain("notes/");
+        expect(stable(second)).toBe(stable(first));
+        expect(stable(afterResume)).toBe(stable(first));
+        expect(promptOf(first).indexOf("## Notes")).toBeLessThan(promptOf(first).indexOf("## Date"));
+    }, {
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([textResponse("done")]).stream(request);
+            },
+        }),
+    });
+});

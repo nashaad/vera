@@ -315,3 +315,37 @@ socketTest(
         }
     },
 );
+
+socketTest(
+    "agent startup client carries the notes offer to the host only when it is on",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));
+        const socketPath = join(root, "host.sock");
+        const created = new ResidentAgent("created", "/work/created");
+        const seen: unknown[] = [];
+        const host = await startHostServer({
+            socketPath,
+            lockPath: join(root, "host.json"),
+            createAgent: async (options) => {
+                seen.push(options);
+                return created;
+            },
+        });
+        try {
+            await createAgentThroughHost(socketPath, "/work/created", "auto", undefined, "default", true);
+            await createAgentThroughHost(socketPath, undefined, undefined, undefined, "default", true);
+            await createAgentThroughHost(socketPath, "/work/created", "auto", undefined, "default", false);
+            await createAgentThroughHost(socketPath, "/work/created", "auto");
+            expect(seen).toEqual([
+                { workspace: "/work/created", approvalMode: "auto", notesOffer: true },
+                { notesOffer: true },
+                { workspace: "/work/created", approvalMode: "auto" },
+                { workspace: "/work/created", approvalMode: "auto" },
+            ]);
+        } finally {
+            created.close();
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
