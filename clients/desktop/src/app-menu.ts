@@ -38,6 +38,8 @@ export function buildMenuTemplate(
     theme: ThemeChoice = DEFAULT_THEME,
     imported: readonly ImportedMenuTheme[] = [],
     hidden: ReadonlySet<string> = new Set(),
+    // Whether the theme importer extension is on; its menu item is left out when it is off.
+    importerOn = false,
 ): MenuItemConstructorOptions[] {
     const item = (shortcut: NativeShortcut): MenuItemConstructorOptions => ({
         id: shortcut.command,
@@ -101,8 +103,7 @@ export function buildMenuTemplate(
                 submenu: [
                     ...themeItems,
                     ...(importedItems.length === 0 ? [] : [{ type: "separator" } as const, ...importedItems]),
-                    { type: "separator" },
-                    plain(THEME_IMPORT_COMMAND, "Import VS Code Theme…"),
+                    ...(importerOn ? [{ type: "separator" } as const, plain(THEME_IMPORT_COMMAND, "Import VS Code Theme…")] : []),
                 ],
             },
             sheet("themes"),

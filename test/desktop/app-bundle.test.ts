@@ -56,6 +56,9 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     mkdirSync(join(appBuild, "renderer"), { recursive: true });
     writeFileSync(join(appBuild, "main.js"), "export {};\n");
     writeFileSync(join(appBuild, "renderer", "index.html"), "<html></html>\n");
+    mkdirSync(join(appBuild, "extensions", "vera.sample"), { recursive: true });
+    writeFileSync(join(appBuild, "extensions", "vera.sample", "vera.desktop.json"), "{}\n");
+    writeFileSync(join(appBuild, "extensions", "vera.sample", "worker.cjs"), "module.exports = {};\n");
     const tarball = join(root, "vera-release.tar.gz");
     writeFileSync(tarball, "archive");
     writeFileSync(`${tarball}.sha256`, "abc  vera-release.tar.gz\n");
@@ -110,6 +113,8 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
         version: "0.1.0",
     });
     expect(readFileSync(join(app, "dist", "renderer", "index.html"), "utf8")).toBe("<html></html>\n");
+    expect(readFileSync(join(app, "dist", "extensions", "vera.sample", "worker.cjs"), "utf8")).toBe("module.exports = {};\n");
+    expect(existsSync(join(app, "dist", "extensions", "vera.sample", "vera.desktop.json"))).toBe(true);
     const release = join(contents, "Resources", "release");
     expect(readFileSync(join(release, "vera-release.tar.gz"), "utf8")).toBe("archive");
     expect(readFileSync(join(release, "vera-release.tar.gz.sha256"), "utf8")).toContain("abc");

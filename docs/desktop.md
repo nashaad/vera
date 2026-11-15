@@ -320,7 +320,8 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`,
-`theme.imported.<name>` (one per theme a desktop extension adds), `theme.import`, `go.newChat`,
+`theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import` (while the
+theme importer is on), `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
@@ -1003,16 +1004,29 @@ The desktop app imports a VS Code color theme from:
   extensions. Settings > Appearance > Installed in VS Code > Show themes lists
   them and a click imports one.
 
-Start an import from Settings > Appearance > Import a VS Code theme > Import…,
-from View > Theme > Import VS Code Theme…, or from the command palette's
-`Theme: Import VS Code Theme…`. The first two open a file picker. After a
+The importer is an included desktop extension, `vera.vscode-theme-import`. It
+can be turned off under Customize but not removed. While it is on, start an
+import from Settings > Appearance > Import a VS Code theme > Import…, from
+View > Theme > Import VS Code Theme…, or from the command palette's
+`Theme: Import VS Code Theme…`. The first two open a file picker. Turning the
+importer off removes that command, its menu item, its palette entry and the
+import controls in Settings, and the app refuses an import request with
+`Vera could not import that theme.` or `Vera could not list the themes
+installed in VS Code.`; themes already imported stay. Turning it on brings them
+back. After a
 successful import the window switches to the theme at once, the theme sits in
 the lists beside Dark, Light and High contrast, and Settings shows
 `Imported "<name>" and switched to it.` Each imported theme is installed as its
 own desktop extension named `imported.<name>`, so it appears under Desktop
 extensions and can be turned off or removed there. Importing the same name
 again replaces that extension. Each import, and each listing of the installed themes, runs in
-a separate process that starts for the request and stops once it answers. The web client has no import; it shows none of these controls.
+a separate process, named Vera Theme Import, that starts for the request and stops
+once it answers; no such process runs at launch or between requests. A request
+that takes longer than 60 seconds is stopped and refused. The process only reads
+the file, package or VS Code extension folder and answers with the converted
+themes. The app, not the process, installs each theme as its extension, and an
+import holds at most 200 themes and 16 MiB of themes. The web client has no
+import; it shows none of these controls.
 
 What carries over, with the first VS Code color in each row that the theme sets:
 
@@ -1107,7 +1121,8 @@ of those, and on a `var(--vera-*)` name that is not declared.
 ## Desktop extensions
 
 A desktop extension adds to the desktop app itself. Today an extension can add
-themes. It is a folder with a `vera.desktop.json` manifest. The terminal UI
+themes, and an extension that ships with the app can add tasks. It is a folder
+with a `vera.desktop.json` manifest. The terminal UI
 does not use desktop extensions and keeps its own themes.
 
 Customize > Yours lists them above its skills, agents and other items. A row shows the
@@ -1115,9 +1130,10 @@ extension's id and version, the themes it adds, a switch, and Remove. Turning an
 extension off hides its themes at once; a window using one of them falls back to
 the built-in theme of the same type. Turning it on shows them again. Remove
 deletes an installed extension's folder. An extension marked Included ships with
-the app: it can be turned off but not removed. An extension whose manifest names
-commands or a `main` module is listed with the note that its commands are not
-loaded by this version of Vera.
+the app: it can be turned off but not removed. An installed extension whose
+manifest names commands or a `main` module is listed with the note that its
+commands are not loaded by this version of Vera; only the tasks of an included
+extension run.
 
 Install from file opens a file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
@@ -1150,6 +1166,36 @@ ship in the app and are not copied there.
 `path` inside the extension to a theme file, at most 2 MiB, in the format Vera
 saves when it imports a VS Code theme. An extension holds at most 32 themes. An
 extension that adds only themes needs no `main`. Unknown keys are refused.
+
+### Tasks
+
+A task is a file of code that the app runs in its own process when something
+asks for it. An extension lists its tasks under `contributes.tasks`:
+
+```json
+{
+    "contributes": {
+        "tasks": [
+            { "id": "import", "title": "Vera Theme Import", "main": "theme-import.cjs" }
+        ],
+        "commands": [
+            { "command": "vera.vscode-theme-import.import", "title": "Import VS Code Theme…", "task": "import" }
+        ]
+    }
+}
+```
+
+A task `id` uses lowercase letters, digits and `-`, at most 40 characters, and
+is unique in the extension. `title` is 1 to 100 characters and is the name of
+the process. `main` is a bundled file inside the extension. An extension holds
+at most 8 tasks. A command may name one of its tasks in `task`; a manifest whose
+command names a task it does not declare is refused. An extension whose commands
+all name tasks needs no `main`.
+
+The app runs a task only for an included extension that is turned on, one task at
+a time, and stops it after 60 seconds. The process starts when a request
+arrives, answers once, and stops; it keeps nothing between runs. An extension
+installed from a package keeps its tasks listed but does not run them.
 
 ### Packages
 

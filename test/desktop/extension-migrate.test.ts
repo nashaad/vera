@@ -88,7 +88,7 @@ test("@core when the extension cannot be installed the old file stays and the th
         chmodSync(root, 0o700);
     }
     expect(existsSync(join(themesDirectory(home), `${slug}.json`))).toBe(true);
-    const service = new ThemeService(store, themesDirectory(home), runThemeTask, []);
+    const service = new ThemeService(store, themesDirectory(home), runThemeTask);
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);
 });
 
@@ -96,7 +96,7 @@ test("a theme saved under the old folder is listed by the service until it moves
     const home = scratchDirectory();
     const slug = saveOld(home, "Crow Night");
     const store = storeFor(home);
-    const service = new ThemeService(store, themesDirectory(home), runThemeTask, []);
+    const service = new ThemeService(store, themesDirectory(home), runThemeTask);
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);
     migrateSavedThemes(store, themesDirectory(home));
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);

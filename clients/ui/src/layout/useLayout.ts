@@ -5,6 +5,8 @@ import { registerLayoutCommands } from "../commands/layout-commands.ts";
 import { registerOverlayCommands } from "../commands/overlay-commands.ts";
 import { registerSessionCommands } from "../commands/session-commands.ts";
 import { registerThemeCommands } from "../commands/theme-commands.ts";
+import { THEME_IMPORTER_ID } from "../extensions/theme-importer.ts";
+import { useExtensionOn } from "../extensions/useExtensionOn.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
 import { registerCoreContributions } from "../registry/core.ts";
 import { switchTheme } from "../theme/activate.ts";
@@ -109,9 +111,10 @@ export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
 
     useEffect(() => registerLayoutCommands(commands, dispatch), [commands, dispatch]);
     const importedThemes = useImportedThemes();
+    const importerOn = useExtensionOn(THEME_IMPORTER_ID);
     useEffect(
-        () => registerThemeCommands(commands, switchTheme, importedThemes, window.veraDesktop === undefined ? undefined : importFromCommand),
-        [commands, importedThemes],
+        () => registerThemeCommands(commands, switchTheme, importedThemes, importerOn && window.veraDesktop !== undefined ? importFromCommand : undefined),
+        [commands, importedThemes, importerOn],
     );
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);

@@ -18,7 +18,7 @@ function ExtensionRow({ entry, state }: { readonly entry: DesktopExtensionEntry;
                     <span className="customize-card-meta">
                         <span>{entry.version}</span>
                         {entry.included ? <span className="customize-badge">Included</span> : null}
-                        {entry.hasMain || entry.hasCommands ? <span>{NOT_LOADED}</span> : null}
+                        {!entry.included && (entry.hasMain || entry.hasCommands) ? <span>{NOT_LOADED}</span> : null}
                     </span>
                 </span>
                 <span className="customize-card-actions">

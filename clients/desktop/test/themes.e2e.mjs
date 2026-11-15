@@ -1,16 +1,20 @@
 // Theme import test for the desktop shell. Run with: node clients/desktop/test/themes.e2e.mjs
-// The file picker and the installed VS Code extensions are fixtures.
+// The file picker and the installed VS Code extensions are fixtures. The importer is an included desktop extension
+// that runs as a process named "Vera Theme Import", one per request.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { COUNT_PROCESSES, MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
 const files = join(trial.trialRoot, "files");
 const fakeHome = join(trial.trialRoot, "fake-home");
 const desktopFolder = join(trial.home, "machine", "desktop");
 const extensionsFolder = join(desktopFolder, "extensions");
+const IMPORTER = "vera.vscode-theme-import";
+const IMPORT_COMMAND = `${IMPORTER}.import`;
+const SERVICE = "Vera Theme Import";
 
 // A theme saved by an import is an extension named imported.<slug> with its file under themes/.
 function savedThemeFile(slug) {
@@ -59,7 +63,7 @@ async function until(label, check, attempts = 100) {
 }
 
 async function boot() {
-    const app = await trial.launch({ env: { HOME: fakeHome } });
+    const app = await trial.launch({ env: { HOME: fakeHome }, args: COUNT_PROCESSES });
     const page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
     await trial.waitForHost();
@@ -83,7 +87,7 @@ async function themeState(page) {
     });
 }
 
-async function openAppearance(app, page) {
+async function openAppearance(app, page, withImport = true) {
     await press(app, "K", [MODIFIER]);
     const palette = page.locator("input[aria-label=\"Command palette\"]");
     await palette.waitFor({ timeout: 10_000 });
@@ -92,7 +96,8 @@ async function openAppearance(app, page) {
     await palette.press("Enter");
     await page.waitForSelector("main[data-page=\"settings\"]", { timeout: 10_000 });
     await page.locator(".rail-row", { hasText: "Appearance" }).click();
-    await page.locator("[data-theme-import=\"file\"]").waitFor({ timeout: 10_000 });
+    if (withImport) await page.locator("[data-theme-import=\"file\"]").waitFor({ timeout: 10_000 });
+    else await page.locator("[data-theme-card=\"dark\"]").waitFor({ timeout: 10_000 });
 }
 
 async function note(page, ok) {
@@ -101,21 +106,10 @@ async function note(page, ok) {
     return locator.innerText();
 }
 
-// Counts the import processes started since launch, and the ones still running.
-async function watchImportProcesses(app) {
-    await app.evaluate(({ utilityProcess }) => {
-        const fork = utilityProcess.fork.bind(utilityProcess);
-        globalThis.themeImportStarts = 0;
-        utilityProcess.fork = (modulePath, args, options) => {
-            if (options?.serviceName === "Vera Theme Import") globalThis.themeImportStarts += 1;
-            return fork(modulePath, args, options);
-        };
-    });
-}
-
+// The import processes started since the app launched (counted by count-processes.cjs), and the ones running now.
 function importProcesses(app) {
     return app.evaluate(({ app }) => ({
-        started: globalThis.themeImportStarts,
+        started: globalThis.utilityStarts["Vera Theme Import"] ?? 0,
         running: app.getAppMetrics().filter((metric) => metric.name === "Vera Theme Import").length,
     }));
 }
@@ -125,6 +119,26 @@ async function importProcessGone(app, started) {
         const processes = await importProcesses(app);
         return processes.started === started && processes.running === 0;
     });
+}
+
+const importTimes = [];
+
+// Times one import from the click to the answer on the page.
+async function timed(work) {
+    const begin = performance.now();
+    const result = await work();
+    importTimes.push(performance.now() - begin);
+    return result;
+}
+
+async function openCustomize(page) {
+    await page.locator("[data-page=\"customize\"]").first().click();
+    await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
+    await page.locator("[data-desktop-extension-install]").waitFor({ timeout: 10_000 });
+}
+
+function menuItem(app, id) {
+    return app.evaluate(({ Menu }, commandId) => Menu.getApplicationMenu().getMenuItemById(commandId) !== null, id);
 }
 
 function expectEqual(actual, expected, label) {
@@ -137,14 +151,19 @@ try {
     const { app, page } = first;
     expectEqual((await themeState(page)).theme, "dark", "the first launch theme");
     const darkSurface = (await themeState(page)).surface;
-    await watchImportProcesses(app);
+    // No import process runs at launch, and opening the page that holds the import controls starts none.
+    await importProcessGone(app, 0);
     await openAppearance(app, page);
     await importProcessGone(app, 0);
+    expectEqual(await menuItem(app, IMPORT_COMMAND), true, "the import item of the Theme menu while the importer is on");
 
     // A theme file imports through the picker and applies at once.
     await chosenFile(app, join(files, "pirate-crow.json"));
-    await page.locator("[data-theme-import=\"file\"]").click();
-    expectEqual(await note(page, true), "Imported \"Pirate Crow\" and switched to it.", "the import note");
+    const importNote = await timed(async () => {
+        await page.locator("[data-theme-import=\"file\"]").click();
+        return note(page, true);
+    });
+    expectEqual(importNote, "Imported \"Pirate Crow\" and switched to it.", "the import note");
     let state = await themeState(page);
     expectEqual(state.theme, "imported:pirate-crow", "the theme after import");
     expectEqual(state.surface, "rgb(16, 19, 26)", "the mapped editor.background");
@@ -189,8 +208,10 @@ try {
     // Importing again replaces the file rather than adding another.
     write(join(files, "pirate-crow.json"), { ...PIRATE_CROW, colors: { ...PIRATE_CROW.colors, "editor.background": "#202830" } });
     await chosenFile(app, join(files, "pirate-crow.json"));
-    await page.locator("[data-theme-import=\"file\"]").click();
-    await until("the replaced colors", async () => (await themeState(page)).surface === "rgb(32, 40, 48)");
+    await timed(async () => {
+        await page.locator("[data-theme-import=\"file\"]").click();
+        await until("the replaced colors", async () => (await themeState(page)).surface === "rgb(32, 40, 48)");
+    });
     expectEqual(readdirSync(extensionsFolder).join(","), "imported.pirate-crow", "the extensions folder after a re-import");
 
     // The command palette lists the imported theme and the import command.
@@ -200,7 +221,7 @@ try {
     await palette.fill("pirate");
     await page.locator(".palette-row[data-command=\"theme.imported.pirate-crow\"]").waitFor({ timeout: 10_000 });
     await palette.fill("import vs code");
-    await page.locator(".palette-row[data-command=\"theme.import\"]").waitFor({ timeout: 10_000 });
+    await page.locator(`.palette-row[data-command="${IMPORT_COMMAND}"]`).waitFor({ timeout: 10_000 });
     await chosenFile(app, join(files, "pirate-crow.json"));
     await palette.press("Enter");
     await page.locator(".toast-text", { hasText: "Imported \"Pirate Crow\"" }).waitFor({ timeout: 10_000 });
@@ -216,9 +237,58 @@ try {
     expectEqual(source, "Extension Crow Hold", "the installed theme's source");
     await importProcessGone(app, 7);
 
+    // Each imported theme is an installed extension of its own, listed beside the included importer.
+    await openCustomize(page);
+    await page.locator("[data-desktop-extension=\"imported.pirate-crow\"]").waitFor({ timeout: 10_000 });
+    await page.locator("[data-desktop-extension=\"imported.crow-hold-night\"]").waitFor({ timeout: 10_000 });
+    await page.locator(`[data-desktop-extension="${IMPORTER}"]`).waitFor({ timeout: 10_000 });
+    expectEqual(await page.locator(`[data-desktop-extension-remove="${IMPORTER}"]`).count(), 0, "the remove button of the importer");
+    expectEqual(await page.locator("[data-desktop-extension-remove=\"imported.pirate-crow\"]").count(), 1, "the remove button of an imported theme");
+
+    // Turning the importer off takes away the command, its menu and palette entries and the import controls, and
+    // a request that still reaches the shell is refused without starting a process. The imported themes stay.
+    await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).click();
+    await page.locator(`[data-desktop-extension="${IMPORTER}"][data-enabled="false"]`).waitFor({ timeout: 5_000 });
+    await until("the import item to leave the Theme menu", async () => !(await menuItem(app, IMPORT_COMMAND)));
+    await openAppearance(app, page, false);
+    await page.locator("[data-theme-card=\"imported:crow-hold-night\"]").waitFor({ timeout: 10_000 });
+    expectEqual(await page.locator("[data-theme-import]").count(), 0, "the import controls while the importer is off");
+    await press(app, "K", [MODIFIER]);
+    await palette.waitFor({ timeout: 10_000 });
+    await palette.fill("import vs code");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expectEqual(await page.locator(`.palette-row[data-command="${IMPORT_COMMAND}"]`).count(), 0, "the palette entry while the importer is off");
+    await palette.press("Escape");
+    expectEqual(
+        JSON.stringify(await page.evaluate(() => window.veraDesktop.importTheme())),
+        JSON.stringify({ ok: false, reason: "Vera could not import that theme." }),
+        "a file import while the importer is off",
+    );
+    expectEqual(
+        JSON.stringify(await page.evaluate(() => window.veraDesktop.listInstalledThemes())),
+        JSON.stringify({ ok: false, reason: "Vera could not list the themes installed in VS Code." }),
+        "the installed list while the importer is off",
+    );
+    await importProcessGone(app, 7);
+
+    // Turning it on brings them all back.
+    await openCustomize(page);
+    await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).click();
+    await page.locator(`[data-desktop-extension="${IMPORTER}"][data-enabled="true"]`).waitFor({ timeout: 5_000 });
+    await until("the import item to return to the Theme menu", () => menuItem(app, IMPORT_COMMAND));
+    await openAppearance(app, page);
+    expectEqual(await page.locator("[data-theme-import]").count() > 0, true, "the import controls once the importer is on again");
+    await press(app, "K", [MODIFIER]);
+    await palette.waitFor({ timeout: 10_000 });
+    await palette.fill("import vs code");
+    await page.locator(`.palette-row[data-command="${IMPORT_COMMAND}"]`).waitFor({ timeout: 10_000 });
+    await palette.press("Escape");
+    await importProcessGone(app, 7);
+
     // The choice and its colors are there again after a relaunch on the same home.
     await app.close();
     const second = await boot();
+    await importProcessGone(second.app, 0);
     await until("the remembered imported theme", async () => (await themeState(second.page)).theme === "imported:crow-hold-night");
     expectEqual((await themeState(second.page)).surface, "rgb(27, 42, 31)", "the surface after the relaunch");
     await until("the View menu to check the theme after the relaunch", () => second.app.evaluate(({ Menu }) => {
@@ -235,7 +305,8 @@ try {
 
     if (!existsSync(savedThemeFile("pirate-crow"))) throw new Error("The imported theme's file went missing.");
     if (existsSync(join(desktopFolder, "themes"))) throw new Error("An import wrote to the old themes folder.");
-    console.log(`themes e2e passed: ${trial.home}`);
+    const seconds = importTimes.map((time) => (time / 1000).toFixed(2)).join(", ");
+    console.log(`themes e2e passed: ${trial.home} (import times ${seconds} s)`);
 } finally {
     await trial.cleanup();
 }

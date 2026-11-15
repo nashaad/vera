@@ -58,6 +58,17 @@ function insideFolder(folder: string, path: string): string | undefined {
     return inside.length > 0 && !inside.startsWith("..") && !isAbsolute(inside) ? target : undefined;
 }
 
+// The file a task's `main` names, or undefined when it is not a regular file inside the extension folder.
+export function taskWorkerFile(folder: string, main: string): string | undefined {
+    const file = insideFolder(folder, main);
+    return file !== undefined && isRegularFile(file) ? file : undefined;
+}
+
+// True when the extension carries code that this version of Vera does not load: a main module or a task.
+export function carriesCode(manifest: DesktopManifest): boolean {
+    return manifest.main !== undefined || manifest.tasks.length > 0;
+}
+
 export function readManifest(folder: string): ManifestRead {
     const text = readRegularFile(join(folder, DESKTOP_MANIFEST_FILENAME), MAX_MANIFEST_BYTES);
     if (text === undefined) return { ok: false, reason: `The extension has no ${DESKTOP_MANIFEST_FILENAME}.` };
@@ -80,6 +91,11 @@ export function readExtension(folder: string): ExtensionRead {
         const main = insideFolder(folder, manifest.main);
         if (main === undefined || !isRegularFile(main)) {
             return { ok: false, reason: `The module "${manifest.main}" that "main" names is not in the extension.` };
+        }
+    }
+    for (const task of manifest.tasks) {
+        if (taskWorkerFile(folder, task.main) === undefined) {
+            return { ok: false, reason: `The file "${task.main}" that task "${task.id}" names is not in the extension.` };
         }
     }
     const themes: ExtensionTheme[] = [];

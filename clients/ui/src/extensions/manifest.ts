@@ -9,13 +9,15 @@ export const CORE_WHEN_KEYS: readonly string[] = ["view", "container", "entryKin
 
 export const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
 const MANIFEST_KEYS = ["id", "version", "engine", "main", "contributes"];
-const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes"];
+const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks"];
+const TASK_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const MAX_TITLE_LENGTH = 100;
 const MAX_CATEGORY_LENGTH = 40;
 // Long enough for `imported.` and a 64-character saved-theme slug.
 export const MAX_ID_LENGTH = 80;
 export const MAX_THEMES_PER_EXTENSION = 32;
 const MAX_THEME_LABEL_LENGTH = 120;
+export const MAX_TASKS_PER_EXTENSION = 8;
 
 export interface ParsedWhen {
     readonly source: string;
@@ -26,6 +28,8 @@ export interface DesktopCommand {
     readonly command: string;
     readonly title: string;
     readonly category?: string;
+    // The id of a task this extension contributes. Running the command runs that task, not the main module.
+    readonly task?: string;
     readonly when?: ParsedWhen;
 }
 
@@ -42,15 +46,24 @@ export interface DesktopTheme {
     readonly path: string;
 }
 
+export interface DesktopTask {
+    readonly id: string;
+    // Shown as the task's name in progress and failure text.
+    readonly title: string;
+    // Relative path of the bundled worker file inside the extension folder.
+    readonly main: string;
+}
+
 export interface DesktopManifest {
     readonly id: string;
     readonly version: string;
     readonly engine: typeof DESKTOP_ENGINE;
-    // Relative path of the module the desktop window runs. Required when the manifest contributes commands.
+    // Relative path of the module the desktop window runs. Required for a command that names no task.
     readonly main?: string;
     readonly commands: readonly DesktopCommand[];
     readonly keybindings: readonly DesktopKeybinding[];
     readonly themes: readonly DesktopTheme[];
+    readonly tasks: readonly DesktopTask[];
 }
 
 export interface ManifestFailure {
@@ -105,9 +118,10 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
     for (const kind of Object.keys(contributes)) {
         if (!CONTRIBUTION_KINDS.includes(kind)) throw new ManifestProblem(`Unknown contribution kind "${kind}".`);
     }
-    const commands = readCommands(contributes.commands, id);
-    if (commands.length > 0 && main === undefined) {
-        throw new ManifestProblem('"main" is required when the manifest contributes commands.');
+    const tasks = readTasks(contributes.tasks);
+    const commands = readCommands(contributes.commands, id, tasks);
+    if (main === undefined && commands.some((command) => command.task === undefined)) {
+        throw new ManifestProblem('"main" is required for a command that names no task.');
     }
     return {
         id,
@@ -117,6 +131,7 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
         commands,
         keybindings: readKeybindings(contributes.keybindings, commands, id),
         themes: readThemes(contributes.themes),
+        tasks,
     };
 }
 
@@ -159,14 +174,39 @@ function readThemes(value: unknown): readonly DesktopTheme[] {
     return themes;
 }
 
-function readCommands(value: unknown, id: string): readonly DesktopCommand[] {
+function readTasks(value: unknown): readonly DesktopTask[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new ManifestProblem('"contributes.tasks" must be an array.');
+    if (value.length > MAX_TASKS_PER_EXTENSION) {
+        throw new ManifestProblem(`"contributes.tasks" holds at most ${MAX_TASKS_PER_EXTENSION} tasks.`);
+    }
+    const tasks: DesktopTask[] = [];
+    for (const entry of value) {
+        if (!isPlainObject(entry)) throw new ManifestProblem("A task contribution must be an object.");
+        const { id, title, main } = entry;
+        if (typeof id !== "string" || !TASK_ID_PATTERN.test(id)) {
+            throw new ManifestProblem('A task id must use lowercase letters, digits and "-", and be at most 40 characters.');
+        }
+        if (tasks.some((existing) => existing.id === id)) throw new ManifestProblem(`Task "${id}" is declared twice.`);
+        if (!isText(title, MAX_TITLE_LENGTH)) {
+            throw new ManifestProblem(`Task "${id}" needs a title of 1 to ${MAX_TITLE_LENGTH} characters.`);
+        }
+        if (!isRelativePath(main)) {
+            throw new ManifestProblem(`Task "${id}" needs a "main" that is a relative file path inside the extension.`);
+        }
+        tasks.push({ id, title: title.trim(), main: main.trim() });
+    }
+    return tasks;
+}
+
+function readCommands(value: unknown, id: string, tasks: readonly DesktopTask[]): readonly DesktopCommand[] {
     if (value === undefined) return [];
     if (!Array.isArray(value)) throw new ManifestProblem('"contributes.commands" must be an array.');
     const prefix = `${id}.`;
     const commands: DesktopCommand[] = [];
     for (const entry of value) {
         if (!isPlainObject(entry)) throw new ManifestProblem("A command contribution must be an object.");
-        const { command, title, category } = entry;
+        const { command, title, category, task } = entry;
         if (typeof command !== "string" || /\s/.test(command) || command.length === 0) {
             throw new ManifestProblem("A command id must be a non-empty string without whitespace.");
         }
@@ -182,11 +222,15 @@ function readCommands(value: unknown, id: string): readonly DesktopCommand[] {
         if (category !== undefined && !isText(category, MAX_CATEGORY_LENGTH)) {
             throw new ManifestProblem(`Command "${command}" needs a category of 1 to ${MAX_CATEGORY_LENGTH} characters.`);
         }
+        if (task !== undefined && (typeof task !== "string" || !tasks.some((declared) => declared.id === task))) {
+            throw new ManifestProblem(`Command "${command}" names a task that this manifest does not declare.`);
+        }
         const when = readWhen(entry.when, `command "${command}"`, id);
         commands.push({
             command,
             title: title.trim(),
             ...(category === undefined ? {} : { category: category.trim() }),
+            ...(task === undefined ? {} : { task }),
             ...(when === undefined ? {} : { when }),
         });
     }

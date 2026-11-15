@@ -1,11 +1,12 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import type { DesktopTask } from "../../../ui/src/extensions/manifest.ts";
 import type { DesktopExtensionEntry } from "../../../ui/src/protocol/extensions.ts";
 import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import { MAX_EXTENSIONS, MAX_LISTED_THEMES } from "./limits.ts";
 import { STAGING_PREFIX } from "./paths.ts";
-import { readExtension, readManifest, type ExtensionTheme } from "./read-extension.ts";
+import { carriesCode, readExtension, readManifest, taskWorkerFile, type ExtensionTheme } from "./read-extension.ts";
 import type { ExtensionStateStore } from "./state.ts";
 
 export type CommitResult =
@@ -22,6 +23,7 @@ interface Found {
     readonly themes: readonly string[];
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
+    readonly tasks: readonly DesktopTask[];
 }
 
 // The key the page knows a theme by. A theme imported from VS Code, or saved in the old themes folder, lives in an
@@ -72,8 +74,9 @@ export class ExtensionStore {
                 included,
                 version: manifest.version,
                 themes: manifest.themes.map((theme) => theme.label),
-                hasMain: manifest.main !== undefined,
+                hasMain: carriesCode(manifest),
                 hasCommands: manifest.commands.length > 0,
+                tasks: manifest.tasks,
             });
             if (found.length >= MAX_EXTENSIONS) break;
         }
@@ -119,6 +122,15 @@ export class ExtensionStore {
             if (themes.size >= MAX_LISTED_THEMES) break;
         }
         return [...themes.values()].slice(0, MAX_LISTED_THEMES).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // The worker file of a task, only for an extension included with Vera that is turned on. An installed
+    // extension never runs a task, and neither does one that is turned off. Undefined means it must not run.
+    taskFile(extensionId: string, taskId: string): string | undefined {
+        if (this.state.disabled().has(extensionId)) return undefined;
+        const entry = this.scan(this.included, true).find((candidate) => candidate.id === extensionId);
+        const task = entry?.tasks.find((candidate) => candidate.id === taskId);
+        return entry === undefined || task === undefined ? undefined : taskWorkerFile(entry.folder, task.main);
     }
 
     // False when the id is not an extension, or the state file could not be written.

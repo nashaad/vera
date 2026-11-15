@@ -1,3 +1,4 @@
+import { THEME_IMPORT_COMMAND } from "../extensions/theme-importer.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import { IMPORTED_THEME_PREFIX, importedThemeId, isThemeName, type ThemeChoice, type ThemeName } from "../theme/tokens.ts";
 import type { CommandRegistry } from "./registry.ts";
@@ -9,7 +10,7 @@ export const THEME_COMMANDS: Readonly<Record<ThemeName, string>> = {
     "high-contrast": "theme.highContrast",
 };
 
-export const THEME_IMPORT_COMMAND = "theme.import";
+export { THEME_IMPORT_COMMAND };
 
 const THEME_TITLES: Readonly<Record<ThemeName, string>> = {
     dark: "Theme: Dark",

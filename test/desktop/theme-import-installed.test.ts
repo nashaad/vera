@@ -1,13 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
+import type { ImportedTheme } from "../../clients/ui/src/theme/imported.ts";
+import { MAX_EXTENSIONS } from "../../clients/desktop/src/extensions/limits.ts";
 import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/src/extensions/paths.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
 import { scanInstalledThemes } from "../../clients/desktop/src/theme-import/installed.ts";
 import { extensionRoots } from "../../clients/desktop/src/theme-import/roots.ts";
 import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts";
+import type { ThemeTask, ThemeTaskReply } from "../../clients/desktop/src/theme-import/task-protocol.ts";
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
 import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { manifestText, pirateCrowText, removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";
@@ -16,7 +20,8 @@ afterEach(removeScratchDirectories);
 
 function themeService(home: string, roots: readonly string[], onChange?: () => void): ThemeService {
     const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
-    return new ThemeService(store, themesDirectory(home), runThemeTask, roots, onChange);
+    const run = (task: ThemeTask) => runThemeTask(task.kind === "list-installed" ? { kind: "list-installed", roots } : task);
+    return new ThemeService(store, themesDirectory(home), run, onChange);
 }
 
 function extension(root: string, folder: string, themes: { label: string; uiTheme?: string; path: string }[], files: Record<string, string>, extra: Record<string, unknown> = {}): void {
@@ -118,4 +123,53 @@ test("the service loads themes saved earlier and notices a file added by hand", 
     expect(watching.load().map((theme) => theme.name)).toEqual(["Pirate Crow"]);
     expect(watching.load()).toHaveLength(1);
     expect(changes).toEqual(["changed"]);
+});
+
+async function converted(...names: string[]): Promise<ImportedTheme[]> {
+    const themes: ImportedTheme[] = [];
+    for (const name of names) {
+        const reply = await runThemeTask({ kind: "import-file", path: writeText(join(scratchDirectory(), "theme.json"), pirateCrowText({ name })) });
+        if (reply.kind !== "imported" || !reply.outcome.ok) throw new Error("The fixture theme did not import.");
+        themes.push(...reply.outcome.themes);
+    }
+    return themes;
+}
+
+function serviceReplying(home: string, reply: ThemeTaskReply): ThemeService {
+    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    return new ThemeService(store, themesDirectory(home), async () => reply);
+}
+
+test("@core each theme a task sends back is installed as its own extension, and a refusal installs nothing", async () => {
+    const home = scratchDirectory();
+    const themes = await converted("Crow Night", "Crow Day");
+    const service = serviceReplying(home, { kind: "imported", outcome: { ok: true, themes, skipped: ["Lost Crow: The .vsix has no file."] } });
+    const result = await service.importFile("/ignored.vsix");
+    expect(result.ok && result.imported.map((theme) => theme.slug)).toEqual(["crow-night", "crow-day"]);
+    expect(result.ok && result.skipped).toEqual(["Lost Crow: The .vsix has no file."]);
+    expect(readdirSync(extensionsDirectory(home)).sort()).toEqual(["imported.crow-day", "imported.crow-night"]);
+    expect(service.themes().map((theme) => theme.name)).toEqual(["Crow Day", "Crow Night"]);
+
+    const refused = serviceReplying(scratchDirectory(), { kind: "imported", outcome: { ok: false, reason: "The file is not valid JSON." } });
+    expect(await refused.importFile("/ignored.json")).toEqual({ ok: false, reason: "The file is not valid JSON." });
+});
+
+test("@core at the extension limit a new theme is refused with the extension wording and the others still land", async () => {
+    const home = scratchDirectory();
+    const root = extensionsDirectory(home);
+    for (let index = 0; index < MAX_EXTENSIONS - 1; index += 1) {
+        writeText(join(root, `bare-${index}`, "vera.desktop.json"), JSON.stringify({ id: `bare-${index}`, version: "1.0.0", engine: DESKTOP_ENGINE }));
+    }
+    const themes = await converted("Crow Night", "Crow Day");
+    const service = serviceReplying(home, { kind: "imported", outcome: { ok: true, themes, skipped: [] } });
+    const result = await service.importFile("/ignored.vsix");
+    expect(result.ok && result.imported.map((theme) => theme.slug)).toEqual(["crow-night"]);
+    expect(result.ok && result.skipped).toEqual([`Crow Day: Vera keeps at most ${MAX_EXTENSIONS} desktop extensions. Remove one first.`]);
+    const another = serviceReplying(home, { kind: "imported", outcome: { ok: true, themes: await converted("Crow Dusk"), skipped: [] } });
+    expect(await another.importFile("/ignored.json")).toEqual({ ok: false, reason: `Vera keeps at most ${MAX_EXTENSIONS} desktop extensions. Remove one first.` });
+});
+
+test("a task that answers a listing with an import is a failure of the process", async () => {
+    const service = serviceReplying(scratchDirectory(), { kind: "listed", scan: { themes: [], cut: false } });
+    await expect(service.importFile("/ignored.json")).rejects.toThrow("answered an import with a listing");
 });

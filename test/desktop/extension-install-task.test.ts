@@ -40,6 +40,15 @@ test("a package with a module and commands says so in the preview", () => {
     expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.cmds", version: "1.0.0", themes: [], hasMain: true, hasCommands: true } });
 });
 
+test("a package whose only code is a task worker says it carries a module and commands", () => {
+    const items = [
+        { name: "vera.desktop.json", data: JSON.stringify({ id: "crow.tasks", version: "1.0.0", engine: DESKTOP_ENGINE, contributes: { tasks: [{ id: "scan", title: "Crow Scan", main: "scan.cjs" }], commands: [{ command: "crow.tasks.scan", title: "Scan", task: "scan" }] } }) },
+        { name: "scan.cjs", data: "module.exports = {};" },
+    ];
+    expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.tasks", version: "1.0.0", themes: [], hasMain: true, hasCommands: true } });
+    expect(run(items.slice(0, 1)).reply).toEqual({ ok: false, reason: 'The file "scan.cjs" that task "scan" names is not in the extension.' });
+});
+
 test("@core the expected checksum is checked before anything is unpacked", () => {
     const path = writePackage(themeFiles("crow.pack", "1.0.0", CROW));
     const hash = createHash("sha256").update(readFileSync(path)).digest("hex");

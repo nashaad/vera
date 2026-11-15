@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { CORE_WHEN_KEYS, parseDesktopManifest, type ManifestResult } from "../../clients/ui/src/extensions/manifest.ts";
+import { CORE_WHEN_KEYS, MAX_TASKS_PER_EXTENSION, parseDesktopManifest, type ManifestResult } from "../../clients/ui/src/extensions/manifest.ts";
 
 function manifest(patch: Record<string, unknown> = {}): Record<string, unknown> {
     return { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", main: "./main.js", ...patch };
@@ -43,7 +43,7 @@ test("a manifest with no contributions and no main is valid", () => {
 
     expect(result).toEqual({
         ok: true,
-        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [], themes: [] },
+        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [], themes: [], tasks: [] },
     });
 });
 
@@ -51,7 +51,7 @@ test("a manifest that contributes commands must name its main module", () => {
     const { main: _main, ...withoutMain } = manifest({ contributes: { commands: [{ command: "acme.themes.go", title: "Go" }] } });
     const result = failure(parseDesktopManifest(withoutMain));
 
-    expect(result).toMatchObject({ extensionId: "acme.themes", reason: '"main" is required when the manifest contributes commands.' });
+    expect(result).toMatchObject({ extensionId: "acme.themes", reason: '"main" is required for a command that names no task.' });
     expect(parseDesktopManifest({ ...withoutMain, contributes: { commands: [] } }).ok).toBe(true);
 });
 
@@ -235,6 +235,72 @@ test("a when clause may read core keys and keys prefixed with the extension id o
         },
     })));
     expect(binding.reason).toContain('The when clause of keybinding for "acme.themes.go" reads key "elsewhere"');
+});
+
+const TASK = { id: "import", title: " Import a theme ", main: "./worker.cjs" };
+
+test("a manifest contributes tasks, and a command may name one without a main module", () => {
+    const { main: _main, ...withoutMain } = manifest();
+    const result = parseDesktopManifest({
+        ...withoutMain,
+        contributes: { tasks: [TASK], commands: [{ command: "acme.themes.import", title: "Import", task: "import" }] },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.tasks).toEqual([{ id: "import", title: "Import a theme", main: "./worker.cjs" }]);
+    expect(result.manifest.commands[0]).toMatchObject({ command: "acme.themes.import", task: "import" });
+    expect(result.manifest).not.toHaveProperty("main");
+});
+
+test("a command without a task still needs a main module when others name one", () => {
+    const { main: _main, ...withoutMain } = manifest();
+    const result = failure(parseDesktopManifest({
+        ...withoutMain,
+        contributes: {
+            tasks: [TASK],
+            commands: [{ command: "acme.themes.import", title: "Import", task: "import" }, { command: "acme.themes.go", title: "Go" }],
+        },
+    }));
+
+    expect(result.reason).toBe('"main" is required for a command that names no task.');
+});
+
+test("a command that names a task must name one the manifest declares", () => {
+    for (const task of ["missing", 3, null, ""]) {
+        const result = failure(parseDesktopManifest(manifest({
+            contributes: { tasks: [TASK], commands: [{ command: "acme.themes.import", title: "Import", task }] },
+        })));
+        expect(result.reason, String(task)).toBe('Command "acme.themes.import" names a task that this manifest does not declare.');
+    }
+    const none = failure(parseDesktopManifest(manifest({ contributes: { commands: [{ command: "acme.themes.import", title: "Import", task: "import" }] } })));
+    expect(none.reason).toContain("names a task that this manifest does not declare");
+});
+
+test("a task needs a unique id, a title and a relative main inside the extension", () => {
+    const refuse = (tasks: unknown) => failure(parseDesktopManifest(manifest({ contributes: { tasks } }))).reason;
+
+    expect(refuse({})).toBe('"contributes.tasks" must be an array.');
+    expect(refuse([null])).toBe("A task contribution must be an object.");
+    for (const id of ["", "Import", "a b", "-a", "a-", "a_b", "a".repeat(41), 3, undefined]) {
+        expect(refuse([{ ...TASK, id }]), String(id)).toContain("A task id must use lowercase letters");
+    }
+    expect(refuse([TASK, { ...TASK, title: "Again" }])).toBe('Task "import" is declared twice.');
+    for (const title of ["", "   ", "x".repeat(101), 3, undefined]) {
+        expect(refuse([{ ...TASK, title }]), String(title)).toBe('Task "import" needs a title of 1 to 100 characters.');
+    }
+    for (const main of ["", "/abs/worker.cjs", "C:\\worker.cjs", "../worker.cjs", "a/../../worker.cjs", 3, undefined]) {
+        expect(refuse([{ ...TASK, main }]), String(main)).toBe('Task "import" needs a "main" that is a relative file path inside the extension.');
+    }
+    expect(parseDesktopManifest(manifest({ contributes: { tasks: [{ ...TASK, id: "a" }, { ...TASK, id: "a".repeat(40) }] } })).ok).toBe(true);
+});
+
+test("an extension holds at most eight tasks", () => {
+    const tasks = (count: number) => Array.from({ length: count }, (_, index) => ({ ...TASK, id: `task-${index}` }));
+
+    expect(parseDesktopManifest(manifest({ contributes: { tasks: tasks(MAX_TASKS_PER_EXTENSION) } })).ok).toBe(true);
+    expect(failure(parseDesktopManifest(manifest({ contributes: { tasks: tasks(MAX_TASKS_PER_EXTENSION + 1) } }))).reason)
+        .toBe('"contributes.tasks" holds at most 8 tasks.');
 });
 
 test("the parser reports failures and never throws", () => {

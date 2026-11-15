@@ -4,6 +4,12 @@ import { dirname, join, relative, resolve } from "node:path";
 
 import type { TaskLog, TaskProgress, TaskRunMessage } from "../../clients/desktop/src/tasks/messages.ts";
 import { TaskRunner, type TaskProcess } from "../../clients/desktop/src/tasks/runner.ts";
+import { THEME_IMPORTER_MANIFEST } from "../../clients/desktop/src/theme-import/extension-manifest.ts";
+import { THEME_IMPORT_TASK, THEME_TASK_FILE, THEME_TASK_SERVICE } from "../../clients/desktop/src/theme-import/task-protocol.ts";
+import { parseDesktopManifest } from "../../clients/ui/src/extensions/manifest.ts";
+import { THEME_IMPORT_COMMAND, THEME_IMPORTER_ID } from "../../clients/ui/src/extensions/theme-importer.ts";
+import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
+import { registerThemeCommands } from "../../clients/ui/src/commands/theme-commands.ts";
 
 const DESKTOP_SOURCE = resolve(import.meta.dir, "..", "..", "clients", "desktop", "src");
 const REPOSITORY = resolve(DESKTOP_SOURCE, "..", "..", "..");
@@ -261,7 +267,7 @@ function inDesktop(files: Set<string>, folder: string): string[] {
 
 test("@core the main process loads no task code; each task process loads its own", () => {
     const main = reachable(join(DESKTOP_SOURCE, "main.ts"));
-    expect(inDesktop(main.files, "theme-import")).toEqual(["theme-import/roots.ts", "theme-import/task-protocol.ts"]);
+    expect(inDesktop(main.files, "theme-import")).toEqual(["theme-import/task-protocol.ts"]);
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-catalog")).toEqual(["extension-catalog/task-protocol.ts"]);
@@ -297,4 +303,21 @@ test("@core the main process loads no task code; each task process loads its own
     expect(catalog.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect(catalog.packages.has("electron")).toBe(false);
     for (const worker of [themes, assignments, install, catalog]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+});
+
+test("@core the importer extension's manifest is valid, names its worker and its task, and matches the command the window registers", () => {
+    const parsed = parseDesktopManifest(JSON.parse(JSON.stringify(THEME_IMPORTER_MANIFEST)));
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const manifest = parsed.manifest;
+    expect(manifest.id).toBe(THEME_IMPORTER_ID);
+    expect(manifest.tasks).toEqual([{ id: THEME_IMPORT_TASK, title: THEME_TASK_SERVICE, main: THEME_TASK_FILE }]);
+    expect(THEME_TASK_SERVICE).toBe("Vera Theme Import");
+    expect(manifest.main).toBeUndefined();
+    const command = manifest.commands[0];
+    expect(manifest.commands).toHaveLength(1);
+    expect(command).toMatchObject({ command: THEME_IMPORT_COMMAND, task: THEME_IMPORT_TASK });
+    const registry = new CommandRegistry();
+    registerThemeCommands(registry, () => {}, [], () => {});
+    const registered = registry.list().find((entry) => entry.id === THEME_IMPORT_COMMAND);
+    expect(registered?.title).toBe(`${command?.category}: ${command?.title}`);
 });

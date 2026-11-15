@@ -18,6 +18,7 @@ import type {
     FolderListing,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
+import { THEME_IMPORTER_ID } from "../../ui/src/extensions/theme-importer.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
@@ -70,7 +71,7 @@ import { branchSession, cloneSession, closeSession, idArgument } from "./session
 import { shortcutCommand } from "./shortcuts.ts";
 import { startTaskProcess } from "./tasks/process.ts";
 import { TaskRunner } from "./tasks/runner.ts";
-import { parseThemeTaskReply, THEME_TASK_FILE, THEME_TASK_SERVICE, type ThemeTask } from "./theme-import/task-protocol.ts";
+import { parseThemeTaskReply, THEME_IMPORT_TASK, THEME_TASK_SERVICE, type ThemeTask } from "./theme-import/task-protocol.ts";
 import { ThemeService } from "./theme-service.ts";
 import { themesDirectory } from "./theme-store.ts";
 import { parseWindowBackground } from "./window-background.ts";
@@ -116,17 +117,28 @@ const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
-const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
+const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(themeImporterWorker(), THEME_TASK_SERVICE), parseThemeTaskReply);
 const extensionStore = new ExtensionStore(
     extensionsDirectory(selectedVeraHome()),
     new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
     includedExtensionsDirectory(import.meta.dirname),
 );
-const themeService = new ThemeService(extensionStore, themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
+const themeService = new ThemeService(extensionStore, themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), () => installMenu());
 const installTasks = new TaskRunner(() => startTaskProcess<InstallTask>(EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE), parseInstallReply);
-const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task));
+const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task), () => installMenu());
 const catalogTasks = new TaskRunner(() => startTaskProcess<CatalogTask>(CATALOG_TASK_FILE, CATALOG_TASK_SERVICE), parseCatalogReply);
 const extensionCatalog = new ExtensionCatalogService(catalogAddress(), extensionStore, extensionService, (task) => catalogTasks.run(task));
+
+// The importer's worker, found when an import is asked for. It is only there while the included extension is on.
+function themeImporterWorker(): string {
+    const file = extensionStore.taskFile(THEME_IMPORTER_ID, THEME_IMPORT_TASK);
+    if (file === undefined) throw new Error("The theme importer is turned off.");
+    return file;
+}
+
+function themeImporterOn(): boolean {
+    return extensionStore.taskFile(THEME_IMPORTER_ID, THEME_IMPORT_TASK) !== undefined;
+}
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -165,7 +177,7 @@ function installPreflight(): BootPreflight | undefined {
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
 function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
-        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes(), hiddenCommands),
+        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes(), hiddenCommands, themeImporterOn()),
     ));
 }
 
@@ -393,6 +405,7 @@ ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
 ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
 ipcMain.handle(CHANNELS.themeImport, async (event): Promise<ThemeImportResult> => {
     if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
+    if (!themeImporterOn()) return { ok: false, reason: "Vera could not import that theme." };
     const result = await dialog.showOpenDialog(window, {
         properties: ["openFile"],
         filters: [{ name: "VS Code themes", extensions: ["json", "jsonc", "vsix"] }],
@@ -401,10 +414,14 @@ ipcMain.handle(CHANNELS.themeImport, async (event): Promise<ThemeImportResult> =
     if (result.canceled || path === undefined) return { ok: true, imported: [], themes: themeService.themes(), skipped: [] };
     return themeService.importFile(path);
 });
-ipcMain.handle(CHANNELS.themesInstalled, async (event) =>
-    fromWindow(event) ? themeService.listInstalled() : { ok: false, reason: "That window cannot list themes." });
-ipcMain.handle(CHANNELS.themeInstalledImport, async (event, key: unknown): Promise<ThemeImportResult> =>
-    fromWindow(event) && typeof key === "string" ? themeService.importInstalled(key) : { ok: false, reason: "That is not a theme in the list." });
+ipcMain.handle(CHANNELS.themesInstalled, async (event) => {
+    if (!fromWindow(event)) return { ok: false, reason: "That window cannot list themes." };
+    return themeImporterOn() ? themeService.listInstalled() : { ok: false, reason: "Vera could not list the themes installed in VS Code." };
+});
+ipcMain.handle(CHANNELS.themeInstalledImport, async (event, key: unknown): Promise<ThemeImportResult> => {
+    if (!fromWindow(event) || typeof key !== "string") return { ok: false, reason: "That is not a theme in the list." };
+    return themeImporterOn() ? themeService.importInstalled(key) : { ok: false, reason: "Vera could not import that theme." };
+});
 registerExtensionHandlers({ service: extensionService, catalog: extensionCatalog, window: () => window, fromWindow });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;

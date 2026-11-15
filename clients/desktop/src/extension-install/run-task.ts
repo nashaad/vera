@@ -1,4 +1,4 @@
-import { readExtension } from "../extensions/read-extension.ts";
+import { carriesCode, readExtension } from "../extensions/read-extension.ts";
 import { ExtensionRefusal } from "./refusal.ts";
 import type { InstallReply, InstallTask } from "./task-protocol.ts";
 import { checkSha256, packageEntries, readPackage, unpackEntries } from "./unpack.ts";
@@ -18,7 +18,7 @@ export function runInstallTask(task: InstallTask): InstallReply {
                 id: manifest.id,
                 version: manifest.version,
                 themes: manifest.themes.map((theme) => theme.label),
-                hasMain: manifest.main !== undefined,
+                hasMain: carriesCode(manifest),
                 hasCommands: manifest.commands.length > 0,
             },
         };
