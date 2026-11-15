@@ -20,6 +20,7 @@
     "dev:sweep": "bun scripts/dev-sweep.ts",
     "dev:tui": "bun run scripts/dev-tui.ts",
     "dev:desktop": "bun run scripts/dev-desktop.ts",
+    "catalog:build": "bun run catalog/build.ts",
     "desktop:build": "bun run clients/desktop/build.ts",
     "desktop:dmg": "bun run scripts/build-desktop-dmg.ts",
     "desktop:tour": "bun run desktop:build && node clients/desktop/tour/tour.mjs",

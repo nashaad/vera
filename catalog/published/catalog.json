@@ -1,0 +1,41 @@
+{
+    "format": 1,
+    "extensions": [
+        {
+            "id": "vera.onyx",
+            "name": "Onyx",
+            "version": "1.0.0",
+            "kind": "theme",
+            "engine": "vera-gui@^1",
+            "url": "https://raw.githubusercontent.com/nashaad/vera/main/catalog/published/vera.onyx-1.0.0.tar.gz",
+            "sha256": "471473efd96ea4bdbc27b463ac605e5688ccff30099f9f9ad1e8c2d399eb8bd6",
+            "size": 5143,
+            "palette": [
+                "#07080a",
+                "#deddd7",
+                "#e8582a",
+                "#6fe3d4",
+                "#ff5f56"
+            ],
+            "withdrawn": false
+        },
+        {
+            "id": "vera.purple",
+            "name": "Vera Purple",
+            "version": "1.0.0",
+            "kind": "theme",
+            "engine": "vera-gui@^1",
+            "url": "https://raw.githubusercontent.com/nashaad/vera/main/catalog/published/vera.purple-1.0.0.tar.gz",
+            "sha256": "9d9c83cd7e5c873ee7e948816e9bb046d571126bcc7e220f2bbbebd0c59e314a",
+            "size": 5143,
+            "palette": [
+                "#0c0b12",
+                "#e2e0da",
+                "#8b79f6",
+                "#6fe3d4",
+                "#ff5f56"
+            ],
+            "withdrawn": false
+        }
+    ]
+}

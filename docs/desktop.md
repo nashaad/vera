@@ -1264,6 +1264,45 @@ package cannot be fetched or fails a check, Discover shows the reason and the
 installed extensions and the window's theme stay as they were; Retry reads the
 catalog again.
 
+The catalog a release build reads is
+`https://raw.githubusercontent.com/nashaad/vera/main/catalog/published/catalog.json`.
+Its source is the `catalog/` folder of the Vera repository, and the files in
+`catalog/published/` are committed, so the catalog changes when `main` does.
+
+### Adding a theme to the catalog
+
+Each theme is a folder in `catalog/extensions/` named by its id, with the
+files a package holds: a `vera.desktop.json` manifest and the theme files it
+lists under `contributes.themes`, written as `themes/<file>.json`. The
+manifest `id` is the folder name and its `version` is `major.minor.patch`. A
+catalog extension adds themes only: it has no `main`, commands, keybindings or
+tasks. Each theme file is a saved theme (`version` 1) with all its color tokens
+as lowercase `#rrggbb` or `#rrggbbaa`, and the file must read back unchanged
+through the app's own theme reader, so a missing color or a key the app does not
+read is an error. A file the manifest does not list is an error too.
+
+The card's name is the label of the first theme, and its five swatches are that
+theme's surface, text, accent, success and danger colors, which must be
+`#rrggbb`.
+
+```
+bun run catalog:build
+```
+
+reads every folder in `catalog/extensions/` with the app's manifest and theme
+readers and writes `catalog/published/`: `catalog.json` and one package per
+extension, named `<id>-<version>.tar.gz`. It then reads the result back with the
+app's own catalog parser and package reader, and writes nothing if any
+extension fails or the parser would leave one out. The output is the same bytes
+for the same sources on every machine, and `catalog/published/` is committed with
+the change to the sources. A test rebuilds the catalog and fails when the
+committed files differ, with a message to run the command. To raise a theme's
+version, change the manifest's `version` and rebuild; the old package is removed.
+
+`bun run catalog:build --out <folder> --base-url <url>` writes a catalog whose
+packages are listed under another address, for a catalog served from a local
+server; `--base-url` needs `--out`.
+
 ## Development
 
 ```
