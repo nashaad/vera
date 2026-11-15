@@ -99,9 +99,10 @@ workspace and a session.
   items. Above them, Yours lists the desktop extensions that add to this app,
   with a switch, Remove and Install from file; see Desktop extensions.
   Yours and Discover switch the page's view; it opens on Yours, which is
-  everything above. Discover says that Vera has no catalog of extensions or
-  skills to install, names `/extension install <path>` in the terminal, and
-  offers Open Yours.
+  everything above. Discover lists the themes in the extension catalog and
+  installs one after a preview; see The theme catalog. The web client has no
+  catalog: its Discover says so, names `/extension install <path>` in the
+  terminal, and offers Open Yours.
 - Tour lists every screen, sheet and session state in the window as cards, one
   click from each. Session cards open the newest session that is working,
   waiting on you, finished or idle, and say None right now when there is none.
@@ -1095,6 +1096,40 @@ preview. Nothing is installed until you choose Install. A package that is
 refused shows the reason in the window and leaves what was installed as it was.
 Staging folders left by a closed window are cleared the next time the app starts.
 
+### The theme catalog
+
+Customize > Discover lists the themes in a catalog. A card shows the theme's
+name, its version, five swatches of its colors and Install. A theme the catalog
+has withdrawn, or one built for another version of Vera, is not listed. A theme
+already installed at the listed version shows Installed instead of Install.
+
+Install downloads the package, checks it, and applies the theme in the window
+before anything is kept. A bar offers Install and Cancel and reads
+`Previewing <name> <version>.`, followed by `Replaces version <v>.` when an
+installed extension has the same id. Install keeps the extension and switches to
+its theme. Cancel or Escape puts back the theme the window had and throws the
+download away. Leaving Discover does the same.
+
+The catalog is read when Discover opens, never at launch, and is not saved on
+disk; closing Discover drops it. Reading it and downloading a package run in a
+separate process, named Vera Extension Catalog, that starts for the request and
+stops once it has answered. Unpacking and installing the package are the steps
+of Install from file, in Vera Extension Install, and the extension is written
+the same way.
+
+The catalog is at most 1 MiB and lists at most 500 extensions; an entry that is
+malformed is left out. Only `http` and `https` addresses are fetched, and the
+same holds for every redirect. A package must be exactly the size the catalog
+lists, within the package limit above, and its sha256 must match the catalog's
+before anything is unpacked.
+
+The catalog's address is written into the app when it is built. The app reads
+no environment variable or setting for it. A build with no address shows `The
+catalog is not available in this build.` in Discover. When the catalog or a
+package cannot be fetched or fails a check, Discover shows the reason and the
+installed extensions and the window's theme stay as they were; Retry reads the
+catalog again.
+
 ## Development
 
 ```
@@ -1285,8 +1320,8 @@ opens Usage with `/usage` from the composer.
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page
 from the sidebar and checks its session count, checks Devices, reads Vera's help
-skill on Customize and opens its detail, checks that Discover says there is
-nothing to browse, goes from Tour to Coverage and back and opens the session
+skill on Customize and opens its detail, checks that Discover says the catalog
+is not available in this build, goes from Tour to Coverage and back and opens the session
 from its Tour card, runs Settings from the command palette, counts the session
 in Settings > Data, finds the palette's keys in Settings > Keyboard and the
 shortcuts sheet, and opens a session from Go to Session.
