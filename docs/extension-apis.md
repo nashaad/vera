@@ -35,6 +35,10 @@ A tool that declares `extension.storage.read` or `extension.storage.write`
 must also be named in an `unreviewed_tools` list in the manifest. See
 [Permission rules](permission-rules.md).
 
+A tool can list agent names in `agents`. The tool then reaches the model, and
+runs, only while one of those agents is selected. Without `agents`, every
+agent can use it.
+
 Install the directory with `/extension install <path>`, or load it from a
 development checkout with `VERA_EXTENSIONS`. See
 [Manage extensions](extensions.md). After a change, the client half reloads on

@@ -295,6 +295,9 @@ export async function startWorker(
                         ...(tool.invocation === undefined
                             ? {}
                             : { invocation: tool.invocation }),
+                        ...(tool.agents === undefined
+                            ? {}
+                            : { agents: tool.agents }),
                     }),
                 ),
             }),

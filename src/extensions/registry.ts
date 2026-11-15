@@ -1290,6 +1290,7 @@ function registerTool(
         permissionOperation,
         permissionInputs,
         invocation,
+        agents,
         timeoutMs,
         run,
     } = spec;
@@ -1308,6 +1309,7 @@ function registerTool(
             ))
         || !validPermissionInputs(permissionInputs)
         || (invocation !== undefined && invocation !== "top_level")
+        || !validToolAgents(agents)
         || !validHandlerTimeout(timeoutMs)
         || typeof run !== "function"
     ) {
@@ -1340,6 +1342,7 @@ function registerTool(
             inputSchema: structuredClone(inputSchema),
         },
         ...(invocation === undefined ? {} : { invocation }),
+        ...(agents === undefined ? {} : { agents: [...agents] }),
         ...(parallel === undefined ? {} : { parallel }),
         ...(permissionOperation === undefined
             ? {}
@@ -1494,6 +1497,15 @@ function hasExactKeys(
     const expected = [...keys].sort();
     return actual.length === expected.length
         && actual.every((key, index) => key === expected[index]);
+}
+
+function validToolAgents(value: unknown): boolean {
+    return value === undefined
+        || (
+            Array.isArray(value)
+            && value.length > 0
+            && value.every((entry) => typeof entry === "string" && entry.trim().length > 0)
+        );
 }
 
 function validPermissionInputs(value: unknown): boolean {

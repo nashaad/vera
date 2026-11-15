@@ -210,6 +210,8 @@ export interface RegisteredTool {
     readonly definition: ModelTool;
     /** Session provenance required before this tool may be offered or run. */
     readonly invocation?: "top_level";
+    /** Agents that may be offered and run this tool. Absent means every agent. */
+    readonly agents?: readonly string[];
     readonly parallel?: boolean;
     readonly effectType?: ToolEffect["type"];
     /** A deliberately recognized permission operation for this whole tool. */
@@ -228,4 +230,5 @@ export interface RegisteredTool {
 export interface RegisteredToolDefinition {
     readonly definition: ModelTool;
     readonly invocation?: "top_level";
+    readonly agents?: readonly string[];
 }

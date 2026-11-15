@@ -294,6 +294,51 @@ test("registry exposes extension tools through the ordinary tool and permission 
     await registry.close();
 });
 
+test("a tool carries the agents it is limited to, and a bad list is refused", async () => {
+    const limited = createExtension("limited.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "help_only",
+                description: "Help only",
+                inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                agents: ["help"],
+                run() {
+                    return { output: "ok" };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(limited)],
+    });
+    expect(registry.tools()[0]?.agents).toEqual(["help"]);
+    await registry.close();
+
+    for (const agents of ["[]", "[\"\"]", "\"help\"", "[1]"]) {
+        const failures: ExtensionRegistryFailure[] = [];
+        const bad = createExtension("bad.extension", `
+            export function activate(vera) {
+                vera.tools.register({
+                    name: "bad_scope",
+                    description: "Bad",
+                    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                    agents: ${agents},
+                    run() {
+                        return { output: "ok" };
+                    },
+                });
+            }
+        `, ["tools.register"]);
+        const badRegistry = await startExtensionRegistry({
+            extensions: [configured(bad)],
+            onFailure: (failure) => failures.push(failure),
+        });
+        expect(badRegistry.tools()).toEqual([]);
+        expect(failures[0]?.message).toContain("Invalid extension tool registration");
+        await badRegistry.close();
+    }
+});
+
 test("public hook capabilities register in order, carry plain identity, and isolate failures", async () => {
     const extension = createExtension("hooks.extension", `
         export function activate(vera) {

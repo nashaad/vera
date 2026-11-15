@@ -345,6 +345,8 @@ export interface VeraExtensionToolSpec {
     readonly permissionInputs?: readonly PermissionInputSpec[];
     /** Restrict this tool to sessions that were not spawned by another agent. */
     readonly invocation?: "top_level";
+    /** Offer and run this tool only while one of these agents is selected. */
+    readonly agents?: readonly string[];
     /** Per-call deadline. Omitted uses the registry default. */
     readonly timeoutMs?: number;
     readonly run: VeraExtensionToolHandler;
