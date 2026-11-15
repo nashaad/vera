@@ -216,3 +216,14 @@
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / 2);
 }
+
+.customize-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+}
+
+.customize-preview {
+    margin: 0 0 calc(var(--vera-space) * 3);
+}

@@ -14,6 +14,7 @@ import {
     type KindFilter,
 } from "../customize/catalog.ts";
 import { CustomizeDetail, KindIcon } from "../customize/CustomizeDetail.tsx";
+import { DesktopExtensions } from "../customize/DesktopExtensions.tsx";
 import { probeTarget } from "../customize/probe.ts";
 import { useCatalogProbe } from "../customize/useCatalogProbe.ts";
 import type { DesktopBridge, ExtensionFailure } from "../protocol/bridge.ts";
@@ -335,6 +336,7 @@ export function CustomizePage() {
             {yours && failures.phase === "failed" ? (
                 <p className="customize-note">Extension failures could not be read: {failures.reason}</p>
             ) : null}
+            {yours ? <DesktopExtensions bridge={bridge} /> : null}
             {yours ? body() : discoverBody()}
             {picked === undefined ? null : <CustomizeDetail item={picked} onClose={() => setPicked(undefined)} />}
         </Page>
