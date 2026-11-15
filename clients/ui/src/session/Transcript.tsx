@@ -101,10 +101,10 @@ interface TurnViewProps {
     readonly replyMenu: boolean;
 }
 
-// Characters of text the turn has written so far, for the status line's token estimate.
+// Characters the turn has produced so far, reasoning included, for the status line's token estimate.
 function writtenCharacters(turn: Turn): number {
     const answer = turn.answer?.text.length ?? 0;
-    return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer);
+    return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer) + turn.thoughtCharacters;
 }
 
 const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry, compaction, replyMenu }: TurnViewProps) {
@@ -180,6 +180,8 @@ const BlockView = memo(function BlockView({ block, next }: { readonly block: Blo
 
 function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?: Block }) {
     const [open, setOpen] = useState(false);
+    // A count with no text: nothing to show or expand.
+    if (block.hiddenCharacters !== undefined && block.text === "") return null;
     if (block.live) {
         const lines = block.text.trim().split("\n");
         return (

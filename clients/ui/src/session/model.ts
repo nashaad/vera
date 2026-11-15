@@ -71,6 +71,8 @@ export interface ThoughtBlock {
     readonly text: string;
     // True while this thought is still streaming.
     readonly live: boolean;
+    // Characters the host counted but did not send, when the window asked for progress instead of text.
+    readonly hiddenCharacters?: number;
     readonly at?: number;
 }
 

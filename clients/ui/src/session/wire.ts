@@ -174,6 +174,13 @@ export interface AssistantThinkingMessage {
     readonly text: string;
 }
 
+// Sent in place of `assistant_thinking` when the window asked the host not to send reasoning text.
+export interface AssistantThinkingProgressMessage {
+    readonly type: "assistant_thinking_progress";
+    // Reasoning characters since the previous progress message.
+    readonly characters: number;
+}
+
 export interface ToolStartedMessage {
     readonly type: "tool_started";
     readonly tool: string;
@@ -236,6 +243,7 @@ export type LiveMessage =
     | UserPromptMessage
     | AssistantDeltaMessage
     | AssistantThinkingMessage
+    | AssistantThinkingProgressMessage
     | ToolStartedMessage
     | ToolFinishedMessage
     | ToolPresentationMessage
@@ -531,6 +539,12 @@ function parseLive(type: string, value: Fields): LiveMessage | undefined {
         case "assistant_thinking": {
             const text = str(value.text);
             return text === undefined ? undefined : { type: "assistant_thinking", text };
+        }
+        case "assistant_thinking_progress": {
+            const characters = value.characters;
+            return typeof characters === "number" && Number.isSafeInteger(characters) && characters >= 0
+                ? { type: "assistant_thinking_progress", characters }
+                : undefined;
         }
         case "tool_started": {
             const tool = str(value.tool);

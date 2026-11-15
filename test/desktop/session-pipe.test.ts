@@ -62,9 +62,9 @@ async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 60));
 }
 
-function collect(): { events: DesktopEvent[]; pipe: SessionPipe } {
+function collect(hidesReasoning: () => boolean = () => false): { events: DesktopEvent[]; pipe: SessionPipe } {
     const events: DesktopEvent[] = [];
-    const pipe = new SessionPipe((event) => events.push(event), "companion");
+    const pipe = new SessionPipe((event) => events.push(event), "companion", hidesReasoning);
     cleanups.push(() => pipe.close());
     return { events, pipe };
 }
@@ -196,4 +196,74 @@ test("a replaced watch emits nothing from its old socket", async () => {
     expect(events).toEqual([
         { type: "session_frame", pane: "companion", agentId: "agent-b", text: `${JSON.stringify({ type: "fresh" })}\n` },
     ]);
+});
+
+function capabilitiesOf(line: string | undefined): unknown {
+    return (JSON.parse(line ?? "{}") as { requested_capabilities?: unknown }).requested_capabilities;
+}
+
+test("@core a watch asks for reasoning progress only while reasoning is hidden", async () => {
+    const fake = serve();
+    let hidden = true;
+    const { pipe } = collect(() => hidden);
+    pipe.connect(fake.path);
+    pipe.watch("agent-a");
+    await until(() => fake.received.length === 1);
+    expect(capabilitiesOf(fake.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1", "agent.reasoning-progress.v1"]);
+    hidden = false;
+    pipe.watch("agent-a");
+    await until(() => fake.received.length === 2);
+    expect(capabilitiesOf(fake.received[1])).toEqual(["agent.history-paging.v1", "session.title.v1"]);
+});
+
+test("@core a redirected watch reads the reasoning choice again when it attaches", async () => {
+    let hidden = true;
+    const target = serve();
+    const origin = serve((socket) => {
+        socket.once("data", () => {
+            hidden = false;
+            socket.write(`${JSON.stringify({ type: "agent_location_changed", socket_path: target.path })}\n`);
+        });
+    });
+    const { pipe } = collect(() => hidden);
+    pipe.connect(origin.path);
+    pipe.watch("agent-a");
+    await until(() => target.received.length === 1);
+    expect(capabilitiesOf(origin.received[0])).toContain("agent.reasoning-progress.v1");
+    expect(capabilitiesOf(target.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1"]);
+});
+
+test("@core reattach opens the same agent again with the current choice and drops the old socket", async () => {
+    const fake = serve();
+    let hidden = false;
+    const { events, pipe } = collect(() => hidden);
+    pipe.connect(fake.path);
+    pipe.watch("agent-a");
+    await until(() => fake.received.length === 1);
+    hidden = true;
+    pipe.reattach();
+    await until(() => fake.received.length === 2);
+    expect(JSON.parse(fake.received[1] ?? "{}")).toMatchObject({ type: "attach", agent_id: "agent-a" });
+    expect(capabilitiesOf(fake.received[1])).toContain("agent.reasoning-progress.v1");
+    fake.sockets[0]?.write(`${JSON.stringify({ type: "stale" })}\n`);
+    fake.sockets[1]?.write(`${JSON.stringify({ type: "fresh" })}\n`);
+    await until(() => events.length === 1);
+    await settle();
+    expect(events).toEqual([
+        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "fresh" })}\n` },
+    ]);
+});
+
+test("reattach does nothing without an open watch", async () => {
+    const fake = serve();
+    const { events, pipe } = collect();
+    pipe.connect(fake.path);
+    pipe.reattach();
+    pipe.watch("agent-a");
+    await until(() => fake.received.length === 1);
+    pipe.unwatch();
+    pipe.reattach();
+    await settle();
+    expect(fake.sockets).toHaveLength(1);
+    expect(events).toEqual([]);
 });

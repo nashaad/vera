@@ -91,15 +91,17 @@ let browserGateway: BrowserGateway | undefined;
 let browserClearing: Promise<void> | undefined;
 
 const pipe = new HostPipe(sendEvent);
+const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
+// With Reasoning off the window asks the host for a character count in place of the reasoning text.
+const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
 const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
-    main: new SessionPipe(sendEvent, "main"),
-    companion: new SessionPipe(sendEvent, "companion"),
-    probe: new SessionPipe(sendEvent, "probe"),
+    main: new SessionPipe(sendEvent, "main", hidesReasoning),
+    companion: new SessionPipe(sendEvent, "companion", hidesReasoning),
+    probe: new SessionPipe(sendEvent, "probe", hidesReasoning),
 };
 const panes = Object.values(sessionPanes);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
-const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // Until the window reports, the menus hide every part the flags file does not turn on.
 let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
@@ -332,7 +334,14 @@ ipcMain.handle(CHANNELS.feedbackSave, async (event, request: unknown) => {
     }
 });
 ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? flagsStore.read() : DEFAULT_DESKTOP_FLAGS));
-ipcMain.handle(CHANNELS.flagsSave, (event, patch: unknown) => (fromWindow(event) ? flagsStore.update(patch) ?? null : null));
+ipcMain.handle(CHANNELS.flagsSave, (event, patch: unknown) => {
+    if (!fromWindow(event)) return null;
+    const hidden = hidesReasoning();
+    const saved = flagsStore.update(patch);
+    if (saved === undefined) return null;
+    if (hidesReasoning() !== hidden) for (const pane of panes) pane.reattach();
+    return saved;
+});
 ipcMain.on(CHANNELS.flagsHidden, (event, ids: unknown) => {
     const next = fromWindow(event) ? parseHiddenIds(ids) : undefined;
     if (next === undefined || (next.size === hiddenCommands.size && [...next].every((id) => hiddenCommands.has(id)))) return;

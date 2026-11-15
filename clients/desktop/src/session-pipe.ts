@@ -1,7 +1,11 @@
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 
-import { HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE } from "../../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_HISTORY_PAGING,
+    HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_TITLE,
+} from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
 import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
 import { describeFailure } from "./host-pipe.ts";
@@ -27,9 +31,11 @@ export class SessionPipe {
     private watchState: Watch | undefined;
     private generation = 0;
 
+    // `hidesReasoning` is read at every attach, so a watch opened or re-attached after the flag changed follows it.
     constructor(
         private readonly emit: (event: DesktopEvent) => void,
         private readonly pane: SessionPane,
+        private readonly hidesReasoning: () => boolean,
     ) {}
 
     connect(socketPath: string): void {
@@ -50,6 +56,12 @@ export class SessionPipe {
             return;
         }
         this.open(agentId, socketPath, 0);
+    }
+
+    // Attaches the open watch again from the start, so the host applies the capabilities chosen now.
+    reattach(): void {
+        const state = this.watchState;
+        if (state !== undefined) this.watch(state.agentId);
     }
 
     send(text: string): void {
@@ -94,7 +106,7 @@ export class SessionPipe {
         let firstLine = true;
         socket.once("connect", () => {
             state.connected = true;
-            socket.write(attachLine(agentId));
+            socket.write(attachLine(agentId, this.hidesReasoning()));
         });
         socket.on("data", (chunk: string) => {
             buffered += chunk;
@@ -145,12 +157,10 @@ export class SessionPipe {
     }
 }
 
-function attachLine(agentId: string): string {
-    return `${JSON.stringify({
-        type: "attach",
-        agent_id: agentId,
-        requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE],
-    })}\n`;
+export function attachLine(agentId: string, hidesReasoning: boolean): string {
+    const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE];
+    if (hidesReasoning) capabilities.push(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
+    return `${JSON.stringify({ type: "attach", agent_id: agentId, requested_capabilities: capabilities })}\n`;
 }
 
 // The host answers a watch on the wrong socket with one location line before anything else.

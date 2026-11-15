@@ -408,8 +408,9 @@ right. Under each message:
   - `Thinking`, with the turn's clock before it once the turn is two seconds old
     (`12s · Thinking`), until text or a tool call arrives.
   - `12s · 236 tokens` while a reply is being written. The window counts about
-    one token for each four characters it has received, because the host sends no
-    count until the turn ends.
+    one token for each four characters it has received, reasoning included
+    whether or not the reasoning is shown, because the host sends no count until
+    the turn ends.
   - A verb, its target and the seconds the call has run, such as `Running git
     status 4s` or `Reading host.ts 1s`, while a tool runs. The line is a button:
     it opens the calls in progress, and opens again to close them.
@@ -475,6 +476,20 @@ file reads as On, and `false`, a missing value or `auto` as Off.
 With Reasoning on, each thought shows as `Thought` and its length in seconds,
 and opens to show its text. A thought still being written shows three dots and
 its latest line. The status line still says only `Thinking`, with the clock.
+
+With Reasoning off, the window asks the host for a character count of the
+reasoning instead of its text, and draws nothing of it. The count is added to
+the token estimate in the status line, so the number is the same with
+Reasoning on or off. The window keeps no text of a thought still being written.
+Thoughts the host has finished, and the history it sends when a session opens,
+still carry their text; the window holds them and does not draw them.
+
+Changing Reasoning attaches an open session again, so the host sends what the
+new choice asks for. The session loads again from its latest page: earlier
+pages loaded by scrolling up are unloaded, and a turn in progress is replayed
+by the host. A message sent in the moment the session attaches again
+is not delivered, as with any attach. A session opened after the change attaches
+with the new choice.
 
 ## Composer
 
