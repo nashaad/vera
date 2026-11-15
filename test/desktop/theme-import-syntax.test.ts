@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { syntaxColors } from "../../clients/desktop/src/theme-import/syntax-colors.ts";
@@ -72,14 +71,13 @@ test("rules that set no color, no scope or a parent-scope selector are left out"
     expect(syntaxColors([])).toEqual({});
 });
 
-test("@core an imported theme saves its token colors as syntax colors and keeps them when listed again", () => {
+test("@core an imported theme carries its token colors as syntax colors and keeps them when listed again", () => {
     const home = scratchDirectory();
-    const store = new ThemeStore(themesDirectory(home));
     const path = writeText(join(scratchDirectory(), "crow.json"), JSON.stringify({ ...PIRATE_CROW, tokenColors: RULES }));
-    const outcome = importThemeFile(store, path);
-    expect(outcome.ok).toBe(true);
-    const saved = JSON.parse(readFileSync(join(themesDirectory(home), "pirate-crow.json"), "utf8")) as { colors: Record<string, string> };
-    expect(saved.colors["syntax-keyword"]).toBe("#ff00ff");
+    const outcome = importThemeFile(path);
+    const theme = outcome.ok ? outcome.themes[0] : undefined;
+    expect(theme?.colors["syntax-keyword"]).toBe("#ff00ff");
+    writeText(join(themesDirectory(home), "pirate-crow.json"), JSON.stringify(theme));
     const listed = new ThemeStore(themesDirectory(home)).list()[0];
     expect(listed?.colors["syntax-string"]).toBe("#98c379");
     expect(listed?.colors["syntax-comment"]).toBe("#5c6370");
@@ -89,13 +87,11 @@ test("@core an imported theme saves its token colors as syntax colors and keeps 
 
 test("@core a theme saved before syntax colors existed lists with the built-in ones", () => {
     const home = scratchDirectory();
-    const store = new ThemeStore(themesDirectory(home));
     const path = writeText(join(scratchDirectory(), "old.json"), JSON.stringify(PIRATE_CROW));
-    importThemeFile(store, path);
-    const file = join(themesDirectory(home), "pirate-crow.json");
-    const saved = JSON.parse(readFileSync(file, "utf8")) as { colors: Record<string, string> };
+    const outcome = importThemeFile(path);
+    const saved = JSON.parse(JSON.stringify(outcome.ok ? outcome.themes[0] : undefined)) as { colors: Record<string, string> };
     for (const token of SYNTAX_TOKENS) delete saved.colors[token];
-    writeFileSync(file, JSON.stringify(saved));
+    writeText(join(themesDirectory(home), "pirate-crow.json"), JSON.stringify(saved));
     const listed = new ThemeStore(themesDirectory(home)).list()[0];
     for (const token of SYNTAX_TOKENS) expect(listed?.colors[token]).toBe(baseColor("dark", token));
 });

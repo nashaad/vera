@@ -24,10 +24,10 @@ interface Trial {
 }
 
 // Each task crosses a structured clone, as it does to a task process, and runs with no state of its own.
-function trial(run?: (task: InstallTask) => Promise<InstallReply>): Trial {
+function trial(run?: (task: InstallTask) => Promise<InstallReply>, onChange?: () => void): Trial {
     const home = scratchDirectory();
     const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
-    const themes = new ThemeService(store, themesDirectory(home), runThemeTask, []);
+    const themes = new ThemeService(store, themesDirectory(home), runThemeTask);
     const tasks: InstallTask[] = [];
     const service = new ExtensionService(store, themes, async (task) => {
         tasks.push(task);
@@ -37,7 +37,7 @@ function trial(run?: (task: InstallTask) => Promise<InstallReply>): Trial {
         const reply = parseInstallReply(structuredClone(runInstallTask(parsed)));
         if (reply === undefined) throw new Error("The reply did not read.");
         return reply;
-    });
+    }, onChange);
     return { home, service, themes, tasks };
 }
 
@@ -147,4 +147,18 @@ test("a VS Code import becomes a desktop extension, and the same name imported a
     expect(folders(home)).toEqual(["imported.pirate-crow"]);
     expect(existsSync(themesDirectory(home))).toBe(false);
     expect(themes.themes().map((theme) => theme.slug)).toEqual(["pirate-crow"]);
+});
+
+test("@core the window hears of each install, switch and removal, and of nothing else", async () => {
+    let changes = 0;
+    const { service } = trial(undefined, () => { changes += 1; });
+    const preview = await service.preview(writePackage(themeFiles("crow.pack", "1.0.0", CROW)));
+    if (!preview.ok || preview.preview === undefined) throw new Error("The package did not preview.");
+    service.list();
+    expect(changes).toBe(0);
+    service.confirm(preview.preview.token);
+    service.setEnabled("crow.pack", false);
+    service.setEnabled("crow.pack", true);
+    service.remove("crow.pack");
+    expect(changes).toBe(4);
 });

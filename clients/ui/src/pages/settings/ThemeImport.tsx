@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { THEME_IMPORTER_ID } from "../../extensions/theme-importer.ts";
+import { useExtensionOn } from "../../extensions/useExtensionOn.ts";
 import type { InstalledThemeEntry } from "../../protocol/themes.ts";
 import { importInstalledTheme, importThemeFromPicker, type ImportReport } from "../../theme/import-flow.ts";
 import { SettingRow } from "./SettingRow.tsx";
@@ -9,13 +11,15 @@ type InstalledList =
     | { readonly kind: "loading" }
     | { readonly kind: "open"; readonly themes: readonly InstalledThemeEntry[]; readonly cut: boolean };
 
-// Import controls for Settings > Appearance. The web client has no desktop bridge, so it shows none.
+// Import controls for Settings > Appearance. The web client has no desktop bridge, and the controls belong to the
+// theme importer extension, so it shows none without the bridge or while the extension is off.
 export function ThemeImport() {
     const bridge = globalThis.window?.veraDesktop;
+    const importerOn = useExtensionOn(THEME_IMPORTER_ID);
     const [busy, setBusy] = useState(false);
     const [report, setReport] = useState<ImportReport | undefined>(undefined);
     const [installed, setInstalled] = useState<InstalledList>({ kind: "closed" });
-    if (bridge === undefined) return null;
+    if (bridge === undefined || !importerOn) return null;
 
     async function finish(work: Promise<ImportReport | undefined>): Promise<void> {
         setBusy(true);

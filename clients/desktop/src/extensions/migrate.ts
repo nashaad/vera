@@ -41,7 +41,7 @@ export function migrateSavedThemes(store: ExtensionStore, savedDirectory: string
         let installed = false;
         if (theme !== undefined) {
             try {
-                const staging = stageSavedTheme(store, { slug, name: theme.name }, file, "copy");
+                const staging = stageSavedTheme(store, { slug, name: theme.name }, { file });
                 installed = store.commit(staging).ok;
                 store.discard(staging);
             } catch {

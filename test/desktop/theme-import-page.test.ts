@@ -256,7 +256,7 @@ test("@core each imported theme has a palette command, and the import command ex
         ["theme.highContrast", "Theme: High Contrast"],
         ["theme.imported.crow-nest", "Theme: Crow Nest"],
         ["theme.imported.pirate-crow", "Theme: Pirate Crow"],
-        ["theme.import", "Theme: Import VS Code Theme…"],
+        [THEME_IMPORT_COMMAND, "Theme: Import VS Code Theme…"],
         ["theme.light", "Theme: Light"],
     ].sort());
     registry.execute(importedThemeCommand("crow-nest"));

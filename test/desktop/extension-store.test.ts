@@ -125,6 +125,38 @@ test("@core included extensions are listed, can be turned off, and cannot be rem
     expect(storeFor(home, included).entries()[0]?.enabled).toBe(false);
 });
 
+function taskExtension(directory: string, id: string, worker = true): void {
+    const manifest = { id, version: "1.0.0", engine: DESKTOP_ENGINE, contributes: { tasks: [{ id: "scan", title: "Crow Scan", main: "scan.cjs" }] } };
+    writeText(join(directory, id, "vera.desktop.json"), JSON.stringify(manifest));
+    if (worker) writeText(join(directory, id, "scan.cjs"), "module.exports = {};");
+}
+
+test("@core only an included extension that is turned on hands out the worker file of its task", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    taskExtension(included, "vera.scan");
+    taskExtension(included, "vera.lost", false);
+    taskExtension(extensionsDirectory(home), "crow.scan");
+    const store = storeFor(home, included);
+    expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
+    expect(store.taskFile("vera.scan", "other")).toBeUndefined();
+    expect(store.taskFile("vera.lost", "scan")).toBeUndefined();
+    expect(store.taskFile("crow.scan", "scan")).toBeUndefined();
+    expect(store.taskFile("absent", "scan")).toBeUndefined();
+    expect(store.entries().find((entry) => entry.id === "vera.scan")).toMatchObject({ hasMain: true, hasCommands: false, included: true });
+    expect(store.setEnabled("vera.scan", false)).toBe(true);
+    expect(store.taskFile("vera.scan", "scan")).toBeUndefined();
+    expect(store.setEnabled("vera.scan", true)).toBe(true);
+    expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
+});
+
+test("a task worker that is not a regular file inside the extension is refused", () => {
+    const included = scratchDirectory();
+    taskExtension(included, "vera.scan", false);
+    mkdirSync(join(included, "vera.scan", "scan.cjs"));
+    expect(storeFor(scratchDirectory(), included).taskFile("vera.scan", "scan")).toBeUndefined();
+});
+
 test("@core turning an extension off hides its themes, persists across stores, and removing it resets the switch", () => {
     const home = scratchDirectory();
     const store = storeFor(home);

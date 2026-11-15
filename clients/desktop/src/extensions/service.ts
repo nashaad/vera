@@ -27,6 +27,8 @@ export class ExtensionService {
         private readonly store: ExtensionStore,
         private readonly themes: ThemeService,
         private readonly run: RunInstallTask,
+        // Called after the set of extensions or what is turned on has changed.
+        private readonly onChange: () => void = () => {},
     ) {}
 
     // Reads everything again, so a folder added or removed by hand shows up.
@@ -65,7 +67,7 @@ export class ExtensionService {
             this.store.discard(pending.staging);
             return result;
         }
-        return this.state();
+        return this.changed();
     }
 
     cancel(token: string): void {
@@ -74,13 +76,13 @@ export class ExtensionService {
 
     setEnabled(id: string, enabled: boolean): ExtensionChangeResult {
         if (!this.store.setEnabled(id, enabled)) return { ok: false, reason: `Vera could not turn "${id}" ${enabled ? "on" : "off"}.` };
-        return this.state();
+        return this.changed();
     }
 
     remove(id: string): ExtensionChangeResult {
         switch (this.store.remove(id)) {
             case "removed":
-                return this.state();
+                return this.changed();
             case "included":
                 return { ok: false, reason: `"${id}" is included with Vera and cannot be removed.` };
             case "missing":
@@ -93,6 +95,12 @@ export class ExtensionService {
     private cancelPending(): void {
         if (this.pending !== undefined) this.store.discard(this.pending.staging);
         this.pending = undefined;
+    }
+
+    private changed(): ExtensionChangeResult {
+        const result = this.state();
+        this.onChange();
+        return result;
     }
 
     private state(): ExtensionChangeResult {

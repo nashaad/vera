@@ -1,9 +1,16 @@
-import { parseImportedSummaries, type ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
+import { parseImportedTheme, type ImportedTheme } from "../../../ui/src/theme/imported.ts";
 
-// The main process imports only this file and roots.ts from this folder; the rest is import code for the task process.
+// The main process imports only this file from this folder; the rest is import code for the task process.
 
 export const THEME_TASK_SERVICE = "Vera Theme Import";
+// The worker bundle, inside the included extension that contributes the task.
 export const THEME_TASK_FILE = "theme-import.cjs";
+// The id of the task in the importer's manifest. The extension's own id is THEME_IMPORTER_ID.
+export const THEME_IMPORT_TASK = "import";
+
+// One reply holds at most this many themes, and this many bytes of them once written as JSON.
+export const MAX_REPLY_THEMES = 200;
+export const MAX_REPLY_BYTES = 16 * 1024 * 1024;
 
 export interface InstalledTheme {
     readonly label: string;
@@ -20,14 +27,16 @@ export interface InstalledScan {
     readonly cut: boolean;
 }
 
+// The converted themes travel in the reply; main installs them and the task writes nothing.
 export type ImportOutcome =
-    | { readonly ok: true; readonly imported: readonly ImportedThemeSummary[]; readonly skipped: readonly string[] }
+    | { readonly ok: true; readonly themes: readonly ImportedTheme[]; readonly skipped: readonly string[] }
     | { readonly ok: false; readonly reason: string };
 
 export type ThemeTask =
-    | { readonly kind: "import-file"; readonly directory: string; readonly path: string }
-    | { readonly kind: "import-installed"; readonly directory: string; readonly theme: InstalledTheme }
-    | { readonly kind: "list-installed"; readonly roots: readonly string[] };
+    | { readonly kind: "import-file"; readonly path: string }
+    | { readonly kind: "import-installed"; readonly theme: InstalledTheme }
+    // `roots` are the folders to search; the task uses VS Code's own when they are left out.
+    | { readonly kind: "list-installed"; readonly roots?: readonly string[] };
 
 export type ThemeTaskReply =
     | { readonly kind: "imported"; readonly outcome: ImportOutcome }
@@ -57,9 +66,15 @@ function parseOutcome(value: unknown): ImportOutcome | undefined {
     if (!isRecord(value)) return undefined;
     if (value.ok === false) return isString(value.reason) ? { ok: false, reason: value.reason } : undefined;
     const skipped = strings(value.skipped);
-    if (value.ok !== true || !Array.isArray(value.imported) || skipped === undefined) return undefined;
-    const imported = parseImportedSummaries(value.imported);
-    return imported.length === value.imported.length ? { ok: true, imported, skipped } : undefined;
+    if (value.ok !== true || !Array.isArray(value.themes) || skipped === undefined) return undefined;
+    if (value.themes.length > MAX_REPLY_THEMES || JSON.stringify(value.themes).length > MAX_REPLY_BYTES) return undefined;
+    const themes: ImportedTheme[] = [];
+    for (const entry of value.themes) {
+        const theme = parseImportedTheme(entry);
+        if (theme === undefined) return undefined;
+        themes.push(theme);
+    }
+    return { ok: true, themes, skipped };
 }
 
 function parseScan(value: unknown): InstalledScan | undefined {
@@ -76,13 +91,14 @@ function parseScan(value: unknown): InstalledScan | undefined {
 export function parseThemeTask(value: unknown): ThemeTask | undefined {
     if (!isRecord(value)) return undefined;
     if (value.kind === "import-file") {
-        return isString(value.directory) && isString(value.path) ? { kind: "import-file", directory: value.directory, path: value.path } : undefined;
+        return isString(value.path) ? { kind: "import-file", path: value.path } : undefined;
     }
     if (value.kind === "import-installed") {
         const theme = parseInstalledTheme(value.theme);
-        return isString(value.directory) && theme !== undefined ? { kind: "import-installed", directory: value.directory, theme } : undefined;
+        return theme === undefined ? undefined : { kind: "import-installed", theme };
     }
     if (value.kind === "list-installed") {
+        if (value.roots === undefined) return { kind: "list-installed" };
         const roots = strings(value.roots);
         return roots === undefined ? undefined : { kind: "list-installed", roots };
     }

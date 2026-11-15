@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.tsx";
+import { syncDesktopExtensions } from "./customize/desktop-extensions.ts";
 import { syncImportedThemes } from "./theme/sync.ts";
 import "./styles/base.css";
 import "./styles/titlebar.css";
@@ -40,5 +41,6 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(<App />);
 void syncImportedThemes();
+void syncDesktopExtensions();
 
 import "./styles/feedback.css";

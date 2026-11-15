@@ -224,6 +224,22 @@ test("the section lists each extension with its switch, and only an installed on
     expect(html).toMatch(/aria-checked="false"[^>]*data-desktop-extension-switch="vera.core-themes"|data-desktop-extension-switch="vera.core-themes"[^>]*aria-checked="false"/);
 });
 
+test("an included extension that runs a task does not say its commands are not loaded, an installed one does", () => {
+    const html = render({
+        list: {
+            phase: "ready",
+            extensions: [
+                entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true }),
+                entry("crow.pack", { hasMain: true, hasCommands: true }),
+            ],
+        },
+    });
+    expect(html.split("Its commands are not loaded by this version of Vera.")).toHaveLength(2);
+    expect(html).toContain("No themes");
+    const included = render({ list: { phase: "ready", extensions: [entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true })] } });
+    expect(included).not.toContain("not loaded");
+});
+
 test("an empty list, a failed list and a report each say so", () => {
     expect(render({})).toContain("No desktop extensions are installed.");
     expect(render({ list: { phase: "failed", reason: LIST_FAILED } })).toContain(LIST_FAILED);

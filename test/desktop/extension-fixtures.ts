@@ -1,10 +1,9 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
 import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
-import { ThemeStore } from "../../clients/desktop/src/theme-store.ts";
 import { pirateCrowText, scratchDirectory, writeText } from "./theme-fixtures.ts";
 
 export interface TarItem {
@@ -74,12 +73,10 @@ export interface FixtureTheme {
 
 // The slug and file text of a saved theme the importer would write for this name.
 export function savedTheme(name: string): { readonly slug: string; readonly text: string } {
-    const directory = scratchDirectory();
-    const store = new ThemeStore(directory);
-    const outcome = importThemeFile(store, writeText(join(scratchDirectory(), "theme.json"), pirateCrowText({ name })));
-    const slug = outcome.ok ? outcome.imported[0]?.slug : undefined;
-    if (slug === undefined) throw new Error("The fixture theme did not import.");
-    return { slug, text: readFileSync(join(directory, `${slug}.json`), "utf8") };
+    const outcome = importThemeFile(writeText(join(scratchDirectory(), "theme.json"), pirateCrowText({ name })));
+    const theme = outcome.ok ? outcome.themes[0] : undefined;
+    if (theme === undefined) throw new Error("The fixture theme did not import.");
+    return { slug: theme.slug, text: JSON.stringify(theme) };
 }
 
 // The files of a themes-only extension package, at the archive root.
