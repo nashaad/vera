@@ -13,6 +13,8 @@ export interface BrowserState {
     readonly active: number | null;
     readonly toolsEnabled: boolean;
     readonly toolsAvailable: boolean;
+    // The page an "open" command just created, so the caller can bind it to its tab.
+    readonly opened?: number;
 }
 
 export interface BrowserBounds {

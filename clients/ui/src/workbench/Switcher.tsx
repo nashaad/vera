@@ -1,16 +1,19 @@
 import { useRef, useState, type MouseEvent } from "react";
 
-import { containerMenu, switcherMenu } from "../commands/menus.ts";
+import { containerMenu, switcherMenu, tabMenu } from "../commands/menus.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
+import { XIcon } from "../components/Icons.tsx";
 import type { LocationId } from "../layout/model.ts";
+import type { ResolvedContainer, ResolvedTab } from "../layout/resolve.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
-import { dropIndex, useDrag, useDropTarget } from "./drag.tsx";
+import { draggedContainer, dropIndex, useDrag, useDropTarget } from "./drag.tsx";
 import { useWorkbench } from "./context.tsx";
+import { useTabTitle } from "./tab-context.tsx";
 
 export interface SwitcherProps {
     readonly location: LocationId;
-    // "nav" is the rows at the top of the sidebar, "pills" the right pane's top row,
-    // "tabs" the strip above the panel.
+    // "nav" is the rows at the top of the sidebar, "pills" the right pane's tabs (each with a close
+    // button), "tabs" the strip above the panel.
     readonly variant: "nav" | "pills" | "tabs";
 }
 
@@ -26,11 +29,16 @@ export function Switcher({ location, variant }: SwitcherProps) {
     const [marker, setMarker] = useState<Marker | undefined>(undefined);
     const resolved = layout.locations[location];
     const horizontal = variant !== "nav";
+    const paneTabs = variant === "pills";
+    const idOf = (element: HTMLElement): string => (paneTabs ? element.dataset.tab : element.dataset.container) as string;
 
-    // The tabs still in place, in order, leaving out the one being dragged.
+    // The entries still in place, in order, leaving out the one being dragged.
     const remaining = (): HTMLElement[] =>
-        [...(ref.current?.querySelectorAll<HTMLElement>("[data-container]") ?? [])]
-            .filter((element) => !(payload?.kind === "container" && element.dataset.container === payload.id));
+        [...(ref.current?.querySelectorAll<HTMLElement>(paneTabs ? "[data-tab]" : "[data-container]") ?? [])]
+            .filter((element) => !(
+                (payload?.kind === "tab" && paneTabs && idOf(element) === payload.id)
+                || (payload?.kind === "container" && !paneTabs && idOf(element) === payload.id)
+            ));
 
     const indexAt = (event: { clientX: number; clientY: number }): number => dropIndex(
         remaining().map((element) => {
@@ -52,17 +60,22 @@ export function Switcher({ location, variant }: SwitcherProps) {
             const last = items[items.length - 1];
             setMarker(
                 before !== undefined
-                    ? { id: before.dataset.container as string, side: "before" }
+                    ? { id: idOf(before), side: "before" }
                     : last !== undefined
-                        ? { id: last.dataset.container as string, side: "after" }
+                        ? { id: idOf(last), side: "after" }
                         : undefined,
             );
         },
         onDrop: (dragged, event) => {
             setMarker(undefined);
             const index = indexAt(event);
-            if (dragged.kind === "container") {
-                dispatch({ type: "moveContainer", container: dragged.id, location, index });
+            if (dragged.kind === "tab" && paneTabs) {
+                dispatch({ type: "moveTab", tab: dragged.id, index });
+                return;
+            }
+            const container = draggedContainer(dragged);
+            if (container !== undefined) {
+                dispatch({ type: "moveContainer", container, location, ...(paneTabs ? {} : { index }) });
             } else {
                 dispatch({ type: "moveView", view: dragged.id, to: { location, index } });
             }
@@ -75,36 +88,25 @@ export function Switcher({ location, variant }: SwitcherProps) {
         if (entries.length > 0) openMenu(entries, { x: event.clientX, y: event.clientY });
     };
 
-    const items = resolved.containers.map((container) => {
-        const active = resolved.visible && resolved.active?.id === container.id;
-        return (
-            <button
+    const items = paneTabs
+        ? resolved.tabs.map((tab) => (
+            <PaneTabItem
+                key={tab.id}
+                tab={tab}
+                active={resolved.visible && resolved.activeTab?.id === tab.id}
+                marker={marker?.id === tab.id ? marker.side : undefined}
+            />
+        ))
+        : resolved.containers.map((container) => (
+            <ContainerItem
                 key={container.id}
-                type="button"
-                className="switcher-item"
-                role="tab"
-                aria-selected={active}
-                aria-label={container.title}
-                title={container.title}
-                draggable
-                data-container={container.id}
-                data-active={active}
-                data-marker={marker?.id === container.id ? marker.side : undefined}
-                onClick={() => run(LAYOUT_COMMANDS.containerActivate, { container: container.id })}
-                onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openMenu(containerMenu(layout, container.id), { x: event.clientX, y: event.clientY });
-                }}
-                onDragStart={(event) => start({ kind: "container", id: container.id }, event)}
-            >
-                <ContainerIcon name={container.icon} />
-                <span className="switcher-title">{container.title}</span>
-            </button>
-        );
-    });
+                container={container}
+                active={resolved.visible && resolved.active?.id === container.id}
+                marker={marker?.id === container.id ? marker.side : undefined}
+            />
+        ));
 
-    const label = `${location} containers`;
+    const label = paneTabs ? "Pane tabs" : `${location} containers`;
     const orientation = horizontal ? "horizontal" : "vertical";
     return (
         <div
@@ -128,5 +130,83 @@ export function Switcher({ location, variant }: SwitcherProps) {
         >
             {items}
         </div>
+    );
+}
+
+interface ItemProps {
+    readonly active: boolean;
+    readonly marker: Marker["side"] | undefined;
+}
+
+function ContainerItem({ container, active, marker: side }: ItemProps & { readonly container: ResolvedContainer }) {
+    const { layout, run, openMenu } = useWorkbench();
+    const { start } = useDrag();
+    return (
+        <button
+            type="button"
+            className="switcher-item"
+            role="tab"
+            aria-selected={active}
+            aria-label={container.title}
+            title={container.title}
+            draggable
+            data-container={container.id}
+            data-active={active}
+            data-marker={side}
+            onClick={() => run(LAYOUT_COMMANDS.containerActivate, { container: container.id })}
+            onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openMenu(containerMenu(layout, container.id), { x: event.clientX, y: event.clientY });
+            }}
+            onDragStart={(event) => start({ kind: "container", id: container.id }, event)}
+        >
+            <ContainerIcon name={container.icon} />
+            <span className="switcher-title">{container.title}</span>
+        </button>
+    );
+}
+
+function PaneTabItem({ tab, active, marker: side }: ItemProps & { readonly tab: ResolvedTab }) {
+    const { layout, run, openMenu } = useWorkbench();
+    const { start } = useDrag();
+    const title = useTabTitle(tab.id) ?? tab.container.title;
+    // The close button is a sibling of the tab, laid over its right edge, so the tab holds no button.
+    return (
+        <span className="switcher-pill" role="presentation" data-active={active}>
+            <button
+                type="button"
+                className="switcher-item"
+                role="tab"
+                aria-selected={active}
+                aria-label={title}
+                title={title}
+                draggable
+                data-tab={tab.id}
+                data-container={tab.container.id}
+                data-active={active}
+                data-marker={side}
+                onClick={() => run(LAYOUT_COMMANDS.tabActivate, { tab: tab.id })}
+                onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openMenu(tabMenu(layout, tab.id, title), { x: event.clientX, y: event.clientY });
+                }}
+                onDragStart={(event) => start({ kind: "tab", id: tab.id, container: tab.container.id }, event)}
+            >
+                <ContainerIcon name={tab.container.icon} />
+                <span className="switcher-title">{title}</span>
+            </button>
+            <button
+                type="button"
+                className="icon-button switcher-close"
+                aria-label={`Close ${title}`}
+                title={`Close ${title}`}
+                data-close={tab.id}
+                onClick={() => run(LAYOUT_COMMANDS.tabClose, { tab: tab.id })}
+            >
+                <XIcon />
+            </button>
+        </span>
     );
 }

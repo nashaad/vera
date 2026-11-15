@@ -1,6 +1,8 @@
 // Every key the desktop answers, in one table: the shell binds the native ones, and the
 // shortcuts sheet and Settings > Keyboard list all of them.
 
+import { PANE_KINDS, paneKindCommand, type PaneKind } from "../registry/core.ts";
+
 export interface NativeShortcut {
     readonly command: string;
     readonly label: string;
@@ -17,6 +19,26 @@ export const LAYOUT_SHORTCUTS = [
     { command: "layout.toggleRightPane", label: "Toggle Right Pane", accelerator: "CmdOrCtrl+Alt+B", code: "KeyB", alt: true, shift: false },
     { command: "layout.togglePanel", label: "Toggle Panel", accelerator: "CmdOrCtrl+J", code: "KeyJ", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
+
+// The shortcuts the right pane's kinds declare, each showing that kind's most recent tab.
+export function paneShortcuts(kinds: readonly PaneKind[]): readonly NativeShortcut[] {
+    return kinds.flatMap((kind): NativeShortcut[] => {
+        const keys = kind.shortcut;
+        if (keys === undefined) return [];
+        const alt = keys.alt === true;
+        const shift = keys.shift === true;
+        return [{
+            command: paneKindCommand(kind.id),
+            label: `Show ${kind.title}`,
+            accelerator: `CmdOrCtrl+${alt ? "Alt+" : ""}${shift ? "Shift+" : ""}${keys.key}`,
+            code: `Key${keys.key}`,
+            alt,
+            shift,
+        }];
+    });
+}
+
+export const PANE_SHORTCUTS: readonly NativeShortcut[] = paneShortcuts(PANE_KINDS);
 
 export const GO_SHORTCUTS = [
     { command: "go.newChat", label: "New Chat", accelerator: "CmdOrCtrl+N", code: "KeyN", alt: false, shift: false },
@@ -42,6 +64,7 @@ export const EXTRA_SHORTCUTS = [
 
 export const NATIVE_SHORTCUTS: readonly NativeShortcut[] = [
     ...LAYOUT_SHORTCUTS,
+    ...PANE_SHORTCUTS,
     ...GO_SHORTCUTS,
     ...SESSION_SHORTCUTS,
     ...HELP_SHORTCUTS,
@@ -132,7 +155,7 @@ export function shortcutGroups(platform: string): readonly ShortcutGroup[] {
         pageRows.set(key.where, rows);
     }
     return [
-        { title: "Window", rows: nativeRows(LAYOUT_SHORTCUTS, platform) },
+        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, ...PANE_SHORTCUTS], platform) },
         { title: "Go", rows: nativeRows(GO_SHORTCUTS, platform) },
         { title: "Session", rows: nativeRows(SESSION_SHORTCUTS, platform) },
         { title: "Help", rows: nativeRows(HELP_SHORTCUTS, platform) },

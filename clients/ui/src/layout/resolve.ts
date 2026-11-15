@@ -1,5 +1,5 @@
 import type { LayoutState, LocationId, RegistrySnapshot } from "./model.ts";
-import { LOCATIONS } from "./model.ts";
+import { LOCATIONS, MAX_TABS } from "./model.ts";
 
 export interface ResolvedView {
     readonly id: string;
@@ -20,6 +20,15 @@ export interface ResolvedContainer {
     readonly views: readonly ResolvedView[];
     // The container appears only while it has a visible view and is not hidden itself.
     readonly shown: boolean;
+    // Tabs of this kind in the right pane, and the most it holds at once (absent for no limit).
+    readonly tabCount: number;
+    readonly maxTabs: number | undefined;
+}
+
+// One tab in the right pane. Two tabs can show the same container.
+export interface ResolvedTab {
+    readonly id: string;
+    readonly container: ResolvedContainer;
 }
 
 export interface ResolvedLocation {
@@ -28,14 +37,22 @@ export interface ResolvedLocation {
     readonly size: number;
     // Containers that appear in the location, in order.
     readonly containers: readonly ResolvedContainer[];
+    // The right pane's tabs in strip order; empty elsewhere. Tabs of containers that are not shown are left out.
+    readonly tabs: readonly ResolvedTab[];
+    readonly activeTab: ResolvedTab | undefined;
     // Every container placed here in order, hidden and empty ones included.
     readonly all: readonly ResolvedContainer[];
+    // In the right pane the container of the active tab, and none while the pane has no tabs.
     readonly active: ResolvedContainer | undefined;
 }
 
 export interface ResolvedLayout {
     readonly locations: Readonly<Record<LocationId, ResolvedLocation>>;
     readonly containers: readonly ResolvedContainer[];
+    // Every tab in the layout, those of containers that are not shown included; the pane holds at most MAX_TABS.
+    readonly tabTotal: number;
+    // Tab ids, the most recently active first.
+    readonly recentTabs: readonly string[];
 }
 
 interface ContainerDefinition {
@@ -44,6 +61,7 @@ interface ContainerDefinition {
     readonly icon: string;
     readonly defaultLocation: LocationId;
     readonly generated: boolean;
+    readonly maxTabs: number | undefined;
 }
 
 // Orders ids by their place in a saved list; ids the list does not name keep their
@@ -71,6 +89,7 @@ export function resolveLayout(state: LayoutState, registry: RegistrySnapshot): R
             icon: container.icon,
             defaultLocation: container.location,
             generated: false,
+            maxTabs: container.maxTabs,
         });
     }
     for (const [id, generated] of Object.entries(state.generated)) {
@@ -81,6 +100,7 @@ export function resolveLayout(state: LayoutState, registry: RegistrySnapshot): R
             icon: generated.icon,
             defaultLocation: "sidebar",
             generated: true,
+            maxTabs: undefined,
         });
     }
 
@@ -95,6 +115,8 @@ export function resolveLayout(state: LayoutState, registry: RegistrySnapshot): R
     }
 
     const hiddenContainers = new Set(state.hiddenContainers);
+    const tabCounts = new Map<string, number>();
+    for (const tab of state.tabs) tabCounts.set(tab.container, (tabCounts.get(tab.container) ?? 0) + 1);
     const hiddenViews = new Set(state.hiddenViews);
     const collapsedViews = new Set(state.collapsedViews);
     const resolved = new Map<string, ResolvedContainer>();
@@ -108,15 +130,19 @@ export function resolveLayout(state: LayoutState, registry: RegistrySnapshot): R
                 collapsed: collapsedViews.has(view.id),
             }));
         const hidden = hiddenContainers.has(definition.id);
+        const location = state.containerLocation[definition.id] ?? definition.defaultLocation;
+        const shown = !hidden && views.some((view) => !view.hidden);
         resolved.set(definition.id, {
             id: definition.id,
             title: definition.title,
             icon: definition.icon,
-            location: state.containerLocation[definition.id] ?? definition.defaultLocation,
+            location,
             generated: definition.generated,
             hidden,
             views,
-            shown: !hidden && views.some((view) => !view.hidden),
+            shown,
+            tabCount: tabCounts.get(definition.id) ?? 0,
+            maxTabs: definition.maxTabs,
         });
     }
 
@@ -129,16 +155,25 @@ export function resolveLayout(state: LayoutState, registry: RegistrySnapshot): R
         );
         const here = all.filter((container) => container.shown);
         const saved = state.locations[location];
+        const tabs = location === "rightPane"
+            ? state.tabs.flatMap((tab): ResolvedTab[] => {
+                const container = here.find((candidate) => candidate.id === tab.container);
+                return container === undefined ? [] : [{ id: tab.id, container }];
+            })
+            : [];
+        const activeTab = tabs.find((tab) => tab.id === saved.active) ?? tabs[0];
         locations[location] = {
             id: location,
             visible: saved.visible,
             size: saved.size,
             containers: here,
+            tabs,
+            activeTab,
             all,
-            active: here.find((container) => container.id === saved.active) ?? here[0],
+            active: location === "rightPane" ? activeTab?.container : here.find((container) => container.id === saved.active) ?? here[0],
         };
     }
-    return { locations, containers: [...resolved.values()] };
+    return { locations, containers: [...resolved.values()], tabTotal: state.tabs.length, recentTabs: state.recentTabs };
 }
 
 export function findView(layout: ResolvedLayout, viewId: string): ResolvedView | undefined {
@@ -151,4 +186,13 @@ export function findView(layout: ResolvedLayout, viewId: string): ResolvedView |
 
 export function findContainer(layout: ResolvedLayout, containerId: string): ResolvedContainer | undefined {
     return layout.containers.find((container) => container.id === containerId);
+}
+
+// Whether another tab of the container can open: it is shown in the right pane and neither its own
+// limit nor the pane's has been reached.
+export function canOpenTab(layout: ResolvedLayout, containerId: string): boolean {
+    const container = findContainer(layout, containerId);
+    if (container === undefined || !container.shown || container.location !== "rightPane") return false;
+    if (layout.tabTotal >= MAX_TABS) return false;
+    return container.maxTabs === undefined || container.tabCount < container.maxTabs;
 }

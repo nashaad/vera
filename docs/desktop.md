@@ -239,10 +239,27 @@ bottom panel. A location holds view containers. Below the sidebar's page rows,
 the sidebar switches its containers with rows, each an icon and a title, with the
 selected row filled. Those rows are hidden while the sidebar holds exactly one
 container. They show with any other number of containers, and while a container
-is being dragged. The right pane switches them with rounded tabs in its top row,
-each an icon and a title. The panel switches them with tabs. A container holds
+is being dragged. The panel switches them with tabs. A container holds
 one or more views stacked on top of each other, and each view has a header that
-collapses it. The main area is not a location for views.
+collapses it. The right pane works differently, described below. The main area
+is not a location for views.
+
+The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
+Plan, Files or Browser. The kinds come from one list, and the tiles, the
+launcher, the tab strip and the saved layout all follow it. The top row holds the
+tabs, a `+` button, and at the right the button that closes the pane. A tab shows
+its kind's icon and title, or the page's title for a Browser tab, and has a close
+button that shows while the pointer is over the tab and on the active tab. The
+same kind can be open any number of times, up to 16 tabs in the pane. With no tabs the
+pane shows one tile for each kind that can be opened, and a tile is disabled while
+its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
+opens a new tab of that kind and shows it. `+` opens the launcher, which has a
+filter field and a row for each kind with its shortcut. If the typed text is a web
+address, such as `example.com/docs`, `localhost:3000` or one that starts with
+`https://`, the first row opens it in a new Browser tab; a bare word such as `files`
+only filters. Up/Down move through the rows, Enter opens the focused row and Escape
+closes the launcher. A view's own empty state shows inside its tab as before.
+Closing the last tab brings the tiles back.
 
 Six views ship with the app:
 
@@ -283,11 +300,11 @@ Six views ship with the app:
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
     as it is.
-- Review, Plan and Files, each in its own container in the right pane,
-  follow the open session; see Session tools. Each can be shown or hidden in
+- Review, Plan and Files, each in its own container that opens as right pane
+  tabs, follow the open session; see Session tools. Each can be shown or hidden in
   Settings > Show.
-- Browser, in its own container in the right pane, opens sites and Vera's pages; see
-  Browser.
+- Browser, in its own container that opens as right pane tabs, opens sites and
+  Vera's pages, one page per tab; see Browser.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
   losing and regaining the host, startup questions and the answers sent. It keeps
   the last 200 lines in memory and does not survive a restart. The panel is
@@ -295,7 +312,8 @@ Six views ship with the app:
 
 The right pane is closed in the default layout and opens with the button at
 the right of the main header, Cmd+Alt+B, the View menu or a command; a saved layout keeps whichever state you left it in.
-Moving a view or container into a closed location opens it.
+Moving a view or container into a closed location opens it. A new window has no
+right pane tabs.
 
 View headers show the view's title in mixed case in a muted color. A container
 with a single shown view draws no title for it, since the switcher already names
@@ -312,11 +330,18 @@ You can:
   location.
 - Drag a container's row or tab to another place in the same strip,
   or to another location.
+- Drag a right pane tab to another place in the strip to reorder it. Dragging it
+  to the sidebar or the panel moves its kind's container there and closes every
+  tab of that kind in the pane. Dragging a container from the sidebar or the panel
+  into the right pane opens one tab of its kind. Containers placed in the sidebar
+  or the panel are not offered by the tiles or the launcher.
 - Right-click a view header, or use its actions button, to hide the view, move it
   to the sidebar, right pane or panel, move it into another container, move it to
-  a new container, or reset its location. Right-click a container's row or tab
-  for the same choices on the whole container. Right-click an empty
-  part of a strip to show or hide any container placed there.
+  a new container, or reset its location. Right-click a sidebar row or a panel tab
+  for the same choices on the whole container. Right-click a right pane tab for
+  Close, then the same choices on its kind's container; hiding or moving the
+  container closes every tab of that kind. Right-click an empty part of a strip to
+  show or hide any container placed there.
 - Collapse a view by clicking its header, when its container shows more than one
   view.
 - Resize the sidebar, right pane and panel by dragging the sash on their inner
@@ -331,13 +356,16 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `layout.toggleRightPane`, `layout.togglePanel`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
-`container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`,
+`container.reset`, `tab.open`, `tab.activate`, `tab.close`, `theme.dark`, `theme.light`, `theme.highContrast`,
 `theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import` (while the
 theme importer is on), `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
-`session.setLayout`.
+`session.setLayout`. `container.activate` and the shortcuts of a kind show the most
+recently active tab of that kind, and open one when there is none; `tab.open`
+always opens a new tab of the kind, and `tab.activate` and `tab.close` take a
+tab's id.
 Menus and shortcuts run commands and nothing else.
 
 A view is told whether it is visible and never where it sits. A location with
@@ -351,6 +379,13 @@ every default. If it names a view or container that is not registered, that
 entry is ignored and the rest applies; when the view is registered again it
 returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
+
+The file also holds the right pane's tabs: each tab's kind and order, and which
+one is active. Browser tabs are not saved, so a Browser tab does not return after
+a restart, and a layout that holds only Browser tabs comes back with none. A layout saved before the
+right pane held tabs opens with one tab, of the container that was active in the
+pane. A tab saved for a kind that is not registered is ignored, and a tab list
+that cannot be read is dropped and the pane opens with no tabs.
 
 ## Showing parts of the window
 
@@ -376,7 +411,9 @@ commands in the command palette, the menus and the slash menu, its shortcut, its
 Tour card, and a pane toggle when no pane is left to open. Off deletes no data and
 stops no work. Changes, plans and files stay with their sessions, the connection
 log keeps recording, and the browser keeps running. A part turned on again shows
-what it held, and a pane keeps its place in the saved layout while hidden. A page
+what it held, and a pane keeps its place in the saved layout while hidden. Its
+right pane tabs and its tile are not shown while it is Off, and the tabs return
+when it is turned on again. A page
 that is open when its part is turned off stays open until you leave it. Run
 doctor on the host banner works whether or not the health check is shown.
 
@@ -913,28 +950,37 @@ model was swapped. Retries and failures show as strips in the column.
 
 ## Browser
 
-The Browser opens sites in the right pane. Its top row holds Back, Forward,
-the address bar, Reload and Open in your browser. New tab opens another site,
-and a site popup opens a tab. The Vera tab shows the pages the annex serves on
-this machine: Usage, Runs and pages extensions add. Home lists those pages and
-their paths. A Vera page shows without the annex's own menu and title.
+The Browser opens sites in the right pane, one page to a tab. Each Browser tab has
+a top row of Back, Forward, the address bar, Reload and Open in your browser. A
+site popup opens in a new Browser tab, and `+` or the Browser tile opens a new,
+empty one; the launcher also opens a typed web address in a new Browser tab. A
+tab shows the page's title in the strip, and closing the tab closes the page. A
+Browser tab that has no site open shows the pages the annex serves on this
+machine: Usage, Runs and pages extensions add. Home lists those pages and their
+paths. A Vera page shows without the annex's own menu and title.
+
+At most 12 Browser tabs are open at once. At that point the Browser tile and the
+launcher's Browser row are disabled, and a site that asks for another window is
+refused.
 
 Enter an address for a site, or a Vera page's name or path such as `/runs`.
 Open in your browser opens the current page in the system browser. Back and
-Forward move through the current tab. Site tabs close with the window; their
-sign-ins and site data stay in the home until Forget browsing data removes them.
-Sign-ins are stored in the home like provider keys, in an owner-only directory,
-and the cookie store is plaintext. A site may end a sign-in or use a session
-cookie that expires when the window closes.
+Forward move through the current tab. Browser tabs are not kept when the window
+closes; their sign-ins and site data stay in the home until Forget browsing data
+removes them. Sign-ins are stored in the home like provider keys, in an
+owner-only directory, and the cookie store is plaintext. A site may end a
+sign-in or use a session cookie that expires when the window closes.
 
 Browser tools are off by default. Turn on Browser tools in the pane to let Vera
-read and act in the selected site tab, under the session's approval mode. You
-can watch and take over in the pane. See [Browser use](browser-use.md).
+read and act in the selected site tab, under the session's approval mode. A page
+Vera opens gets its own Browser tab. You can watch and take over in the pane. See
+[Browser use](browser-use.md).
 
 The command palette's Pages group opens Home as `Vera's Pages` or a page by its
-name, and `/usage` in the composer opens Usage. When the host is not running or
-the annex is down, the Browser says so. When only the extension list fails, the
-built-in pages still open and Home says why.
+name, and `/usage` in the composer opens Usage; each uses the most recent Browser
+tab that shows no site, or opens a new tab, and never replaces a site. When the
+host is not running or the annex is down, the Browser says so. When only the
+extension list fails, the built-in pages still open and Home says why.
 
 ## Finding the host
 
@@ -1394,6 +1440,18 @@ Sessions and the theme are still there, resets its location, toggles the sidebar
 the right pane and the panel with the shortcuts, toggles the right pane from the
 main header button, moves a container through its menu, and resets the layout
 from the View menu. It stops the host it started.
+
+The pane test checks the right pane's tabs. It starts with the tiles, one for
+each kind, opens a tab from a tile and a second tab of the same kind from the
+launcher, filters the launcher, closes tabs from their close buttons and checks
+the tiles return with the last one. It opens a web address from the launcher as
+a Browser tab titled with the page, opens an empty Browser tab from the tile and
+checks one of Vera's pages reuses it, checks that closing a tab closes its page,
+and fills the Browser limit to check the launcher disables Browser and not the
+other kinds. It drags a tab to the panel and checks its kind's tabs close, moves
+the container back from its menu and checks it opens one tab, then checks the saved layout holds
+the tabs in order without the Browser tab and that a relaunch brings them back.
+It stops the host it started.
 
 The themes test launches the app on a throwaway home with a fake VS Code
 extensions folder and a stubbed file picker. It imports a theme file from Settings >

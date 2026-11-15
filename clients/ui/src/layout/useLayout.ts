@@ -15,6 +15,7 @@ import { showToast } from "../overlays/toasts.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import { defaultLayout, type LayoutState } from "./model.ts";
 import { createLayoutSaver } from "./persist.ts";
+import { forSave } from "./saved.ts";
 import { reduceLayout, type LayoutAction } from "./reducer.ts";
 import { resolveLayout, type ResolvedLayout } from "./resolve.ts";
 
@@ -57,6 +58,8 @@ export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
     const [loaded, setLoaded] = useState(false);
     // The state that came from disk or the last save, so loading alone never writes.
     const baseline = useRef<LayoutState>(state);
+    // What was last written, so a change that saving leaves out, such as opening a Browser tab, writes nothing.
+    const written = useRef<string | undefined>(undefined);
     const saver = useMemo(
         () => createLayoutSaver((layout) => window.veraDesktop?.saveLayout(layout), SAVE_DELAY_MS),
         [],
@@ -70,6 +73,7 @@ export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
             if (cancelled) return;
             if (saved !== undefined) {
                 baseline.current = saved;
+                written.current = JSON.stringify(saved);
                 setState(saved);
             }
             setLoaded(true);
@@ -82,8 +86,12 @@ export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
     useEffect(() => {
         if (!loaded || state === baseline.current) return;
         baseline.current = state;
-        saver.schedule(state);
-    }, [loaded, state, saver]);
+        const toSave = forSave(state, (container) => contributions.keepsTabsOut(container));
+        const text = JSON.stringify(toSave);
+        if (text === written.current) return;
+        written.current = text;
+        saver.schedule(toSave);
+    }, [loaded, state, saver, contributions]);
 
     useEffect(() => {
         const flush = (): void => saver.flush();

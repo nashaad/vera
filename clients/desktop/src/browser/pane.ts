@@ -3,21 +3,7 @@ import { join } from "node:path";
 import { app, session, WebContentsView, type BrowserWindow } from "electron";
 
 import { BROWSER_TAB_LIMIT, type BrowserBounds, type BrowserState } from "../../../ui/src/browser/native-types.ts";
-
-const URL_LIMIT = 8192;
-
-export function browserUrl(value: string): string | undefined {
-    if (value.length > URL_LIMIT) return undefined;
-    const text = value.trim();
-    if (text === "") return undefined;
-    try {
-        if (/^[a-z][a-z0-9+.-]*:(?!\/\/|[0-9])/i.test(text)) return undefined;
-        const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
-        return url.protocol === "https:" || url.protocol === "http:" ? url.href : undefined;
-    } catch {
-        return undefined;
-    }
-}
+import { browserUrl, URL_LIMIT } from "../../../ui/src/browser/url.ts";
 
 function isWebUrl(value: string): boolean {
     try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; }

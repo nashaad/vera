@@ -1,6 +1,8 @@
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
 import { SESSION_COMMANDS } from "../commands/session-commands.ts";
+import { acceleratorKeys, paneShortcuts } from "../commands/keys.ts";
+import { PANE_KINDS, paneKindCommand, type PaneKind } from "../registry/core.ts";
 
 const KEYS: Readonly<Record<string, { readonly key: string; readonly alt: boolean }>> = {
     [LAYOUT_COMMANDS.toggleSidebar]: { key: "B", alt: false },
@@ -19,6 +21,16 @@ export function shortcutKeys(command: string, platform: string): readonly string
     if (binding === undefined) return [];
     if (platform === "darwin") return binding.alt ? ["⌥", "⌘", binding.key] : ["⌘", binding.key];
     return binding.alt ? ["Ctrl", "Alt", binding.key] : ["Ctrl", binding.key];
+}
+
+// The keys of a right-pane kind's own shortcut, for its tile and launcher row; empty when it has none.
+export function containerShortcutKeys(
+    container: string,
+    platform: string,
+    kinds: readonly PaneKind[] = PANE_KINDS,
+): readonly string[] {
+    const shortcut = paneShortcuts(kinds).find((entry) => entry.command === paneKindCommand(container));
+    return shortcut === undefined ? [] : acceleratorKeys(shortcut.accelerator, platform);
 }
 
 export function shortcutLabel(command: string, platform: string): string {

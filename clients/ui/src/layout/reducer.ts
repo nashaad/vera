@@ -4,9 +4,12 @@ import {
     type LayoutState,
     type LocationId,
     LOCATIONS,
+    MAX_TABS,
+    type PaneTab,
     type RegistrySnapshot,
 } from "./model.ts";
-import { findContainer, findView, resolveLayout, type ResolvedLayout } from "./resolve.ts";
+import { canOpenTab, findContainer, findView, resolveLayout, type ResolvedLayout } from "./resolve.ts";
+import { dropTabs, nextTabId } from "./tabs.ts";
 
 export type ViewDestination =
     | { readonly container: string; readonly index?: number }
@@ -17,7 +20,14 @@ export type LayoutAction =
     | { readonly type: "toggleLocation"; readonly location: LocationId }
     | { readonly type: "setLocationVisible"; readonly location: LocationId; readonly visible: boolean }
     | { readonly type: "resizeLocation"; readonly location: LocationId; readonly size: number }
+    // In the right pane, activates the most recently active tab of the container, or opens one when it has none.
     | { readonly type: "activateContainer"; readonly container: string }
+    // Always opens a new tab, even when the container already has one. `tab` names it when the caller must know the id.
+    | { readonly type: "openTab"; readonly container: string; readonly tab?: string }
+    | { readonly type: "activateTab"; readonly tab: string }
+    | { readonly type: "closeTab"; readonly tab: string }
+    // `index` counts the pane's other shown tabs.
+    | { readonly type: "moveTab"; readonly tab: string; readonly index: number }
     | { readonly type: "moveView"; readonly view: string; readonly to: ViewDestination }
     | {
         readonly type: "moveContainer";
@@ -48,6 +58,14 @@ export function reduceLayout(
             return withLocation(state, action.location, { size: clampSize(action.location, action.size) });
         case "activateContainer":
             return reveal(state, resolveLayout(state, registry), action.container);
+        case "openTab":
+            return openTab(state, registry, action.container, action.tab);
+        case "activateTab":
+            return activateTab(state, registry, action.tab);
+        case "closeTab":
+            return dropTabs(state, (tab) => tab.id === action.tab);
+        case "moveTab":
+            return moveTab(state, registry, action.tab, action.index);
         case "moveView":
             return moveView(state, registry, action.view, action.to);
         case "moveContainer":
@@ -91,11 +109,62 @@ function withList(
     return { ...state, [key]: present ? [...list, id] : list.filter((entry) => entry !== id) };
 }
 
-// Makes the container's location visible and the container its active one.
+// Makes the container's location visible and the container its active one. In the right pane that
+// is its most recently active tab, or a new tab when it has none.
 function reveal(state: LayoutState, layout: ResolvedLayout, containerId: string): LayoutState {
     const container = findContainer(layout, containerId);
     if (container === undefined || !container.shown) return state;
-    return withLocation(state, container.location, { visible: true, active: container.id });
+    if (container.location !== "rightPane") {
+        return withLocation(state, container.location, { visible: true, active: container.id });
+    }
+    const shown = new Set(layout.locations.rightPane.tabs.filter((tab) => tab.container.id === containerId).map((tab) => tab.id));
+    const latest = state.recentTabs.find((id) => shown.has(id)) ?? [...shown][0];
+    if (latest !== undefined) return markActive(state, latest);
+    return addTab(state, layout, containerId, undefined);
+}
+
+// Makes the tab the pane's active one and the most recent, and shows the pane.
+function markActive(state: LayoutState, tabId: string): LayoutState {
+    const rightPane = state.locations.rightPane;
+    if (rightPane.visible && rightPane.active === tabId && state.recentTabs[0] === tabId) return state;
+    return {
+        ...state,
+        recentTabs: [tabId, ...state.recentTabs.filter((id) => id !== tabId)].slice(0, MAX_TABS),
+        locations: { ...state.locations, rightPane: { ...rightPane, visible: true, active: tabId } },
+    };
+}
+
+function addTab(state: LayoutState, layout: ResolvedLayout, containerId: string, requested: string | undefined): LayoutState {
+    if (!canOpenTab(layout, containerId)) return state;
+    if (requested !== undefined && state.tabs.some((tab) => tab.id === requested)) return state;
+    const fresh = nextTabId(state);
+    const tab: PaneTab = { id: requested ?? fresh.id, container: containerId };
+    const added = {
+        ...state,
+        tabs: [...state.tabs, tab],
+        tabSeq: requested === undefined ? fresh.seq : state.tabSeq,
+    };
+    return markActive(added, tab.id);
+}
+
+function openTab(state: LayoutState, registry: RegistrySnapshot, containerId: string, requested: string | undefined): LayoutState {
+    return addTab(state, resolveLayout(state, registry), containerId, requested);
+}
+
+function activateTab(state: LayoutState, registry: RegistrySnapshot, tabId: string): LayoutState {
+    const shown = resolveLayout(state, registry).locations.rightPane.tabs;
+    return shown.some((tab) => tab.id === tabId) ? markActive(state, tabId) : state;
+}
+
+function moveTab(state: LayoutState, registry: RegistrySnapshot, tabId: string, index: number): LayoutState {
+    const moved = state.tabs.find((tab) => tab.id === tabId);
+    if (moved === undefined) return state;
+    const shown = resolveLayout(state, registry).locations.rightPane.tabs.filter((tab) => tab.id !== tabId);
+    const others = state.tabs.filter((tab) => tab.id !== tabId);
+    const order = insertAt(others.map((tab) => tab.id), shown.map((tab) => tab.id), tabId, index);
+    const byId = new Map(state.tabs.map((tab) => [tab.id, tab]));
+    const tabs = order.map((id) => byId.get(id)!);
+    return tabs.every((tab, at) => tab === state.tabs[at]) ? state : { ...state, tabs };
 }
 
 function without(list: readonly string[], id: string): readonly string[] {
@@ -248,6 +317,8 @@ function moveContainer(
     if (container.location !== location && previous.active === containerId) {
         next = withLocation(next, container.location, { active: undefined });
     }
+    // A container that leaves the right pane has no tabs there.
+    if (location !== "rightPane") next = dropTabs(next, (tab) => tab.container === containerId);
     return reveal(next, resolveLayout(next, registry), containerId);
 }
 
@@ -267,7 +338,7 @@ function setContainerHidden(
     hidden: boolean,
 ): LayoutState {
     let next = withList(state, "hiddenContainers", containerId, hidden);
-    if (hidden) return next;
+    if (hidden) return dropTabs(next, (tab) => tab.container === containerId);
     const container = findContainer(resolveLayout(state, registry), containerId);
     if (container === undefined) return next;
     // A container whose views are all hidden would show nothing, so showing it shows them.
@@ -301,11 +372,13 @@ function resetContainer(state: LayoutState, registry: RegistrySnapshot, containe
     }
     const containerLocation = { ...state.containerLocation };
     delete containerLocation[containerId];
-    const next = {
+    const registered = registry.containers.find((candidate) => candidate.id === containerId);
+    const reset = {
         ...state,
         containerLocation,
         containerOrder: dropFromContainerOrders(state.containerOrder, containerId),
     };
+    const next = registered?.location === "rightPane" ? reset : dropTabs(reset, (tab) => tab.container === containerId);
     return reveal(next, resolveLayout(next, registry), containerId);
 }
 
@@ -325,11 +398,11 @@ function pruneGenerated(state: LayoutState): LayoutState {
         delete viewOrder[id];
     }
     for (const location of LOCATIONS) {
-        if (locations[location].active !== undefined && gone.has(locations[location].active)) {
+        if (location !== "rightPane" && locations[location].active !== undefined && gone.has(locations[location].active)) {
             locations[location] = { ...locations[location], active: undefined };
         }
     }
-    return {
+    return dropTabs({
         ...state,
         generated,
         containerLocation,
@@ -341,5 +414,5 @@ function pruneGenerated(state: LayoutState): LayoutState {
             panel: state.containerOrder.panel.filter((id) => !gone.has(id)),
         },
         hiddenContainers: state.hiddenContainers.filter((id) => !gone.has(id)),
-    };
+    }, (tab) => gone.has(tab.container));
 }

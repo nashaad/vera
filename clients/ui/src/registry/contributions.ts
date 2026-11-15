@@ -54,6 +54,11 @@ export class ContributionRegistry {
         this.changed();
     }
 
+    // Whether tabs of the container are left out of the saved layout. True also for a container a flag turned off.
+    keepsTabsOut(id: string): boolean {
+        return this.containers.get(id)?.transientTabs === true;
+    }
+
     // The same object until something registers or unregisters.
     snapshot(): RegistrySnapshot {
         this.cached ??= {
