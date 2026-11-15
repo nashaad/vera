@@ -1,44 +1,55 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { annexHost, currentEntry, displayAddress, isAnnexPath, pageAt, resolveAddress } from "../browser/address.ts";
-import { browserHistory, useBrowserHistory } from "../browser/store.ts";
+import { nativeCommand } from "../browser/native.ts";
+import { openAddressIn, showAnnexIn } from "../browser/open.ts";
+import { browserSlots, CONTAINER_SLOT, useSlot, useSlotStore } from "../browser/slots.ts";
 import { useAnnexPages } from "../browser/useAnnexPages.ts";
-import { useNativeBrowser } from "../browser/useNativeBrowser.ts";
-import { BROWSER_TAB_LIMIT } from "../browser/native-types.ts";
+import { useNativeSurface } from "../browser/useNativeSurface.ts";
 import { ArrowLeftIcon, ArrowRightIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { AnnexPage, AnnexPagesAnswer, DesktopBridge } from "../protocol/bridge.ts";
+import { usePaneTab, usePublishTabTitle } from "../workbench/tab-context.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
 
 const PLACEHOLDER = "Search Vera's pages or enter an address";
 
-// The pages the annex serves on this machine, in a frame under one tab row. The annex drops its
-// own menu when framed, so this row is the only way between pages.
+// One page: one of the pages the annex serves on this machine, in a frame, or a web page the shell
+// draws over the frame. In the right pane each Browser tab is one of these; elsewhere there is one.
 export function BrowserView({ visible }: ViewProps) {
+    const tab = usePaneTab();
+    const key = tab ?? CONTAINER_SLOT;
     const { connection } = useViewEnvironment();
-    const history = useBrowserHistory();
-    const entry = currentEntry(history);
+    const slot = useSlot(key);
+    const { native } = useSlotStore();
+    const page = slot.page === undefined ? undefined : native?.tabs.find((candidate) => candidate.id === slot.page);
+    const entry = currentEntry(slot.history);
     const { result, reload } = useAnnexPages(visible, connection.ready?.pid);
     const annex = result?.ok === true ? result : undefined;
     const [typed, setTyped] = useState<string | undefined>(undefined);
     const [frameRound, setFrameRound] = useState(0);
-    const native = useNativeBrowser(visible);
-    const activeTab = native.state.tabs.find((tab) => tab.id === native.state.active);
-    const previousEntry = useRef(entry);
+    const [clearing, setClearing] = useState(false);
+    const [error, setError] = useState<string | undefined>(undefined);
+    const surface = useNativeSurface(visible && page !== undefined);
+    usePublishTabTitle(page?.title);
 
+    // The shell draws one page at a time: the one this view shows, or none for one of Vera's pages.
     useEffect(() => {
-        if (previousEntry.current !== entry) void native.command("select", null);
-        previousEntry.current = entry;
-    }, [entry, native.command]);
+        if (visible) void nativeCommand("select", slot.page ?? null);
+    }, [visible, slot.page]);
+
+    const forget = async (): Promise<void> => {
+        setClearing(true);
+        const answer = await nativeCommand("forget");
+        setError(answer === undefined && window.veraDesktop !== undefined ? "Could not forget browsing data." : undefined);
+        setClearing(false);
+    };
 
     const onKey = (event: KeyboardEvent<HTMLInputElement>): void => {
         if (event.key === "Enter" && typed !== undefined) {
             const address = resolveAddress(typed, annex?.url, annex?.pages ?? []);
-            if (address === "" || isAnnexPath(address)) {
-                browserHistory.browse(address);
-                void native.command("select", null);
-            }
-            else if (native.state.active === null) void native.command("open", typed);
-            else void native.command("navigate", typed);
+            if (address === "" || isAnnexPath(address)) void showAnnexIn(key, address);
+            else if (page === undefined) void openAddressIn(key, typed);
+            else void nativeCommand("navigate", typed);
             setTyped(undefined);
             event.currentTarget.blur();
         } else if (event.key === "Escape") {
@@ -56,8 +67,8 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Back"
                     title="Back"
-                    disabled={activeTab === undefined ? history.at === 0 : !activeTab.back}
-                    onClick={() => activeTab === undefined ? browserHistory.step(-1) : void native.command("back")}
+                    disabled={page === undefined ? slot.history.at === 0 : !page.back}
+                    onClick={() => page === undefined ? browserSlots.step(key, -1) : void nativeCommand("back")}
                 >
                     <ArrowLeftIcon />
                 </button>
@@ -66,17 +77,17 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Forward"
                     title="Forward"
-                    disabled={activeTab === undefined ? history.at >= history.entries.length - 1 : !activeTab.forward}
-                    onClick={() => activeTab === undefined ? browserHistory.step(1) : void native.command("forward")}
+                    disabled={page === undefined ? slot.history.at >= slot.history.entries.length - 1 : !page.forward}
+                    onClick={() => page === undefined ? browserSlots.step(key, 1) : void nativeCommand("forward")}
                 >
                     <ArrowRightIcon />
                 </button>
                 <input
                     className="browser-address"
                     aria-label="Address"
-                    value={typed ?? (activeTab === undefined ? displayAddress(entry, annex?.url) : activeTab.url)}
+                    value={typed ?? (page === undefined ? displayAddress(entry, annex?.url) : page.url)}
                     placeholder={PLACEHOLDER}
-                    disabled={native.clearing}
+                    disabled={clearing}
                     spellCheck={false}
                     onChange={(event) => setTyped(event.target.value)}
                     onFocus={(event) => event.currentTarget.select()}
@@ -89,10 +100,10 @@ export function BrowserView({ visible }: ViewProps) {
                     aria-label="Reload"
                     title="Reload"
                     onClick={() => {
-                        if (activeTab === undefined) {
+                        if (page === undefined) {
                             reload();
                             setFrameRound((round) => round + 1);
-                        } else void native.command("reload");
+                        } else void nativeCommand("reload");
                     }}
                 >
                     <RefreshIcon />
@@ -102,35 +113,34 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Open in your browser"
                     title="Open in your browser"
-                    disabled={activeTab === undefined && (annex === undefined || !isAnnexPath(entry))}
-                    onClick={() => activeTab === undefined ? void (window.veraDesktop as DesktopBridge | undefined)?.openAnnexPage(entry) : void native.command("external")}
+                    disabled={page === undefined && (annex === undefined || !isAnnexPath(entry))}
+                    onClick={() => page === undefined ? void (window.veraDesktop as DesktopBridge | undefined)?.openAnnexPage(entry) : void nativeCommand("external")}
                 >
                     <ExternalIcon />
                 </button>
             </div>
-            <nav className="browser-tabs" aria-label="Browser tabs">
-                <button type="button" className="browser-tab" aria-current={native.state.active === null ? "page" : undefined} onClick={() => void native.command("select", null)}>Vera</button>
-                {native.state.tabs.map((tab) => <span key={tab.id}>
-                    <button type="button" className="browser-tab" aria-current={native.state.active === tab.id ? "page" : undefined} onClick={() => void native.command("select", tab.id)}>{tab.title}</button>
-                    <button type="button" className="browser-tab" aria-label={`Close ${tab.title}`} onClick={() => void native.command("close", tab.id)}>×</button>
-                </span>)}
-                <button type="button" className="browser-tab" aria-label="New tab" disabled={native.state.tabs.length >= BROWSER_TAB_LIMIT} onClick={() => void native.command("open")}>+</button>
-            </nav>
             <div className="browser-controls">
-                <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native.state.toolsEnabled} disabled={!native.state.toolsAvailable} onChange={(event) => void native.command("tools", event.target.checked)} /> Browser tools {native.state.toolsEnabled ? "on" : "off"}</label>
-                <button type="button" disabled={native.clearing} onClick={() => void native.command("forget")}>Forget browsing data</button>
+                <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native?.toolsEnabled ?? false} disabled={!(native?.toolsAvailable ?? false)} onChange={(event) => void nativeCommand("tools", event.target.checked)} /> Browser tools {native?.toolsEnabled ? "on" : "off"}</label>
+                <button type="button" disabled={clearing} onClick={() => void forget()}>Forget browsing data</button>
             </div>
-            {native.error === undefined ? null : <p role="alert" className="view-note">{native.error}</p>}
-            {activeTab === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
-            {activeTab === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
-            {activeTab === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} /> : null}
-            {activeTab === undefined ? null : <div className="browser-frame" ref={native.surface} />}
+            {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
+            {page === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
+            {page === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
+            {page === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} browse={(next) => browserSlots.browse(key, next)} /> : null}
+            {page === undefined ? null : <div className="browser-frame" ref={surface} />}
         </div>
     );
 }
 
-function BrowserBody({ annex, entry, frameRound }: { readonly annex: AnnexPagesAnswer; readonly entry: string; readonly frameRound: number }) {
-    if (entry === "") return <StartPage annex={annex} />;
+interface BrowserBodyProps {
+    readonly annex: AnnexPagesAnswer;
+    readonly entry: string;
+    readonly frameRound: number;
+    readonly browse: (entry: string) => void;
+}
+
+function BrowserBody({ annex, entry, frameRound, browse }: BrowserBodyProps) {
+    if (entry === "") return <StartPage annex={annex} browse={browse} />;
     if (!isAnnexPath(entry)) {
         return <p className="view-empty">Only the pages Vera serves on this machine open here, and “{entry}” is not one of them.</p>;
     }
@@ -143,7 +153,7 @@ function BrowserBody({ annex, entry, frameRound }: { readonly annex: AnnexPagesA
                     className="browser-tab"
                     aria-label="All of Vera's pages"
                     title="All of Vera's pages"
-                    onClick={() => browserHistory.browse("")}
+                    onClick={() => browse("")}
                 >
                     <HomeIcon />
                 </button>
@@ -153,7 +163,7 @@ function BrowserBody({ annex, entry, frameRound }: { readonly annex: AnnexPagesA
                         type="button"
                         className="browser-tab"
                         aria-current={candidate === page ? "page" : undefined}
-                        onClick={() => browserHistory.browse(candidate.path)}
+                        onClick={() => browse(candidate.path)}
                     >
                         {candidate.label}
                     </button>
@@ -177,24 +187,24 @@ function BrowserBody({ annex, entry, frameRound }: { readonly annex: AnnexPagesA
     );
 }
 
-function StartPage({ annex }: { readonly annex: AnnexPagesAnswer }) {
+function StartPage({ annex, browse }: { readonly annex: AnnexPagesAnswer; readonly browse: (entry: string) => void }) {
     const own = annex.pages.filter((page) => page.extensionId === undefined);
     const added = annex.pages.filter((page) => page.extensionId !== undefined);
     return (
         <div className="browser-start">
             <h3>Vera</h3>
-            {own.map((page) => <PageLink key={page.path} page={page} />)}
+            {own.map((page) => <PageLink key={page.path} page={page} browse={browse} />)}
             <h3>From extensions</h3>
             {added.length === 0 ? <p className="browser-start-note">{annex.extensionsFailure ?? "No extension adds a page."}</p> : null}
-            {added.map((page) => <PageLink key={page.path} page={page} />)}
+            {added.map((page) => <PageLink key={page.path} page={page} browse={browse} />)}
             <p className="browser-start-note">Served on this machine at {annexHost(annex.url)} while the host runs.</p>
         </div>
     );
 }
 
-function PageLink({ page }: { readonly page: AnnexPage }) {
+function PageLink({ page, browse }: { readonly page: AnnexPage; readonly browse: (entry: string) => void }) {
     return (
-        <button type="button" className="browser-link" onClick={() => browserHistory.browse(page.path)}>
+        <button type="button" className="browser-link" onClick={() => browse(page.path)}>
             <span className="browser-link-label">
                 {page.label}
                 {page.extensionId === undefined ? null : <span className="browser-link-from">{page.extensionId}</span>}

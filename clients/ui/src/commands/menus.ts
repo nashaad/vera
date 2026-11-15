@@ -82,7 +82,19 @@ export function containerMenu(layout: ResolvedLayout, containerId: string): read
     return entries;
 }
 
-// The menu on a switcher's empty area: every container placed there, shown or not.
+// The menu on a right-pane tab: close it, then the menu of its container. Hiding or moving the
+// container closes all of that kind's tabs.
+export function tabMenu(layout: ResolvedLayout, tabId: string, title?: string): readonly MenuEntry[] {
+    const tab = layout.locations.rightPane.tabs.find((candidate) => candidate.id === tabId);
+    if (tab === undefined) return [];
+    return [
+        item(`Close ${title ?? tab.container.title}`, LAYOUT_COMMANDS.tabClose, { tab: tab.id }),
+        SEPARATOR,
+        ...containerMenu(layout, tab.container.id),
+    ];
+}
+
+// The menu on a switcher's empty area: every container placed there. A check means the container is shown.
 export function switcherMenu(layout: ResolvedLayout, location: LocationId): readonly MenuEntry[] {
     return layout.locations[location].all.map((container) => item(
         container.title,

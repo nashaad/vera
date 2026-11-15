@@ -8,6 +8,7 @@ import "./styles/titlebar.css";
 import "./styles/banner.css";
 import "./styles/workbench.css";
 import "./styles/views.css";
+import "./styles/pane.css";
 import "./styles/sidebar-foot.css";
 import "./styles/sidebar-nav.css";
 import "./styles/pages.css";

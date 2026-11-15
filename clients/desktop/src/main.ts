@@ -609,7 +609,8 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
     if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
     const pane = browserPane;
     if (command !== "state" && command !== "bounds" && browserClearing !== undefined) await browserClearing;
-    if (command === "open" && (value === undefined || typeof value === "string")) pane.open(value);
+    let opened: number | undefined;
+    if (command === "open" && (value === undefined || typeof value === "string")) opened = pane.open(value);
     if (command === "navigate" && typeof value === "string") {
         if (pane.current() === undefined) pane.open(value);
         else await pane.navigate(value).catch(() => {});
@@ -636,7 +637,12 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
             pane.layout({ x: Math.round(rect.x as number), y: Math.round(rect.y as number), width: Math.round(rect.width as number), height: Math.round(rect.height as number) });
         }
     }
-    return { ...pane.state(), toolsEnabled: browserGateway?.enabled ?? false, toolsAvailable: browserGateway?.available ?? false };
+    return {
+        ...pane.state(),
+        toolsEnabled: browserGateway?.enabled ?? false,
+        toolsAvailable: browserGateway?.available ?? false,
+        ...(opened === undefined ? {} : { opened }),
+    };
 });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;

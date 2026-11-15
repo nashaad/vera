@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { BrowserSync } from "./browser/BrowserSync.tsx";
 import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
@@ -74,6 +75,7 @@ export function App() {
                     <Overlays commands={commands} />
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
+                    {loaded ? <BrowserSync /> : null}
                     <SessionEvidenceReporter />
                 </div>
             </ViewEnvContext.Provider>

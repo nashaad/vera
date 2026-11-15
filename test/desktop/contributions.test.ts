@@ -128,3 +128,42 @@ test("a pane reveal for an unavailable container is ignored", () => {
     const state = defaultLayout();
     expect(reduceLayout(state, { type: "activateContainer", container: CORE_CONTAINERS.files }, registry.snapshot())).toBe(state);
 });
+
+test("@core a show flag that turns a right-pane container off removes it from the tiles and the strip, and its tabs return", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    const opened = [CORE_CONTAINERS.files, CORE_CONTAINERS.review].reduce(
+        (state, container) => reduceLayout(state, { type: "openTab", container }, registry.snapshot()),
+        defaultLayout(),
+    );
+    const right = () => resolveLayout(opened, registry.snapshot()).locations.rightPane;
+    expect(right().containers.map((entry) => entry.id)).toContain(CORE_CONTAINERS.review);
+    expect(right().tabs.map((tab) => tab.container.id)).toEqual([CORE_CONTAINERS.files, CORE_CONTAINERS.review]);
+
+    registry.setUnavailable(new Set([CORE_CONTAINERS.review]));
+    expect(right().containers.map((entry) => entry.id)).not.toContain(CORE_CONTAINERS.review);
+    expect(right().tabs.map((tab) => tab.container.id)).toEqual([CORE_CONTAINERS.files]);
+    expect(right().activeTab?.container.id).toBe(CORE_CONTAINERS.files);
+    expect(opened.tabs.map((tab) => tab.container)).toContain(CORE_CONTAINERS.review);
+
+    registry.setUnavailable(new Set());
+    expect(right().tabs.map((tab) => tab.container.id)).toEqual([CORE_CONTAINERS.files, CORE_CONTAINERS.review]);
+});
+
+test("a new layout has no tab among the core right-pane containers", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    const right = resolveLayout(defaultLayout(), registry.snapshot()).locations.rightPane;
+    expect(right.containers.length).toBeGreaterThan(0);
+    expect(right.tabs).toEqual([]);
+});
+
+test("only the Browser keeps its tabs out of the saved layout, even while a flag has it off", () => {
+    const registry = new ContributionRegistry();
+    registerCoreContributions(registry);
+    expect(registry.keepsTabsOut(CORE_CONTAINERS.browser)).toBe(true);
+    expect(registry.keepsTabsOut(CORE_CONTAINERS.files)).toBe(false);
+    expect(registry.keepsTabsOut("missing")).toBe(false);
+    registry.setUnavailable(new Set([CORE_CONTAINERS.browser]));
+    expect(registry.keepsTabsOut(CORE_CONTAINERS.browser)).toBe(true);
+});

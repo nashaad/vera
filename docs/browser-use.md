@@ -5,14 +5,16 @@ description: "Browse and let Vera work in the desktop Browser pane."
 
 # Browser use
 
-Open the Browser in the desktop window's right pane. Enter a site address to
-open it, or use the Vera tab for the pages served on this machine. The bar has
-Back, Forward, Reload and Open in your browser. Use New tab to open another
-site. Links that open a new window open a tab in the pane.
+Open the Browser in the desktop window's right pane. Each Browser tab is one
+page. Enter a site address to open it, or leave a tab empty to see the pages
+served on this machine. The bar has Back, Forward, Reload and Open in your
+browser. Use `+` and pick Browser, or type an address in its field, to open
+another site. Links that open a new window open a tab in the pane, up to 12
+Browser tabs.
 
 Sign in to sites yourself in the pane. Sign-ins made there are stored in the
 Vera home like provider keys, in an owner-only directory. The cookie store is
-plaintext. Forget browsing data closes the site tabs and removes their saved
+plaintext. Forget browsing data closes the site pages, and their tabs with them, and removes their saved
 sign-ins, site storage and cache. A site can also end a sign-in or use a
 session cookie that expires when the window closes.
 The host must be connected to forget browsing data.

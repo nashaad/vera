@@ -214,6 +214,7 @@ try {
     await second.page.click(activity, { button: "right" });
     await second.page.getByRole("menuitem", { name: "Move to Right Pane" }).click();
     await assertIn(second.page, "rightPane", outputHeader);
+    await second.page.waitForSelector("[data-switcher=\"rightPane\"] [data-container=\"core.output\"]", { timeout: 10_000 });
     await second.app.evaluate(({ Menu }) => {
         Menu.getApplicationMenu().getMenuItemById("layout.reset").click();
     });

@@ -131,14 +131,19 @@ try {
     await page.locator(".change-head", { hasText: "nest.txt" }).first().click();
     await page.locator(".review .diff-line[data-kind=\"del\"]", { hasText: "twigs" }).waitFor({ timeout: 10_000 });
 
-    // The Plan view shows the checklist the provider wrote.
-    await page.locator(".switcher-item[aria-label=\"Plan\"]").click();
+    // The Plan view shows the checklist the provider wrote; a pane opens from the right pane's "+".
+    const openPane = async (title) => {
+        await page.locator("[data-pane-launcher]").click();
+        await page.locator(`[data-pane-option] .pane-launcher-title:text-is("${title}")`).click();
+        await page.locator(`.switcher-item[aria-label="${title}"]`).waitFor({ timeout: 5_000 });
+    };
+    await openPane("Plan");
     await page.locator(".plan-title", { hasText: "Crow plan" }).waitFor({ timeout: 10_000 });
     const progress = await page.locator(".plan-progress").innerText();
     if (progress !== "1 of 2 done") throw new Error(`Plan progress was ${progress}`);
 
     // The Files view reads the session's folder itself, one folder at a time.
-    await page.locator(".switcher-item[aria-label=\"Files\"]").click();
+    await openPane("Files");
     await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
     await page.locator(".file-folder", { hasText: "hold" }).click();
     await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
