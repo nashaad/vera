@@ -144,9 +144,9 @@ try {
     await page.keyboard.press("Escape");
     await page.waitForSelector("[data-overlay=\"customize-detail\"]", { state: "detached", timeout: 10_000 });
 
-    // Discover has no catalog to list, and says so.
+    // A build with no catalog address says so in Discover.
     await page.locator(".customize-seg button", { hasText: "Discover" }).click();
-    await page.locator(".empty-state-title", { hasText: "Nothing to browse" }).waitFor({ timeout: 10_000 });
+    await page.locator("[data-catalog-unavailable]", { hasText: "The catalog is not available in this build." }).waitFor({ timeout: 10_000 });
 
     // Coverage lists what the window does, and the Tour opens the session by its status.
     await openPage("tour");
