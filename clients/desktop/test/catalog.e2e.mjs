@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { startTrial } from "./trial.mjs";
 
 const trial = startTrial();
+// Customize shows on its own only once a folder session exists, and this trial opens none.
+trial.writeFlags({ customize: "on" });
 const files = join(trial.trialRoot, "files");
 const extensionsFolder = join(trial.home, "machine", "desktop", "extensions");
 const CATALOG_SERVICE = "Vera Extension Catalog";
