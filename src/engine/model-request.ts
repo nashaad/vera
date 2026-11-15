@@ -28,6 +28,7 @@ export interface ModelRequestSnapshot {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
     readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions: ProjectInstructionSnapshot;
@@ -85,6 +86,7 @@ export function projectModelRequest(
         tools,
         workspace: snapshot.workspace,
         ...(snapshot.chatFolder === true ? { chatFolder: true } : {}),
+        ...(snapshot.notesOffer === true ? { notesOffer: true } : {}),
         ...(snapshot.scratchDir === undefined
             ? {}
             : { scratchDir: snapshot.scratchDir }),

@@ -76,6 +76,23 @@ included one.
 The model is told that a chat's folder is the chat's own, and it may offer to
 move the conversation into a folder you choose.
 
+## Suggest keeping notes
+
+A session the desktop window creates while Settings > Agents > Suggest keeping
+notes is on carries a short instruction in its system prompt. It tells the model
+that you can keep notes from the conversation, and to offer once, in one
+sentence, when documents were shared, a long discussion reached a conclusion, a
+topic keeps coming back or a decision was settled. If you decline or ignore the
+offer, the model does not offer again. If you agree, it creates a `notes/`
+folder in the working directory with an `index.md` that links one page per
+topic, and keeps the pages current.
+
+The choice is made when the session is created and does not change for that
+session, so the start of its system prompt stays the same. Turning the switch
+off affects new sessions only. Branches and clones keep the choice of the
+session they came from; subagents do not get the instruction. Sessions started
+from the terminal, `vera -p` or the web client never have it.
+
 Moving a chat to the trash moves its folder with it. Resuming a chat
 recreates its folder when it is missing. Branching or forking a chat copies the
 folder, so the branch and its source change files independently; a branch that
