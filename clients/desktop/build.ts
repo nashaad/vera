@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
@@ -7,7 +7,20 @@ import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
 
 const root = import.meta.dir;
-const out = join(root, "dist");
+
+function argument(name: string): string | undefined {
+    const at = process.argv.indexOf(name);
+    return at === -1 ? undefined : process.argv[at + 1];
+}
+
+// `--out <folder>` builds an app folder of its own; `--catalog-url <url>` fixes the extension catalog this build reads.
+const appFolder = argument("--out") ?? root;
+const catalogUrl = argument("--catalog-url");
+const out = join(appFolder, "dist");
+if (appFolder !== root) {
+    mkdirSync(appFolder, { recursive: true });
+    writeFileSync(join(appFolder, "package.json"), JSON.stringify({ name: "vera-desktop-build", version: "0.0.0", type: "module", main: "dist/main.js" }));
+}
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -19,6 +32,7 @@ const main = await Bun.build({
     format: "esm",
     external: ["electron"],
     naming: "[name].[ext]",
+    define: catalogUrl === undefined ? {} : { __VERA_CATALOG_URL__: JSON.stringify(catalogUrl) },
 });
 if (!main.success) fail(main.logs);
 
