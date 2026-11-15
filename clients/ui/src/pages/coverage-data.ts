@@ -221,7 +221,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inTerminal("/extension install <path> installs from the composer", "The window does not install"),
             inTerminal("A host-side extension change notes that a restart is needed", "The window has no extension controls"),
             partial("Installed skills and extensions add commands to /help", "The slash menu lists them; the window has no /help"),
-            notServed("Browse extensions and skills that are not installed", "Customize > Discover says there is no catalog"),
+            partial("Browse extensions and skills that are not installed", "Customize > Discover lists catalog themes only, in a build that names a catalog"),
         ],
     },
     {

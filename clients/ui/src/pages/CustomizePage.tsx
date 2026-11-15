@@ -14,6 +14,8 @@ import {
     type KindFilter,
 } from "../customize/catalog.ts";
 import { CustomizeDetail, KindIcon } from "../customize/CustomizeDetail.tsx";
+import { DesktopExtensions } from "../customize/DesktopExtensions.tsx";
+import { DiscoverThemes } from "../customize/DiscoverThemes.tsx";
 import { probeTarget } from "../customize/probe.ts";
 import { useCatalogProbe } from "../customize/useCatalogProbe.ts";
 import type { DesktopBridge, ExtensionFailure } from "../protocol/bridge.ts";
@@ -31,7 +33,7 @@ type FailureState =
 
 const KIND_PILLS: readonly KindFilter[] = ["all", "skills", "agents", "extensions", "instructions", "memory"];
 
-// Discover has no catalog behind it: the host serves only what is installed, so it shows an unavailable state.
+// Discover lists the themes in the desktop catalog. The web client has no desktop bridge, so it shows an unavailable state.
 type CustomizeMode = "yours" | "discover";
 
 function desktopBridge(): DesktopBridge | undefined {
@@ -198,6 +200,7 @@ export function CustomizePage() {
     const folderLabel = folder === undefined ? undefined : folderName(folder);
 
     function discoverBody() {
+        if (bridge !== undefined) return <DiscoverThemes bridge={bridge} />;
         return (
             <EmptyState title="Nothing to browse">
                 <span>
@@ -335,6 +338,7 @@ export function CustomizePage() {
             {yours && failures.phase === "failed" ? (
                 <p className="customize-note">Extension failures could not be read: {failures.reason}</p>
             ) : null}
+            {yours ? <DesktopExtensions bridge={bridge} /> : null}
             {yours ? body() : discoverBody()}
             {picked === undefined ? null : <CustomizeDetail item={picked} onClose={() => setPicked(undefined)} />}
         </Page>

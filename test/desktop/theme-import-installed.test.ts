@@ -1,6 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/src/extensions/paths.ts";
+import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
+import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
 import { scanInstalledThemes } from "../../clients/desktop/src/theme-import/installed.ts";
 import { extensionRoots } from "../../clients/desktop/src/theme-import/roots.ts";
 import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts";
@@ -9,6 +13,11 @@ import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { manifestText, pirateCrowText, removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";
 
 afterEach(removeScratchDirectories);
+
+function themeService(home: string, roots: readonly string[], onChange?: () => void): ThemeService {
+    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    return new ThemeService(store, themesDirectory(home), runThemeTask, roots, onChange);
+}
 
 function extension(root: string, folder: string, themes: { label: string; uiTheme?: string; path: string }[], files: Record<string, string>, extra: Record<string, unknown> = {}): void {
     writeText(join(root, folder, "package.json"), manifestText(themes, extra));
@@ -63,10 +72,10 @@ test("the roots are the user's VS Code folder, plus the app's own themes on macO
     expect(extensionRoots("darwin")[1]).toContain("Visual Studio Code.app");
 });
 
-test("@core the service imports an installed theme by the key of the last list and saves it under the home", async () => {
+test("@core the service imports an installed theme by the key of the last list and installs it as a desktop extension", async () => {
     const home = scratchDirectory();
     const changes: string[] = [];
-    const service = new ThemeService(themesDirectory(home), runThemeTask, [fixtureRoot()], () => changes.push("changed"));
+    const service = themeService(home, [fixtureRoot()], () => changes.push("changed"));
     const listed = await service.listInstalled();
     expect(listed.ok && listed.themes.map((theme) => [theme.key, theme.label])).toEqual([
         ["installed-0", "Pirate Crow Day"],
@@ -78,10 +87,12 @@ test("@core the service imports an installed theme by the key of the last list a
     expect(service.has("pirate-crow-night")).toBe(true);
     expect(changes).toEqual(["changed"]);
     expect(service.themes().map((theme) => theme.colors.surface)).toEqual(["#10131a"]);
+    expect(existsSync(join(extensionsDirectory(home), "imported.pirate-crow-night", "vera.desktop.json"))).toBe(true);
+    expect(existsSync(themesDirectory(home))).toBe(false);
 });
 
 test("@core the service refuses a key it did not list, so a request cannot name a path", async () => {
-    const service = new ThemeService(themesDirectory(scratchDirectory()), runThemeTask, [fixtureRoot()]);
+    const service = themeService(scratchDirectory(), [fixtureRoot()]);
     expect(await service.importInstalled("installed-0")).toEqual({ ok: false, reason: "That theme is not in the list. Open the list again." });
     await service.listInstalled();
     for (const key of ["../../etc/passwd", "installed-9", "/Users/crow/theme.json", ""]) expect((await service.importInstalled(key)).ok).toBe(false);
@@ -89,7 +100,7 @@ test("@core the service refuses a key it did not list, so a request cannot name 
 
 test("the service reports a theme that has gone missing since the list was made", async () => {
     const root = fixtureRoot();
-    const service = new ThemeService(themesDirectory(scratchDirectory()), runThemeTask, [root]);
+    const service = themeService(scratchDirectory(), [root]);
     await service.listInstalled();
     writeText(join(root, "crow.pirate-crow-pack-1.0.0", "themes", "night.json"), "{");
     const result = await service.importInstalled("installed-1");
@@ -99,9 +110,9 @@ test("the service reports a theme that has gone missing since the list was made"
 
 test("the service loads themes saved earlier and notices a file added by hand", async () => {
     const home = scratchDirectory();
-    const service = new ThemeService(themesDirectory(home), runThemeTask, []);
+    const service = themeService(home, []);
     const changes: string[] = [];
-    const watching = new ThemeService(themesDirectory(home), runThemeTask, [], () => changes.push("changed"));
+    const watching = themeService(home, [], () => changes.push("changed"));
     expect(service.load()).toEqual([]);
     expect((await service.importFile(writeText(join(scratchDirectory(), "crow.json"), pirateCrowText()))).ok).toBe(true);
     expect(watching.load().map((theme) => theme.name)).toEqual(["Pirate Crow"]);

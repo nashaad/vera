@@ -23,10 +23,11 @@ export function startTrial() {
 
     // The tour and the bench pass visible: true; every other run stays out of sight.
     // `env` adds to the app's environment, such as a HOME that holds a fixture of VS Code extensions.
-    async function launch({ visible = false, cwd = root, env = {} } = {}) {
+    // `appDir` launches another build of the app, such as one built with a catalog address.
+    async function launch({ visible = false, cwd = root, env = {}, appDir = join(root, "clients", "desktop") } = {}) {
         const app = await electron.launch({
             executablePath: electronPath,
-            args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
+            args: [...(visible ? [] : OUT_OF_SIGHT), appDir],
             cwd,
             env: {
                 ...process.env,

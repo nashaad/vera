@@ -22,6 +22,7 @@ import {
     importedThemeSlug,
     isImportedThemeId,
     isThemeChoice,
+    isThemeKey,
     isThemeSlug,
     COLOR_TOKENS,
     type ColorToken,
@@ -103,6 +104,16 @@ test("@core imported theme ids are a prefix and a safe slug, and cannot collide 
     expect(isThemeChoice("pirate-crow")).toBe(false);
     expect(isThemeSlug("Pirate")).toBe(false);
     expect(isThemeSlug("a".repeat(65))).toBe(false);
+});
+
+test("@core an extension's theme is keyed by its extension id and slug, and the key cannot name a path", () => {
+    expect(importedThemeSlug("imported:crow.pack.crow-night")).toBe("crow.pack.crow-night");
+    expect(isImportedThemeId("imported:crow.pack.crow-night")).toBe(true);
+    for (const key of ["crow.pack.night", "pirate-crow", "a".repeat(160)]) expect(isThemeKey(key)).toBe(true);
+    for (const key of ["", ".hidden", "-lead", "Upper", "a/b", "a\\b", "a b", "a".repeat(161), "../x"]) expect(isThemeKey(key)).toBe(false);
+    expect(importedThemeSlug("imported:a/b")).toBeUndefined();
+    expect(parseImportedSummary({ ...PIRATE, slug: "crow.pack.crow-night" })?.slug).toBe("crow.pack.crow-night");
+    expect(parseImportedSummary({ ...PIRATE, slug: "../x" })).toBeUndefined();
 });
 
 test("@core applying an imported theme sets its colors live and keeps Vera's fonts, sizes, radius and motion", () => {

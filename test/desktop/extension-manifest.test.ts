@@ -43,7 +43,7 @@ test("a manifest with no contributions and no main is valid", () => {
 
     expect(result).toEqual({
         ok: true,
-        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [] },
+        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [], themes: [] },
     });
 });
 
@@ -98,10 +98,49 @@ test("main must be a relative path that stays inside the extension", () => {
 });
 
 test("an unknown contribution kind or a wrong container type fails with a reason", () => {
-    expect(failure(parseDesktopManifest(manifest({ contributes: { themes: [] } }))).reason).toBe('Unknown contribution kind "themes".');
+    expect(failure(parseDesktopManifest(manifest({ contributes: { wallpapers: [] } }))).reason).toBe('Unknown contribution kind "wallpapers".');
     expect(failure(parseDesktopManifest(manifest({ contributes: [] }))).reason).toContain('"contributes" must be an object');
     expect(failure(parseDesktopManifest(manifest({ contributes: { commands: IMPORT } }))).reason).toBe('"contributes.commands" must be an array.');
     expect(failure(parseDesktopManifest(manifest({ contributes: { keybindings: {} } }))).reason).toBe('"contributes.keybindings" must be an array.');
+});
+
+test("a themes-only manifest needs no main and lists each theme's label and path", () => {
+    const { main: _main, ...withoutMain } = manifest();
+    const result = parseDesktopManifest({
+        ...withoutMain,
+        contributes: { themes: [{ label: " Crow Night ", path: "themes/night.json" }, { label: "Crow Day", path: "./themes/day.json" }] },
+    });
+
+    expect(result).toMatchObject({ ok: true, manifest: { id: "acme.themes", commands: [], keybindings: [] } });
+    if (!result.ok) return;
+    expect(result.manifest).not.toHaveProperty("main");
+    expect(result.manifest.themes).toEqual([
+        { label: "Crow Night", path: "themes/night.json" },
+        { label: "Crow Day", path: "./themes/day.json" },
+    ]);
+});
+
+test("a theme contribution needs a label and a relative path inside the extension", () => {
+    const themes = (value: unknown) => failure(parseDesktopManifest(manifest({ contributes: { themes: value } }))).reason;
+
+    expect(themes({})).toBe('"contributes.themes" must be an array.');
+    expect(themes(["themes/a.json"])).toBe("A theme contribution must be an object.");
+    for (const label of [undefined, "", "  ", 4, "x".repeat(121)]) {
+        expect(themes([{ label, path: "a.json" }]), String(label)).toBe("A theme needs a label of 1 to 120 characters.");
+    }
+    for (const path of [undefined, "", "/etc/a.json", "../a.json", "a/../../a.json", "a\\..\\a.json", "C:\\a.json", 3]) {
+        expect(themes([{ label: "Night", path }]), String(path)).toBe('Theme "Night" needs a "path" that is a relative file path inside the extension.');
+    }
+    expect(themes([{ label: "Night", path: "a.json" }, { label: "Night", path: "b.json" }])).toBe('Theme "Night" is declared twice.');
+});
+
+test("an extension holds at most 32 themes and an id of at most 80 characters", () => {
+    const many = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Theme ${index}`, path: `t${index}.json` }));
+
+    expect(parseDesktopManifest(manifest({ contributes: { themes: many(32) } })).ok).toBe(true);
+    expect(failure(parseDesktopManifest(manifest({ contributes: { themes: many(33) } }))).reason).toBe('"contributes.themes" holds at most 32 themes.');
+    expect(parseDesktopManifest(manifest({ id: "a".repeat(80) })).ok).toBe(true);
+    expect(failure(parseDesktopManifest(manifest({ id: "a".repeat(81) }))).reason).toBe('"id" must be at most 80 characters.');
 });
 
 test("a command id starts with the extension id and a dot", () => {

@@ -97,11 +97,14 @@ window.
   Vera does not load on its own, and an extension's state. An extension the host
   could not load shows its error. Picking a card opens a sheet with its facts
   and the file's text, and Show in Finder (Open folder on other platforms) when
-  the item has a file. Customize does not add, remove, install or edit anything.
+  the item has a file. Customize does not add, remove, install or edit those
+  items. Above them, Yours lists the desktop extensions that add to this app,
+  with a switch, Remove and Install from file; see Desktop extensions.
   Yours and Discover switch the page's view; it opens on Yours, which is
-  everything above. Discover says that Vera has no catalog of extensions or
-  skills to install, names `/extension install <path>` in the terminal, and
-  offers Open Yours.
+  everything above. Discover lists the themes in the extension catalog and
+  installs one after a preview; see The theme catalog. The web client has no
+  catalog: its Discover says so, names `/extension install <path>` in the
+  terminal, and offers Open Yours.
 - Tour lists every screen, sheet and session state in the window as cards, one
   click from each. Session cards open the newest session that is working,
   waiting on you, finished or idle, and say None right now when there is none.
@@ -186,8 +189,9 @@ Escape, its close button or a click outside it.
 - Choose Agent, in the View menu, lists the agents the open session can run as,
   with the current one checked. A click or its number key switches the session
   to that agent. With no session open it says to open one.
-- Choose Theme lists the three themes and any imported themes with a swatch; a
-  click or a number key (for the first nine) applies one.
+- Choose Theme lists the three built-in themes and the themes of the enabled
+  desktop extensions with a swatch; a click or a number key (for the first nine)
+  applies one.
 - Rename Session, in the palette, opens a sheet with the open session's name to
   edit. Enter or `Rename` saves it. The host refuses an empty name, one over
   200 bytes, and a session that cannot be renamed, and the sheet says which.
@@ -198,8 +202,8 @@ Escape, its close button or a click outside it.
   list, extensions and providers from what this window knows, with Run again.
   For a full check it suggests `vera doctor` in a terminal and copies it.
 - Extensions lists the extensions the host could not load, with each error, and
-  opens Customize. Turning extensions on or off and installing them is not
-  available from the window.
+  opens Customize. Turning those extensions on or off and installing them is not
+  available from the window. Desktop extensions are managed in Customize.
 - Configuration Files lists Vera's configuration files and what each holds, and
   shows the Vera home in Finder. Editing them is done with `/configure` in the
   terminal UI.
@@ -316,7 +320,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `theme.dark`, `theme.light`, `theme.highContrast`,
-`theme.imported.<name>` (one per imported theme), `theme.import`, `go.newChat`,
+`theme.imported.<name>` (one per theme a desktop extension adds), `theme.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
@@ -975,10 +979,12 @@ Three themes ship as data files:
 - `clients/ui/src/theme/themes/light.json`
 - `clients/ui/src/theme/themes/high-contrast.json`
 
-View > Theme lists Dark, Light and High contrast, then the imported themes,
-with the current theme checked; the same choices are the commands `theme.dark`,
-`theme.light` and `theme.highContrast`, and `theme.imported.<name>` for each
-imported theme. View > Choose Theme… opens a sheet with all of them, and
+View > Theme lists Dark, Light and High contrast, then the themes of the enabled
+desktop extensions, with the current theme checked; the same choices are the
+commands `theme.dark`, `theme.light` and `theme.highContrast`, and
+`theme.imported.<name>` for each theme a desktop extension adds. Themes come
+only from desktop extensions; see Desktop extensions below. View > Choose
+Theme… opens a sheet with all of them, and
 Settings > Appearance lists them with a swatch. Switching applies the token values and a `data-theme`
 attribute to the root element at once and remembers the choice for the next
 launch. The saved theme is applied by a script in the page head that runs before
@@ -1002,8 +1008,10 @@ from View > Theme > Import VS Code Theme…, or from the command palette's
 `Theme: Import VS Code Theme…`. The first two open a file picker. After a
 successful import the window switches to the theme at once, the theme sits in
 the lists beside Dark, Light and High contrast, and Settings shows
-`Imported "<name>" and switched to it.` Importing the same name again replaces
-the saved theme. Each import, and each listing of the installed themes, runs in
+`Imported "<name>" and switched to it.` Each imported theme is installed as its
+own desktop extension named `imported.<name>`, so it appears under Desktop
+extensions and can be turned off or removed there. Importing the same name
+again replaces that extension. Each import, and each listing of the installed themes, runs in
 a separate process that starts for the request and stops once it answers. The web client has no import; it shows none of these controls.
 
 What carries over, with the first VS Code color in each row that the theme sets:
@@ -1069,14 +1077,21 @@ that loops, climbs out of the archive or nests too deep, or sets none of the
 colors in the table above. A `.vsix` or an extension with several themes
 imports the ones it can and lists the others as not imported with the reason;
 it is refused only when none can be imported. Theme files in the `.tmTheme`
-format are not read. Vera keeps at most 100 imported themes.
+format are not read. An import counts as one desktop extension, so it is
+refused once Vera holds 200 of them.
 
-Imported themes are saved one file per theme in `machine/desktop/themes` under
-the home, beside the saved layout. The file holds the mapped tokens, the theme's
-name and source, and the two token tables. Deleting a file there removes the
-theme at the next launch; a window that has it selected falls back to Dark.
-The choice of theme stays in the window's local storage with the other
-appearance settings.
+An imported theme is saved as a theme file in the extension's `themes` folder
+under `machine/desktop/extensions/imported.<name>` in the home. The file holds
+the mapped tokens, the theme's name and source, and the two token tables. A
+theme saved by an earlier version in `machine/desktop/themes` moves into its own
+extension the first time the app starts, and the old file is removed once the
+new one is verified. If the move fails, the old file stays and the theme keeps
+working. The choice of theme stays in the window's local storage with the other
+appearance settings, and keeps pointing at the same theme after the move.
+
+A window that has a theme selected falls back to the built-in theme of the same
+type, Dark or Light, when that theme goes away: its extension is turned off or
+removed, or its folder is deleted.
 
 Each time a theme is applied, the page reports its name and its resolved surface
 color to the app. The app checks the theme in the View menu and sets the color as
@@ -1088,6 +1103,108 @@ The token names are declared in `clients/ui/src/theme/tokens.ts`. Components and
 stylesheets outside the theme directory may not carry a literal color, pixel
 size, font, shadow, or transition duration; a test scans them and fails on any
 of those, and on a `var(--vera-*)` name that is not declared.
+
+## Desktop extensions
+
+A desktop extension adds to the desktop app itself. Today an extension can add
+themes. It is a folder with a `vera.desktop.json` manifest. The terminal UI
+does not use desktop extensions and keeps its own themes.
+
+Customize > Yours lists them above its skills, agents and other items. A row shows the
+extension's id and version, the themes it adds, a switch, and Remove. Turning an
+extension off hides its themes at once; a window using one of them falls back to
+the built-in theme of the same type. Turning it on shows them again. Remove
+deletes an installed extension's folder. An extension marked Included ships with
+the app: it can be turned off but not removed. An extension whose manifest names
+commands or a `main` module is listed with the note that its commands are not
+loaded by this version of Vera.
+
+Install from file opens a file picker for a package. The window first shows what
+the package holds: its id, its version, its themes, and `Replaces version <v>.`
+when an installed extension has the same id. Install puts the extension in
+place; Cancel throws the package away and installs nothing. Installing a
+package with the id of an installed extension replaces it. The web client has no
+install; it shows none of these controls.
+
+Extensions are kept in `machine/desktop/extensions/<id>` under the home, and
+which of them are off in `machine/desktop/extensions.json`. Included extensions
+ship in the app and are not copied there.
+
+### The manifest
+
+```json
+{
+    "id": "crow.themes",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "themes": [
+            { "label": "Midnight Crow", "path": "themes/midnight-crow.json" }
+        ]
+    }
+}
+```
+
+`id` uses lowercase letters, digits, `-` and `.`, at most 80 characters.
+`engine` is `vera-gui@^1`. Each theme has a `label` of 1 to 120 characters and a
+`path` inside the extension to a theme file, at most 2 MiB, in the format Vera
+saves when it imports a VS Code theme. An extension holds at most 32 themes. An
+extension that adds only themes needs no `main`. Unknown keys are refused.
+
+### Packages
+
+A package is a gzip tar file with the extension's files at the archive root, so
+`vera.desktop.json` is at the top. Build one from the extension's folder with:
+
+```
+COPYFILE_DISABLE=1 tar --format ustar -czf crow-themes.tgz -C crow-themes .
+```
+
+A package holds at most 256 entries, 4 MiB per file and 16 MiB in all, and the
+file itself is at most 8 MiB. Links, absolute paths, paths with `..`, and
+anything that is not a plain file or folder make Vera refuse the package. Vera
+holds at most 200 desktop extensions.
+
+Reading a package runs in a separate process, named Vera Extension Install, that
+starts when you choose a package and stops once it has answered. It unpacks into
+a staging folder, checks the manifest and every theme file, and answers with the
+preview. Nothing is installed until you choose Install. A package that is
+refused shows the reason in the window and leaves what was installed as it was.
+Staging folders left by a closed window are cleared the next time the app starts.
+
+### The theme catalog
+
+Customize > Discover lists the themes in a catalog. A card shows the theme's
+name, its version, five swatches of its colors and Install. A theme the catalog
+has withdrawn, or one built for another version of Vera, is not listed. A theme
+already installed at the listed version shows Installed instead of Install.
+
+Install downloads the package, checks it, and applies the theme in the window
+before anything is kept. A bar offers Install and Cancel and reads
+`Previewing <name> <version>.`, followed by `Replaces version <v>.` when an
+installed extension has the same id. Install keeps the extension and switches to
+its theme. Cancel or Escape puts back the theme the window had and throws the
+download away. Leaving Discover does the same.
+
+The catalog is read when Discover opens, never at launch, and is not saved on
+disk; closing Discover drops it. Reading it and downloading a package run in a
+separate process, named Vera Extension Catalog, that starts for the request and
+stops once it has answered. Unpacking and installing the package are the steps
+of Install from file, in Vera Extension Install, and the extension is written
+the same way.
+
+The catalog is at most 1 MiB and lists at most 500 extensions; an entry that is
+malformed is left out. Only `http` and `https` addresses are fetched, and the
+same holds for every redirect. A package must be exactly the size the catalog
+lists, within the package limit above, and its sha256 must match the catalog's
+before anything is unpacked.
+
+The catalog's address is written into the app when it is built. The app reads
+no environment variable or setting for it. A build with no address shows `The
+catalog is not available in this build.` in Discover. When the catalog or a
+package cannot be fetched or fails a check, Discover shows the reason and the
+installed extensions and the window's theme stay as they were; Retry reads the
+catalog again.
 
 ## Development
 
@@ -1279,8 +1396,8 @@ opens Usage with `/usage` from the composer.
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page
 from the sidebar and checks its session count, checks Devices, reads Vera's help
-skill on Customize and opens its detail, checks that Discover says there is
-nothing to browse, goes from Tour to Coverage and back and opens the session
+skill on Customize and opens its detail, checks that Discover says the catalog
+is not available in this build, goes from Tour to Coverage and back and opens the session
 from its Tour card, runs Settings from the command palette, counts the session
 in Settings > Data, finds the palette's keys in Settings > Keyboard and the
 shortcuts sheet, and opens a session from Go to Session.

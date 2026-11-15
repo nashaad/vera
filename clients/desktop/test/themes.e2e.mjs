@@ -9,7 +9,13 @@ import { MODIFIER, press, startTrial } from "./trial.mjs";
 const trial = startTrial();
 const files = join(trial.trialRoot, "files");
 const fakeHome = join(trial.trialRoot, "fake-home");
-const themesFolder = join(trial.home, "machine", "desktop", "themes");
+const desktopFolder = join(trial.home, "machine", "desktop");
+const extensionsFolder = join(desktopFolder, "extensions");
+
+// A theme saved by an import is an extension named imported.<slug> with its file under themes/.
+function savedThemeFile(slug) {
+    return join(extensionsFolder, `imported.${slug}`, "themes", `${slug}.json`);
+}
 
 const PIRATE_CROW = {
     name: "Pirate Crow",
@@ -144,7 +150,7 @@ try {
     expectEqual(state.surface, "rgb(16, 19, 26)", "the mapped editor.background");
     await importProcessGone(app, 1);
     await page.locator("[data-theme-card=\"imported:pirate-crow\"][aria-pressed=\"true\"]").waitFor({ timeout: 5_000 });
-    const saved = JSON.parse(readFileSync(join(themesFolder, "pirate-crow.json"), "utf8"));
+    const saved = JSON.parse(readFileSync(savedThemeFile("pirate-crow"), "utf8"));
     expectEqual(saved.colors.accent, "#c9a227", "the saved accent");
     expectEqual(saved.tokenColors.length, 1, "the saved token rules");
     await until("the View menu to check the imported theme", () => app.evaluate(({ Menu }) => {
@@ -170,7 +176,7 @@ try {
     await page.locator("[data-theme-import=\"file\"]").click();
     await until("the second refusal", async () => (await note(page, false)).includes("sets none of the colors Vera reads"));
     expectEqual((await themeState(page)).theme, "imported:pirate-crow", "the theme after a file with no mapped colors");
-    expectEqual(readdirSync(themesFolder).join(","), "pirate-crow.json", "the themes folder after refusals");
+    expectEqual(readdirSync(extensionsFolder).join(","), "imported.pirate-crow", "the extensions folder after refusals");
 
     // A closed picker changes nothing.
     await app.evaluate(({ dialog }) => {
@@ -185,7 +191,7 @@ try {
     await chosenFile(app, join(files, "pirate-crow.json"));
     await page.locator("[data-theme-import=\"file\"]").click();
     await until("the replaced colors", async () => (await themeState(page)).surface === "rgb(32, 40, 48)");
-    expectEqual(readdirSync(themesFolder).join(","), "pirate-crow.json", "the themes folder after a re-import");
+    expectEqual(readdirSync(extensionsFolder).join(","), "imported.pirate-crow", "the extensions folder after a re-import");
 
     // The command palette lists the imported theme and the import command.
     await press(app, "K", [MODIFIER]);
@@ -206,7 +212,7 @@ try {
     await page.locator("[data-installed-theme=\"Crow Hold Night\"]").click();
     await until("the installed theme", async () => (await themeState(page)).theme === "imported:crow-hold-night");
     expectEqual((await themeState(page)).surface, "rgb(27, 42, 31)", "the installed theme's surface");
-    const source = JSON.parse(readFileSync(join(themesFolder, "crow-hold-night.json"), "utf8")).source;
+    const source = JSON.parse(readFileSync(savedThemeFile("crow-hold-night"), "utf8")).source;
     expectEqual(source, "Extension Crow Hold", "the installed theme's source");
     await importProcessGone(app, 7);
 
@@ -222,12 +228,13 @@ try {
 
     // A theme file removed from the home falls back to the default on the next launch.
     await second.app.close();
-    writeFileSync(join(themesFolder, "crow-hold-night.json"), "removed");
+    writeFileSync(savedThemeFile("crow-hold-night"), "removed");
     const third = await boot();
     await until("the fallback", async () => (await themeState(third.page)).theme === "dark");
     expectEqual((await themeState(third.page)).surface, darkSurface, "the fallback surface");
 
-    if (!existsSync(join(themesFolder, "pirate-crow.json"))) throw new Error("The imported theme's file went missing.");
+    if (!existsSync(savedThemeFile("pirate-crow"))) throw new Error("The imported theme's file went missing.");
+    if (existsSync(join(desktopFolder, "themes"))) throw new Error("An import wrote to the old themes folder.");
     console.log(`themes e2e passed: ${trial.home}`);
 } finally {
     await trial.cleanup();

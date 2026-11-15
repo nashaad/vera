@@ -1,8 +1,8 @@
 import { BUILTIN_COLOR_SCHEME, BUILTIN_THEMES } from "./builtin.ts";
 import {
     COLOR_TOKENS,
+    isThemeKey,
     isThemeName,
-    isThemeSlug,
     type ColorToken,
     type ThemeFile,
     type ThemeName,
@@ -45,7 +45,7 @@ export function baseColor(type: ThemeName, token: ColorToken): string {
 export function parseImportedSummary(value: unknown): ImportedThemeSummary | undefined {
     if (!isRecord(value)) return undefined;
     const { slug, name, type, source } = value;
-    if (typeof slug !== "string" || !isThemeSlug(slug)) return undefined;
+    if (typeof slug !== "string" || !isThemeKey(slug)) return undefined;
     if (typeof name !== "string" || name.length === 0 || name.length > MAX_NAME_CHARS) return undefined;
     if (typeof type !== "string" || !isThemeName(type)) return undefined;
     const given = isRecord(value.colors) ? value.colors : {};

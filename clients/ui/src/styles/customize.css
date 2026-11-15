@@ -216,3 +216,50 @@
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / 2);
 }
+
+.customize-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+}
+
+.customize-preview {
+    margin: 0 0 calc(var(--vera-space) * 3);
+}
+
+.catalog-swatches {
+    display: flex;
+    gap: calc(var(--vera-space) * 1);
+    margin-top: calc(var(--vera-space) * 2);
+}
+
+.catalog-swatch {
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-sm);
+}
+
+/* Fixed, so it stays in view while the page is scrolled; the page behind it shows the previewed theme. */
+.catalog-bar {
+    position: fixed;
+    right: 50%;
+    bottom: calc(var(--vera-space) * 6);
+    z-index: 20;
+    display: flex;
+    gap: calc(var(--vera-space) * 4);
+    align-items: center;
+    max-width: 90%;
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    background: var(--vera-surface-raised);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    box-shadow: var(--vera-shadow);
+    transform: translateX(50%);
+}
+
+.catalog-bar-text {
+    font-size: var(--vera-font-size);
+}

@@ -5,6 +5,8 @@ import type { SavedPins } from "./pins.ts";
 import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
+import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
+import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 
@@ -314,6 +316,24 @@ export interface DesktopBridge {
     listInstalledThemes(): Promise<InstalledThemesResult>;
     // Saves one theme from the last listing of installed themes.
     importInstalledTheme(key: string): Promise<ThemeImportResult>;
+    // The desktop extensions, installed and included, and the themes of the enabled ones, read again from disk.
+    listDesktopExtensions(): Promise<ExtensionChangeResult>;
+    // Opens the native picker for a package, unpacks it in a task process and returns what it holds; nothing is installed yet.
+    previewDesktopExtension(): Promise<ExtensionPreviewResult>;
+    // Installs the package the preview named, replacing an installed extension of the same id.
+    installDesktopExtension(token: string): Promise<ExtensionChangeResult>;
+    // Deletes the unpacked package the preview named.
+    cancelDesktopExtension(token: string): void;
+    setDesktopExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionChangeResult>;
+    // Deletes an installed extension. An extension included with Vera is refused.
+    removeDesktopExtension(id: string): Promise<ExtensionChangeResult>;
+    // Fetches the extension catalog this build names, in a task process. Called when Discover opens; the list is not kept.
+    openExtensionCatalog(): Promise<CatalogListResult>;
+    // Downloads one theme from the opened catalog, checks it and unpacks it. Install it with `installDesktopExtension`
+    // or drop it with `cancelDesktopExtension`, as for a package chosen from a file.
+    previewCatalogTheme(id: string): Promise<CatalogPreviewResult>;
+    // Drops the list the main process holds. Called when Discover closes.
+    closeExtensionCatalog(): void;
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;
