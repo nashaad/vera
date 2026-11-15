@@ -9,9 +9,13 @@ export const CORE_WHEN_KEYS: readonly string[] = ["view", "container", "entryKin
 
 const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
 const MANIFEST_KEYS = ["id", "version", "engine", "main", "contributes"];
-const CONTRIBUTION_KINDS = ["commands", "keybindings"];
+const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes"];
 const MAX_TITLE_LENGTH = 100;
 const MAX_CATEGORY_LENGTH = 40;
+// Long enough for `imported.` and a 64-character saved-theme slug.
+const MAX_ID_LENGTH = 80;
+export const MAX_THEMES_PER_EXTENSION = 32;
+const MAX_THEME_LABEL_LENGTH = 120;
 
 export interface ParsedWhen {
     readonly source: string;
@@ -32,6 +36,12 @@ export interface DesktopKeybinding {
     readonly when?: ParsedWhen;
 }
 
+export interface DesktopTheme {
+    readonly label: string;
+    // Relative path of a saved-theme file (version 1) inside the extension folder.
+    readonly path: string;
+}
+
 export interface DesktopManifest {
     readonly id: string;
     readonly version: string;
@@ -40,6 +50,7 @@ export interface DesktopManifest {
     readonly main?: string;
     readonly commands: readonly DesktopCommand[];
     readonly keybindings: readonly DesktopKeybinding[];
+    readonly themes: readonly DesktopTheme[];
 }
 
 export interface ManifestFailure {
@@ -62,6 +73,7 @@ export function parseDesktopManifest(value: unknown): ManifestResult {
         if (typeof id !== "string" || !EXTENSION_ID_PATTERN.test(id)) {
             throw new ManifestProblem('"id" must use lowercase letters, digits, "-" and ".", and not start or end with ".".');
         }
+        if (id.length > MAX_ID_LENGTH) throw new ManifestProblem(`"id" must be at most ${MAX_ID_LENGTH} characters.`);
         extensionId = id;
         return { ok: true, manifest: readManifest(value, id) };
     } catch (error) {
@@ -104,22 +116,47 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
         ...(main === undefined ? {} : { main }),
         commands,
         keybindings: readKeybindings(contributes.keybindings, commands, id),
+        themes: readThemes(contributes.themes),
     };
 }
 
 function readMain(value: unknown): string | undefined {
     if (value === undefined) return undefined;
-    if (
-        typeof value !== "string"
-        || value.trim().length === 0
-        || value.startsWith("/")
-        || value.startsWith("\\")
-        || /^[A-Za-z]:/.test(value)
-        || value.split(/[\\/]/).includes("..")
-    ) {
-        throw new ManifestProblem('"main" must be a relative file path inside the extension.');
-    }
+    if (!isRelativePath(value)) throw new ManifestProblem('"main" must be a relative file path inside the extension.');
     return value.trim();
+}
+
+function isRelativePath(value: unknown): value is string {
+    return typeof value === "string"
+        && value.trim().length > 0
+        && !value.startsWith("/")
+        && !value.startsWith("\\")
+        && !/^[A-Za-z]:/.test(value)
+        && !value.split(/[\\/]/).includes("..");
+}
+
+function readThemes(value: unknown): readonly DesktopTheme[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new ManifestProblem('"contributes.themes" must be an array.');
+    if (value.length > MAX_THEMES_PER_EXTENSION) {
+        throw new ManifestProblem(`"contributes.themes" holds at most ${MAX_THEMES_PER_EXTENSION} themes.`);
+    }
+    const themes: DesktopTheme[] = [];
+    for (const entry of value) {
+        if (!isPlainObject(entry)) throw new ManifestProblem("A theme contribution must be an object.");
+        const { label, path } = entry;
+        if (!isText(label, MAX_THEME_LABEL_LENGTH)) {
+            throw new ManifestProblem(`A theme needs a label of 1 to ${MAX_THEME_LABEL_LENGTH} characters.`);
+        }
+        if (!isRelativePath(path)) {
+            throw new ManifestProblem(`Theme "${label.trim()}" needs a "path" that is a relative file path inside the extension.`);
+        }
+        if (themes.some((existing) => existing.label === label.trim())) {
+            throw new ManifestProblem(`Theme "${label.trim()}" is declared twice.`);
+        }
+        themes.push({ label: label.trim(), path: path.trim() });
+    }
+    return themes;
 }
 
 function readCommands(value: unknown, id: string): readonly DesktopCommand[] {

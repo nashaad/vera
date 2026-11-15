@@ -95,6 +95,8 @@ export type ImportedThemeId = `imported:${string}`;
 export type ThemeChoice = ThemeName | ImportedThemeId;
 
 const THEME_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+// What names a theme to the page: a theme's slug, or an extension id and a slug joined by a dot.
+const THEME_KEY = /^[a-z0-9][a-z0-9.-]{0,159}$/;
 
 export interface ThemeFile {
     readonly name: string;
@@ -111,15 +113,20 @@ export function isThemeSlug(value: string): boolean {
     return THEME_SLUG.test(value);
 }
 
+export function isThemeKey(value: string): boolean {
+    return THEME_KEY.test(value);
+}
+
 export function importedThemeId(slug: string): ImportedThemeId {
     return `${IMPORTED_THEME_PREFIX}${slug}`;
 }
 
-// The slug of a well-formed imported id, which is also the theme file's name without `.json`.
+// The key of a well-formed imported id. It is a theme's own slug for a theme saved in the old themes folder
+// and for one imported from VS Code; any other extension's theme is keyed `<extension id>.<slug>`.
 export function importedThemeSlug(value: string): string | undefined {
     if (!value.startsWith(IMPORTED_THEME_PREFIX)) return undefined;
-    const slug = value.slice(IMPORTED_THEME_PREFIX.length);
-    return isThemeSlug(slug) ? slug : undefined;
+    const key = value.slice(IMPORTED_THEME_PREFIX.length);
+    return isThemeKey(key) ? key : undefined;
 }
 
 export function isImportedThemeId(value: string): value is ImportedThemeId {
