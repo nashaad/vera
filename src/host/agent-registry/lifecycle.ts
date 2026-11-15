@@ -283,6 +283,7 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                     ...(startupProfile === undefined
                         ? {}
                         : { contextAssemblyMode: startupProfile }),
+                    ...(options.notesOffer === true ? { notesOffer: true } : {}),
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),

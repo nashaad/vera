@@ -69,6 +69,7 @@ export async function createSessionBranch(
         ...(options.source.header.contextAssemblyMode === undefined
             ? {}
             : { contextAssemblyMode: options.source.header.contextAssemblyMode }),
+        ...(options.source.header.notesOffer === true ? { notesOffer: true } : {}),
         // Copied entries get new ids, so lastMessageId matches nothing here.
         ...(options.source.header.importedFrom === undefined
             ? {}

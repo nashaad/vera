@@ -280,6 +280,8 @@ export interface CreateAgentRequest {
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
     readonly startup_profile?: StartupProfile;
+    // Window sessions only. Fixed for the life of the session; false is the same as omitted.
+    readonly notes_offer?: boolean;
 }
 
 export interface ResumeAgentRequest {
@@ -1322,6 +1324,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             || value.lifetime === "durable")
         && (value.startup_profile === undefined
             || isStartupProfile(value.startup_profile))
+        && (value.notes_offer === undefined
+            || typeof value.notes_offer === "boolean")
     ) {
         return {
             type: "create_agent",
@@ -1337,6 +1341,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.startup_profile === undefined
                 ? {}
                 : { startup_profile: value.startup_profile }),
+            ...(value.notes_offer === true ? { notes_offer: true } : {}),
         };
     }
     if (
