@@ -96,6 +96,8 @@ try {
     await button("Compaction").click();
     await picker.waitFor();
     if (!(await picker.locator(".model-item-desc").innerText()).includes("Uses Eco, now Raven")) throw new Error("The clearing row does not say Compaction falls back to Eco.");
+    // The field takes focus a frame after the picker opens; Enter before that lands on the slot button.
+    await until("the picker's field focused", () => picker.locator("input").evaluate((field) => field === document.activeElement));
     await page.keyboard.press("Enter");
     await toast("Compaction is not set");
     await until("compaction cleared in config.json", async () => names("compaction").length === 0);
