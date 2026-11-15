@@ -32,6 +32,13 @@ import { BootSession, type BootPreflight } from "./boot.ts";
 import { bundledInstallPreflight } from "./install-preflight.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
+import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
+import { registerExtensionHandlers } from "./extensions/ipc.ts";
+import { migrateSavedThemes } from "./extensions/migrate.ts";
+import { extensionsDirectory, extensionStatePath, includedExtensionsDirectory } from "./extensions/paths.ts";
+import { ExtensionService } from "./extensions/service.ts";
+import { ExtensionStateStore } from "./extensions/state.ts";
+import { ExtensionStore } from "./extensions/store.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readFilePreview } from "./file-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
@@ -101,7 +108,14 @@ const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
-const themeService = new ThemeService(themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
+const extensionStore = new ExtensionStore(
+    extensionsDirectory(selectedVeraHome()),
+    new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
+    includedExtensionsDirectory(import.meta.dirname),
+);
+const themeService = new ThemeService(extensionStore, themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
+const installTasks = new TaskRunner(() => startTaskProcess<InstallTask>(EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE), parseInstallReply);
+const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task));
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -142,6 +156,16 @@ function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
         buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes()),
     ));
+}
+
+// Clears what an interrupted install left, then moves themes saved before desktop extensions into extensions.
+function startExtensions(): void {
+    try {
+        extensionStore.clearStaging();
+        migrateSavedThemes(extensionStore, themesDirectory(selectedVeraHome()));
+    } catch {
+        // A theme that did not move stays in the old folder and stays usable.
+    }
 }
 
 function shutdown(): void {
@@ -356,6 +380,7 @@ ipcMain.handle(CHANNELS.themesInstalled, async (event) =>
     fromWindow(event) ? themeService.listInstalled() : { ok: false, reason: "That window cannot list themes." });
 ipcMain.handle(CHANNELS.themeInstalledImport, async (event, key: unknown): Promise<ThemeImportResult> =>
     fromWindow(event) && typeof key === "string" ? themeService.importInstalled(key) : { ok: false, reason: "That is not a theme in the list." });
+registerExtensionHandlers({ service: extensionService, window: () => window, fromWindow });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -580,6 +605,7 @@ ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
 app.on("before-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(() => {
+    startExtensions();
     themeService.load();
     installMenu();
     window = createWindow();

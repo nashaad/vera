@@ -263,6 +263,7 @@ test("@core the main process loads no task code; each task process loads its own
     const main = reachable(join(DESKTOP_SOURCE, "main.ts"));
     expect(inDesktop(main.files, "theme-import")).toEqual(["theme-import/roots.ts", "theme-import/task-protocol.ts"]);
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
+    expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
     expect(main.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect([...main.packages].filter((name) => name.startsWith("zod"))).toEqual([]);
 
@@ -276,5 +277,14 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(assignments.files, "model-assignments")).toContain("model-assignments/assignment-store.ts");
     expect(assignments.files).toContain(join(REPOSITORY, "src", "config.ts"));
     expect(inDesktop(assignments.files, "theme-import")).toEqual([]);
-    for (const worker of [themes, assignments]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+
+    const install = reachable(join(DESKTOP_SOURCE, "extension-install", "worker.ts"));
+    for (const file of ["extension-install/run-task.ts", "extension-install/tar.ts", "extension-install/unpack.ts"]) {
+        expect(inDesktop(install.files, "extension-install")).toContain(file);
+    }
+    expect(inDesktop(install.files, "theme-import")).toEqual([]);
+    expect(inDesktop(themes.files, "extension-install")).toEqual([]);
+    expect(install.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
+    expect(install.packages.has("electron")).toBe(false);
+    for (const worker of [themes, assignments, install]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
 });
