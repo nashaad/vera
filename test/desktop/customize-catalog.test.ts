@@ -5,7 +5,6 @@ import {
     dirname,
     folderChoices,
     groupByScope,
-    hasFolderSession,
     kindCounts,
     scopeGroup,
     visibleItems,
@@ -153,12 +152,4 @@ test("dirname splits on both slash styles", () => {
     expect(dirname("C:\\work\\project\\AGENTS.md")).toBe("C:\\work\\project");
     expect(dirname("/AGENTS.md")).toBe("/");
     expect(dirname("AGENTS.md")).toBe(".");
-});
-
-test("@core a window offers Customize's folders once a top-level folder session is listed", () => {
-    expect(hasFolderSession([])).toBe(false);
-    expect(hasFolderSession([{ ...row("chat", "/h/c.jsonl.files"), chat: true }])).toBe(false);
-    expect(hasFolderSession([{ ...row("child", "/p/crow"), parentId: "a" }])).toBe(false);
-    expect(hasFolderSession([row("blank", "")])).toBe(false);
-    expect(hasFolderSession([row("a", "/p/crow")])).toBe(true);
 });

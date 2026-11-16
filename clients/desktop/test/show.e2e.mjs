@@ -89,9 +89,10 @@ try {
     const first = await boot();
     const { app, page } = first;
 
-    // Under Auto a window with no sessions shows no Search, Work or Customize; New Chat is always there.
+    // Under Auto a window with no sessions shows no Search or Work. New Chat is always there, and Customize once the host attaches.
     await page.waitForSelector(".nav-row[data-page=\"home\"]", { timeout: 10_000 });
-    for (const kind of ["search", "work", "customize"]) {
+    await page.waitForSelector(".nav-row[data-page=\"customize\"]", { timeout: 10_000 });
+    for (const kind of ["search", "work"]) {
         if (await page.locator(`.nav-row[data-page="${kind}"]`).count() > 0) throw new Error(`${kind} shows before it has anything to show.`);
     }
     await page.waitForSelector(devices, { timeout: 10_000 });

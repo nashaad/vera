@@ -8,8 +8,6 @@ import { join } from "node:path";
 import { COUNT_PROCESSES, MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
-// Customize shows on its own only once a folder session exists, and this trial opens none.
-trial.writeFlags({ customize: "on" });
 const files = join(trial.trialRoot, "files");
 const fakeHome = join(trial.trialRoot, "fake-home");
 const desktopFolder = join(trial.home, "machine", "desktop");

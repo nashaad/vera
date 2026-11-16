@@ -178,11 +178,6 @@ export function folderChoices(rows: readonly SessionRow[], limit: number = FOLDE
     return ordered.slice(0, limit).map(([folder]) => folder);
 }
 
-// Whether any listed session is a top-level one in a folder; subagents and chats do not count.
-export function hasFolderSession(rows: readonly SessionRow[]): boolean {
-    return rows.some((row) => row.parentId === undefined && !row.chat && row.workspace.length > 0);
-}
-
 // The parent directory of a path, accepting both slash styles.
 export function dirname(path: string): string {
     const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
