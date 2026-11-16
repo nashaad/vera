@@ -5,12 +5,12 @@ import { registerLayoutCommands } from "../commands/layout-commands.ts";
 import { registerOverlayCommands } from "../commands/overlay-commands.ts";
 import { registerSessionCommands } from "../commands/session-commands.ts";
 import { registerThemeCommands } from "../commands/theme-commands.ts";
-import { THEME_IMPORTER_ID } from "../extensions/theme-importer.ts";
-import { useExtensionOn } from "../extensions/useExtensionOn.ts";
+import { registerExtensionCommands } from "../extensions/commands.ts";
+import { runExtensionCommand } from "../extensions/run-command.ts";
+import { useDesktopExtensions } from "../extensions/useExtensionOn.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
 import { registerCoreContributions } from "../registry/core.ts";
 import { switchTheme } from "../theme/activate.ts";
-import { importThemeFromPicker } from "../theme/import-flow.ts";
 import { showToast } from "../overlays/toasts.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import { defaultLayout, type LayoutState } from "./model.ts";
@@ -21,10 +21,8 @@ import { resolveLayout, type ResolvedLayout } from "./resolve.ts";
 
 const SAVE_DELAY_MS = 400;
 
-function importFromCommand(): void {
-    void importThemeFromPicker().then((report) => {
-        if (report !== undefined) showToast(report.message, report.ok ? "success" : "danger");
-    });
+function runFromCommand(command: string): void {
+    void runExtensionCommand(command, (report) => showToast(report.message, report.ok ? "success" : "danger"));
 }
 
 export interface LayoutController {
@@ -119,10 +117,11 @@ export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
 
     useEffect(() => registerLayoutCommands(commands, dispatch), [commands, dispatch]);
     const importedThemes = useImportedThemes();
-    const importerOn = useExtensionOn(THEME_IMPORTER_ID);
+    useEffect(() => registerThemeCommands(commands, switchTheme, importedThemes), [commands, importedThemes]);
+    const extensions = useDesktopExtensions();
     useEffect(
-        () => registerThemeCommands(commands, switchTheme, importedThemes, importerOn && window.veraDesktop !== undefined ? importFromCommand : undefined),
-        [commands, importedThemes, importerOn],
+        () => (extensions === undefined ? undefined : registerExtensionCommands(commands, extensions, runFromCommand)),
+        [commands, extensions],
     );
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);

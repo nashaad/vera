@@ -1,5 +1,5 @@
-import { baseColor } from "../../../ui/src/theme/imported.ts";
-import type { ColorToken, ThemeName } from "../../../ui/src/theme/tokens.ts";
+import { baseColor } from "../../clients/ui/src/theme/imported.ts";
+import type { ColorToken, ThemeName } from "../../clients/ui/src/theme/tokens.ts";
 
 // Tokens Vera draws as grays between the surface and the text. Hues, and badge-text, which pairs with a hue, keep the built-in value.
 export const NEUTRAL_TOKENS: readonly ColorToken[] = [

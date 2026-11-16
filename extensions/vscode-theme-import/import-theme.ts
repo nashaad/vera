@@ -1,15 +1,20 @@
 import { basename, extname, join } from "node:path";
 
-import type { ImportedTheme } from "../../../ui/src/theme/imported.ts";
+import type { ImportedTheme } from "../../clients/ui/src/theme/imported.ts";
 import { loadTheme } from "./chain.ts";
 import { convertTheme } from "./convert.ts";
-import { MAX_REPLY_BYTES, type ImportOutcome, type InstalledTheme } from "./task-protocol.ts";
+import { MAX_REPLY_BYTES } from "../../clients/desktop/src/extension-commands/task-protocol.ts";
+import type { InstalledTheme } from "./installed.ts";
 import { readManifest, type ManifestTheme } from "./manifest.ts";
 import { ThemeRefusal } from "./refusal.ts";
 import { diskSource, fileByteSource, zipSource, type ThemeSource } from "./source.ts";
-import { MAX_THEME_BYTES } from "../theme-store.ts";
+import { MAX_THEME_BYTES } from "../../clients/desktop/src/theme-store.ts";
 
 const GENERIC_REFUSAL = "Vera could not read that file as a theme.";
+
+export type ImportOutcome =
+    | { readonly ok: true; readonly themes: readonly ImportedTheme[]; readonly skipped: readonly string[] }
+    | { readonly ok: false; readonly reason: string };
 
 // Counts the bytes of the themes one reply carries, which are kept under MAX_REPLY_BYTES.
 export class ReplyBudget {

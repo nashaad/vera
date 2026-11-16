@@ -1,4 +1,4 @@
-import type { ImportedTheme } from "../../../ui/src/theme/imported.ts";
+import type { ImportedTheme } from "../../clients/ui/src/theme/imported.ts";
 import type { LoadedTheme } from "./chain.ts";
 import { classifyType, mapColors } from "./color-map.ts";
 import { ThemeRefusal } from "./refusal.ts";

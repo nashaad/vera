@@ -10,6 +10,10 @@ export function setDesktopExtensions(next: readonly DesktopExtensionEntry[]): vo
     for (const listener of listeners) listener();
 }
 
+export function desktopExtensions(): readonly DesktopExtensionEntry[] | undefined {
+    return entries;
+}
+
 export function isExtensionOn(id: string): boolean {
     return entries?.some((entry) => entry.id === id && entry.enabled) ?? false;
 }

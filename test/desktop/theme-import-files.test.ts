@@ -2,11 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadTheme } from "../../clients/desktop/src/theme-import/chain.ts";
-import { slugOf } from "../../clients/desktop/src/theme-import/convert.ts";
-import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
-import { diskSource, MAX_FILE_BYTES } from "../../clients/desktop/src/theme-import/source.ts";
-import { ReplyBudget } from "../../clients/desktop/src/theme-import/import-theme.ts";
+import { loadTheme } from "../../extensions/vscode-theme-import/chain.ts";
+import { slugOf } from "../../extensions/vscode-theme-import/convert.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
+import { diskSource, MAX_FILE_BYTES } from "../../extensions/vscode-theme-import/source.ts";
+import { ReplyBudget } from "../../extensions/vscode-theme-import/import-theme.ts";
 import { MAX_THEME_BYTES, ThemeStore, themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { baseColor, type ImportedTheme } from "../../clients/ui/src/theme/imported.ts";
 import { PIRATE_CROW, pirateCrowText, removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";

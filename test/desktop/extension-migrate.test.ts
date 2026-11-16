@@ -8,7 +8,6 @@ import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
 import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
-import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts";
 import { savedTheme } from "./extension-fixtures.ts";
 import { removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";
 
@@ -88,7 +87,7 @@ test("@core when the extension cannot be installed the old file stays and the th
         chmodSync(root, 0o700);
     }
     expect(existsSync(join(themesDirectory(home), `${slug}.json`))).toBe(true);
-    const service = new ThemeService(store, themesDirectory(home), runThemeTask);
+    const service = new ThemeService(store, themesDirectory(home));
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);
 });
 
@@ -96,7 +95,7 @@ test("a theme saved under the old folder is listed by the service until it moves
     const home = scratchDirectory();
     const slug = saveOld(home, "Crow Night");
     const store = storeFor(home);
-    const service = new ThemeService(store, themesDirectory(home), runThemeTask);
+    const service = new ThemeService(store, themesDirectory(home));
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);
     migrateSavedThemes(store, themesDirectory(home));
     expect(service.load().map((theme) => theme.slug)).toEqual([slug]);

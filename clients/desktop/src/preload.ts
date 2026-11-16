@@ -35,7 +35,7 @@ import type {
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/protocol/extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
-import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
+import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import type { BrowserBounds, BrowserState } from "../../ui/src/browser/native-types.ts";
 import { CHANNELS } from "./channels.ts";
@@ -55,10 +55,8 @@ const bridge: DesktopBridge = {
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),
     loadImportedThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesLoad)) as readonly ImportedThemeSummary[],
-    importTheme: async () => (await ipcRenderer.invoke(CHANNELS.themeImport)) as ThemeImportResult,
-    listInstalledThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesInstalled)) as InstalledThemesResult,
-    importInstalledTheme: async (key: string) =>
-        (await ipcRenderer.invoke(CHANNELS.themeInstalledImport, key)) as ThemeImportResult,
+    runExtensionCommand: async (command: string, pick?: string) =>
+        (await ipcRenderer.invoke(CHANNELS.extensionCommand, command, pick)) as ExtensionCommandResult,
     listDesktopExtensions: async () => (await ipcRenderer.invoke(CHANNELS.desktopExtensionsList)) as ExtensionChangeResult,
     previewDesktopExtension: async () => (await ipcRenderer.invoke(CHANNELS.desktopExtensionPreview)) as ExtensionPreviewResult,
     installDesktopExtension: async (token: string) =>

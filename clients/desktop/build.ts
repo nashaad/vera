@@ -1,13 +1,10 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
-import { DESKTOP_MANIFEST_FILENAME } from "../ui/src/extensions/manifest.ts";
-import { THEME_IMPORTER_ID } from "../ui/src/extensions/theme-importer.ts";
+import { DESKTOP_MANIFEST_FILENAME, parseDesktopManifest } from "../ui/src/extensions/manifest.ts";
 import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
-import { THEME_IMPORTER_MANIFEST } from "./src/theme-import/extension-manifest.ts";
-import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
 
 const root = import.meta.dir;
 
@@ -50,25 +47,35 @@ const preload = await Bun.build({
 if (!preload.success) fail(preload.logs);
 
 // Each task runs in a process of its own, from a bundle that main.js never loads.
-// The theme importer is an included extension, so its worker and manifest sit in its own folder.
 const TASKS = [
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
     { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
-    { entry: join(root, "src", "theme-import", "worker.ts"), file: THEME_TASK_FILE, outdir: join(out, "extensions", THEME_IMPORTER_ID) },
 ];
-for (const task of TASKS) {
-    const bundle = await Bun.build({
-        entrypoints: [task.entry],
-        outdir: task.outdir ?? out,
-        target: "node",
-        format: "cjs",
-        external: ["electron"],
-        naming: task.file,
-    });
+async function bundleTask(entry: string, outdir: string, file: string): Promise<void> {
+    const bundle = await Bun.build({ entrypoints: [entry], outdir, target: "node", format: "cjs", external: ["electron"], naming: file });
     if (!bundle.success) fail(bundle.logs);
 }
-writeFileSync(join(out, "extensions", THEME_IMPORTER_ID, DESKTOP_MANIFEST_FILENAME), `${JSON.stringify(THEME_IMPORTER_MANIFEST, null, 4)}\n`);
+for (const task of TASKS) await bundleTask(task.entry, out, task.file);
+
+// Desktop extensions that ship with the app, each a folder of the repository holding a vera.desktop.json. The
+// manifest is copied to dist/extensions/<id>/, and each task's `main` (`<name>.cjs`) is bundled from `<name>.ts`
+// in the same folder.
+const INCLUDED_EXTENSIONS = [join(root, "..", "..", "extensions", "vscode-theme-import")];
+const TASK_MAIN = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.cjs$/;
+for (const folder of INCLUDED_EXTENSIONS) {
+    const manifestFile = join(folder, DESKTOP_MANIFEST_FILENAME);
+    const parsed = parseDesktopManifest(JSON.parse(readFileSync(manifestFile, "utf8")));
+    if (!parsed.ok) fail([`${manifestFile}: ${parsed.reason}`]);
+    const outdir = join(out, "extensions", parsed.manifest.id);
+    mkdirSync(outdir, { recursive: true });
+    copyFileSync(manifestFile, join(outdir, DESKTOP_MANIFEST_FILENAME));
+    for (const task of parsed.manifest.tasks) {
+        const name = TASK_MAIN.exec(task.main)?.[1];
+        if (name === undefined) fail([`${manifestFile}: task "${task.id}" main "${task.main}" must be a <name>.cjs file in the extension folder.`]);
+        await bundleTask(join(folder, `${name}.ts`), outdir, task.main);
+    }
+}
 
 const rendererOut = join(out, "renderer");
 const renderer = await Bun.build({

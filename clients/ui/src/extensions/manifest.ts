@@ -9,19 +9,35 @@ export const CORE_WHEN_KEYS: readonly string[] = ["view", "container", "entryKin
 
 export const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
 const MANIFEST_KEYS = ["id", "version", "engine", "main", "contributes"];
-const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks"];
+const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks", "menus"];
 const TASK_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const MAX_TITLE_LENGTH = 100;
+const MENU_ENTRY_KEYS = ["command", "title", "description", "button"];
 const MAX_CATEGORY_LENGTH = 40;
 // Long enough for `imported.` and a 64-character saved-theme slug.
 export const MAX_ID_LENGTH = 80;
 export const MAX_THEMES_PER_EXTENSION = 32;
 const MAX_THEME_LABEL_LENGTH = 120;
 export const MAX_TASKS_PER_EXTENSION = 8;
+// The places a menu entry can appear: rows in Settings > Appearance, and the app menu's Theme submenu.
+export const DESKTOP_MENU_PLACES = ["appearance", "theme"] as const;
+export type DesktopMenuPlace = (typeof DESKTOP_MENU_PLACES)[number];
+export const MAX_MENU_ENTRIES_PER_PLACE = 8;
+const MAX_DESCRIPTION_LENGTH = 300;
+const MAX_BUTTON_LENGTH = 30;
+const MAX_FILE_LABEL_LENGTH = 60;
+const MAX_FILE_EXTENSIONS = 8;
+const FILE_EXTENSION_PATTERN = /^[A-Za-z0-9]{1,16}$/;
 
 export interface ParsedWhen {
     readonly source: string;
     readonly expression: WhenExpression;
+}
+
+// The open-file dialog shown before a command's task runs. `extensions` are written without the dot.
+export interface DesktopFileFilter {
+    readonly label: string;
+    readonly extensions: readonly string[];
 }
 
 export interface DesktopCommand {
@@ -30,8 +46,20 @@ export interface DesktopCommand {
     readonly category?: string;
     // The id of a task this extension contributes. Running the command runs that task, not the main module.
     readonly task?: string;
+    // Only with a task: the person picks a file first, and the task receives its path. Cancelling runs nothing.
+    readonly file?: DesktopFileFilter;
     readonly when?: ParsedWhen;
 }
+
+// A command shown in one place. Each text left out falls back to the command's own title, or to the place's default.
+export interface DesktopMenuEntry {
+    readonly command: string;
+    readonly title?: string;
+    readonly description?: string;
+    readonly button?: string;
+}
+
+export type DesktopMenus = Readonly<Record<DesktopMenuPlace, readonly DesktopMenuEntry[]>>;
 
 export interface DesktopKeybinding {
     readonly command: string;
@@ -64,6 +92,7 @@ export interface DesktopManifest {
     readonly keybindings: readonly DesktopKeybinding[];
     readonly themes: readonly DesktopTheme[];
     readonly tasks: readonly DesktopTask[];
+    readonly menus: DesktopMenus;
 }
 
 export interface ManifestFailure {
@@ -132,6 +161,7 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
         keybindings: readKeybindings(contributes.keybindings, commands, id),
         themes: readThemes(contributes.themes),
         tasks,
+        menus: readMenus(contributes.menus, commands),
     };
 }
 
@@ -225,16 +255,96 @@ function readCommands(value: unknown, id: string, tasks: readonly DesktopTask[])
         if (task !== undefined && (typeof task !== "string" || !tasks.some((declared) => declared.id === task))) {
             throw new ManifestProblem(`Command "${command}" names a task that this manifest does not declare.`);
         }
+        const file = readFileFilter(entry.file, command, task !== undefined);
         const when = readWhen(entry.when, `command "${command}"`, id);
         commands.push({
             command,
             title: title.trim(),
             ...(category === undefined ? {} : { category: category.trim() }),
             ...(task === undefined ? {} : { task }),
+            ...(file === undefined ? {} : { file }),
             ...(when === undefined ? {} : { when }),
         });
     }
     return commands;
+}
+
+function readFileFilter(value: unknown, command: string, hasTask: boolean): DesktopFileFilter | undefined {
+    if (value === undefined) return undefined;
+    if (!hasTask) throw new ManifestProblem(`Command "${command}" sets "file" but names no task.`);
+    if (!isPlainObject(value)) throw new ManifestProblem(`The "file" of command "${command}" must be an object.`);
+    for (const key of Object.keys(value)) {
+        if (key !== "label" && key !== "extensions") throw new ManifestProblem(`The "file" of command "${command}" has an unknown key "${key}".`);
+    }
+    const { label, extensions } = value;
+    if (!isText(label, MAX_FILE_LABEL_LENGTH)) {
+        throw new ManifestProblem(`The "file" of command "${command}" needs a label of 1 to ${MAX_FILE_LABEL_LENGTH} characters.`);
+    }
+    if (!Array.isArray(extensions) || extensions.length === 0 || extensions.length > MAX_FILE_EXTENSIONS) {
+        throw new ManifestProblem(`The "file" of command "${command}" needs 1 to ${MAX_FILE_EXTENSIONS} extensions.`);
+    }
+    const names: string[] = [];
+    for (const name of extensions) {
+        if (typeof name !== "string" || !FILE_EXTENSION_PATTERN.test(name)) {
+            throw new ManifestProblem(`The "file" of command "${command}" lists an extension that is not letters and digits without a dot.`);
+        }
+        if (!names.includes(name)) names.push(name);
+    }
+    return { label: label.trim(), extensions: names };
+}
+
+function readMenus(value: unknown, commands: readonly DesktopCommand[]): DesktopMenus {
+    const menus: Record<DesktopMenuPlace, DesktopMenuEntry[]> = { appearance: [], theme: [] };
+    if (value === undefined) return menus;
+    if (!isPlainObject(value)) throw new ManifestProblem('"contributes.menus" must be an object keyed by place.');
+    for (const place of Object.keys(value)) {
+        if (!isMenuPlace(place)) {
+            throw new ManifestProblem(`Unknown menu place "${place}". The places are ${DESKTOP_MENU_PLACES.join(" and ")}.`);
+        }
+        menus[place] = readMenuEntries(value[place], place, commands);
+    }
+    return menus;
+}
+
+function isMenuPlace(value: string): value is DesktopMenuPlace {
+    return (DESKTOP_MENU_PLACES as readonly string[]).includes(value);
+}
+
+function readMenuEntries(value: unknown, place: DesktopMenuPlace, commands: readonly DesktopCommand[]): DesktopMenuEntry[] {
+    if (!Array.isArray(value)) throw new ManifestProblem(`"contributes.menus.${place}" must be an array.`);
+    if (value.length > MAX_MENU_ENTRIES_PER_PLACE) {
+        throw new ManifestProblem(`"contributes.menus.${place}" holds at most ${MAX_MENU_ENTRIES_PER_PLACE} entries.`);
+    }
+    const entries: DesktopMenuEntry[] = [];
+    for (const entry of value) {
+        if (!isPlainObject(entry)) throw new ManifestProblem(`A menu entry in "${place}" must be an object.`);
+        for (const key of Object.keys(entry)) {
+            if (!MENU_ENTRY_KEYS.includes(key)) throw new ManifestProblem(`A menu entry in "${place}" has an unknown key "${key}".`);
+        }
+        const { command, title, description, button } = entry;
+        if (typeof command !== "string" || !commands.some((declared) => declared.command === command)) {
+            throw new ManifestProblem(`A menu entry in "${place}" names a command that this manifest does not declare.`);
+        }
+        if (entries.some((existing) => existing.command === command)) {
+            throw new ManifestProblem(`Command "${command}" is listed twice in "${place}".`);
+        }
+        if (title !== undefined && !isText(title, MAX_TITLE_LENGTH)) {
+            throw new ManifestProblem(`The menu entry for "${command}" needs a title of 1 to ${MAX_TITLE_LENGTH} characters.`);
+        }
+        if (description !== undefined && !isText(description, MAX_DESCRIPTION_LENGTH)) {
+            throw new ManifestProblem(`The menu entry for "${command}" needs a description of 1 to ${MAX_DESCRIPTION_LENGTH} characters.`);
+        }
+        if (button !== undefined && !isText(button, MAX_BUTTON_LENGTH)) {
+            throw new ManifestProblem(`The menu entry for "${command}" needs a button of 1 to ${MAX_BUTTON_LENGTH} characters.`);
+        }
+        entries.push({
+            command,
+            ...(title === undefined ? {} : { title: title.trim() }),
+            ...(description === undefined ? {} : { description: description.trim() }),
+            ...(button === undefined ? {} : { button: button.trim() }),
+        });
+    }
+    return entries;
 }
 
 function readKeybindings(value: unknown, commands: readonly DesktopCommand[], id: string): readonly DesktopKeybinding[] {

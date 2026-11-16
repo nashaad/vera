@@ -5,14 +5,15 @@ import {
     importedThemeCommand,
     registerThemeCommands,
     THEME_COMMANDS,
-    THEME_IMPORT_COMMAND,
     themeCommandId,
 } from "../../clients/ui/src/commands/theme-commands.ts";
 import { themeFromAttribute, themeLabel, themeSwatch } from "../../clients/ui/src/pages/settings/appearance.ts";
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
-import type { ThemeImportResult } from "../../clients/ui/src/protocol/themes.ts";
+import type { CommandThemesDone, ExtensionCommandResult } from "../../clients/ui/src/protocol/extension-commands.ts";
+import { runExtensionCommand } from "../../clients/ui/src/extensions/run-command.ts";
+import { closeOverlay, openedOverlay, openedPicker } from "../../clients/ui/src/overlays/store.ts";
 import { applyTheme, resolveThemeChoice, themeFile } from "../../clients/ui/src/theme/apply.ts";
-import { importInstalledTheme, importThemeFromPicker, reportImport } from "../../clients/ui/src/theme/import-flow.ts";
+import { reportImport, type ImportReport } from "../../clients/ui/src/theme/import-flow.ts";
 import { importedThemeFile, parseImportedSummaries, parseImportedSummary, type ImportedThemeSummary } from "../../clients/ui/src/theme/imported.ts";
 import { importedThemes, setImportedThemes } from "../../clients/ui/src/theme/imported-registry.ts";
 import { readStoredTheme, readThemeCache, storeTheme } from "../../clients/ui/src/theme/storage.ts";
@@ -27,7 +28,7 @@ import {
     COLOR_TOKENS,
     type ColorToken,
 } from "../../clients/ui/src/theme/tokens.ts";
-import { mapColors } from "../../clients/desktop/src/theme-import/color-map.ts";
+import { mapColors } from "../../extensions/vscode-theme-import/color-map.ts";
 import { PIRATE_CROW } from "./theme-fixtures.ts";
 
 const PIRATE: ImportedThemeSummary = {
@@ -78,18 +79,26 @@ afterEach(() => {
     setImportedThemes([]);
 });
 
-function bridgeAnswering(answers: { load?: unknown; import?: ThemeImportResult; installed?: ThemeImportResult }): DesktopBridge {
+type CommandAnswer = (command: string, pick: string | undefined) => ExtensionCommandResult | Promise<ExtensionCommandResult>;
+
+function bridgeAnswering(answers: { load?: unknown; run?: CommandAnswer }): DesktopBridge {
     return {
         setWindowBackground: (color: string) => void page.windowBackgrounds.push(color),
         setTheme: (choice: string) => void page.menuChoices.push(choice),
         loadImportedThemes: async () => (answers.load ?? []) as ImportedThemeSummary[],
-        importTheme: async () => answers.import ?? { ok: true, imported: [], themes: [], skipped: [] },
-        importInstalledTheme: async () => answers.installed ?? { ok: true, imported: [], themes: [], skipped: [] },
+        runExtensionCommand: async (command: string, pick?: string) =>
+            answers.run?.(command, pick) ?? { ok: true, kind: "themes", imported: [], themes: [], skipped: [] },
     } as unknown as DesktopBridge;
 }
 
-function done(imported: ImportedThemeSummary[], all: ImportedThemeSummary[] = imported, skipped: string[] = []): ThemeImportResult {
-    return { ok: true, imported, themes: all, skipped };
+function done(imported: ImportedThemeSummary[], all: ImportedThemeSummary[] = imported, skipped: string[] = []): CommandThemesDone {
+    return { ok: true, kind: "themes", imported, themes: all, skipped };
+}
+
+async function reported(command: string, bridge: DesktopBridge | undefined, pick?: string): Promise<ImportReport[]> {
+    const reports: ImportReport[] = [];
+    await runExtensionCommand(command, (outcome) => reports.push(outcome), bridge, pick);
+    return reports;
 }
 
 test("@core imported theme ids are a prefix and a safe slug, and cannot collide with a built-in name", () => {
@@ -205,24 +214,61 @@ test("@core a refused import keeps the current theme and gives the reason", () =
     expect(importedThemes()).toHaveLength(1);
 });
 
-test("a closed picker changes nothing and reports nothing", async () => {
+test("a closed file picker changes nothing and reports nothing", async () => {
     setImportedThemes([PIRATE]);
     applyTheme("light");
-    expect(await importThemeFromPicker(bridgeAnswering({ import: done([], [PIRATE]) }))).toBeUndefined();
+    expect(await reported("vera.crow.import", bridgeAnswering({ run: () => done([], [PIRATE]) }))).toEqual([]);
     expect(page.attributes.get("data-theme")).toBe("light");
 });
 
-test("importing without a desktop bridge or when the bridge throws leaves the theme alone", async () => {
-    expect(await importThemeFromPicker(undefined)).toEqual({ ok: false, message: "Importing a theme needs the desktop app. Your theme is unchanged." });
-    const throwing = { importTheme: async () => { throw new Error("ipc closed"); } } as unknown as DesktopBridge;
-    expect(await importThemeFromPicker(throwing)).toEqual({ ok: false, message: "Vera could not import that theme. Your theme is unchanged." });
+test("@core a command run without a desktop bridge, or when the bridge throws, leaves the theme alone", async () => {
+    expect(await reported("vera.crow.import", undefined)).toEqual([{ ok: false, message: "Importing a theme needs the desktop app. Your theme is unchanged." }]);
+    const throwing = { runExtensionCommand: async () => { throw new Error("ipc closed"); } } as unknown as DesktopBridge;
+    expect(await reported("vera.crow.import", throwing)).toEqual([{ ok: false, message: "Vera could not import that theme. Your theme is unchanged." }]);
     expect(page.attributes.size).toBe(0);
 });
 
-test("an installed theme imports through the same flow", async () => {
-    const report = await importInstalledTheme("installed-1", bridgeAnswering({ installed: done([NEST]) }));
-    expect(report?.ok).toBe(true);
+test("@core a themes answer switches to the imported theme and reports it, and a refusal gives its reason", async () => {
+    const bridge = bridgeAnswering({ run: (command) => command === "vera.crow.refuse" ? { ok: false, reason: "The file is not valid JSON." } : done([NEST]) });
+    const imported = await reported("vera.crow.import", bridge);
+    expect(imported).toEqual([{ ok: true, message: "Imported \"Crow Nest\" and switched to it." }]);
     expect(page.attributes.get("data-theme")).toBe("imported:crow-nest");
+    expect(await reported("vera.crow.refuse", bridge)).toEqual([{ ok: false, message: "The file is not valid JSON. Your theme is unchanged." }]);
+    expect(page.attributes.get("data-theme")).toBe("imported:crow-nest");
+});
+
+test("@core a list answer opens the picker with the keys and labels only, and choosing runs the command again with that key", async () => {
+    const asked: [string, string | undefined][] = [];
+    const bridge = bridgeAnswering({
+        run: (command, pick) => {
+            asked.push([command, pick]);
+            if (pick !== undefined) return done([NEST]);
+            return { ok: true, kind: "pick", title: "Themes installed in VS Code", items: [{ key: "pick-0", label: "Crow Nest", detail: "Crow Pack" }, { key: "pick-1", label: "Pirate Crow" }], cut: true };
+        },
+    });
+    const reports: ImportReport[] = [];
+    await runExtensionCommand("vera.crow.installed", (outcome) => reports.push(outcome), bridge);
+    const picker = openedPicker();
+    expect(picker?.title).toBe("Themes installed in VS Code");
+    expect(picker?.cut).toBe(true);
+    expect(picker?.items).toEqual([{ key: "pick-0", label: "Crow Nest", detail: "Crow Pack" }, { key: "pick-1", label: "Pirate Crow" }]);
+    expect(reports).toEqual([]);
+    expect(page.attributes.size).toBe(0);
+
+    picker?.choose("pick-0");
+    await Bun.sleep(0);
+    expect(asked).toEqual([["vera.crow.installed", undefined], ["vera.crow.installed", "pick-0"]]);
+    expect(reports).toEqual([{ ok: true, message: "Imported \"Crow Nest\" and switched to it." }]);
+    expect(page.attributes.get("data-theme")).toBe("imported:crow-nest");
+});
+
+test("the picker is closed by closing the overlay, and one overlay at a time stays open", async () => {
+    const bridge = bridgeAnswering({ run: () => ({ ok: true, kind: "pick", title: "Crow themes", items: [], cut: false }) });
+    await runExtensionCommand("vera.crow.installed", () => {}, bridge);
+    expect(openedPicker()?.title).toBe("Crow themes");
+    expect(openedOverlay()).toBeUndefined();
+    closeOverlay();
+    expect(openedPicker()).toBeUndefined();
 });
 
 test("@core on launch the stored imported theme is applied again from the saved files, and falls back when its file is gone", async () => {
@@ -246,23 +292,19 @@ test("syncing leaves a built-in choice alone, and does nothing without a bridge"
     expect(importedThemes().map((theme) => theme.slug)).toEqual(["pirate-crow"]);
 });
 
-test("@core each imported theme has a palette command, and the import command exists only when asked for", () => {
+test("@core each imported theme has a palette command, and the theme commands hold nothing of an extension", () => {
     const registry = new CommandRegistry();
     const applied: string[] = [];
-    let imports = 0;
-    const dispose = registerThemeCommands(registry, (choice) => applied.push(choice), [PIRATE, NEST], () => { imports += 1; });
+    const dispose = registerThemeCommands(registry, (choice) => applied.push(choice), [PIRATE, NEST]);
     expect(registry.list().map((command) => [command.id, command.title]).sort()).toEqual([
         ["theme.dark", "Theme: Dark"],
         ["theme.highContrast", "Theme: High Contrast"],
         ["theme.imported.crow-nest", "Theme: Crow Nest"],
         ["theme.imported.pirate-crow", "Theme: Pirate Crow"],
-        [THEME_IMPORT_COMMAND, "Theme: Import VS Code Theme…"],
         ["theme.light", "Theme: Light"],
     ].sort());
     registry.execute(importedThemeCommand("crow-nest"));
-    registry.execute(THEME_IMPORT_COMMAND);
     expect(applied).toEqual(["imported:crow-nest"]);
-    expect(imports).toBe(1);
     dispose();
     expect(registry.list()).toEqual([]);
     const plain = new CommandRegistry();

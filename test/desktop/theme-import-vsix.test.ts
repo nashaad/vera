@@ -2,10 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { readManifest } from "../../clients/desktop/src/theme-import/manifest.ts";
-import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
-import { MAX_FILE_BYTES, zipSource } from "../../clients/desktop/src/theme-import/source.ts";
-import { bufferSource, readZipDirectory, readZipEntry } from "../../clients/desktop/src/theme-import/zip.ts";
+import { readManifest } from "../../extensions/vscode-theme-import/manifest.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
+import { MAX_FILE_BYTES, zipSource } from "../../extensions/vscode-theme-import/source.ts";
+import { bufferSource, readZipDirectory, readZipEntry } from "../../extensions/vscode-theme-import/zip.ts";
 import {
     buildZip,
     manifestText,

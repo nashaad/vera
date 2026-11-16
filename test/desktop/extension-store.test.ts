@@ -40,7 +40,7 @@ test("@core a committed extension is listed, and its themes are keyed by the ext
     const store = storeFor(home);
     install(store, "crow.pack", "1.2.0", [CROW, { label: "Crow Day", name: "Crow Day" }]);
     expect(store.entries()).toEqual([
-        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, included: false, enabled: true },
+        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [] }, included: false, enabled: true },
     ]);
     expect(store.themes().map((theme) => [theme.slug, theme.name])).toEqual([
         ["crow.pack.crow-day", "Crow Day"],
@@ -142,12 +142,27 @@ test("@core a disabled entry for an included extension in the state file is igno
 });
 
 function taskExtension(directory: string, id: string, worker = true): void {
-    const manifest = { id, version: "1.0.0", engine: DESKTOP_ENGINE, contributes: { tasks: [{ id: "scan", title: "Crow Scan", main: "scan.cjs" }] } };
+    const manifest = {
+        id,
+        version: "1.0.0",
+        engine: DESKTOP_ENGINE,
+        contributes: {
+            tasks: [{ id: "scan", title: "Crow Scan", main: "scan.cjs" }],
+            commands: [
+                { command: `${id}.scan`, title: "Scan", category: "Crow", task: "scan", file: { label: "Crow files", extensions: ["json"] } },
+                { command: `${id}.list`, title: "List", task: "scan" },
+            ],
+            menus: {
+                appearance: [{ command: `${id}.scan`, title: "Scan for crows", description: "Find crows.", button: "Scan" }, { command: `${id}.list` }],
+                theme: [{ command: `${id}.scan` }],
+            },
+        },
+    };
     writeText(join(directory, id, "vera.desktop.json"), JSON.stringify(manifest));
     if (worker) writeText(join(directory, id, "scan.cjs"), "module.exports = {};");
 }
 
-test("@core only an included extension hands out the worker file of its task, and it stays on", () => {
+test("@core only an included extension hands out the task of its command, and it stays on", () => {
     const home = scratchDirectory();
     const included = scratchDirectory();
     taskExtension(included, "vera.scan");
@@ -155,21 +170,45 @@ test("@core only an included extension hands out the worker file of its task, an
     taskExtension(extensionsDirectory(home), "crow.scan");
     writeText(extensionStatePath(home), JSON.stringify({ version: 1, disabled: ["vera.scan", "crow.scan"] }));
     const store = storeFor(home, included);
-    expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
-    expect(store.taskFile("vera.scan", "other")).toBeUndefined();
-    expect(store.taskFile("vera.lost", "scan")).toBeUndefined();
-    expect(store.taskFile("crow.scan", "scan")).toBeUndefined();
-    expect(store.taskFile("absent", "scan")).toBeUndefined();
-    expect(store.entries().find((entry) => entry.id === "vera.scan")).toMatchObject({ hasMain: true, hasCommands: false, included: true, enabled: true });
+    expect(store.commandTarget("vera.scan.scan")).toEqual({
+        taskFile: join(included, "vera.scan", "scan.cjs"),
+        taskTitle: "Crow Scan",
+        file: { label: "Crow files", extensions: ["json"] },
+    });
+    expect(store.commandTarget("vera.scan.list")).toEqual({ taskFile: join(included, "vera.scan", "scan.cjs"), taskTitle: "Crow Scan" });
+    expect(store.commandTarget("vera.scan.other")).toBeUndefined();
+    expect(store.commandTarget("vera.lost.scan")).toBeUndefined();
+    expect(store.commandTarget("crow.scan.scan")).toBeUndefined();
+    expect(store.commandTarget("absent.scan")).toBeUndefined();
+    expect(store.entries().find((entry) => entry.id === "vera.scan")).toMatchObject({ hasMain: true, hasCommands: true, included: true, enabled: true });
     expect(store.setEnabled("vera.scan", false)).toBe(false);
-    expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
+    expect(store.commandTarget("vera.scan.scan")?.taskFile).toBe(join(included, "vera.scan", "scan.cjs"));
+});
+
+test("@core the entries list the commands and menu entries of an included extension only, titled for the place", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    taskExtension(included, "vera.scan");
+    taskExtension(extensionsDirectory(home), "crow.scan");
+    const store = storeFor(home, included);
+    const entries = store.entries();
+    expect(entries.find((entry) => entry.id === "vera.scan")).toMatchObject({
+        commands: [{ id: "vera.scan.scan", title: "Scan", category: "Crow" }, { id: "vera.scan.list", title: "List" }],
+        menus: {
+            appearance: [{ command: "vera.scan.scan", title: "Scan for crows", description: "Find crows.", button: "Scan" }, { command: "vera.scan.list", title: "List" }],
+            theme: [{ command: "vera.scan.scan", title: "Scan" }],
+        },
+    });
+    expect(entries.find((entry) => entry.id === "crow.scan")).toMatchObject({ commands: [], menus: { appearance: [], theme: [] } });
+    expect(store.menu("theme")).toEqual([{ command: "vera.scan.scan", title: "Scan" }]);
+    expect(store.menu("appearance").map((item) => item.command)).toEqual(["vera.scan.scan", "vera.scan.list"]);
 });
 
 test("a task worker that is not a regular file inside the extension is refused", () => {
     const included = scratchDirectory();
     taskExtension(included, "vera.scan", false);
     mkdirSync(join(included, "vera.scan", "scan.cjs"));
-    expect(storeFor(scratchDirectory(), included).taskFile("vera.scan", "scan")).toBeUndefined();
+    expect(storeFor(scratchDirectory(), included).commandTarget("vera.scan.scan")).toBeUndefined();
 });
 
 test("@core turning an extension off hides its themes, persists across stores, and removing it resets the switch", () => {

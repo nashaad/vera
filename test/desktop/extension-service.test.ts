@@ -8,8 +8,8 @@ import { parseInstallReply, parseInstallTask, type InstallReply, type InstallTas
 import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/src/extensions/paths.ts";
 import { ExtensionService } from "../../clients/desktop/src/extensions/service.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
-import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts";
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
 import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { themeFiles, writePackage } from "./extension-fixtures.ts";
@@ -28,7 +28,7 @@ interface Trial {
 function trial(run?: (task: InstallTask) => Promise<InstallReply>, onChange?: () => void): Trial {
     const home = scratchDirectory();
     const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
-    const themes = new ThemeService(store, themesDirectory(home), runThemeTask);
+    const themes = new ThemeService(store, themesDirectory(home));
     const tasks: InstallTask[] = [];
     const service = new ExtensionService(store, themes, async (task) => {
         tasks.push(task);
@@ -136,7 +136,7 @@ test("an included extension is listed as on and the service refuses to turn it o
     const included = scratchDirectory();
     writeText(join(included, "vera.sample", "vera.desktop.json"), JSON.stringify({ id: "vera.sample", version: "1.0.0", engine: DESKTOP_ENGINE }));
     const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), included);
-    const service = new ExtensionService(store, new ThemeService(store, themesDirectory(home), runThemeTask), async () => { throw new Error("no task"); });
+    const service = new ExtensionService(store, new ThemeService(store, themesDirectory(home)), async () => { throw new Error("no task"); });
     expect(service.setEnabled("vera.sample", false)).toEqual({ ok: false, reason: 'Vera could not turn "vera.sample" off.' });
     const list = service.list();
     expect(list.ok && list.extensions.map((entry) => [entry.id, entry.included, entry.enabled])).toEqual([["vera.sample", true, true]]);
@@ -155,8 +155,10 @@ test("a VS Code import becomes a desktop extension, and the same name imported a
     const { home, themes } = trial();
     const path = join(scratchDirectory(), "crow.json");
     await Bun.write(path, JSON.stringify({ name: "Pirate Crow", type: "dark", colors: { "editor.background": "#10131a" } }));
-    expect((await themes.importFile(path)).ok).toBe(true);
-    expect((await themes.importFile(path)).ok).toBe(true);
+    const converted = importThemeFile(path);
+    if (!converted.ok) throw new Error(converted.reason);
+    expect(themes.install(converted.themes, converted.skipped).ok).toBe(true);
+    expect(themes.install(converted.themes, converted.skipped).ok).toBe(true);
     expect(folders(home)).toEqual(["imported.pirate-crow"]);
     expect(existsSync(themesDirectory(home))).toBe(false);
     expect(themes.themes().map((theme) => theme.slug)).toEqual(["pirate-crow"]);

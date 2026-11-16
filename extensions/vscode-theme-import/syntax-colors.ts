@@ -1,4 +1,4 @@
-import { SYNTAX_TOKENS, type SyntaxToken } from "../../../ui/src/theme/tokens.ts";
+import { SYNTAX_TOKENS, type SyntaxToken } from "../../clients/ui/src/theme/tokens.ts";
 import { parseColor } from "./vscode-color.ts";
 
 // Scope names a token of each kind carries in a TextMate grammar. A rule for the scope or any prefix of it

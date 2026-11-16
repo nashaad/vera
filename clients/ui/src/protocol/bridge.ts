@@ -9,7 +9,7 @@ import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
-import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
+import type { ExtensionCommandResult } from "./extension-commands.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 
@@ -363,12 +363,9 @@ export interface DesktopBridge {
     setTheme(choice: ThemeChoice): void;
     // The imported themes saved under the home, read again from disk.
     loadImportedThemes(): Promise<readonly ImportedThemeSummary[]>;
-    // Opens the native picker for a VS Code theme (.json) or extension package (.vsix) and saves the themes in it.
-    importTheme(): Promise<ThemeImportResult>;
-    // The color themes of VS Code extensions installed on this machine.
-    listInstalledThemes(): Promise<InstalledThemesResult>;
-    // Saves one theme from the last listing of installed themes.
-    importInstalledTheme(key: string): Promise<ThemeImportResult>;
+    // Runs a command of an enabled extension included with Vera in a task process. A command with a file filter
+    // opens the native picker first. `pick` is a key from the command's last `pick` answer.
+    runExtensionCommand(command: string, pick?: string): Promise<ExtensionCommandResult>;
     // The desktop extensions, installed and included, and the themes of the enabled ones, read again from disk.
     listDesktopExtensions(): Promise<ExtensionChangeResult>;
     // Opens the native picker for a package, unpacks it in a task process and returns what it holds; nothing is installed yet.

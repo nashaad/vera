@@ -1,8 +1,15 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import type { DesktopTask } from "../../../ui/src/extensions/manifest.ts";
-import type { DesktopExtensionEntry } from "../../../ui/src/protocol/extensions.ts";
+import {
+    DESKTOP_MENU_PLACES,
+    type DesktopCommand,
+    type DesktopFileFilter,
+    type DesktopManifest,
+    type DesktopMenuPlace,
+    type DesktopTask,
+} from "../../../ui/src/extensions/manifest.ts";
+import type { DesktopExtensionEntry, DesktopExtensionMenus, DesktopMenuItem } from "../../../ui/src/protocol/extensions.ts";
 import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import { MAX_EXTENSIONS, MAX_LISTED_THEMES } from "./limits.ts";
 import { STAGING_PREFIX } from "./paths.ts";
@@ -15,6 +22,14 @@ export type CommitResult =
 
 export type RemoveResult = "removed" | "included" | "missing" | "failed";
 
+// Where and how a command's task runs.
+export interface CommandTarget {
+    readonly taskFile: string;
+    // The process name the system shows while the task runs.
+    readonly taskTitle: string;
+    readonly file?: DesktopFileFilter;
+}
+
 interface Found {
     readonly id: string;
     readonly folder: string;
@@ -24,6 +39,35 @@ interface Found {
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
     readonly tasks: readonly DesktopTask[];
+    readonly commands: readonly DesktopCommand[];
+    readonly menus: DesktopManifest["menus"];
+}
+
+// The commands the window can run: those that name a task of an extension included with Vera, the only ones that run.
+function runnableCommands(entry: Found): readonly DesktopCommand[] {
+    return entry.included ? entry.commands.filter((command) => command.task !== undefined) : [];
+}
+
+function menuItems(entry: Found, place: DesktopMenuPlace): readonly DesktopMenuItem[] {
+    const runnable = runnableCommands(entry);
+    const items: DesktopMenuItem[] = [];
+    for (const listed of entry.menus[place]) {
+        const command = runnable.find((candidate) => candidate.command === listed.command);
+        if (command === undefined) continue;
+        items.push({
+            command: command.command,
+            title: listed.title ?? command.title,
+            ...(listed.description === undefined ? {} : { description: listed.description }),
+            ...(listed.button === undefined ? {} : { button: listed.button }),
+        });
+    }
+    return items;
+}
+
+function menusOf(entry: Found): DesktopExtensionMenus {
+    const menus: Record<DesktopMenuPlace, readonly DesktopMenuItem[]> = { appearance: [], theme: [] };
+    for (const place of DESKTOP_MENU_PLACES) menus[place] = menuItems(entry, place);
+    return menus;
 }
 
 // The key the page knows a theme by. A theme imported from VS Code, or saved in the old themes folder, lives in an
@@ -77,6 +121,8 @@ export class ExtensionStore {
                 hasMain: carriesCode(manifest),
                 hasCommands: manifest.commands.length > 0,
                 tasks: manifest.tasks,
+                commands: manifest.commands,
+                menus: manifest.menus,
             });
             if (found.length >= MAX_EXTENSIONS) break;
         }
@@ -103,9 +149,21 @@ export class ExtensionStore {
             themes: entry.themes,
             hasMain: entry.hasMain,
             hasCommands: entry.hasCommands,
+            commands: runnableCommands(entry).map((command) => ({
+                id: command.command,
+                title: command.title,
+                ...(command.category === undefined ? {} : { category: command.category }),
+            })),
+            menus: menusOf(entry),
             included: entry.included,
             enabled: !this.off(entry, disabled),
         }));
+    }
+
+    // The entries of one menu place, from every enabled extension.
+    menu(place: DesktopMenuPlace): readonly DesktopMenuItem[] {
+        const disabled = this.state.disabled();
+        return this.all().filter((entry) => !this.off(entry, disabled)).flatMap((entry) => menuItems(entry, place));
     }
 
     installedVersion(id: string): string | undefined {
@@ -129,12 +187,16 @@ export class ExtensionStore {
         return [...themes.values()].slice(0, MAX_LISTED_THEMES).sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // The worker file of a task, only for an extension included with Vera. An installed extension never runs a
-    // task. Undefined means it must not run.
-    taskFile(extensionId: string, taskId: string): string | undefined {
-        const entry = this.scan(this.included, true).find((candidate) => candidate.id === extensionId);
-        const task = entry?.tasks.find((candidate) => candidate.id === taskId);
-        return entry === undefined || task === undefined ? undefined : taskWorkerFile(entry.folder, task.main);
+    // The task behind a command of an extension included with Vera. An installed extension never runs a command.
+    // Undefined means it must not run.
+    commandTarget(command: string): CommandTarget | undefined {
+        const entry = this.scan(this.included, true).find((candidate) => candidate.commands.some((declared) => declared.command === command));
+        const declared = entry?.commands.find((candidate) => candidate.command === command);
+        const task = entry?.tasks.find((candidate) => candidate.id === declared?.task);
+        if (entry === undefined || declared === undefined || task === undefined) return undefined;
+        const taskFile = taskWorkerFile(entry.folder, task.main);
+        if (taskFile === undefined) return undefined;
+        return { taskFile, taskTitle: task.title, ...(declared.file === undefined ? {} : { file: declared.file }) };
     }
 
     // False when the id is not an installed extension, or the state file could not be written. An included

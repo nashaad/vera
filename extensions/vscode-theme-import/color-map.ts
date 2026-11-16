@@ -1,6 +1,6 @@
-import { baseColor, shadowFor } from "../../../ui/src/theme/imported.ts";
-import type { ColorToken, SyntaxToken, ThemeName } from "../../../ui/src/theme/tokens.ts";
-import { COLOR_TOKENS } from "../../../ui/src/theme/tokens.ts";
+import { baseColor, shadowFor } from "../../clients/ui/src/theme/imported.ts";
+import type { ColorToken, SyntaxToken, ThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import { COLOR_TOKENS } from "../../clients/ui/src/theme/tokens.ts";
 import { deriveNeutral, NEUTRAL_TOKENS, type NeutralAnchors } from "./neutral-colors.ts";
 import { brightness, parseColor } from "./vscode-color.ts";
 
