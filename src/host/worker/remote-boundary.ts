@@ -17,6 +17,7 @@ import type {
 import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
 import type { ToolReviewDecision } from "../../engine/reviewer.ts";
 import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
+import type { CommandSandbox, SandboxInspector } from "../../sandbox/types.ts";
 import type { SkillFileCheck, ToolRuntime } from "../../tools/runtime.ts";
 import type {
     AppliedToolEffectOutput,
@@ -57,6 +58,7 @@ export interface RemoteHostBoundaryOptions {
     readonly offers: HostBoundaryOffers;
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
+    readonly sandbox?: CommandSandbox & SandboxInspector;
     readonly localExtensionTools?: readonly RegisteredTool[];
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
@@ -109,6 +111,7 @@ export function createRemoteHostBoundary(
             pipe.notify({ method: "process.started", pid, started_at: startedAt }),
         onProcessSettled: (pid) =>
             pipe.notify({ method: "process.settled", pid }),
+        ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
     });
 
     const reviewLog: ReviewLog | undefined = capabilities.reviewLog
@@ -181,6 +184,9 @@ export function createRemoteHostBoundary(
     const boundary: HostBoundary = {
         offers: options.offers,
         readState: () => state,
+        ...(options.sandbox === undefined ? {} : {
+            readSandboxInspection: () => options.sandbox!.inspection(),
+        }),
         ...(capabilities.loadAgents === true ? {
             loadAgents: async () => {
                 const reply = await pipe.request({

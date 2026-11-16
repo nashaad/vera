@@ -47,6 +47,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@openrouter/sdk": "^0.13.55",
     "@opentui/core": "^0.2.6",
     "croner": "^10.0.1",

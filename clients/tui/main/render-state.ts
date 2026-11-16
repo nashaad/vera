@@ -5,8 +5,7 @@ import { COMPOSER_PLACEHOLDER } from "../composer.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationConsole, renderCommandSuggestions, renderHeldAddress, renderPendingQuote, renderStatus } from "../main.ts";
-import { autoNudgeWanted } from "../auto-nudge.ts";
-import { focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
+import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { markSearchLanding } from "../main/chrome.ts";
 import { maybeRequestEarlierHistory } from "../main/history-paging.ts";
@@ -374,14 +373,14 @@ export function renderState(rt: TuiRuntime): void {
         uiRequest !== undefined
         && isToolApprovalUiRequestUpdate(uiRequest)
     ) {
-        rt.approvalView.update(
-            uiRequest,
-            autoNudgeWanted(
-                focusedAgentState(rt),
-                focusedAgentClient(rt).agentId,
-                rt.autoNudgeShown,
-            ),
-        );
+        rt.approvalView.update(uiRequest, {
+            ...(focusedState.permissionInspection?.selected.name === undefined
+                ? {}
+                : { mode: focusedState.permissionInspection.selected.name }),
+            ...(focusedState.permissionInspection?.availableModes === undefined
+                ? {}
+                : { modes: focusedState.permissionInspection.availableModes }),
+        });
     }
     if (
         uiRequest !== undefined

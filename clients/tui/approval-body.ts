@@ -1,6 +1,5 @@
 import { structuredPatch } from "diff";
 
-import type { PermissionPredicate } from "../../src/engine/permissions.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { tuiDisplayPath } from "./state.ts";
 
@@ -23,12 +22,10 @@ const EDIT_DIFF_CONTEXT = 3;
 export function tuiApprovalBody(
     update: ToolApprovalUiRequestUpdate,
     expanded = false,
-    inlineScope = true,
 ): TuiApprovalBody {
     const lines = [
         ...sourceLines(update),
         ...callLines(update),
-        ...scopeLines(update, inlineScope),
     ];
     if (expanded || lines.length <= TUI_APPROVAL_BODY_LINES) {
         return { lines, hidden: 0 };
@@ -46,9 +43,8 @@ export function tuiApprovalBody(
 export function tuiApprovalBodyText(
     update: ToolApprovalUiRequestUpdate,
     expanded = false,
-    inlineScope = true,
 ): string {
-    return tuiApprovalBody(update, expanded, inlineScope).lines
+    return tuiApprovalBody(update, expanded).lines
         .map((line) => line.text)
         .join("\n");
 }
@@ -205,51 +201,6 @@ function writeLines(
 
 export function tuiApprovalPath(path: string): string {
     return tuiDisplayPath(path);
-}
-
-export function describeGrantPredicate(
-    when: PermissionPredicate,
-): string {
-    const parts = [
-        when.verb,
-        when.operation,
-        when.host,
-        when.executable,
-        when.tool !== undefined && when.executable === undefined
-            ? when.tool
-            : undefined,
-        when.pathGlob,
-        when.path === undefined ? undefined : tuiApprovalPath(when.path),
-        when.scope,
-    ].filter((part): part is string => part !== undefined);
-    return parts.length === 0 ? "similar actions" : parts.join(" ");
-}
-
-function scopeLines(
-    update: ToolApprovalUiRequestUpdate,
-    inlineScope: boolean,
-): readonly TuiApprovalLine[] {
-    if (update.request.sourceAgentId !== undefined) {
-        return [];
-    }
-    const grants = update.request.permissionGrants;
-    if (grants === undefined) {
-        return [
-            { text: "", tone: "muted" },
-            { text: "Allow for this chat and Always allow are unavailable.", tone: "muted" },
-        ];
-    }
-    if (grants.length === 1 && inlineScope) {
-        return [];
-    }
-    return [
-        { text: "", tone: "muted" },
-        { text: "Allow for this chat and Always allow remember:", tone: "muted" },
-        ...grants.map((grant) => ({
-            text: `- ${describeGrantPredicate(grant.when)}`,
-            tone: "muted" as const,
-        })),
-    ];
 }
 
 function stringField(

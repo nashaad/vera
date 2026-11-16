@@ -119,7 +119,7 @@ function separatorOf(path: string): string {
     return path.includes("\\") && !path.includes("/") ? "\\" : "/";
 }
 
-function baseName(path: string): string {
+export function baseName(path: string): string {
     return parts(path).at(-1) ?? path;
 }
 

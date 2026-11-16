@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../process-group.ts";
 import { captureMarker } from "./bounded-capture.ts";
+import type {
+    CommandSandbox,
+    SandboxPreparation,
+    SandboxPreparedCommand,
+    SandboxUnwrappedCommand,
+} from "../sandbox/types.ts";
 
 export const DEFAULT_BASH_YIELD_MS = 10_000;
 export const MAX_BASH_YIELD_MS = 60_000;
@@ -44,6 +50,14 @@ export type ManagedProcessRunResult =
         readonly reason: string;
     };
 
+/** Who started a command, for the sandbox policy and the host log. */
+export interface SandboxCommandIdentity {
+    readonly sessionId: string;
+    readonly scratchDir?: string;
+    readonly toolCallId?: string;
+    readonly approvalMode?: string;
+}
+
 export interface ManagedProcessRunOptions {
     readonly command: string;
     readonly cwd: string;
@@ -51,6 +65,7 @@ export interface ManagedProcessRunOptions {
     readonly signal?: AbortSignal;
     readonly yieldAfterMs?: number;
     readonly interactive: boolean;
+    readonly sandbox?: SandboxCommandIdentity;
 }
 
 export interface ManagedProcessRegistryOptions {
@@ -66,6 +81,7 @@ export interface ManagedProcessRegistryOptions {
     readonly processGroupAlive?: (pid: number) => boolean;
     readonly onProcessStarted?: (pid: number, startedAt: string) => void;
     readonly onProcessSettled?: (pid: number) => void;
+    readonly sandbox?: CommandSandbox;
 }
 
 interface OutputChunk {
@@ -89,6 +105,10 @@ interface ManagedProcessRecord {
     readonly subprocess: SpawnedProcess;
     readonly output: ProcessOutputBuffer;
     readonly captures: readonly StreamCapture[];
+    readonly sandbox?: SandboxPreparedCommand;
+    readonly sandboxUnwrapped?: SandboxUnwrappedCommand;
+    readonly sandboxNotice?: string;
+    sandboxReported: boolean;
     readonly completion: Promise<void>;
     readonly resolveCompletion: () => void;
     visible: boolean;
@@ -109,6 +129,17 @@ interface StreamCapture {
     cancel(): void;
 }
 
+function applySandboxSuffix(
+    snapshot: ManagedProcessSnapshot,
+    suffix: string,
+): ManagedProcessSnapshot {
+    if (suffix === "") return snapshot;
+    const output = snapshot.output === "(no output)"
+        ? suffix.replace(/^\n+/, "")
+        : `${snapshot.output}${suffix}`;
+    return { ...snapshot, output };
+}
+
 export class ManagedProcessRegistry {
     private readonly records = new Map<string, ManagedProcessRecord>();
     private readonly maxLivePerOwner: number;
@@ -122,6 +153,7 @@ export class ManagedProcessRegistry {
     private readonly groupAlive: (pid: number) => boolean;
     private readonly onProcessStarted: (pid: number, startedAt: string) => void;
     private readonly onProcessSettled: (pid: number) => void;
+    readonly sandbox: CommandSandbox | undefined;
     private idSequence = 0;
     private closed = false;
 
@@ -160,6 +192,12 @@ export class ManagedProcessRegistry {
         this.groupAlive = options.processGroupAlive ?? processGroupAlive;
         this.onProcessStarted = options.onProcessStarted ?? (() => {});
         this.onProcessSettled = options.onProcessSettled ?? (() => {});
+        this.sandbox = options.sandbox;
+    }
+
+    /** The wrapper this registry hands every command, when it has one. */
+    get commandSandbox(): CommandSandbox | undefined {
+        return this.sandbox;
     }
 
     scope(ownerId: string): ManagedProcessScope {
@@ -213,14 +251,33 @@ export class ManagedProcessRegistry {
         // Allocate before spawn: an allocator failure must not leave an unregistered child that no caller can address.
         const processId = this.uniqueId();
         const identityStartedAt = new Date().toISOString();
-        const subprocess = Bun.spawn(["bash", "-lc", options.command], {
-            cwd: options.cwd,
-            stdin: "ignore",
-            stdout: "pipe",
-            stderr: "pipe",
-            detached: process.platform !== "win32",
-            env: options.env,
-        });
+        const preparation = await this.prepareSandbox(options, processId);
+        if (preparation.refusal !== undefined) {
+            return { kind: "rejected", reason: preparation.refusal };
+        }
+        const prepared = preparation.prepared;
+        const subprocess = (() => {
+            try {
+                return Bun.spawn(
+                    prepared === undefined
+                        ? ["bash", "-lc", options.command]
+                        : [...prepared.argv],
+                    {
+                        cwd: options.cwd,
+                        stdin: "ignore",
+                        stdout: "pipe",
+                        stderr: "pipe",
+                        detached: process.platform !== "win32",
+                        env: prepared?.env ?? options.env,
+                    },
+                );
+            } catch (error) {
+                // srt created per-command state for this wrap; nothing will
+                // run, so release it now rather than at shutdown.
+                if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
+                throw error;
+            }
+        })();
         const output = new ProcessOutputBuffer();
         const captures = [
             capture(subprocess.stdout, "stdout", output),
@@ -236,6 +293,14 @@ export class ManagedProcessRegistry {
             subprocess,
             output,
             captures,
+            ...(prepared === undefined ? {} : { sandbox: prepared }),
+            ...(preparation.unwrapped === undefined
+                ? {}
+                : { sandboxUnwrapped: preparation.unwrapped }),
+            ...(preparation.notice === undefined
+                ? {}
+                : { sandboxNotice: preparation.notice }),
+            sandboxReported: false,
             completion: lifecycle.promise,
             resolveCompletion: lifecycle.resolve,
             visible: false,
@@ -295,7 +360,9 @@ export class ManagedProcessRegistry {
         if (outcome === "aborted") {
             const terminated = await this.stopAndWait(record);
             if (!terminated) record.visible = true;
-            const snapshot = this.snapshot(record);
+            const snapshot = terminated
+                ? await this.withSandboxOutcome(record)
+                : this.snapshot(record);
             if (terminated) this.remove(record);
             return {
                 kind: "aborted",
@@ -304,7 +371,7 @@ export class ManagedProcessRegistry {
             };
         }
         if (outcome === "exited") {
-            const snapshot = this.snapshot(record);
+            const snapshot = await this.withSandboxOutcome(record);
             this.remove(record);
             return { kind: "exited", snapshot };
         }
@@ -312,18 +379,40 @@ export class ManagedProcessRegistry {
         // Ownership has moved out of the foreground turn. A later abort of that turn must not kill a process whose ID was already returned.
         record.visible = true;
         if (record.finishedAt !== undefined) {
-            const snapshot = this.snapshot(record);
+            const snapshot = await this.withSandboxOutcome(record);
             this.remove(record);
             return { kind: "exited", snapshot };
         }
-        return { kind: "running", snapshot: this.snapshot(record) };
+        return {
+            kind: "running",
+            snapshot: applySandboxSuffix(
+                this.snapshot(record),
+                this.noticeSuffix(record),
+            ),
+        };
     }
 
     read(ownerId: string, processId: string): ManagedProcessSnapshot | undefined {
         this.pruneOwner(ownerId);
         const record = this.visibleRecord(ownerId, processId);
         if (record === undefined) return undefined;
-        const snapshot = this.snapshot(record);
+        const snapshot = record.finishedAt === undefined
+            ? this.snapshot(record)
+            : this.withSandboxOutcomeSync(record);
+        if (snapshot.status === "exited") this.remove(record);
+        return snapshot;
+    }
+
+    async readSettled(
+        ownerId: string,
+        processId: string,
+    ): Promise<ManagedProcessSnapshot | undefined> {
+        this.pruneOwner(ownerId);
+        const record = this.visibleRecord(ownerId, processId);
+        if (record === undefined) return undefined;
+        const snapshot = record.finishedAt === undefined
+            ? this.snapshot(record)
+            : await this.withSandboxOutcome(record);
         if (snapshot.status === "exited") this.remove(record);
         return snapshot;
     }
@@ -336,7 +425,9 @@ export class ManagedProcessRegistry {
         const record = this.visibleRecord(ownerId, processId);
         if (record === undefined) return undefined;
         await this.stopAndWait(record);
-        const snapshot = this.snapshot(record);
+        const snapshot = record.finishedAt === undefined
+            ? this.snapshot(record)
+            : await this.withSandboxOutcome(record);
         if (record.finishedAt !== undefined) this.remove(record);
         return snapshot;
     }
@@ -351,6 +442,88 @@ export class ManagedProcessRegistry {
         for (const record of records) {
             if (record.finishedAt !== undefined) this.remove(record);
         }
+    }
+
+    private async prepareSandbox(
+        options: ManagedProcessRunOptions,
+        processId: string,
+    ): Promise<SandboxPreparation> {
+        if (this.sandbox === undefined) {
+            return {};
+        }
+        // A command from a caller that did not name a session or tool call is
+        // still covered: the registry's own process ID stands in for both, so
+        // it is wrapped and logged like any other.
+        const identity: SandboxCommandIdentity = options.sandbox ?? {
+            sessionId: processId,
+            toolCallId: processId,
+        };
+        return this.sandbox.prepare({
+            command: options.command,
+            cwd: options.cwd,
+            env: options.env,
+            workspace: options.cwd,
+            ...(identity.scratchDir === undefined
+                ? {}
+                : { scratchDir: identity.scratchDir }),
+            sessionId: identity.sessionId,
+            toolCallId: identity.toolCallId ?? processId,
+            ...(identity.approvalMode === undefined
+                ? {}
+                : { approvalMode: identity.approvalMode }),
+        });
+    }
+
+    private async withSandboxOutcome(
+        record: ManagedProcessRecord,
+    ): Promise<ManagedProcessSnapshot> {
+        const snapshot = this.snapshot(record);
+        if (this.sandbox === undefined) return snapshot;
+        let suffix = this.noticeSuffix(record);
+        if (record.sandbox !== undefined) {
+            const settled = await this.sandbox.settle(
+                record.sandbox,
+                record.exitCode ?? null,
+            );
+            suffix += settled.suffix;
+        } else if (
+            record.sandboxUnwrapped !== undefined
+            && !record.sandboxReported
+        ) {
+            record.sandboxReported = true;
+            this.sandbox.finishUnwrapped(
+                record.sandboxUnwrapped,
+                record.exitCode ?? null,
+            );
+        }
+        return applySandboxSuffix(snapshot, suffix);
+    }
+
+    private withSandboxOutcomeSync(
+        record: ManagedProcessRecord,
+    ): ManagedProcessSnapshot {
+        const snapshot = this.snapshot(record);
+        if (this.sandbox === undefined) return snapshot;
+        let suffix = this.noticeSuffix(record);
+        if (record.sandbox !== undefined) {
+            suffix += this.sandbox.settleSync(record.sandbox).suffix;
+        } else if (
+            record.sandboxUnwrapped !== undefined
+            && !record.sandboxReported
+        ) {
+            record.sandboxReported = true;
+            this.sandbox.finishUnwrapped(
+                record.sandboxUnwrapped,
+                record.exitCode ?? null,
+            );
+        }
+        return applySandboxSuffix(snapshot, suffix);
+    }
+
+    private noticeSuffix(record: ManagedProcessRecord): string {
+        return record.sandboxNotice === undefined
+            ? ""
+            : `\n\n${record.sandboxNotice}`;
     }
 
     private snapshot(record: ManagedProcessRecord): ManagedProcessSnapshot {
@@ -420,6 +593,20 @@ export class ManagedProcessRegistry {
 
     private remove(record: ManagedProcessRecord): void {
         if (this.records.get(record.processId) !== record) return;
+        if (record.finishedAt !== undefined) {
+            if (record.sandbox !== undefined) {
+                this.sandbox?.settleSync(record.sandbox);
+            } else if (
+                record.sandboxUnwrapped !== undefined
+                && !record.sandboxReported
+            ) {
+                record.sandboxReported = true;
+                this.sandbox?.finishUnwrapped(
+                    record.sandboxUnwrapped,
+                    record.exitCode ?? null,
+                );
+            }
+        }
         if (record.retentionTimer !== undefined) {
             clearTimeout(record.retentionTimer);
         }
@@ -479,6 +666,9 @@ export class ManagedProcessRegistry {
         if (record.leaderExited) return;
         record.leaderExited = true;
         record.exitCode = exitCode;
+        if (record.sandbox !== undefined) {
+            this.sandbox?.commandEnded(record.sandbox);
+        }
         if (process.platform === "win32") {
             this.markGroupExited(record);
             return;
@@ -571,6 +761,10 @@ export class ManagedProcessScope {
         private readonly ownerId: string,
     ) {}
 
+    get sandbox(): CommandSandbox | undefined {
+        return this.registry.commandSandbox;
+    }
+
     run(options: ManagedProcessRunOptions): Promise<ManagedProcessRunResult> {
         if (this.closed) {
             return Promise.resolve({
@@ -583,6 +777,12 @@ export class ManagedProcessScope {
 
     read(processId: string): ManagedProcessSnapshot | undefined {
         return this.closed ? undefined : this.registry.read(this.ownerId, processId);
+    }
+
+    readSettled(processId: string): Promise<ManagedProcessSnapshot | undefined> {
+        return this.closed
+            ? Promise.resolve(undefined)
+            : this.registry.readSettled(this.ownerId, processId);
     }
 
     kill(processId: string): Promise<ManagedProcessSnapshot | undefined> {

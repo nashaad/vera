@@ -86,6 +86,7 @@ your first conversation.
 - [Extension credentials](extension-credentials.md)
 - [Extension APIs](extension-apis.md)
 - [Permission modes and rules](permission-rules.md)
+- [Sandboxed commands](sandbox.md)
 - [Configure automatic approval](permission-classifier.md)
 - [Choose a configuration file](configuration-files.md)
 - [Themes](themes.md)

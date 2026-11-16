@@ -1,5 +1,6 @@
 import type { HostModelCatalogSettings } from "../model-catalog-settings.ts";
 import type { HostLog } from "../host-log.ts";
+import type { CommandSandbox, SandboxInspector } from "../../sandbox/types.ts";
 import type { TrustNoticeStore } from "../trust-notice.ts";
 import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
@@ -36,6 +37,7 @@ import {
     isApprovalMode,
     type ApprovalMode,
     type PermissionMode,
+    type PermissionRule,
 } from "../../engine/permissions.ts";
 import type { ToolHooks } from "../../engine/hooks.ts";
 import {
@@ -311,6 +313,7 @@ export function importedSessionSummary(
 
 export interface AgentRegistryOptions {
     readonly hostLog?: HostLog;
+    readonly sandbox?: CommandSandbox & SandboxInspector;
     // Flag directory read on every turn start; see src/host/session-block.ts.
     readonly sessionBlockDirectory?: string;
     /** True while a host stop holds new turns. */
@@ -357,6 +360,7 @@ export interface AgentRegistryOptions {
         reviewer: ToolReviewerSettings | null,
     ) => unknown;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly registeredAgents?: readonly AgentDefinition[];
     readonly sessionIdentity?: SessionIdentityProvider;
     readonly reserveSessionIdentity?: (

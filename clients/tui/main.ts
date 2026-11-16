@@ -1083,7 +1083,6 @@ export async function startTui(
         readonly target: TuiAgentClient;
     }>();
     rt.requestedPermissionChanges = new Map<string, string>();
-    rt.autoNudgeShown = new Set<string>();
     rt.abortRequested = false;
 
     rt.queuedUiRequests = [];

@@ -1,10 +1,10 @@
 // Keyboard answers to the open request a window shows first, and the focus rule that decides
 // when those keys are read at all.
 
-import { approvalChoices, approvalResponse, questionResponse, setupResponse, type ApprovalDecision, type OpenRequest } from "./requests.ts";
+import { approvalAnswersFor, approvalResponse, questionResponse, setupResponse, type ApprovalAnswerContext, type ApprovalDecision, type OpenRequest } from "./requests.ts";
 
 export type RequestKeyAction =
-    | { readonly type: "decide"; readonly decision: ApprovalDecision }
+    | { readonly type: "decide"; readonly decision: ApprovalDecision; readonly switchToAuto?: true }
     | { readonly type: "choose"; readonly index: number }
     | { readonly type: "cancel" }
     | { readonly type: "dismiss" };
@@ -23,10 +23,14 @@ export interface FocusedElement {
     readonly empty: boolean;
 }
 
-export function requestKeyAction(request: OpenRequest, key: string): RequestKeyAction | undefined {
+export function requestKeyAction(
+    request: OpenRequest,
+    key: string,
+    context: ApprovalAnswerContext = {},
+): RequestKeyAction | undefined {
     switch (request.kind) {
         case "approval":
-            return approvalKeyAction(approvalChoices(request), key);
+            return approvalKeyAction(approvalAnswersFor(request, context), key);
         case "question":
             return questionKeyAction(request.choices.length, key);
         case "setup":
@@ -74,24 +78,21 @@ export function requestKeysAllowed(modifiers: KeyModifiers, focused: FocusedElem
     }
 }
 
-function approvalKeyAction(offered: readonly ApprovalDecision[], key: string): RequestKeyAction | undefined {
-    switch (key) {
-        case "1":
-            return { type: "decide", decision: "allow_once" };
-        case "2":
-            return offerIf(offered, "allow_similar");
-        case "3":
-        case "Escape":
-            return { type: "decide", decision: "deny" };
-        case "4":
-            return offerIf(offered, "allow_always");
-        default:
-            return undefined;
-    }
-}
-
-function offerIf(offered: readonly ApprovalDecision[], decision: ApprovalDecision): RequestKeyAction | undefined {
-    return offered.includes(decision) ? { type: "decide", decision } : undefined;
+// The row's number is its position in the answers offered, so an answer that is left out
+// leaves no gap.
+function approvalKeyAction(
+    answers: readonly { readonly decision: ApprovalDecision; readonly switchToAuto?: true }[],
+    key: string,
+): RequestKeyAction | undefined {
+    if (key === "Escape") return { type: "decide", decision: "deny" };
+    if (!/^[1-9]$/.test(key)) return undefined;
+    const answer = answers[Number(key) - 1];
+    if (answer === undefined) return undefined;
+    return {
+        type: "decide",
+        decision: answer.decision,
+        ...(answer.switchToAuto === true ? { switchToAuto: true as const } : {}),
+    };
 }
 
 function questionKeyAction(choiceCount: number, key: string): RequestKeyAction | undefined {

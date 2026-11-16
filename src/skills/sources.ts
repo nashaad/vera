@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { join, relative, resolve, isAbsolute } from "node:path";
+import { relative, resolve, isAbsolute } from "node:path";
 
 import {
     defaultVeraConfigPath,
@@ -13,6 +13,7 @@ import { collectConfigProblem, describeConfigProblem } from "../config/diagnosti
 import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
+import { projectVeraConfigPath } from "../project-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface ExtensionSkillRoot {
@@ -120,7 +121,7 @@ export interface ProjectSkillSettings {
 export function readProjectSkillSettings(
     projectRoot: string,
 ): ProjectSkillSettings {
-    const path = join(projectRoot, ".vera", "config.json");
+    const path = projectVeraConfigPath(projectRoot);
     const project = remember(lastProjectLists, path, () => loadProjectList(path));
     if (project.state === "loaded") {
         return { disabledSkills: project.value, warnings: [] };

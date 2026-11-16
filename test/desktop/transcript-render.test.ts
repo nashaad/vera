@@ -84,30 +84,14 @@ test("@core an approval's title is the action and its target", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, onDecide: () => undefined }));
     expect(html).toContain(">Create<");
     expect(html).toContain("/nest/index.html");
-    expect(html).toContain(">Allow<");
+    expect(html).toContain(">Yes, this time<");
 });
 
 test("an answered approval shows its answer in place of the choices", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, outcome: "deny", onDecide: () => undefined }));
     expect(html).toContain("Denied");
-    expect(html).not.toContain(">Allow<");
+    expect(html).not.toContain(">Yes, this time<");
     expect(html).toContain("data-answered=\"true\"");
-});
-
-test("@core an approval carries the auto suggestion line with both buttons", () => {
-    const nudge = { onSwitch: () => undefined, onDismiss: () => undefined };
-    const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, nudge, onDecide: () => undefined }));
-    expect(html).toContain("You&#x27;ve allowed every request so far. Switch to Approve for me?");
-    expect(html).toContain(">Switch<");
-    expect(html).toContain(">Not now<");
-    expect(html).toContain("data-kind=\"auto-nudge\"");
-    expect(renderToStaticMarkup(createElement(ApprovalCard, { request: approval, onDecide: () => undefined }))).not.toContain("auto-nudge");
-});
-
-test("an answered approval does not carry the auto suggestion line", () => {
-    const nudge = { onSwitch: () => undefined, onDismiss: () => undefined };
-    const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, outcome: "allow_once", nudge, onDecide: () => undefined }));
-    expect(html).not.toContain("auto-nudge");
 });
 
 test("a denied approval leaves one muted line that is not a card", () => {

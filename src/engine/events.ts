@@ -123,6 +123,8 @@ export interface ToolApprovalUiRequest {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    // Only Yes, this time and No: an ask from permission_rules cannot be lifted.
+    readonly restrictedChoices?: true;
     /** The absolute working folder of the session whose tool asks. */
     readonly workspace?: string;
     /** True when `workspace` is that session's own chat folder; the host leaves it out otherwise. */
@@ -282,7 +284,6 @@ export interface PermissionsChangedEvent {
     readonly inspection?: PermissionInspection;
     readonly origin?: SessionSettingOrigin;
     readonly warning?: string;
-    readonly suggestAuto?: true;
 }
 
 export type ToolDenialClass =

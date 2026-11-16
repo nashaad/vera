@@ -47,36 +47,53 @@ function focus(overrides: Partial<FocusedElement>): FocusedElement {
 }
 
 describe("approval keys", () => {
-    test("1 to 4 and Escape answer a full approval", () => {
-        expect(requestKeyAction(fullApproval, "1")).toEqual({ type: "decide", decision: "allow_once" });
-        expect(requestKeyAction(fullApproval, "2")).toEqual({ type: "decide", decision: "allow_similar" });
+    const ask = { mode: "ask", modes: ["readonly", "ask", "auto"] };
+
+    test("the digits answer the rows in order and Escape denies", () => {
+        expect(requestKeyAction(fullApproval, "1")).toEqual({ type: "decide", decision: "allow_similar" });
+        expect(requestKeyAction(fullApproval, "2")).toEqual({ type: "decide", decision: "allow_always" });
         expect(requestKeyAction(fullApproval, "3")).toEqual({ type: "decide", decision: "deny" });
-        expect(requestKeyAction(fullApproval, "4")).toEqual({ type: "decide", decision: "allow_always" });
         expect(requestKeyAction(fullApproval, "Escape")).toEqual({ type: "decide", decision: "deny" });
     });
 
-    test("a subagent approval ignores 2 and 4 but keeps 1, 3 and Escape", () => {
-        expect(requestKeyAction(subagentApproval, "2")).toBeUndefined();
-        expect(requestKeyAction(subagentApproval, "4")).toBeUndefined();
+    test("in ask the third answer runs the call and switches to auto", () => {
+        expect(requestKeyAction(fullApproval, "3", ask)).toEqual({
+            type: "decide",
+            decision: "allow_once",
+            switchToAuto: true,
+        });
+        expect(requestKeyAction(fullApproval, "4", ask)).toEqual({ type: "decide", decision: "deny" });
+    });
+
+    test("a subagent approval offers this time and no only", () => {
         expect(requestKeyAction(subagentApproval, "1")).toEqual({ type: "decide", decision: "allow_once" });
-        expect(requestKeyAction(subagentApproval, "3")).toEqual({ type: "decide", decision: "deny" });
+        expect(requestKeyAction(subagentApproval, "2")).toEqual({ type: "decide", decision: "deny" });
+        expect(requestKeyAction(subagentApproval, "3", ask)).toBeUndefined();
         expect(requestKeyAction(subagentApproval, "Escape")).toEqual({ type: "decide", decision: "deny" });
     });
 
-    test("an approval with no grants ignores 2 and 4", () => {
+    test("an approval with no grants offers this time, the switch, and no", () => {
         const bare: ApprovalRequest = { ...fullApproval, grants: [], grantPredicates: [] };
-        expect(requestKeyAction(bare, "2")).toBeUndefined();
-        expect(requestKeyAction(bare, "4")).toBeUndefined();
+        expect(requestKeyAction(bare, "1")).toEqual({ type: "decide", decision: "allow_once" });
+        expect(requestKeyAction(bare, "2", ask)).toEqual({ type: "decide", decision: "allow_once", switchToAuto: true });
+        expect(requestKeyAction(bare, "3", ask)).toEqual({ type: "decide", decision: "deny" });
+    });
+
+    test("a restricted approval has no grant answers and no switch", () => {
+        const restricted: ApprovalRequest = { ...fullApproval, restrictedChoices: true };
+        expect(requestKeyAction(restricted, "1", ask)).toEqual({ type: "decide", decision: "allow_once" });
+        expect(requestKeyAction(restricted, "2", ask)).toEqual({ type: "decide", decision: "deny" });
+        expect(requestKeyAction(restricted, "3", ask)).toBeUndefined();
     });
 
     test("other keys do nothing", () => {
-        expect(requestKeyAction(fullApproval, "5")).toBeUndefined();
+        expect(requestKeyAction(fullApproval, "5", ask)).toBeUndefined();
         expect(requestKeyAction(fullApproval, "a")).toBeUndefined();
         expect(requestKeyAction(fullApproval, "Enter")).toBeUndefined();
     });
 
     test("the approval response is a tool_approval line", () => {
-        const action = requestKeyAction(fullApproval, "2");
+        const action = requestKeyAction(fullApproval, "1");
         if (action === undefined) throw new Error("expected an action");
         expect(JSON.parse(requestKeyResponse(fullApproval, action, "") ?? "")).toEqual({
             type: "ui_response",

@@ -148,11 +148,12 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                     )}
                     <RequestCards
                         key={agentId}
-                        agentId={agentId}
                         requests={watch.requests}
-                        suggestAuto={watch.approval?.suggestAuto === true}
                         send={send}
                         running={running}
+                        {...(watch.approval === undefined
+                            ? {}
+                            : { mode: watch.approval.mode, modes: watch.approval.modes })}
                     />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>

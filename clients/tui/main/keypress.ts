@@ -1,7 +1,6 @@
 import { openInspectEditor } from "./inspect-editor.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
-import { rememberAutoNudge } from "../auto-nudge.ts";
 import { reanchorTranscriptWindowAboveView, settleTranscriptScrollState } from "./transcript-nodes.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
 import { handleTuiModelSwitcherKey } from "../model-switcher.ts";
@@ -517,19 +516,11 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         uiRequest !== undefined
         && isToolApprovalUiRequestUpdate(uiRequest)
     ) {
-        const nudgeShowing = rt.approvalView.autoNudgeVisible();
         const result = rt.approvalView.handleKey(uiRequest, key);
         if (result.handled) {
             key.preventDefault();
             key.stopPropagation();
-            if (result.switchToAuto === true) {
-                rememberAutoNudge(rt.autoNudgeShown, focusedAgentClient(rt).agentId);
-                requestPermissionsChange(rt, "auto", focusedAgentClient(rt), "session");
-            }
             if (result.response !== undefined) {
-                if (nudgeShowing) {
-                    rememberAutoNudge(rt.autoNudgeShown, focusedAgentClient(rt).agentId);
-                }
                 void focusedAgentClient(rt).send(result.response)
                     .catch(((error: unknown) => reportConnectionError(rt, error)));
                 if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
@@ -538,6 +529,14 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                     rt.activity = "thinking";
                 }
                 focusActiveSurface(rt);
+            }
+            if (result.switchToAuto === true) {
+                requestPermissionsChange(
+                    rt,
+                    "auto",
+                    focusedAgentClient(rt),
+                    "session",
+                );
             }
             renderState(rt);
             return;

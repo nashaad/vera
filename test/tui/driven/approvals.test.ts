@@ -9,6 +9,7 @@ import {
 } from "../../support/tui-auto-review-child.ts";
 import {
     createTuiApprovalDependencies,
+    createTuiSwitchApprovalDependencies,
 } from "../../support/tui-approval-child.ts";
 import {
     createTuiChildApprovalDependencies,
@@ -112,7 +113,7 @@ test("a classifier timeout asks the user and keeps the turn going", async () => 
         session.sendText("run the routine command");
         session.sendKey("Enter");
 
-        pane = await session.waitForVisiblePane("1 Allow");
+        pane = await session.waitForVisiblePane("1 Yes, for this chat");
         const flat = pane
             .split("\n")
             .map((line) => line.replace(/^┃\s?/, "").trim())
@@ -146,7 +147,7 @@ test("approval actions stay visible above long details", async () => {
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("1 Allow");
+        pane = await session.waitForVisiblePane("1 Yes, this time");
         expect(pane).toContain("$ grep");
         expect(pane).not.toContain("approval required ·");
         expect(pane).not.toContain("gpt-5.6-sol");
@@ -157,13 +158,51 @@ test("approval actions stay visible above long details", async () => {
             session.sendKey("NPage");
         }
         pane = await session.waitForVisiblePaneWhere(
-            (current) => current.includes(
-                "are unavailable.",
-            ) && !current.includes("$ grep"),
+            (current) => current.includes('*.md"')
+                && !current.includes("$ grep"),
             "scrolled approval actions",
         );
-        expect(pane).toContain("1 Allow");
+        expect(pane).toContain("1 Yes, this time");
         expect(pane).not.toContain("$ grep");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("answer 3 sends the allow, then the session mode change", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-switch-approval-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 80,
+        height: 18,
+        dependencies: () => createTuiSwitchApprovalDependencies(home),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane("Yes, and switch to Approve for me");
+        expect(pane).toContain("1 Yes, for this chat");
+        expect(pane).toContain("2 Yes, and always allow grep commands");
+        expect(pane).toContain("4 No");
+
+        session.sendKey("3");
+        await session.waitForVisiblePane("RESPONSE AFTER APPROVAL");
+
+        const sent = readFileSync(join(home, "sent.jsonl"), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as {
+                readonly type: string;
+                readonly requestId?: string;
+                readonly mode?: string;
+                readonly response?: unknown;
+            });
+        const answerAt = sent.findIndex((command) =>
+            command.type === "ui_response" && command.requestId === "switch-approval"
+        );
+        const modeAt = sent.findIndex((command) => command.type === "update_session_permission_mode");
+        expect(sent[answerAt]?.response).toEqual({ type: "tool_approval", decision: "allow_once" });
+        expect(sent[modeAt]?.mode).toBe("auto");
+        expect(modeAt).toBe(answerAt + 1);
     } finally {
         await session.close();
     }
@@ -195,7 +234,7 @@ test("an extension modal cannot intercept a native approval answer", async () =>
     });
 
     try {
-        await session.waitForVisiblePane("1 Allow");
+        await session.waitForVisiblePane("1 Yes, this time");
         for (let attempt = 0; attempt < 100; attempt += 1) {
             if (existsSync(mountedPath)) break;
             await Bun.sleep(10);
@@ -224,11 +263,12 @@ test("child approval shows only exact allow and deny", async () => {
     try {
         pane = await session.waitForVisiblePane("Requested by agent 5a5d7460");
         expect(pane).toContain("Task: Write the child approval marker");
-        expect(pane).toContain("1 Allow");
-        expect(pane).toContain("3 Deny");
-        expect(pane).not.toContain("2 Allow for this chat");
-        expect(pane).not.toContain("4 Always allow");
-        expect(pane).not.toContain("5 Tell Vera");
+        expect(pane).toContain("1 Yes, this time");
+        expect(pane).toContain("2 No");
+        expect(pane).not.toContain("Yes, for this chat");
+        expect(pane).not.toContain("always allow");
+        expect(pane).not.toContain("switch to Approve");
+        expect(pane).not.toContain("to tell Vera");
         expect(pane).not.toContain("this chat");
         expect(pane).not.toContain("ask.default");
 

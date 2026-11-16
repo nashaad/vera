@@ -1,5 +1,5 @@
-import { sessionModeCommand } from "../session/permissions.ts";
 import { promptCommand } from "../session/wire.ts";
+import { sessionModeCommand } from "../session/permissions.ts";
 
 export interface SentPrompt {
     readonly requestId: string;
@@ -25,9 +25,7 @@ export function sendPrompt(
     return { requestId, text };
 }
 
-// Changes one session's approval mode. The approval pill and the auto suggestion both send it this way.
-export function sendSessionMode(send: (line: string) => void, mode: string): string {
-    const requestId = freshRequestId("mode");
-    send(sessionModeCommand(requestId, mode));
-    return requestId;
+// The session mode change the mode picker sends, for answer 3 on an approval card.
+export function sendSessionMode(send: (line: string) => void, mode: string): void {
+    send(sessionModeCommand(freshRequestId("mode"), mode));
 }
