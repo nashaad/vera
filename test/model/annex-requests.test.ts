@@ -44,6 +44,13 @@ describe("the extension page list", () => {
         expect(parseExtensionPages({ pages: [] })).toBeUndefined();
     });
 
+    test("@core a page that asked for its own pane keeps the flag, and any other value for it is dropped", () => {
+        const entry = { label: "Ledger", href: "/x/budget/ledger", extensionId: "vera.budget" };
+        expect(parseExtensionPages([{ ...entry, pane: true }])).toEqual([{ label: "Ledger", path: "/x/budget/ledger", extensionId: "vera.budget", pane: true }]);
+        expect(parseExtensionPages([{ ...entry, pane: "yes" }])).toEqual([{ label: "Ledger", path: "/x/budget/ledger", extensionId: "vera.budget" }]);
+        expect(parseExtensionPages([{ ...entry, pane: false }])).toEqual([{ label: "Ledger", path: "/x/budget/ledger", extensionId: "vera.budget" }]);
+    });
+
     test("long labels are cut and an oversized list is refused", () => {
         const [page] = parseExtensionPages([{ label: "L".repeat(500), href: "/x/a/b", extensionId: "a" }]) ?? [];
         expect(page?.label.length).toBe(200);

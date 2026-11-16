@@ -42,6 +42,7 @@ export interface PaneKind {
 
 // Tiles, the launcher, the tab strip, saving and closing read this list and nothing per kind.
 // A new kind is an entry here, its renderer in views/registry.tsx and its icon in workbench/ContainerIcon.tsx.
+// Kinds that come from the pages extensions add join it at run time through registerPaneKind (see pagepane/).
 export const PANE_KINDS: readonly PaneKind[] = [
     { id: CORE_CONTAINERS.review, title: "Review", icon: "review" },
     { id: CORE_CONTAINERS.plan, title: "Plan", icon: "plan" },
@@ -78,15 +79,22 @@ export function registerCoreContributions(registry: ContributionRegistry, kinds:
     registry.registerContainer({ id: CORE_CONTAINERS.output, title: "Output", icon: "output", location: "panel" });
     registry.registerView({ id: CORE_VIEWS.sessions, title: "Sessions", container: CORE_CONTAINERS.sessions });
     registry.registerView({ id: CORE_VIEWS.output, title: "Output", container: CORE_CONTAINERS.output });
-    for (const kind of kinds) {
-        registry.registerContainer({
-            id: kind.id,
-            title: kind.title,
-            icon: kind.icon,
-            location: "rightPane",
-            ...(kind.maxTabs === undefined ? {} : { maxTabs: kind.maxTabs }),
-            ...(kind.transientTabs === true ? { transientTabs: true } : {}),
-        });
-        registry.registerView({ id: kind.id, title: kind.title, container: kind.id });
-    }
+    for (const kind of kinds) registerPaneKind(registry, kind);
+}
+
+// Registers a kind's container and view; the returned function removes both.
+export function registerPaneKind(registry: ContributionRegistry, kind: PaneKind): () => void {
+    const removeContainer = registry.registerContainer({
+        id: kind.id,
+        title: kind.title,
+        icon: kind.icon,
+        location: "rightPane",
+        ...(kind.maxTabs === undefined ? {} : { maxTabs: kind.maxTabs }),
+        ...(kind.transientTabs === true ? { transientTabs: true } : {}),
+    });
+    const removeView = registry.registerView({ id: kind.id, title: kind.title, container: kind.id });
+    return () => {
+        removeView();
+        removeContainer();
+    };
 }

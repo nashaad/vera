@@ -21,6 +21,7 @@ export interface ExtensionPageSummary {
     readonly pageId: string;
     readonly label: string;
     readonly href: string;
+    readonly pane?: true;
 }
 
 interface LoadedPage {
@@ -160,6 +161,7 @@ async function loadPages(
                     pageId: contribution.id,
                     label: contribution.label,
                     href: `/x/${encodeURIComponent(extensionId)}/${contribution.id}`,
+                    ...(contribution.pane === true ? { pane: true as const } : {}),
                 },
                 browserPath,
                 handlers,

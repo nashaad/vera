@@ -138,8 +138,13 @@ JavaScript, such as a wavesurfer.js player, in a sandboxed frame that cannot
 read the page or act for you.
 
 Read an artifact in the annex: run `/usage` and pick Artifacts from the `≡`
-menu, or open the link the transcript shows after `artifact_write`. Hover a
-block and click the comment button to comment on it. A comment does not start
+menu, or open the link the transcript shows after `artifact_write`. In the
+desktop app the transcript shows a card for the artifact under the tool run, and
+clicking it opens the artifact in the right pane's Artifacts tab. The tab is
+added when an artifact is written, behind the tab you are on, with a green dot
+until you look at it. The Artifacts row in the sidebar opens the list of every
+artifact, newest first, grouped by session. Hover a block and click the comment
+button to comment on it. A comment does not start
 a turn; the agent reads it the next time it checks. When the text a comment
 was left on changes, the comment is marked Outdated.
 

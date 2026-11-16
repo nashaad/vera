@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 
 import type { IconProps } from "../components/Icons.tsx";
-import { AgentIcon, ChatIcon, DiffIcon, FileIcon, GlobeIcon, ListIcon, OutputIcon, QuestionIcon, SessionsIcon, ViewIcon } from "../components/Icons.tsx";
+import { AgentIcon, ChatIcon, DiffIcon, FileIcon, GlobeIcon, ListIcon, OutputIcon, PageIcon, QuestionIcon, SessionsIcon, ViewIcon } from "../components/Icons.tsx";
 
 const ICONS: Readonly<Record<string, (props: IconProps) => ReactElement>> = {
     sessions: SessionsIcon,
@@ -13,6 +13,7 @@ const ICONS: Readonly<Record<string, (props: IconProps) => ReactElement>> = {
     chat: ChatIcon,
     subagents: AgentIcon,
     help: QuestionIcon,
+    page: PageIcon,
 };
 
 // A container names its icon; one this client does not draw gets the generic view icon.

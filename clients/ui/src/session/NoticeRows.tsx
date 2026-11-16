@@ -7,6 +7,7 @@ import { openSubagents } from "../subagents/open.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { useActiveSession } from "./activeSession.ts";
+import { deliverySender } from "./deliverySource.ts";
 import type { DeliveryBlock, NoticeBlock, SubstitutionBlock } from "./model.ts";
 
 const PREVIEW_LINES = 3;
@@ -42,7 +43,8 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
     const workbench = useWorkbench();
     const openSession = useActiveSession()?.agentId;
     const [showAll, setShowAll] = useState(false);
-    const row = connection.sessionRows?.find((candidate) => candidate.id === block.sourceAgentId);
+    const row = block.fromExtension ? undefined : connection.sessionRows?.find((candidate) => candidate.id === block.sourceAgentId);
+    const sender = deliverySender(block, row?.name);
     const lines = block.text.split("\n");
     const collapsed = !showAll && lines.length > PREVIEW_LINES;
     const text = collapsed ? lines.slice(0, PREVIEW_LINES).join("\n") : block.text;
@@ -50,7 +52,7 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
         <div className="inbox-banner" data-kind={block.deliveryKind}>
             <InboxIcon className="inbox-icon" />
             <div className="inbox-body">
-                <div className="inbox-title">{row?.name ?? "A subagent"} has something for you</div>
+                <div className="inbox-title">{sender} has something for you</div>
                 <div className="inbox-text">{text}</div>
                 {lines.length > PREVIEW_LINES ? (
                     <button type="button" className="inbox-toggle" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>

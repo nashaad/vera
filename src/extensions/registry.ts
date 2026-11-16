@@ -1418,7 +1418,11 @@ function registerTool(
             }
             const presentation = result.presentation === undefined
                 ? undefined
-                : parseToolPresentation(result.presentation);
+                : parseToolPresentation(
+                    result.presentation,
+                    loaded.manifest.id,
+                    loaded.manifest.contributes.pages.map((page) => page.id),
+                );
             if (
                 result.presentation !== undefined
                 && presentation === undefined
@@ -1442,7 +1446,11 @@ function registerTool(
     tools.push({ tool, run });
 }
 
-function parseToolPresentation(value: unknown): ToolPresentation | undefined {
+function parseToolPresentation(
+    value: unknown,
+    extensionId: string,
+    pageIds: readonly string[],
+): ToolPresentation | undefined {
     if (!isPlainObject(value) || !isToolPresentation(value)) return undefined;
     if (
         value.kind === "unified_diff"
@@ -1479,12 +1487,25 @@ function parseToolPresentation(value: unknown): ToolPresentation | undefined {
     }
     if (
         value.kind === "tool_notice"
-        && hasExactKeys(value, ["kind", "text"])
+        && (hasExactKeys(value, ["kind", "text"]) || hasExactKeys(value, ["kind", "text", "link"]))
         && typeof value.text === "string"
         && value.text.trim().length > 0
         && Buffer.byteLength(value.text) <= MAX_EXTENSION_PRESENTATION_BYTES
     ) {
-        return { kind: "tool_notice", text: value.text };
+        if (value.link === undefined) return { kind: "tool_notice", text: value.text };
+        // A link names one of the extension's own pages by id; the notice leaves with the page's annex path.
+        const link = value.link;
+        if (!hasExactKeys(link as unknown as Readonly<Record<string, unknown>>, link.query === undefined ? ["title", "page"] : ["title", "page", "query"])) return undefined;
+        if (!pageIds.includes(link.page)) return undefined;
+        return {
+            kind: "tool_notice",
+            text: value.text,
+            link: {
+                title: link.title,
+                page: `/x/${encodeURIComponent(extensionId)}/${link.page}`,
+                ...(link.query === undefined ? {} : { query: { ...link.query } }),
+            },
+        };
     }
     return undefined;
 }

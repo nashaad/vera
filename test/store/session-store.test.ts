@@ -204,6 +204,34 @@ test("session store reloads checklist and scratch diff presentations", async () 
     expect(reopened.messages().slice(2)).toEqual([checklist, note]);
 });
 
+test("@core session store reloads a tool notice with its page link", async () => {
+    const path = join(temporaryDirectory(), "sessions", "session.jsonl");
+    const notice: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "call-1",
+        toolName: "artifact_write",
+        content: [{ type: "text", text: "Wrote raid." }],
+        isError: false,
+        presentation: {
+            kind: "tool_notice",
+            text: "Artifact page: http://127.0.0.1:8372/x/vera.artifacts/artifacts?session=s1&artifact=raid",
+            link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } },
+        },
+    };
+    const assistant: ModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "artifact_write", input: {} }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const store = await SessionStore.create(path, { sessionId: "session-1", cwd: "/work/vera" });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "write" }] });
+    await store.appendMessage(assistant);
+    await store.appendMessage(notice);
+    expect((await SessionStore.open(path)).messages().slice(2)).toEqual([notice]);
+});
+
 test("context assembly mode persists in the session header", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "bare.jsonl");

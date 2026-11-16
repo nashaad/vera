@@ -5,6 +5,7 @@ import type {
     VeraExtensionToolResult,
 } from "../../src/sdk/extensions.ts";
 import {
+    artifactTitle,
     deleteComment,
     isCommentId,
     isArtifactName,
@@ -36,6 +37,21 @@ export function activate(vera: VeraExtensionApi): void {
         return url === undefined
             ? "The artifacts page is unavailable because the annex is not running."
             : `Artifact page: ${url}?session=${encodeURIComponent(artifact.sessionId)}&artifact=${artifact.name}`;
+    };
+
+    // The notice shows in the transcript even when tool details are collapsed; the window draws a card from its link.
+    const notice = (artifact: ArtifactRef, markdown: string): NonNullable<VeraExtensionToolResult["presentation"]> => {
+        const text = link(artifact);
+        if (vera.annex.pageUrl("artifacts") === undefined) return { kind: "tool_notice", text };
+        return {
+            kind: "tool_notice",
+            text,
+            link: {
+                title: artifactTitle(markdown, artifact.name),
+                page: "artifacts",
+                query: { session: artifact.sessionId, artifact: artifact.name },
+            },
+        };
     };
 
     // The page server asks for this when the user ticks Send to Vera.
@@ -101,9 +117,8 @@ export function activate(vera: VeraExtensionApi): void {
                     return { output: "markdown must be a non-empty string.", isError: true };
                 }
                 writeArtifact(root(), artifact, markdown);
-                const page = link(artifact);
-                // The notice shows in the transcript even when tool details are collapsed.
-                return { output: `Saved ${artifact.name}. ${page}`, presentation: { kind: "tool_notice", text: page } };
+                const presentation = notice(artifact, markdown);
+                return { output: `Saved ${artifact.name}. ${link(artifact)}`, presentation };
             })
         ),
     });
@@ -142,8 +157,9 @@ export function activate(vera: VeraExtensionApi): void {
                         isError: true,
                     };
                 }
-                writeArtifact(root(), artifact, stored.markdown.replace(oldString, () => newString));
-                return { output: `Updated ${artifact.name}.` };
+                const markdown = stored.markdown.replace(oldString, () => newString);
+                writeArtifact(root(), artifact, markdown);
+                return { output: `Updated ${artifact.name}.`, presentation: notice(artifact, markdown) };
             })
         ),
     });

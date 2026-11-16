@@ -84,6 +84,13 @@ window.
 - Devices lists the machines this window can reach. Today that is only this
   machine, with the connection state and host build. Picking it shows the host's
   state, its home and the newest sessions on it.
+- A page an extension gives a pane, such as Artifacts, has its own row under
+  the page rows in the sidebar, labelled with the page's label. It opens the page
+  at full size in the main area with no query, so Artifacts lists the artifacts
+  of every session in the home, newest first, in a group for each session, 50 at
+  a time with Show more up to 200. The page loads in the same frame as a pane
+  tab, with Reload and Open in your browser. When the annex is down or does not
+  list the page, the page says so. The row is filled while the page is shown.
 - A session page opens when you pick a row in the Sessions view, on Work, on
   Search or on a workspace or device page. Its title is the session's title, as
   its sidebar row shows it. It is described under Session view.
@@ -171,7 +178,8 @@ window.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 New Chat is always there; the others show when their part of the window is shown.
-The row of the current page is filled. Work shows a count of sessions waiting on
+A page an extension gives a pane adds a row under these. The row of the current
+page is filled. Work shows a count of sessions waiting on
 you. Tour, Devices, Feedback and Settings open from the buttons in the
 sidebar's footer, where Tour and Devices show only when their parts are on. Help
 in the same footer opens a Chat tab.
@@ -251,13 +259,13 @@ collapses it. The right pane works differently, described below. The main area
 is not a location for views.
 
 The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
-Plan, Files, Browser, Chat or Subagents. The kinds come from one list, and the tiles, the
+Plan, Files, Browser, Chat or Subagents, or a page an extension gives a pane. The kinds come from one list, and the tiles, the
 launcher, the tab strip and the saved layout all follow it. The top row holds the
 tabs, a `+` button, and at the right the button that closes the pane. A tab shows
 its kind's icon and title, or the page's title for a Browser tab, and has a close
 button that shows while the pointer is over the tab and on the active tab. The
 same kind can be open any number of times, up to 16 tabs in the pane; Browser and
-Chat each have a limit of their own, Chat tabs are limited to 6, and Subagents has one tab. The Chat kind's
+Chat each have a limit of their own, Chat tabs are limited to 6, Subagents has one tab, and an extension page has up to 3. A page's kind is titled with the page's label and has the page icon, and its tile and launcher row open the page's list. The Chat kind's
 tile and launcher row are titled Help and start a new Help chat. With no tabs the
 pane shows one tile for each kind that can be opened, and a tile is disabled while
 its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
@@ -270,6 +278,18 @@ closes the launcher. A view's own empty state shows inside its tab as before.
 Cmd+W (Ctrl+W on other platforms), or View > Close Tab, closes the shown tab;
 with the right pane hidden or no tab open it does nothing, so it never closes the
 window. Closing the last tab brings the tiles back.
+
+When a tool in the open session returns a notice with a link to a page that has
+its own pane, as `artifact_write` does, the window makes sure that page has a tab
+in the right pane. The tab opens on the linked address, behind the tab you are on;
+the new tab is shown only when the pane is open and shows no tab. The window never
+switches tabs, opens a closed pane or takes the keyboard focus for it, and a later
+notice does not move a tab that is already open. A tab that is not the shown one
+gets a green dot while something new arrived for it, and while the pane is hidden
+the dot is also on the button that opens the pane. Showing the tab clears it. The
+dots are not saved. Only notices that arrive while the window watches the session
+count, not the history it opens with. When the pane already holds 16 tabs, or the
+page its limit, a notice opens nothing and shows no dot.
 
 Seven views ship with the app:
 
@@ -398,7 +418,8 @@ returns to where you last put it. A file that cannot be read is moved to
 
 The file also holds the right pane's tabs: each tab's kind and order, and which
 one is active. Browser, Chat and Subagents tabs are not saved, so none returns after
-a restart, and a layout that holds only those tabs comes back with none. A layout saved before the
+a restart, and a layout that holds only those tabs comes back with none. A tab of an
+extension page is saved and comes back showing the page's list. A layout saved before the
 right pane held tabs opens with one tab, of the container that was active in the
 pane. A tab saved for a kind that is not registered is ignored, and a tab list
 that cannot be read is dropped and the pane opens with no tabs.
@@ -500,6 +521,12 @@ right. Under each message:
   command, coloured, with a copy button, and its output. A run in which every call
   wrote or edited a file draws no line when the turn's changed-files card names
   those files.
+- A tool that returns a link to a page, as `artifact_write` and `artifact_edit`
+  do, shows a card under its run: the page's icon, the title the tool gave and a
+  chevron. The card shows whether or not the run line is open, and clicking it
+  opens that page in its pane, or in a Browser tab when the page has none. A
+  notice without a link shows its text, with any address to one of Vera's pages
+  opening the same way. The terminal shows the notice's text and ignores the link.
 - While the turn runs, the plan it wrote shows as a checklist under the newest
   text and leaves when the turn ends. It does not open the Plan view.
 - New words in the reply being written fade in. Only the newest block of a live
@@ -512,7 +539,8 @@ right. Under each message:
   (or the reply ends), the block is colored by its language from the theme's
   syntax colors, in the built-in themes and in imported VS Code themes; a block
   whose language Vera does not know stays plain. Links are shown with their
-  address on hover and are not opened. Raw HTML is never rendered.
+  address on hover and are not opened, except a link to one of Vera's pages, which
+  opens inside the window as described under Browser. Raw HTML is never rendered.
 - Notices from Vera, such as errors, show as a strip in the column.
 - The end of each turn has a copy button, a `…` button and the time since its
   last step (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact
@@ -1100,6 +1128,12 @@ read and act in the selected site tab, under the session's approval mode. A page
 Vera opens gets its own Browser tab. You can watch and take over in the pane. See
 [Browser use](browser-use.md).
 
+A link to one of Vera's pages in a reply or a tool notice opens inside the window.
+A page that has its own pane opens there: in the tab already on that address, else
+in a new tab, else in the page's last tab when the pane is full, and the right pane
+opens if it was closed. Any other page opens in a Browser tab, or in the system
+browser when the Browser is hidden. Links to other sites are not opened.
+
 The command palette's Pages group opens Home as `Vera's Pages` or a page by its
 name, and `/usage` in the composer opens Usage; each uses the most recent Browser
 tab that shows no site, or opens a new tab, and never replaces a site. When the
@@ -1572,6 +1606,7 @@ node clients/desktop/test/btw.e2e.mjs
 node clients/desktop/test/rename.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs
+node clients/desktop/test/artifact-pane.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
 node clients/desktop/test/themes.e2e.mjs
 ```
@@ -1772,6 +1807,18 @@ page tries to leave it. It hands the page to a stubbed system browser, opens
 Runs from Home and Artifacts from its tab, walks Back and Forward, types a
 page's name, an outside address and an unknown path into the address bar, and
 opens Usage with `/usage` from the composer.
+
+The artifact pane test opens the Artifacts page from its sidebar entry and checks
+it loads in the main area without a query, then checks its tile and launcher
+row in the right pane. With a Browser tab shown, it has a session write an
+artifact and checks the Artifacts tab appears behind the Browser tab with a dot,
+the keyboard stays where it was, and viewing the tab clears the dot and shows the
+artifact. It checks the card under the collapsed tool run, that a second artifact
+adds no tab and marks the first again, that the card opens a second artifact in a
+new Artifacts tab and a link in the reply shows the tab already on its address,
+that a new artifact with the pane hidden puts the dot on the pane's button and
+opens nothing, and that the sidebar page lists the three artifacts in one group.
+It stops the host it started.
 
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page

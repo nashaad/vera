@@ -82,6 +82,25 @@ describe("presentations", () => {
         expect(group.calls.map((call) => call.presentation?.kind)).toEqual(["diff", "tool_notice"]);
     });
 
+    test("@core a notice's link is read with its query, and one that does not read is dropped with the notice kept", () => {
+        const notice = (link: unknown) => parseSessionLine(JSON.stringify({
+            type: "tool_presentation",
+            tool: "artifact_write",
+            presentation: { kind: "tool_notice", text: "Artifact page", link },
+        }));
+        expect(notice({ title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid", skipped: 3 } })).toMatchObject({
+            presentation: { kind: "tool_notice", text: "Artifact page", link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } } },
+        });
+        expect(notice({ title: "Raid", page: "/x/vera.artifacts/artifacts" })).toMatchObject({
+            presentation: { link: { title: "Raid", page: "/x/vera.artifacts/artifacts" } },
+        });
+        for (const unreadable of [{ title: "Raid" }, { page: "/x/a/b" }, "text", 4, null]) {
+            const parsed = notice(unreadable);
+            expect(parsed).toMatchObject({ presentation: { kind: "tool_notice", text: "Artifact page" } });
+            expect(JSON.stringify(parsed)).not.toContain("link");
+        }
+    });
+
     test("a presentation of an unknown kind does not parse", () => {
         expect(parseSessionLine(JSON.stringify({ type: "tool_presentation", tool: "edit", presentation: { kind: "chart" } })))
             .toBeUndefined();

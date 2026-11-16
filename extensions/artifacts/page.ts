@@ -40,6 +40,13 @@ interface ArtifactSummary {
     readonly openComments: number;
 }
 
+interface ArtifactListing {
+    readonly artifacts: readonly ArtifactSummary[];
+    readonly total: number;
+    // The most the server lists in one answer.
+    readonly limit: number;
+}
+
 interface Draft {
     readonly quote: string;
     readonly index: number;
@@ -55,6 +62,7 @@ interface Context {
 type CommentMode = "open" | "all" | "hidden";
 
 const POLL_MS = 1000;
+const PAGE_SIZE = 50;
 const EMBED_MAX_HEIGHT = 1200;
 // Appended to each embed: reports its height, and follows the page's light or dark theme.
 const EMBED_SHIM = `<style>:root{color-scheme:light dark}</style><script>(()=>{const post=()=>parent.postMessage({artifactsEmbedHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);})();</script>`;
@@ -80,6 +88,7 @@ export function mount(root: HTMLElement, context: Context): () => void {
 class ArtifactList {
     private timer: ReturnType<typeof setInterval> | undefined;
     private version = "";
+    private shown = PAGE_SIZE;
 
     constructor(private readonly root: HTMLElement, private readonly context: Context) {}
 
@@ -94,16 +103,16 @@ class ArtifactList {
 
     private async refresh(force = false): Promise<void> {
         if (document.hidden && !force) return;
-        const response = await fetch(`${this.context.api}artifacts`);
+        const response = await fetch(`${this.context.api}artifacts?limit=${this.shown}`);
         if (!response.ok) return;
-        const body = await response.json() as { artifacts: readonly ArtifactSummary[] };
-        const version = JSON.stringify(body.artifacts);
+        const body = await response.json() as ArtifactListing;
+        const version = JSON.stringify(body);
         if (version === this.version) return;
         this.version = version;
-        this.render(body.artifacts);
+        this.render(body);
     }
 
-    private render(artifacts: readonly ArtifactSummary[]): void {
+    private render({ artifacts, total, limit }: ArtifactListing): void {
         this.root.replaceChildren();
         const wrap = el("div", "artifacts");
         if (artifacts.length === 0) {
@@ -111,22 +120,42 @@ class ArtifactList {
             this.root.append(wrap);
             return;
         }
-        const list = el("div", "artifacts-list");
-        for (const artifact of artifacts) {
-            const row = el("a", "artifacts-row") as HTMLAnchorElement;
-            row.href = artifactHref(this.context.page, artifact.sessionId, artifact.name);
-            row.append(
-                el("span", "artifacts-row-title", artifact.title),
-                el("span", "artifacts-row-meta", [
-                    artifact.name,
-                    artifact.sessionId.slice(0, 8),
-                    ago(artifact.updatedAt),
-                    ...(artifact.openComments > 0 ? [`${artifact.openComments} open`] : []),
-                ].join(" · ")),
-            );
-            list.append(row);
+        // Sessions in the order of their newest artifact, each with its artifacts newest first.
+        const groups = new Map<string, ArtifactSummary[]>();
+        for (const artifact of artifacts) groups.set(artifact.sessionId, [...(groups.get(artifact.sessionId) ?? []), artifact]);
+        for (const [sessionId, members] of groups) {
+            const group = el("section", "artifacts-group");
+            group.dataset.session = sessionId;
+            group.append(el("h2", "artifacts-group-title", `Session ${sessionId.slice(0, 8)}`));
+            const list = el("div", "artifacts-list");
+            for (const artifact of members) {
+                const row = el("a", "artifacts-row") as HTMLAnchorElement;
+                row.href = artifactHref(this.context.page, artifact.sessionId, artifact.name);
+                row.append(
+                    el("span", "artifacts-row-title", artifact.title),
+                    el("span", "artifacts-row-meta", [
+                        artifact.name,
+                        ago(artifact.updatedAt),
+                        ...(artifact.openComments > 0 ? [`${artifact.openComments} open`] : []),
+                    ].join(" · ")),
+                );
+                list.append(row);
+            }
+            group.append(list);
+            wrap.append(group);
         }
-        wrap.append(list);
+        if (total > artifacts.length) {
+            if (this.shown < limit) {
+                const more = button(`Show more (${artifacts.length} of ${total})`, () => {
+                    this.shown = Math.min(this.shown + PAGE_SIZE, limit);
+                    void this.refresh(true);
+                });
+                more.classList.add("artifacts-more");
+                wrap.append(more);
+            } else {
+                wrap.append(el("p", "artifacts-empty", `Showing the newest ${artifacts.length} of ${total}.`));
+            }
+        }
         this.root.append(wrap);
     }
 }
@@ -686,6 +715,9 @@ const PAGE_CSS = `
 .artifacts-menu-item:hover, .artifacts-menu-item:focus-visible { color: var(--fg); background: var(--fill); outline: none; }
 .artifacts-menu-on { color: var(--fg); }
 .artifacts-menu-on::after { content: "✓"; float: right; color: var(--est); }
+.artifacts-group { margin: 0 0 24px; }
+.artifacts-group-title { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
+.artifacts-more { margin: 0 auto; display: block; }
 .artifacts-list { border: 1px solid var(--line); background: var(--card); }
 .artifacts-row { display: flex; justify-content: space-between; gap: 16px; padding: 12px 14px; color: var(--fg); text-decoration: none; border-top: 1px solid var(--line); }
 .artifacts-row:first-child { border-top: 0; }

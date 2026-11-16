@@ -63,6 +63,16 @@
     background: var(--vera-surface-hover);
 }
 
+.header-button[data-changed="true"] {
+    position: relative;
+}
+
+.header-button > .change-dot {
+    position: absolute;
+    top: calc(var(--vera-space) * 1);
+    right: calc(var(--vera-space) * 1);
+}
+
 .header-button[data-lit="true"] {
     color: var(--vera-text);
     background: var(--vera-surface-selected);

@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
-import { BellIcon, BlocksIcon, ComposeIcon, SearchIcon, type IconProps } from "../components/Icons.tsx";
+import { BellIcon, BlocksIcon, ComposeIcon, PageIcon, SearchIcon, type IconProps } from "../components/Icons.tsx";
+import { extensionPages } from "../pagepane/kinds.ts";
+import { usePageLinks } from "../pagepane/PageLinks.tsx";
 import { useRouter } from "../pages/router.tsx";
 import type { PageKind } from "../pages/routes.ts";
 import { waitingCount } from "../protocol/sessionGroups.ts";
@@ -29,7 +31,8 @@ const ENTRIES: readonly NavEntry[] = [
 // The pages of the main area; they stay above the sidebar's view containers wherever those move.
 export function SidebarNav() {
     const { run } = useWorkbench();
-    const { route } = useRouter();
+    const { route, navigate } = useRouter();
+    const { annex } = usePageLinks();
     const { connection } = useViewEnvironment();
     const visible = useVisibility();
     const waiting = waitingCount(connection.sessionRows ?? []);
@@ -52,6 +55,24 @@ export function SidebarNav() {
                     ) : null}
                 </button>
             ))}
+            {extensionPages(annex?.pages ?? []).map((page) => {
+                const active = route.kind === "extension" && route.path === page.path;
+                return (
+                    <button
+                        key={page.path}
+                        type="button"
+                        className="nav-row"
+                        data-page="extension"
+                        data-extension-page={page.path}
+                        data-active={active}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => navigate({ kind: "extension", path: page.path, title: page.label })}
+                    >
+                        <PageIcon className="nav-icon" />
+                        <span className="nav-title">{page.label}</span>
+                    </button>
+                );
+            })}
         </nav>
     );
 }

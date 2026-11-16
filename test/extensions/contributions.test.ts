@@ -350,6 +350,17 @@ test("a page contribution names a server and a browser module inside the extensi
     ]);
 });
 
+test("@core a page asks for its own pane with pane true, and false is the same as not asking", () => {
+    const page = { id: "plans", label: "Plans", server: "server.ts", browser: "page.ts" };
+    expect(parseExtensionContributions({ pages: [{ ...page, pane: true }] }, "acme.tools").pages)
+        .toEqual([{ ...page, pane: true }]);
+    expect(parseExtensionContributions({ pages: [{ ...page, pane: false }] }, "acme.tools").pages).toEqual([page]);
+    for (const pane of ["yes", 1, null]) {
+        expect(() => parseExtensionContributions({ pages: [{ ...page, pane }] }, "acme.tools"))
+            .toThrow(ExtensionContributionError);
+    }
+});
+
 test("a page contribution refuses bad ids, labels, and paths that leave the extension", () => {
     const page = { id: "plans", label: "Plans", server: "server.ts", browser: "page.ts" };
     for (const pages of [

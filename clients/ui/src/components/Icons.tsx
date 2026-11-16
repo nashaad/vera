@@ -449,6 +449,17 @@ export function FileIcon({ className }: IconProps) {
     );
 }
 
+export function PageIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="4" y="4" width="16" height="16" rx="2.5" />
+            <path d="M4 9h16" />
+            <path d="M8 13h8" />
+            <path d="M8 16h5" />
+        </Icon>
+    );
+}
+
 export function EyeIcon({ className }: IconProps) {
     return (
         <Icon className={className}>

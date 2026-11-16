@@ -27,6 +27,28 @@
     transition: opacity var(--vera-motion), color var(--vera-motion), background var(--vera-motion);
 }
 
+/* Marks a tab whose page changed while another tab was shown; the close button takes its place on hover. */
+.change-dot {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 2);
+    height: calc(var(--vera-space) * 2);
+    background: var(--vera-success);
+    border-radius: 50%;
+}
+
+.switcher-pill > .change-dot {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--vera-space) * 2.5);
+    transform: translateY(-50%);
+    pointer-events: none;
+    transition: opacity var(--vera-motion);
+}
+
+.switcher-pill:hover > .change-dot {
+    opacity: 0;
+}
+
 .switcher-close .icon {
     width: calc(var(--vera-space) * 3);
     height: calc(var(--vera-space) * 3);
