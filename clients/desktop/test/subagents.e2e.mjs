@@ -1,6 +1,7 @@
 // Subagents test for the desktop window. Run with: node clients/desktop/test/subagents.e2e.mjs
 // The provider's first reply to the main session starts an async subagent; the child and the follow-ups answer in text.
 // The call shows as a card, the card and the Session menu open the Subagents tab, and the tab lists the child under Done.
+// A message typed in the child's detail reaches the child, and its answer shows there without reaching the main session.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -12,6 +13,8 @@ import { startTrial } from "./trial.mjs";
 const DESCRIPTION = "Count the doubloons in the hold";
 const CHILD_REPLY = "Forty doubloons lie in the hold.";
 const MAIN_REPLY = "The crow is waiting on the count.";
+const MESSAGE = "Recount the starboard chest";
+const MESSAGE_REPLY = "Twelve more doubloons sit in the starboard chest.";
 
 const requests = [];
 let spawned = 0;
@@ -43,7 +46,8 @@ const provider = createServer((request, response) => {
             const call = { index: 0, id: "call-1", type: "function", function: { name: "async_subagent", arguments: JSON.stringify({ description: DESCRIPTION }) } };
             response.write(streamChunk(body.model, { role: "assistant", tool_calls: [call] }, "tool_calls"));
         } else {
-            response.write(streamChunk(body.model, { role: "assistant", content: child ? CHILD_REPLY : MAIN_REPLY }, "stop"));
+            const asked = child && JSON.stringify(last ?? {}).includes(MESSAGE);
+            response.write(streamChunk(body.model, { role: "assistant", content: asked ? MESSAGE_REPLY : child ? CHILD_REPLY : MAIN_REPLY }, "stop"));
         }
         response.end("data: [DONE]\n\n");
     });
@@ -97,17 +101,30 @@ try {
     if ((await page.locator(".run-head").filter({ hasText: /subagent/i }).count()) !== 0) throw new Error("A run line still names the subagent call.");
     if ((await tabs().count()) !== 0) throw new Error("The Subagents tab was open before anything asked for it.");
 
-    // The card opens the Subagents tab on the child, whose reply shows read only.
+    // The card opens the Subagents tab on the child, with its reply and a box to message it.
     await card().click();
     await tabs().first().waitFor({ timeout: 15_000 });
     const detail = page.locator(`${pane} .subagent-detail`);
     await detail.waitFor({ timeout: 15_000 });
     await detail.getByText(CHILD_REPLY).waitFor({ timeout: 45_000 });
     await until("the detail titled by the child", async () => (await detail.locator(".subagent-title").innerText()).includes(DESCRIPTION));
-    if ((await detail.locator(".composer-input").count()) !== 0) throw new Error("The child's detail has a composer.");
+    const box = detail.locator(".subagent-message .composer-input");
+    await until("the message box ready", async () => (await box.getAttribute("placeholder")) === "Message this subagent");
+    if ((await detail.locator(".subagent-message .round-button").count()) !== 0) throw new Error("The message box offers to attach files.");
     if ((await tabs().count()) !== 1) throw new Error("Opening the child made a second Subagents tab.");
     const childRequests = requests.filter((entry) => entry.child);
     if (childRequests.length === 0 || !childRequests[0].text.includes(DESCRIPTION)) throw new Error("The child did not receive the description.");
+
+    // A message to the finished child runs a turn of its own; the main session is not asked again.
+    const mainBefore = requests.filter((entry) => !entry.child).length;
+    await box.fill(MESSAGE);
+    await box.press("Enter");
+    await detail.getByText(MESSAGE_REPLY).waitFor({ timeout: 45_000 });
+    if ((await box.inputValue()) !== "") throw new Error("The message box kept the sent text.");
+    const asked = requests.filter((entry) => entry.child && entry.text.includes(MESSAGE));
+    if (asked.length !== 1) throw new Error(`The child was asked ${asked.length} times.`);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (requests.filter((entry) => !entry.child).length !== mainBefore) throw new Error("The child's answer reached the main session.");
 
     // The back arrow shows the list, with the finished child under Done.
     await detail.getByRole("button", { name: "Back to subagents" }).click();

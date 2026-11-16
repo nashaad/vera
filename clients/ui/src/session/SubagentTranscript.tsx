@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type { SessionWatch } from "./model.ts";
 import { Transcript } from "./Transcript.tsx";
@@ -10,10 +10,12 @@ export interface SubagentTranscriptProps {
     readonly watch: SessionWatch;
     // The folder the child works in, for paths in its tool lines.
     readonly folder?: string | undefined;
+    // Drawn after the conversation, inside the same scroll, such as open requests and the queue.
+    readonly after?: ReactNode;
 }
 
 // A subagent's conversation, as the Subagents tab shows it.
-export function SubagentTranscript({ watch, folder }: SubagentTranscriptProps) {
+export function SubagentTranscript({ watch, folder, after }: SubagentTranscriptProps) {
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const scroller = usePinnedScroll();
     const slowOpening = useSlowOpening(watch);
@@ -40,6 +42,7 @@ export function SubagentTranscript({ watch, folder }: SubagentTranscriptProps) {
                             {...(folder ? { folder } : {})}
                         />
                     )}
+                    {after}
                 </div>
             </div>
         </div>

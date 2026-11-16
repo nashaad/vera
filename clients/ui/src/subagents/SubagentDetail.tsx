@@ -2,12 +2,16 @@ import { ArrowLeftIcon, AgentIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
 import type { ActiveSession } from "../session/activeSession.ts";
+import { QueueStrip } from "../session/QueueStrip.tsx";
+import { RequestCards } from "../session/RequestCards.tsx";
 import { SubagentTranscript } from "../session/SubagentTranscript.tsx";
 import { isRunningRow, statusWord } from "../session/subagents.ts";
 import { useSessionWatch } from "../session/useSessionWatch.ts";
 import { useStopSubagent } from "../session/useStopSubagent.ts";
+import { releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { subagentsTab } from "./store.ts";
+import { SubagentMessageBox } from "./SubagentMessageBox.tsx";
 
 export interface SubagentDetailProps {
     readonly session: ActiveSession;
@@ -15,7 +19,7 @@ export interface SubagentDetailProps {
     readonly visible: boolean;
 }
 
-// One child's conversation, read only. The watch is held only while the tab shows.
+// One child's conversation and a box to message it. The watch is held only while the tab shows.
 export function SubagentDetail({ session, childId, visible }: SubagentDetailProps) {
     if (!visible) return null;
     return <DetailBody session={session} childId={childId} />;
@@ -25,7 +29,7 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
     const { connection } = useViewEnvironment();
     const router = useRouter();
     const { stopping, failures, stop } = useStopSubagent(session.bridge);
-    const { watch } = useSessionWatch(session.bridge, childId, connection.phase === "attached", "subagent");
+    const { watch, send } = useSessionWatch(session.bridge, childId, connection.phase === "attached", "subagent");
     const row = connection.sessionRows?.find((candidate) => candidate.id === childId);
     const title = row?.name ?? watch.title ?? "Subagent";
     const running = row === undefined ? watch.status !== "idle" : isRunningRow(row);
@@ -59,7 +63,17 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
                 ) : null}
             </header>
             {failure === undefined ? null : <p className="subagent-error" role="alert">{failure}</p>}
-            <SubagentTranscript watch={watch} folder={row?.workspace} />
+            <SubagentTranscript
+                watch={watch}
+                folder={row?.workspace}
+                after={(
+                    <>
+                        <RequestCards key={childId} requests={watch.requests} send={send} running={watch.status !== "idle"} />
+                        <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
+                    </>
+                )}
+            />
+            <SubagentMessageBox key={childId} watch={watch} send={send} />
         </section>
     );
 }
