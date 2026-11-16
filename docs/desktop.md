@@ -95,7 +95,8 @@ window.
   no session in the folder the page says so and offers New chat here. Pills
   filter by kind with a count on each, a search box matches names and
   descriptions, and Reload reads again. Items are grouped as This folder, Your
-  home, Extensions, Included with Vera, Built in and Other. A card shows the name, the description, the kind
+  home, Extensions, Built in and Other. Extensions included with Vera are not
+  listed; their skills and agents are. A card shows the name, the description, the kind
   and badges such as Current for the session's agent, Manual only for a skill
   Vera does not load on its own, and an extension's state. An extension the host
   could not load shows its error. Picking a card opens a sheet with its facts
@@ -357,8 +358,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `tab.open`, `tab.activate`, `tab.close`, `theme.dark`, `theme.light`, `theme.highContrast`,
-`theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import` (while the
-theme importer is on), `go.newChat`,
+`theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
@@ -1063,15 +1063,10 @@ The desktop app imports a VS Code color theme from:
   them and a click imports one.
 
 The importer is an included desktop extension, `vera.vscode-theme-import`. It
-can be turned off under Customize but not removed. While it is on, start an
+is always on, and Customize does not list it. Start an
 import from Settings > Appearance > Import a VS Code theme > Import…, from
 View > Theme > Import VS Code Theme…, or from the command palette's
-`Theme: Import VS Code Theme…`. The first two open a file picker. Turning the
-importer off removes that command, its menu item, its palette entry and the
-import controls in Settings, and the app refuses an import request with
-`Vera could not import that theme.` or `Vera could not list the themes
-installed in VS Code.`; themes already imported stay. Turning it on brings them
-back. After a
+`Theme: Import VS Code Theme…`. The first two open a file picker. After a
 successful import the window switches to the theme at once, the theme sits in
 the lists beside Dark, Light and High contrast, and Settings shows
 `Imported "<name>" and switched to it.` Each imported theme is installed as its
@@ -1187,8 +1182,8 @@ Customize > Yours lists them above its skills, agents and other items. A row sho
 extension's id and version, the themes it adds, a switch, and Remove. Turning an
 extension off hides its themes at once; a window using one of them falls back to
 the built-in theme of the same type. Turning it on shows them again. Remove
-deletes an installed extension's folder. An extension marked Included ships with
-the app: it can be turned off but not removed. An installed extension whose
+deletes an installed extension's folder. An extension included with the app is
+always on, cannot be removed, and is not listed. An installed extension whose
 manifest names commands or a `main` module is listed with the note that its
 commands are not loaded by this version of Vera; only the tasks of an included
 extension run.
@@ -1202,7 +1197,7 @@ install; it shows none of these controls.
 
 Extensions are kept in `machine/desktop/extensions/<id>` under the home, and
 which of them are off in `machine/desktop/extensions.json`. Included extensions
-ship in the app and are not copied there.
+ship in the app and are not copied there; an included id in that file is ignored.
 
 ### The manifest
 
@@ -1250,7 +1245,7 @@ at most 8 tasks. A command may name one of its tasks in `task`; a manifest whose
 command names a task it does not declare is refused. An extension whose commands
 all name tasks needs no `main`.
 
-The app runs a task only for an included extension that is turned on, one task at
+The app runs a task only for an extension included with the app, one task at
 a time, and stops it after 60 seconds. The process starts when a request
 arrives, answers once, and stops; it keeps nothing between runs. An extension
 installed from a package keeps its tasks listed but does not run them.

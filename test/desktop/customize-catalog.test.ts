@@ -137,7 +137,6 @@ test("scope strings map to readable group names", () => {
     expect(scopeGroup("user")).toBe("Your home");
     expect(scopeGroup("extension")).toBe("Extensions");
     expect(scopeGroup("extension demo")).toBe("Extensions");
-    expect(scopeGroup("core")).toBe("Included with Vera");
     expect(scopeGroup("system")).toBe("Built in");
     expect(scopeGroup(undefined)).toBe("Other");
 });

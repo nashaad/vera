@@ -17,8 +17,7 @@ function ExtensionRow({ entry, state }: { readonly entry: DesktopExtensionEntry;
                     <span className="customize-card-desc">{themeLine(entry.themes)}</span>
                     <span className="customize-card-meta">
                         <span>{entry.version}</span>
-                        {entry.included ? <span className="customize-badge">Included</span> : null}
-                        {!entry.included && (entry.hasMain || entry.hasCommands) ? <span>{NOT_LOADED}</span> : null}
+                        {entry.hasMain || entry.hasCommands ? <span>{NOT_LOADED}</span> : null}
                     </span>
                 </span>
                 <span className="customize-card-actions">
@@ -35,17 +34,15 @@ function ExtensionRow({ entry, state }: { readonly entry: DesktopExtensionEntry;
                     >
                         <span className="appearance-switch-knob" />
                     </button>
-                    {entry.included ? null : (
-                        <button
-                            type="button"
-                            className="ghost-btn"
-                            disabled={state.busy}
-                            data-desktop-extension-remove={entry.id}
-                            onClick={() => state.remove(entry.id)}
-                        >
-                            Remove
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={state.busy}
+                        data-desktop-extension-remove={entry.id}
+                        onClick={() => state.remove(entry.id)}
+                    >
+                        Remove
+                    </button>
                 </span>
             </div>
         </li>
@@ -78,7 +75,8 @@ function PreviewPanel({ preview, state }: { readonly preview: ExtensionPreview; 
 
 export function DesktopExtensionsView({ state }: { readonly state: DesktopExtensionsState }) {
     const { list, preview, report, busy } = state;
-    const entries = list.phase === "ready" ? list.extensions : [];
+    // Extensions included with Vera are always on and have no switch, so they are not listed.
+    const entries = list.phase === "ready" ? list.extensions.filter((entry) => !entry.included) : [];
     return (
         <section data-desktop-extensions>
             <h2 className="section-title">

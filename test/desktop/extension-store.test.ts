@@ -108,7 +108,7 @@ test("@core the extension count is capped for a new id but not for a replacement
     expect(store.commit(replacement).ok).toBe(true);
 });
 
-test("@core included extensions are listed, can be turned off, and cannot be removed or replaced", () => {
+test("@core included extensions are listed to the window, always on, and cannot be turned off, removed or replaced", () => {
     const home = scratchDirectory();
     const included = scratchDirectory();
     unpackEntries(packageEntries(tarGzBytes(themeFiles("vera.sample", "1.0.0", [CROW]))), join(included, "vera.sample"));
@@ -120,9 +120,25 @@ test("@core included extensions are listed, can be turned off, and cannot be rem
     const clash = staged(store, themeFiles("vera.sample", "9.0.0", [CROW]));
     expect(store.commit(clash)).toEqual({ ok: false, reason: '"vera.sample" is included with Vera and cannot be replaced.' });
     store.discard(clash);
-    expect(store.setEnabled("vera.sample", false)).toBe(true);
-    expect(store.themes()).toEqual([]);
-    expect(storeFor(home, included).entries()[0]?.enabled).toBe(false);
+    expect(store.setEnabled("vera.sample", false)).toBe(false);
+    expect(existsSync(extensionStatePath(home))).toBe(false);
+    expect(store.entries()[0]?.enabled).toBe(true);
+    expect(store.themes().map((theme) => theme.name)).toEqual(["Crow Night"]);
+});
+
+test("@core a disabled entry for an included extension in the state file is ignored, one for an installed extension is not", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    unpackEntries(packageEntries(tarGzBytes(themeFiles("vera.sample", "1.0.0", [CROW]))), join(included, "vera.sample"));
+    const store = storeFor(home, included);
+    install(store, "crow.pack", "1.0.0", [{ label: "Crow Day", name: "Crow Day" }]);
+    const state = JSON.stringify({ version: 1, disabled: ["vera.sample", "crow.pack"] });
+    writeText(extensionStatePath(home), state);
+    const again = storeFor(home, included);
+    expect(again.entries().map((entry) => [entry.id, entry.enabled])).toEqual([["crow.pack", false], ["vera.sample", true]]);
+    expect(again.themes().map((theme) => theme.name)).toEqual(["Crow Night"]);
+    expect(again.setEnabled("vera.sample", true)).toBe(false);
+    expect(readFileSync(extensionStatePath(home), "utf8")).toBe(state);
 });
 
 function taskExtension(directory: string, id: string, worker = true): void {
@@ -131,22 +147,21 @@ function taskExtension(directory: string, id: string, worker = true): void {
     if (worker) writeText(join(directory, id, "scan.cjs"), "module.exports = {};");
 }
 
-test("@core only an included extension that is turned on hands out the worker file of its task", () => {
+test("@core only an included extension hands out the worker file of its task, and it stays on", () => {
     const home = scratchDirectory();
     const included = scratchDirectory();
     taskExtension(included, "vera.scan");
     taskExtension(included, "vera.lost", false);
     taskExtension(extensionsDirectory(home), "crow.scan");
+    writeText(extensionStatePath(home), JSON.stringify({ version: 1, disabled: ["vera.scan", "crow.scan"] }));
     const store = storeFor(home, included);
     expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
     expect(store.taskFile("vera.scan", "other")).toBeUndefined();
     expect(store.taskFile("vera.lost", "scan")).toBeUndefined();
     expect(store.taskFile("crow.scan", "scan")).toBeUndefined();
     expect(store.taskFile("absent", "scan")).toBeUndefined();
-    expect(store.entries().find((entry) => entry.id === "vera.scan")).toMatchObject({ hasMain: true, hasCommands: false, included: true });
-    expect(store.setEnabled("vera.scan", false)).toBe(true);
-    expect(store.taskFile("vera.scan", "scan")).toBeUndefined();
-    expect(store.setEnabled("vera.scan", true)).toBe(true);
+    expect(store.entries().find((entry) => entry.id === "vera.scan")).toMatchObject({ hasMain: true, hasCommands: false, included: true, enabled: true });
+    expect(store.setEnabled("vera.scan", false)).toBe(false);
     expect(store.taskFile("vera.scan", "scan")).toBe(join(included, "vera.scan", "scan.cjs"));
 });
 

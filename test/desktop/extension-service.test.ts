@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
 import { runInstallTask } from "../../clients/desktop/src/extension-install/run-task.ts";
 import { parseInstallReply, parseInstallTask, type InstallReply, type InstallTask } from "../../clients/desktop/src/extension-install/task-protocol.ts";
 import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/src/extensions/paths.ts";
@@ -12,7 +13,7 @@ import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
 import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { themeFiles, writePackage } from "./extension-fixtures.ts";
-import { removeScratchDirectories, scratchDirectory } from "./theme-fixtures.ts";
+import { removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";
 
 afterEach(removeScratchDirectories);
 
@@ -128,6 +129,18 @@ test("@core turning off and removing an extension reload the themes", async () =
     expect(folders(home)).toEqual([]);
     expect(service.remove("crow.pack")).toEqual({ ok: false, reason: '"crow.pack" is not installed.' });
     expect(service.setEnabled("crow.pack", true)).toEqual({ ok: false, reason: 'Vera could not turn "crow.pack" on.' });
+});
+
+test("an included extension is listed as on and the service refuses to turn it off", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    writeText(join(included, "vera.sample", "vera.desktop.json"), JSON.stringify({ id: "vera.sample", version: "1.0.0", engine: DESKTOP_ENGINE }));
+    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), included);
+    const service = new ExtensionService(store, new ThemeService(store, themesDirectory(home), runThemeTask), async () => { throw new Error("no task"); });
+    expect(service.setEnabled("vera.sample", false)).toEqual({ ok: false, reason: 'Vera could not turn "vera.sample" off.' });
+    const list = service.list();
+    expect(list.ok && list.extensions.map((entry) => [entry.id, entry.included, entry.enabled])).toEqual([["vera.sample", true, true]]);
+    expect(service.remove("vera.sample")).toEqual({ ok: false, reason: '"vera.sample" is included with Vera and cannot be removed.' });
 });
 
 test("the checksum, when given, is passed to the task", async () => {

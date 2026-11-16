@@ -204,40 +204,41 @@ function render(overrides: Partial<DesktopExtensionsState>): string {
     return renderToStaticMarkup(createElement(DesktopExtensionsView, { state: state(overrides) }));
 }
 
-test("the section lists each extension with its switch, and only an installed one can be removed", () => {
+test("the section lists each installed extension with its switch and a remove button", () => {
     const html = render({
         list: {
             phase: "ready",
             extensions: [
                 entry("crow.pack", { themes: ["Crow Night", "Crow Day"] }),
-                entry("vera.core-themes", { included: true, enabled: false }),
+                entry("crow.off", { enabled: false }),
             ],
         },
     });
     expect(html).toContain("Desktop extensions");
     expect(html).toContain("Themes: Crow Night, Crow Day");
     expect(html).toContain("Install from file");
-    expect(html).toContain("Included");
+    expect(html).not.toContain("Included");
     expect(html).toContain('data-desktop-extension-remove="crow.pack"');
-    expect(html).not.toContain('data-desktop-extension-remove="vera.core-themes"');
+    expect(html).toContain('data-desktop-extension-remove="crow.off"');
     expect(html).toMatch(/aria-checked="true"[^>]*data-desktop-extension-switch="crow.pack"|data-desktop-extension-switch="crow.pack"[^>]*aria-checked="true"/);
-    expect(html).toMatch(/aria-checked="false"[^>]*data-desktop-extension-switch="vera.core-themes"|data-desktop-extension-switch="vera.core-themes"[^>]*aria-checked="false"/);
+    expect(html).toMatch(/aria-checked="false"[^>]*data-desktop-extension-switch="crow.off"|data-desktop-extension-switch="crow.off"[^>]*aria-checked="false"/);
+    expect(html).toContain('<span class="section-count">2</span>');
 });
 
-test("an included extension that runs a task does not say its commands are not loaded, an installed one does", () => {
-    const html = render({
-        list: {
-            phase: "ready",
-            extensions: [
-                entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true }),
-                entry("crow.pack", { hasMain: true, hasCommands: true }),
-            ],
-        },
-    });
+test("@core an extension included with Vera is not listed or counted, so it has no switch to turn off", () => {
+    const importer = entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true });
+    const html = render({ list: { phase: "ready", extensions: [importer, entry("crow.pack", { hasMain: true, hasCommands: true })] } });
+    expect(html).not.toContain("vera.vscode-theme-import");
+    expect(html).not.toContain("Included");
+    expect(html).toContain('data-desktop-extension="crow.pack"');
+    expect(html).toContain('<span class="section-count">1</span>');
     expect(html.split("Its commands are not loaded by this version of Vera.")).toHaveLength(2);
-    expect(html).toContain("No themes");
-    const included = render({ list: { phase: "ready", extensions: [entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true })] } });
-    expect(included).not.toContain("not loaded");
+
+    const only = render({ list: { phase: "ready", extensions: [importer] } });
+    expect(only).not.toContain("data-desktop-extension=");
+    expect(only).not.toContain("data-desktop-extension-switch");
+    expect(only).toContain('<span class="section-count">0</span>');
+    expect(only).toContain("No desktop extensions are installed.");
 });
 
 test("an empty list, a failed list and a report each say so", () => {
