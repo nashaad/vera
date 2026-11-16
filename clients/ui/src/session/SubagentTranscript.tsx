@@ -12,7 +12,7 @@ export interface SubagentTranscriptProps {
     readonly folder?: string | undefined;
 }
 
-// A subagent's conversation, read only. The companion pane and the Subagents tab both show it.
+// A subagent's conversation, as the Subagents tab shows it.
 export function SubagentTranscript({ watch, folder }: SubagentTranscriptProps) {
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const scroller = usePinnedScroll();

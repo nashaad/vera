@@ -37,7 +37,7 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
 
     return (
         <section className="subagent-detail" aria-label={title} data-subagent={childId} data-phase={watch.phase}>
-            <header className="companion-head">
+            <header className="subagent-head">
                 <button
                     type="button"
                     className="header-button"
@@ -47,9 +47,9 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
                 >
                     <ArrowLeftIcon />
                 </button>
-                <AgentIcon className="companion-icon" />
-                <span className="companion-title" title={title}>{title}</span>
-                <span className="companion-state" data-running={running}>{statusWord(row?.status ?? watch.status)}</span>
+                <AgentIcon className="subagent-icon" />
+                <span className="subagent-title" title={title}>{title}</span>
+                <span className="subagent-state" data-running={running}>{statusWord(row?.status ?? watch.status)}</span>
                 <span className="spacer" />
                 <button type="button" className="subagent-action" onClick={goTo}>Go to</button>
                 {running ? (

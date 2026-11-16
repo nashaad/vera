@@ -64,7 +64,7 @@ async function settle(): Promise<void> {
 
 function collect(hidesReasoning: () => boolean = () => false): { events: DesktopEvent[]; pipe: SessionPipe } {
     const events: DesktopEvent[] = [];
-    const pipe = new SessionPipe((event) => events.push(event), "companion", hidesReasoning);
+    const pipe = new SessionPipe((event) => events.push(event), "subagent", hidesReasoning);
     cleanups.push(() => pipe.close());
     return { events, pipe };
 }
@@ -87,9 +87,9 @@ test("@core watch attaches with the history capability and emits each host line"
     await until(() => events.length === 3);
     expect(fake.received[0]).toBe(ATTACH_AGENT_A);
     expect(events).toEqual([
-        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "one" })}\n` },
-        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "two" })}\n` },
-        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "three" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-a", text: `${JSON.stringify({ type: "one" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-a", text: `${JSON.stringify({ type: "two" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-a", text: `${JSON.stringify({ type: "three" })}\n` },
     ]);
 });
 
@@ -116,7 +116,7 @@ test("@core only the main pane and Chat tabs ask to have screens opened for them
     });
     expect(JSON.parse(ATTACH_AGENT_A).requested_capabilities).not.toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "chat:2")).requested_capabilities).toContain("session.show-window.v1");
-    expect(JSON.parse(attachLine("agent-a", false, "companion")).requested_capabilities).not.toContain("session.show-window.v1");
+    expect(JSON.parse(attachLine("agent-a", false, "subagent")).requested_capabilities).not.toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "subagent")).requested_capabilities).not.toContain("session.show-window.v1");
 });
 
@@ -144,7 +144,7 @@ test("a redirect re-opens the watch on the new socket path without emitting the 
     await until(() => events.length === 1);
     expect(target.received).toEqual([ATTACH_AGENT_A]);
     expect(events).toEqual([
-        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "moved-frame" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-a", text: `${JSON.stringify({ type: "moved-frame" })}\n` },
     ]);
 });
 
@@ -162,7 +162,7 @@ test("a second redirect closes the session with a reason", async () => {
     await until(() => events.length === 1);
     await settle();
     expect(events).toEqual([
-        { type: "session_closed", pane: "companion", agentId: "agent-a", reason: "The host moved this session more than once." },
+        { type: "session_closed", pane: "subagent", agentId: "agent-a", reason: "The host moved this session more than once." },
     ]);
     expect(last.received).toEqual([]);
 });
@@ -190,7 +190,7 @@ test("a host-side close emits session_closed once", async () => {
     await until(() => events.length >= 1);
     await settle();
     expect(events).toEqual([
-        { type: "session_closed", pane: "companion", agentId: "agent-a", reason: "The host closed this session." },
+        { type: "session_closed", pane: "subagent", agentId: "agent-a", reason: "The host closed this session." },
     ]);
 });
 
@@ -200,7 +200,7 @@ test("a missing host reports that the host is not running", async () => {
     pipe.watch("agent-a");
     await until(() => events.length === 1);
     expect(events).toEqual([
-        { type: "session_closed", pane: "companion", agentId: "agent-a", reason: "The host is not running." },
+        { type: "session_closed", pane: "subagent", agentId: "agent-a", reason: "The host is not running." },
     ]);
 });
 
@@ -221,7 +221,7 @@ test("a replaced watch emits nothing from its old socket", async () => {
     fake.sockets[1]?.write(`${JSON.stringify({ type: "fresh" })}\n`);
     await until(() => events.length === 1);
     expect(events).toEqual([
-        { type: "session_frame", pane: "companion", agentId: "agent-b", text: `${JSON.stringify({ type: "fresh" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-b", text: `${JSON.stringify({ type: "fresh" })}\n` },
     ]);
 });
 
@@ -277,7 +277,7 @@ test("@core reattach opens the same agent again with the current choice and drop
     await until(() => events.length === 1);
     await settle();
     expect(events).toEqual([
-        { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "fresh" })}\n` },
+        { type: "session_frame", pane: "subagent", agentId: "agent-a", text: `${JSON.stringify({ type: "fresh" })}\n` },
     ]);
 });
 

@@ -48,17 +48,3 @@ export function unlistedChildTitles(background: BackgroundAgents | undefined, ro
     const names = new Set(rows.map((row) => row.name));
     return [...new Set(background.children.filter((title) => !names.has(title)))];
 }
-
-// The subagent the person chose for this session, else a running child, else the newest one.
-export function companionFor(
-    agentId: string,
-    chosen: { readonly parentId: string; readonly agentId: string } | undefined,
-    rows: readonly SessionRow[] | undefined,
-): string | undefined {
-    if (chosen !== undefined && chosen.parentId === agentId) return chosen.agentId;
-    const children = (rows ?? []).filter((row) => row.parentId === agentId);
-    const running = children.find(isRunningRow);
-    if (running !== undefined) return running.id;
-    const newest = [...children].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))[0];
-    return newest?.id;
-}

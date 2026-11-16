@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
 import { SessionPanes } from "../../clients/desktop/src/session-panes.ts";
-import { SESSION_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import { registerSessionCommands, SESSION_COMMANDS } from "../../clients/ui/src/commands/session-commands.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
@@ -20,10 +18,9 @@ import { patchLines } from "../../clients/ui/src/session/DiffRollup.tsx";
 import { conversationText } from "../../clients/ui/src/session/conversationText.ts";
 import { offerDraft, takeDraft } from "../../clients/ui/src/session/drafts.ts";
 import type { Block, ContextState, Presentation, ToolsBlock } from "../../clients/ui/src/session/model.ts";
-import { closeCompanion, cyclePaneLayout, openCompanion, paneState, setPaneLayout } from "../../clients/ui/src/session/paneLayout.ts";
 import { quoteReply } from "../../clients/ui/src/session/quote.ts";
 import { closeSessionSheet, openedSessionSheet } from "../../clients/ui/src/session/sessionSheets.ts";
-import { childRows, companionFor, runningChildCount, unlistedChildTitles } from "../../clients/ui/src/session/subagents.ts";
+import { childRows, runningChildCount, unlistedChildTitles } from "../../clients/ui/src/session/subagents.ts";
 import { initialWatch } from "../../clients/ui/src/session/transcript.ts";
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
 
@@ -158,43 +155,6 @@ describe("drafts", () => {
     });
 });
 
-describe("agent panes", () => {
-    afterEach(() => closeCompanion());
-
-    test("@core the layout cycles one pane, beside, below", () => {
-        expect(paneState().layout).toBe("single");
-        cyclePaneLayout();
-        expect(paneState().layout).toBe("split");
-        cyclePaneLayout();
-        expect(paneState().layout).toBe("stack");
-        cyclePaneLayout();
-        expect(paneState().layout).toBe("single");
-    });
-
-    test("opening a subagent splits a single pane and keeps a chosen layout; closing goes back to one", () => {
-        openCompanion("parent", "child");
-        expect(paneState()).toEqual({ layout: "split", companion: { parentId: "parent", agentId: "child" } });
-        setPaneLayout("stack");
-        openCompanion("parent", "other");
-        expect(paneState().layout).toBe("stack");
-        closeCompanion();
-        expect(paneState()).toEqual({ layout: "single" });
-    });
-
-    test("the second pane shows the chosen subagent, else a running one, else the newest", () => {
-        const rows = [
-            row("old", { parentId: "p", updatedAt: 1 }),
-            row("new", { parentId: "p", updatedAt: 9 }),
-            row("busy", { parentId: "p", status: "working", updatedAt: 2 }),
-            row("stranger", { parentId: "q", status: "working" }),
-        ];
-        expect(companionFor("p", { parentId: "p", agentId: "old" }, rows)).toBe("old");
-        expect(companionFor("p", { parentId: "q", agentId: "stranger" }, rows)).toBe("busy");
-        expect(companionFor("p", undefined, rows.filter((candidate) => candidate.id !== "busy"))).toBe("new");
-        expect(companionFor("none", undefined, rows)).toBeUndefined();
-    });
-});
-
 describe("subagents", () => {
     const rows = [
         row("a", { parentId: "p" }),
@@ -220,7 +180,6 @@ describe("subagents", () => {
 describe("session commands", () => {
     afterEach(() => {
         closeSessionSheet();
-        closeCompanion();
         clearActiveSession("agent");
     });
 
@@ -264,17 +223,6 @@ describe("session commands", () => {
         expect(sent).toHaveLength(1);
     });
 
-    test("layout commands set and cycle the panes, ignoring unknown layouts", () => {
-        const registry = new CommandRegistry();
-        registerSessionCommands(registry);
-        registry.execute(SESSION_COMMANDS.setLayout, "stack");
-        expect(paneState().layout).toBe("stack");
-        registry.execute(SESSION_COMMANDS.setLayout, "grid");
-        expect(paneState().layout).toBe("stack");
-        registry.execute(SESSION_COMMANDS.cycleLayout);
-        expect(paneState().layout).toBe("single");
-    });
-
     test("a reply quotes into the open session's composer as Markdown", () => {
         const registry = new CommandRegistry();
         registerSessionCommands(registry);
@@ -306,28 +254,13 @@ describe("session commands", () => {
     });
 });
 
-describe("agent pane shortcut", () => {
-    function key(code: string, overrides: Partial<ShortcutInput> = {}): ShortcutInput {
-        return { type: "keyDown", code, alt: false, shift: false, control: false, meta: false, isAutoRepeat: false, ...overrides };
-    }
-
-    test("Cmd+Alt+A cycles the pane layouts and sits in the View menu", () => {
-        expect(shortcutCommand(key("KeyA", { meta: true, alt: true }), "darwin")).toBe(SESSION_COMMANDS.cycleLayout);
-        expect(shortcutCommand(key("KeyA", { meta: true }), "darwin")).toBeUndefined();
-        const view = buildMenuTemplate("darwin", () => undefined).find((entry) => entry.label === "View");
-        if (!Array.isArray(view?.submenu)) throw new Error("The View menu has no items.");
-        const entry = view.submenu.find((item) => item.id === SESSION_COMMANDS.cycleLayout);
-        expect(entry?.accelerator).toBe(SESSION_SHORTCUTS[0]?.accelerator);
-    });
-});
-
 describe("the shell's watch panes", () => {
-    test("@core the main, companion and subagent panes each have their own pipe, and a name that is no pane has none", () => {
+    test("@core the main and subagent panes each have their own pipe, and a name that is no pane has none", () => {
         const panes = new SessionPanes(() => {}, () => false);
         const main = panes.get("main");
-        const companion = panes.get("companion");
+        expect(panes.get("companion")).toBeUndefined();
         const subagent = panes.get("subagent");
-        expect(new Set([main, companion, subagent]).size).toBe(3);
+        expect(new Set([main, subagent]).size).toBe(2);
         expect(panes.get("subagent")).toBe(subagent);
         expect(panes.get("elsewhere")).toBeUndefined();
         panes.close();

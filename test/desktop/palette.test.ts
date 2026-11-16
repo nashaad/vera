@@ -38,7 +38,7 @@ test("@core a prefix or word-start match outranks a scattered match", () => {
 
     const items = buildCommandItems(
         registryWith([
-            { id: "session.cycleLayout", title: "Session Cycle Agent Panes" },
+            { id: "session.compact", title: "Session Compact" },
             { id: "go.settings", title: "Settings" },
         ]).list(),
         "darwin",
@@ -69,7 +69,7 @@ test("command groups follow the id prefix and sort by group, then title", () => 
     expect(commandGroup("layout.togglePanel")).toBe("Window");
     expect(commandGroup("view.open")).toBe("Window");
     expect(commandGroup("container.focus")).toBe("Window");
-    expect(commandGroup("session.cycleLayout")).toBe("Session");
+    expect(commandGroup("session.compact")).toBe("Session");
     expect(commandGroup("theme.dark")).toBe("Theme");
     expect(commandGroup("help.shortcuts")).toBe("Help");
     expect(commandGroup("chat.help")).toBe("Help");

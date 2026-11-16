@@ -6,7 +6,7 @@ import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
 import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
-import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS, SESSION_SHORTCUTS } from "./shortcuts.ts";
+import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
 
 const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
     dark: "Dark",
@@ -94,7 +94,6 @@ export function buildMenuTemplate(
             ...[palette, sessions].filter((entry): entry is MenuItemConstructorOptions => entry !== undefined),
             { type: "separator" },
             ...layoutItems,
-            ...SESSION_SHORTCUTS.map(item),
             sheet("agent"),
             { type: "separator" },
             { id: "layout.reset", label: "Reset Layout", click: () => run("layout.reset") },

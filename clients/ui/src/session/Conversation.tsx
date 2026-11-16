@@ -8,7 +8,6 @@ import { useWorkbench } from "../workbench/context.tsx";
 import { CompactionStatus } from "./LiveStatus.tsx";
 import { canStart, watchEnded } from "./liveSession.ts";
 import { MAX_HISTORY_BLOCKS, type SessionWatch } from "./model.ts";
-import type { PaneLayout } from "./paneLayout.ts";
 import { QueueStrip } from "./QueueStrip.tsx";
 import { RequestCards } from "./RequestCards.tsx";
 import { holdsTurn, paneAnswerContext } from "./requests.ts";
@@ -42,14 +41,12 @@ export interface ConversationProps {
     readonly title: string;
     readonly workspace: string | undefined;
     readonly chat: boolean;
-    // A subagent's conversation shown beside or below this one.
-    readonly companion?: { readonly layout: PaneLayout; readonly node: ReactNode };
     readonly rail?: ReactNode;
     readonly onState?: (state: ConversationState) => void;
 }
 
 // One session's transcript, request cards and composer. The page and each Chat tab show it.
-export function Conversation({ bridge, agentId, pane, title: fallbackTitle, workspace, chat: fallbackChat, companion, rail, onState }: ConversationProps) {
+export function Conversation({ bridge, agentId, pane, title: fallbackTitle, workspace, chat: fallbackChat, rail, onState }: ConversationProps) {
     const { connection, refreshSessions } = useViewEnvironment();
     const connected = connection.phase === "attached";
     const { run } = useWorkbench();
@@ -165,10 +162,7 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
     return (
         <div className="session-page" data-pane={pane} onKeyDown={onKeyDown}>
             <div className="session-body">
-                <div className="agent-panes" data-layout={companion === undefined ? "single" : companion.layout}>
-                    {body}
-                    {companion?.node}
-                </div>
+                {body}
                 {rail}
             </div>
             <div className="composer-wrap">
