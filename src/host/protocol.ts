@@ -15,6 +15,8 @@ import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { ListedAgent } from "./agent-registry/select.ts";
+import type { CustomizationCatalog } from "../customize/types.ts";
+import type { SkillCommandCatalog } from "../skills/commands.ts";
 import type { StopRefusalReason, StopWaitEvent, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
@@ -213,6 +215,33 @@ export interface NewSessionAgentsResponse {
     readonly starts_on: string;
     readonly agents: readonly ListedAgent[];
     readonly notices: readonly string[];
+}
+
+/**
+ * What a new session would load, read without starting one: the skills it lists,
+ * the agents it offers, and every customization source behind them.
+ *
+ * A folder adds that folder's own skills, agents and instruction files to the home's
+ * and the extensions'. Without a folder the session is a chat, which has only the latter.
+ */
+export interface FolderCustomizationsRequest {
+    readonly type: "folder_customizations";
+    /** Absolute path of the folder the session would open in. Absent for a chat. */
+    readonly workspace?: string;
+}
+
+export interface FolderCustomizationsResponse {
+    readonly type: "folder_customizations";
+    /** What `list_skills` answers, with no agent selected. */
+    readonly skills: SkillCommandCatalog;
+    readonly agents: {
+        /** The agent a new session there starts on. */
+        readonly starts_on: string;
+        readonly agents: readonly ListedAgent[];
+        readonly notices: readonly string[];
+    };
+    /** What `list_customization_sources` answers. */
+    readonly sources: CustomizationCatalog;
 }
 
 export interface CheckpointStoresRequest {
@@ -1041,6 +1070,7 @@ export type HostRequest =
     | AnnexUrlRequest
     | ExtensionLoadFailuresRequest
     | NewSessionAgentsRequest
+    | FolderCustomizationsRequest
     | CheckpointStoresRequest
     | LocateAgentRequest
     | AttachRequest;
@@ -1123,6 +1153,7 @@ export type HostResponse =
     | AnnexUnavailableResponse
     | ExtensionLoadFailuresResponse
     | NewSessionAgentsResponse
+    | FolderCustomizationsResponse
     | CheckpointStoresFinishedResponse
     | CheckpointStoresFailedResponse
     | ProtocolErrorResponse;
@@ -1144,6 +1175,20 @@ function parseSessionFactNames(
         && SESSION_FACT_NAMES.includes(entry as SessionFactName)
     );
     return names.length === 0 ? undefined : [...new Set(names)];
+}
+
+// An absent folder is a chat; a present one must be an absolute path.
+function parseOptionalFolder(workspace: unknown): { readonly workspace?: string } | undefined {
+    if (workspace === undefined) return {};
+    if (
+        typeof workspace !== "string"
+        || workspace.length === 0
+        || workspace.includes("\0")
+        || !isAbsolute(workspace)
+    ) {
+        return undefined;
+    }
+    return { workspace };
 }
 
 function validProviderRequestId(value: unknown): value is string {
@@ -1266,18 +1311,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     if (value?.type === "extension_load_failures") {
         return { type: "extension_load_failures" };
     }
-    if (value?.type === "new_session_agents") {
-        const workspace = value.workspace;
-        if (workspace === undefined) return { type: "new_session_agents" };
-        if (
-            typeof workspace !== "string"
-            || workspace.length === 0
-            || workspace.includes("\0")
-            || !isAbsolute(workspace)
-        ) {
-            return undefined;
-        }
-        return { type: "new_session_agents", workspace };
+    if (value?.type === "new_session_agents" || value?.type === "folder_customizations") {
+        const folder = parseOptionalFolder(value.workspace);
+        if (folder === undefined) return undefined;
+        return value.type === "new_session_agents"
+            ? { type: "new_session_agents", ...folder }
+            : { type: "folder_customizations", ...folder };
     }
     if (
         value?.type === "checkpoint_stores"

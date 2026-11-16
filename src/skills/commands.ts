@@ -29,11 +29,13 @@ export type SkillInvocationDecision =
     | SkillInvocationRefused;
 
 export async function loadSkillCommandCatalog(options: {
-    readonly projectRoot: string;
+    readonly projectRoot?: string;
     readonly allowedSkills?: readonly string[];
 }): Promise<SkillCommandCatalog> {
     const catalog = filterAllowedSkills(
-        await loadSkillCatalog({ projectRoot: options.projectRoot }),
+        await loadSkillCatalog(options.projectRoot === undefined
+            ? {}
+            : { projectRoot: options.projectRoot }),
         options.allowedSkills,
     );
     return {

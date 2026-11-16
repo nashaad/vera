@@ -173,3 +173,20 @@ test("catalog lists home and project rules as instructions keyed by their loaded
     expect(project?.scope).toBe("project");
     expect(project?.description).toBe("Project rule for clients/tui/**");
 });
+
+test("@core without a workspace only the home's skills and agents are listed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-chat-")); roots.push(root);
+    const home = join(root, "home");
+    process.env.VERA_HOME = home;
+    await mkdir(join(home, "agents"), { recursive: true });
+    await mkdir(join(home, "skills/mast-watch"), { recursive: true });
+    await writeFile(join(home, "agents/reader.md"), "---\ndescription: User reader\n---\nUser instructions\n");
+    await writeFile(join(home, "skills/mast-watch/SKILL.md"), "---\nname: mast-watch\ndescription: Looks from the mast.\n---\nBody.\n");
+    const agents = await loadAgentCatalog({ permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ agents });
+    expect(catalog.sources.find((source) => source.name === "reader")?.scope).toBe("user");
+    expect(catalog.sources.find((source) => source.name === "mast-watch")?.scope).toBe("user");
+    expect(catalog.sources.some((source) => source.scope === "project")).toBe(false);
+    expect(catalog.sources.some((source) => source.category === "instructions" || source.category === "memory")).toBe(false);
+    expect(catalog.warnings).toEqual([]);
+});
