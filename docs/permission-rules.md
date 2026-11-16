@@ -204,6 +204,13 @@ passes what you typed to Vera; Escape or Tab goes back to the answers.
 To see or remove what the grant answers allowed, open Ctrl+P and choose
 **Review granted permissions**.
 
+An approval waits 60 seconds, even with a TUI or desktop open, in a
+top-level session or a subagent. When it expires the call does not run, the
+prompt or card closes, and Vera receives `Tool approval timed out.` and carries
+on with the turn. An answer that arrives after that is ignored. A headless run
+such as `vera -p` or an SDK run refuses a prompt at once instead of waiting.
+No setting changes the 60 seconds.
+
 ## Write a custom mode
 
 A custom mode is a named list of rules in Home `config.json`. Here the crow may

@@ -141,7 +141,7 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Side panes from `/btw` and `/pair` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer; with a side pane focused, the same key closes that pane instead.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=32]
+## Tools, permissions, and agents [lines=33]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -155,6 +155,7 @@ Shell commands can run inside a sandbox that limits what they may write and whic
 A command the sandbox blocks keeps its own output and exit code and ends with the lines it blocked.
 A folder that has neither `.git` nor `.vera` cannot gain either from a sandboxed command; create them from your terminal or in a full access session.
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
+An unanswered tool approval expires after 60 seconds and the call is refused; headless runs refuse it immediately. Manual: `docs/permission-rules.md`.
 An approval prompt offers Yes, for this chat, which allows calls like it for the session, and Yes, and always allow <words>, which saves an allow rule for every session; in ask mode it also offers Yes, and switch to Approve for me. A web fetch or download grant names the host, so another host still asks; a saved rule naming only the operation matches every host. Typing what Vera should do instead (Tab in the terminal, or the card's field on the desktop) refuses the call and passes the text to Vera. Review granted permissions in the command palette lists and removes them.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
 A TypeScript agent run's result lists the tools the agent ran and that run's own usage (`docs/embedded-sdk-reviewer.md`).
