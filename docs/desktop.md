@@ -846,7 +846,9 @@ The Models browser has four tabs:
 - `Defaults` assigns the models background work runs on; the conversation
   model stays as it is. Each row opens a picker with your favorites first,
   then other connected models, and the effort levels of the highlighted model
-  (Left and Right change the effort). Tiers are snappy, eco and extra; under
+  on a line under its name (Left and Right change the effort). The picker
+  stays inside the sheet and opens above its button when there is more room
+  there. Tiers are snappy, eco and extra; under
   each, a line names what uses it, including a job that is not set. The
   classifier has a failsafe row once it is set, and compaction says which
   tier it uses while it is not set. Subagents list their models in the order
