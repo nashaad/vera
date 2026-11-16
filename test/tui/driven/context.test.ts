@@ -6,7 +6,29 @@ import { join } from "node:path";
 import { emptyUsage } from "../../../src/model/types.ts";
 import { SessionStore } from "../../../src/store/session-store.ts";
 import { createTuiChildDependencies } from "../../support/tui-child.ts";
-import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { startTuiTestSession, type TuiTestSession } from "../../support/tui-harness.ts";
+
+function selectedExtension(pane: string): string | undefined {
+    return pane.match(/›\s+(\S+)/)?.[1];
+}
+
+async function selectContextExtension(session: TuiTestSession): Promise<string> {
+    let pane = await session.waitForVisiblePaneWhere(
+        (current) => current.includes("Extensions") && selectedExtension(current) !== undefined,
+        "extension list selection",
+    );
+    for (let index = 0; index < 100; index += 1) {
+        const selected = selectedExtension(pane);
+        if (selected === "vera.context") return pane;
+        session.sendKey("Down");
+        pane = await session.waitForVisiblePaneWhere(
+            (current) => selectedExtension(current) !== undefined
+                && selectedExtension(current) !== selected,
+            `extension selection after ${selected}`,
+        );
+    }
+    throw new Error("Context extension was not found");
+}
 
 test("/context after resume still names the stored request recipe", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-context-resume-"));
@@ -141,12 +163,9 @@ for (const enabled of [false, true]) {
             await session.waitForVisiblePane("Start a conversation");
             session.sendText("/extensions");
             session.sendKey("Enter");
-            await session.waitForVisiblePaneWhere(
-                (pane) => pane.split("\n").some((line) =>
-                    line.includes("vera.context")
-                    && line.includes(enabled ? "enabled" : "disabled")),
-                "effective Context enabled state",
-            );
+            const pane = await selectContextExtension(session);
+            expect(pane.split("\n").find((line) => line.includes("› vera.context")))
+                .toContain(enabled ? "enabled" : "disabled");
             session.sendKey("Escape");
             await session.waitForVisiblePane("Start a conversation");
         } finally {
@@ -177,7 +196,7 @@ test("closing Dashboard returns every following character to the composer", asyn
         const pane = await session.waitForVisiblePane("│ /extensions");
         expect(pane).not.toContain("│ ons");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("vera.context");
+        await selectContextExtension(session);
     } finally {
         await session.close();
     }
