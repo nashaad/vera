@@ -270,7 +270,7 @@ function inImporter(files: Set<string>): string[] {
 
 test("@core the main process loads no task code; each task process loads its own", () => {
     const main = reachable(join(DESKTOP_SOURCE, "main.ts"));
-    expect(inDesktop(main.files, "extension-commands")).toEqual(["extension-commands/service.ts", "extension-commands/task-protocol.ts"]);
+    expect(inDesktop(main.files, "extension-commands")).toEqual(["extension-commands/page-result.ts", "extension-commands/page.ts", "extension-commands/service.ts", "extension-commands/task-protocol.ts"]);
     expect(inImporter(main.files)).toEqual([]);
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
@@ -359,6 +359,7 @@ test("@core the importer extension's manifest is valid, names its task and its w
             },
         ],
         theme: [{ command: "vera.vscode-theme-import.import" }],
+        browser: [],
     });
 
     const entry: DesktopExtensionEntry = {
@@ -368,7 +369,7 @@ test("@core the importer extension's manifest is valid, names its task and its w
         hasMain: true,
         hasCommands: true,
         commands: manifest.commands.map((command) => ({ id: command.command, title: command.title, ...(command.category === undefined ? {} : { category: command.category }) })),
-        menus: { appearance: [], theme: [] },
+        menus: { appearance: [], theme: [], browser: [] },
         included: true,
         enabled: true,
     };

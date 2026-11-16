@@ -1,3 +1,4 @@
+import type { PageCapture } from "./page-captures.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 
 // `imported` is empty when the person closed the file picker without choosing. `themes` is every imported theme
@@ -32,4 +33,15 @@ export interface CommandRefusal {
     readonly reason: string;
 }
 
-export type ExtensionCommandResult = CommandThemesDone | CommandPickAnswer | CommandRefusal;
+export interface CommandCaptureAnswer {
+    readonly ok: true;
+    readonly kind: "capture";
+    readonly capture: PageCapture;
+}
+
+export interface CommandClosedAnswer {
+    readonly ok: true;
+    readonly kind: "closed";
+}
+
+export type ExtensionCommandResult = CommandThemesDone | CommandPickAnswer | CommandCaptureAnswer | CommandClosedAnswer | CommandRefusal;

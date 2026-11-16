@@ -43,7 +43,7 @@ test("a manifest with no contributions and no main is valid", () => {
 
     expect(result).toEqual({
         ok: true,
-        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [], themes: [], tasks: [], menus: { appearance: [], theme: [] } },
+        manifest: { id: "acme.themes", version: "1.2.0", engine: "vera-gui@^1", commands: [], keybindings: [], themes: [], tasks: [], menus: { appearance: [], theme: [], browser: [] } },
     });
 });
 
@@ -350,6 +350,7 @@ test("menus list commands of the manifest by place, with an optional title, desc
     const result = parseDesktopManifest(withCommand({}, {
         appearance: [{ command: "acme.themes.import", title: " Import a theme ", description: "Choose a file.", button: "Import…" }],
         theme: [{ command: "acme.themes.import" }],
+        browser: [],
     }));
 
     expect(result.ok).toBe(true);
@@ -357,8 +358,9 @@ test("menus list commands of the manifest by place, with an optional title, desc
     expect(result.manifest.menus).toEqual({
         appearance: [{ command: "acme.themes.import", title: "Import a theme", description: "Choose a file.", button: "Import…" }],
         theme: [{ command: "acme.themes.import" }],
+        browser: [],
     });
-    expect(parseDesktopManifest(withCommand({}))).toMatchObject({ ok: true, manifest: { menus: { appearance: [], theme: [] } } });
+    expect(parseDesktopManifest(withCommand({}))).toMatchObject({ ok: true, manifest: { menus: { appearance: [], theme: [], browser: [] } } });
 });
 
 test("a menu is refused for an unknown place, an unknown or repeated command, a bad field or too many entries", () => {
@@ -366,7 +368,7 @@ test("a menu is refused for an unknown place, an unknown or repeated command, a 
     const entry = { command: "acme.themes.import" };
 
     expect(refuse([])).toBe('"contributes.menus" must be an object keyed by place.');
-    expect(refuse({ toolbar: [entry] })).toBe('Unknown menu place "toolbar". The places are appearance and theme.');
+    expect(refuse({ toolbar: [entry] })).toBe('Unknown menu place "toolbar". The places are appearance and theme and browser.');
     expect(refuse({ theme: entry })).toBe('"contributes.menus.theme" must be an array.');
     expect(refuse({ theme: [null] })).toBe('A menu entry in "theme" must be an object.');
     expect(refuse({ theme: [{ ...entry, icon: "x" }] })).toBe('A menu entry in "theme" has an unknown key "icon".');

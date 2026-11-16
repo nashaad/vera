@@ -1,0 +1,15 @@
+{
+    "id": "vera.browser-annotate",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "commands": [
+            { "command": "vera.browser-annotate.select", "title": "Select element", "page": "page.js", "when": "hasSession" }
+        ],
+        "menus": {
+            "browser": [
+                { "command": "vera.browser-annotate.select", "icon": "pointer" }
+            ]
+        }
+    }
+}

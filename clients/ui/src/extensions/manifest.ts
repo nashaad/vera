@@ -13,14 +13,17 @@ const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks", "menus
 const TASK_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const MAX_TITLE_LENGTH = 100;
 const MENU_ENTRY_KEYS = ["command", "title", "description", "button"];
+export const MAX_PAGE_PATH_LENGTH = 256;
+export const DESKTOP_BROWSER_ICONS = ["pointer"] as const;
+export type DesktopBrowserIcon = (typeof DESKTOP_BROWSER_ICONS)[number];
 const MAX_CATEGORY_LENGTH = 40;
 // Long enough for `imported.` and a 64-character saved-theme slug.
 export const MAX_ID_LENGTH = 80;
 export const MAX_THEMES_PER_EXTENSION = 32;
 const MAX_THEME_LABEL_LENGTH = 120;
 export const MAX_TASKS_PER_EXTENSION = 8;
-// The places a menu entry can appear: rows in Settings > Appearance, and the app menu's Theme submenu.
-export const DESKTOP_MENU_PLACES = ["appearance", "theme"] as const;
+// Menu places are rendered by the window, not by extension code.
+export const DESKTOP_MENU_PLACES = ["appearance", "theme", "browser"] as const;
 export type DesktopMenuPlace = (typeof DESKTOP_MENU_PLACES)[number];
 export const MAX_MENU_ENTRIES_PER_PLACE = 8;
 const MAX_DESCRIPTION_LENGTH = 300;
@@ -46,6 +49,7 @@ export interface DesktopCommand {
     readonly category?: string;
     // The id of a task this extension contributes. Running the command runs that task, not the main module.
     readonly task?: string;
+    readonly page?: string;
     // Only with a task: the person picks a file first, and the task receives its path. Cancelling runs nothing.
     readonly file?: DesktopFileFilter;
     readonly when?: ParsedWhen;
@@ -57,6 +61,7 @@ export interface DesktopMenuEntry {
     readonly title?: string;
     readonly description?: string;
     readonly button?: string;
+    readonly icon?: DesktopBrowserIcon;
 }
 
 export type DesktopMenus = Readonly<Record<DesktopMenuPlace, readonly DesktopMenuEntry[]>>;
@@ -149,7 +154,7 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
     }
     const tasks = readTasks(contributes.tasks);
     const commands = readCommands(contributes.commands, id, tasks);
-    if (main === undefined && commands.some((command) => command.task === undefined)) {
+    if (main === undefined && commands.some((command) => command.task === undefined && command.page === undefined)) {
         throw new ManifestProblem('"main" is required for a command that names no task.');
     }
     return {
@@ -255,6 +260,13 @@ function readCommands(value: unknown, id: string, tasks: readonly DesktopTask[])
         if (task !== undefined && (typeof task !== "string" || !tasks.some((declared) => declared.id === task))) {
             throw new ManifestProblem(`Command "${command}" names a task that this manifest does not declare.`);
         }
+        const page = entry.page;
+        if (page !== undefined && (!isRelativePath(page) || page.length > MAX_PAGE_PATH_LENGTH || page.trim() !== page || page.includes("\0"))) {
+            throw new ManifestProblem(`Command "${command}" needs a "page" path inside the extension of 1 to ${MAX_PAGE_PATH_LENGTH} characters.`);
+        }
+        if (page !== undefined && (task !== undefined || entry.file !== undefined)) {
+            throw new ManifestProblem(`Command "${command}" cannot combine "page" with "task" or "file".`);
+        }
         const file = readFileFilter(entry.file, command, task !== undefined);
         const when = readWhen(entry.when, `command "${command}"`, id);
         commands.push({
@@ -262,6 +274,7 @@ function readCommands(value: unknown, id: string, tasks: readonly DesktopTask[])
             title: title.trim(),
             ...(category === undefined ? {} : { category: category.trim() }),
             ...(task === undefined ? {} : { task }),
+            ...(page === undefined ? {} : { page: page as string }),
             ...(file === undefined ? {} : { file }),
             ...(when === undefined ? {} : { when }),
         });
@@ -294,7 +307,7 @@ function readFileFilter(value: unknown, command: string, hasTask: boolean): Desk
 }
 
 function readMenus(value: unknown, commands: readonly DesktopCommand[]): DesktopMenus {
-    const menus: Record<DesktopMenuPlace, DesktopMenuEntry[]> = { appearance: [], theme: [] };
+    const menus: Record<DesktopMenuPlace, DesktopMenuEntry[]> = { appearance: [], theme: [], browser: [] };
     if (value === undefined) return menus;
     if (!isPlainObject(value)) throw new ManifestProblem('"contributes.menus" must be an object keyed by place.');
     for (const place of Object.keys(value)) {
@@ -319,9 +332,12 @@ function readMenuEntries(value: unknown, place: DesktopMenuPlace, commands: read
     for (const entry of value) {
         if (!isPlainObject(entry)) throw new ManifestProblem(`A menu entry in "${place}" must be an object.`);
         for (const key of Object.keys(entry)) {
-            if (!MENU_ENTRY_KEYS.includes(key)) throw new ManifestProblem(`A menu entry in "${place}" has an unknown key "${key}".`);
+            if (!MENU_ENTRY_KEYS.includes(key) && !(place === "browser" && key === "icon")) throw new ManifestProblem(`A menu entry in "${place}" has an unknown key "${key}".`);
         }
-        const { command, title, description, button } = entry;
+        const { command, title, description, button, icon } = entry;
+        if (place === "browser" && !(DESKTOP_BROWSER_ICONS as readonly unknown[]).includes(icon)) {
+            throw new ManifestProblem(`A browser menu entry needs an "icon" from: ${DESKTOP_BROWSER_ICONS.join(", ")}.`);
+        }
         if (typeof command !== "string" || !commands.some((declared) => declared.command === command)) {
             throw new ManifestProblem(`A menu entry in "${place}" names a command that this manifest does not declare.`);
         }
@@ -342,6 +358,7 @@ function readMenuEntries(value: unknown, place: DesktopMenuPlace, commands: read
             ...(title === undefined ? {} : { title: title.trim() }),
             ...(description === undefined ? {} : { description: description.trim() }),
             ...(button === undefined ? {} : { button: button.trim() }),
+            ...(icon === undefined ? {} : { icon: icon as DesktopBrowserIcon }),
         });
     }
     return entries;

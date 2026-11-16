@@ -1140,6 +1140,11 @@ tab that shows no site, or opens a new tab, and never replaces a site. When the
 host is not running or the annex is down, the Browser says so. When only the
 extension list fails, the built-in pages still open and Home says why.
 
+The pointer button at the right of the address bar opens the included browser
+annotation tool for the open session. Select an element or draw on the page,
+then choose Add to chat to include a screenshot with your next message.
+It works on sites and Vera's annex pages; see [Browser annotation](browser-annotation.md).
+
 ## Finding the host
 
 The app never computes a socket path or starts a host directly. It runs the
@@ -1344,8 +1349,9 @@ of those, and on a `var(--vera-*)` name that is not declared.
 ## Desktop extensions
 
 A desktop extension adds to the desktop app itself. Today an extension can add
-themes, and an extension that ships with the app can add tasks, the commands
-that run them, and entries for those commands in Settings and the View menu. It is a folder
+themes, and an extension that ships with the app can add tasks, page scripts,
+the commands that run them, and entries for those commands in Settings, the
+View menu and the Browser toolbar. It is a folder
 with a `vera.desktop.json` manifest. The terminal UI
 does not use desktop extensions and keeps its own themes.
 
@@ -1356,8 +1362,8 @@ the built-in theme of the same type. Turning it on shows them again. Remove
 deletes an installed extension's folder. An extension included with the app is
 always on, cannot be removed, and is not listed. An installed extension whose
 manifest names commands or a `main` module is listed with the note that its
-commands are not loaded by this version of Vera; only the tasks of an included
-extension run.
+commands are not loaded by this version of Vera; only the tasks and page scripts
+of an included extension run.
 
 Install from file opens a file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
@@ -1427,7 +1433,7 @@ A command that names a task is run by the app when the person chooses it. While
 its extension is on, the command is in the command palette as
 `<category>: <title>`, or the title alone when it has no category. Turning the
 extension off removes it. A command may also carry a file filter, and an
-extension may list commands under two menu places:
+extension may list commands under three menu places:
 
 ```json
 {
@@ -1466,8 +1472,9 @@ before it runs the task and passes the chosen path to it; cancelling the dialog
 runs nothing and reports nothing.
 
 `menus` is an object keyed by place. `appearance` adds a row to Settings >
-Appearance and `theme` adds an item to the View menu's Theme submenu. Any other
-place is refused. A place holds at most 8 entries. Each entry names a command
+Appearance, `theme` adds an item to the View menu's Theme submenu, and `browser`
+adds a button to the Browser toolbar. A `browser` entry must set `icon` to
+`pointer`; other places cannot set `icon`. Any other place is refused. A place holds at most 8 entries. Each entry names a command
 declared in the same manifest, and may set `title` (1 to 100 characters, in place
 of the command's title), `description` (1 to 300 characters) and `button` (1 to
 30 characters; an Appearance row's button says `Run` when it has none). Only the
@@ -1478,6 +1485,15 @@ A task answers a command in one of three ways: themes the app installs as
 from, or a refusal with a reason. Choosing a list item runs the same command
 again with that item. The app keeps the list's values and sends the window only
 each item's name and detail.
+
+A command may name a `page` script instead of a task. Its path is relative to
+the extension, at most 256 characters, and cannot be combined with `task` or
+`file`. Page-only commands need no `main`. Only included extensions run page
+scripts, capped at 256 KiB. The script runs in an isolated world of the shown
+Browser page, without access to Node, the window bridge or files. It answers
+once with a capture rectangle, message text and optional selection details,
+or nothing when closed. The app captures the page and attaches the image
+through the same path as a pasted image.
 
 ### Packages
 

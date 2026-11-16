@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 function entry(id: string, overrides: Partial<DesktopExtensionEntry> = {}): DesktopExtensionEntry {
-    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [] }, included: false, enabled: true, ...overrides };
+    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true, ...overrides };
 }
 
 function listed(extensions: DesktopExtensionEntry[], themes: ImportedThemeSummary[]): ExtensionChangeResult {

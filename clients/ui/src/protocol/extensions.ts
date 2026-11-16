@@ -13,6 +13,7 @@ export interface DesktopMenuItem {
     readonly title: string;
     readonly description?: string;
     readonly button?: string;
+    readonly icon?: "pointer";
 }
 
 export interface DesktopExtensionMenus {
@@ -20,6 +21,7 @@ export interface DesktopExtensionMenus {
     readonly appearance: readonly DesktopMenuItem[];
     // Items in the app menu's Theme submenu.
     readonly theme: readonly DesktopMenuItem[];
+    readonly browser: readonly DesktopMenuItem[];
 }
 
 // One desktop extension, installed or included with the app.

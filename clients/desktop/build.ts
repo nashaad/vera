@@ -61,7 +61,7 @@ for (const task of TASKS) await bundleTask(task.entry, out, task.file);
 // Desktop extensions that ship with the app, each a folder of the repository holding a vera.desktop.json. The
 // manifest is copied to dist/extensions/<id>/, and each task's `main` (`<name>.cjs`) is bundled from `<name>.ts`
 // in the same folder.
-const INCLUDED_EXTENSIONS = [join(root, "..", "..", "extensions", "vscode-theme-import")];
+const INCLUDED_EXTENSIONS = ["vscode-theme-import", "browser-annotate"].map((name) => join(root, "..", "..", "extensions", name));
 const TASK_MAIN = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.cjs$/;
 for (const folder of INCLUDED_EXTENSIONS) {
     const manifestFile = join(folder, DESKTOP_MANIFEST_FILENAME);
@@ -74,6 +74,13 @@ for (const folder of INCLUDED_EXTENSIONS) {
         const name = TASK_MAIN.exec(task.main)?.[1];
         if (name === undefined) fail([`${manifestFile}: task "${task.id}" main "${task.main}" must be a <name>.cjs file in the extension folder.`]);
         await bundleTask(join(folder, `${name}.ts`), outdir, task.main);
+    }
+    for (const command of parsed.manifest.commands) {
+        if (command.page === undefined) continue;
+        const name = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.js$/.exec(command.page)?.[1];
+        if (name === undefined) fail([`${manifestFile}: page must be a <name>.js file in the extension folder.`]);
+        const bundle = await Bun.build({ entrypoints: [join(folder, `${name}.ts`)], outdir, target: "browser", format: "iife", naming: command.page });
+        if (!bundle.success) fail(bundle.logs);
     }
 }
 
