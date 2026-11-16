@@ -821,6 +821,7 @@ export async function runSubagent(
             options.processRegistry,
             true,
             options.scratchDir,
+            () => options.approvalMode,
         );
         toolRuntime.checkSkillFile = options.checkSkillFile;
         const inbound = new InboundCommandRouter(channel.engine, events);

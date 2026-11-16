@@ -8,6 +8,9 @@ description: "Choose how much Vera may do without asking, and write your own rul
 Every tool call is checked before it runs. The answer is one of four: run it,
 ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 
+Shell commands can also run inside a second layer that limits what they may
+write and which hosts they reach. See [Sandboxed commands](sandbox.md).
+
 ## Built-in modes
 
 | Mode | What runs without asking | Everything else |

@@ -2,10 +2,12 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { signalVerifiedProcessGroup } from "../process-group.ts";
+import type { CommandSandbox, SandboxPreparation } from "../sandbox/types.ts";
 import {
     BASH_CAPTURE_LIMIT_BYTES,
     captureBounded,
 } from "../tools/bounded-capture.ts";
+import type { SandboxCommandIdentity } from "../tools/process-runtime.ts";
 import type { RegisteredTool, ToolOutput } from "../tools/types.ts";
 import { findSkill, loadSkillCatalog } from "./catalog.ts";
 import { invocationRefusal } from "./invocation-gate.ts";
@@ -88,6 +90,7 @@ export const skillScriptTool: RegisteredTool = {
             throw new Error(`Skill script is not executable: ${script}`);
         }
 
+        const identity = context.sandboxIdentity();
         return runSkillScript({
             scriptPath,
             args,
@@ -95,6 +98,12 @@ export const skillScriptTool: RegisteredTool = {
             skillDirectory: skill.directory,
             timeoutMs,
             signal,
+            ...(context.sandbox === undefined
+                ? {}
+                : {
+                    sandbox: context.sandbox,
+                    ...(identity === undefined ? {} : { identity }),
+                }),
         });
     },
 };
@@ -106,6 +115,8 @@ interface RunSkillScriptOptions {
     readonly skillDirectory: string;
     readonly timeoutMs: number;
     readonly signal: AbortSignal;
+    readonly sandbox?: CommandSandbox;
+    readonly identity?: SandboxCommandIdentity;
 }
 
 export async function runSkillScript(
@@ -113,13 +124,32 @@ export async function runSkillScript(
 ): Promise<ToolOutput> {
     options.signal.throwIfAborted();
     const startedAt = new Date().toISOString();
-    const subprocess = Bun.spawn([options.scriptPath, ...options.args], {
-        cwd: options.workspace,
-        stdout: "pipe",
-        stderr: "pipe",
-        detached: process.platform !== "win32",
-        env: skillEnvironment(options.workspace, options.skillDirectory),
-    });
+    const env = skillEnvironment(options.workspace, options.skillDirectory);
+    const argv = [options.scriptPath, ...options.args];
+    const preparation = await prepareSandboxedScript(options, env, argv);
+    if (preparation.refusal !== undefined) {
+        return { kind: "output", output: preparation.refusal, isError: true };
+    }
+    const prepared = preparation.prepared;
+    const spawnArgv = prepared === undefined ? [...argv] : [...prepared.argv];
+    const subprocess = (() => {
+        try {
+            return Bun.spawn(spawnArgv, {
+                cwd: options.workspace,
+                stdout: "pipe",
+                stderr: "pipe",
+                detached: process.platform !== "win32",
+                env: { ...env, ...(prepared?.env ?? {}) },
+            });
+        } catch (error) {
+            if (prepared !== undefined) options.sandbox?.commandEnded(prepared);
+            throw error;
+        }
+    })();
+    if (prepared !== undefined) {
+        const ended = (): void => options.sandbox?.commandEnded(prepared);
+        void subprocess.exited.then(ended, ended);
+    }
     let timedOut = false;
     let terminationNote: string | undefined;
     let stopping = false;
@@ -164,10 +194,16 @@ export async function runSkillScript(
             };
         }
         options.signal.throwIfAborted();
-        const output = [stdout.text, stderr.text]
+        const settled = prepared === undefined
+            ? ""
+            : (await options.sandbox!.settle(prepared, exitCode)).suffix;
+        const notice = preparation.notice === undefined
+            ? ""
+            : `\n\n${preparation.notice}`;
+        const output = ([stdout.text, stderr.text]
             .filter((text) => text.length > 0)
             .join("\n")
-            .trim();
+            .trim() + notice + settled).trim();
         return {
             kind: "output",
             output: exitCode === 0
@@ -226,6 +262,43 @@ function timeout(value: unknown): number {
         throw new Error(`skill_script timeout_ms must be between 1 and ${MAX_TIMEOUT_MS}`);
     }
     return value as number;
+}
+
+async function prepareSandboxedScript(
+    options: RunSkillScriptOptions,
+    env: Record<string, string>,
+    argv: readonly string[],
+): Promise<SandboxPreparation> {
+    if (options.sandbox === undefined) {
+        return {};
+    }
+    // A script run without a session is still covered: the stand-in keeps it
+    // wrapped and the entry in the host log names the script that ran.
+    const identity: SandboxCommandIdentity = options.identity ?? {
+        sessionId: `skill-script-${process.pid}`,
+        toolCallId: options.scriptPath,
+    };
+    const command = argv.map(shellQuote).join(" ");
+    return options.sandbox.prepare({
+        command,
+        cwd: options.workspace,
+        env,
+        workspace: options.workspace,
+        ...(identity.scratchDir === undefined
+            ? {}
+            : { scratchDir: identity.scratchDir }),
+        sessionId: identity.sessionId,
+        toolCallId: identity.toolCallId ?? options.scriptPath,
+        ...(identity.approvalMode === undefined
+            ? {}
+            : { approvalMode: identity.approvalMode }),
+    });
+}
+
+// The script's argv becomes a shell command only to reach the sandbox wrapper.
+function shellQuote(value: string): string {
+    if (/^[A-Za-z0-9_./:=@%+-]+$/.test(value)) return value;
+    return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function skillEnvironment(

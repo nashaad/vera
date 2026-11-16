@@ -248,7 +248,16 @@ export async function executeToolHandler(
 
     try {
         signal.throwIfAborted();
-        return await tool.execute(toolCall.input, runtime, signal);
+        // A tool that may not run in parallel owns the runtime for its call, so
+        // the command it starts can be logged with this call's id.
+        const serial = tool.parallel !== true;
+        const previous = runtime.currentToolCallId;
+        if (serial) runtime.currentToolCallId = toolCall.id;
+        try {
+            return await tool.execute(toolCall.input, runtime, signal);
+        } finally {
+            if (serial) runtime.currentToolCallId = previous;
+        }
     } catch (error) {
         return errorOutput(
             await toolFailureMessage(error, toolCall.name, runtime.workspace),

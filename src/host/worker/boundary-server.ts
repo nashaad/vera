@@ -255,6 +255,13 @@ export function createWorkerBoundaryServer(
                                 runtime.scratchDirectory,
                             );
                             runtime.sessionId = options.toolRuntime.sessionId;
+                            // A skill script runs sandboxed like any other
+                            // command, so it needs the same identity the
+                            // executor set on the request's runtime.
+                            runtime.currentToolCallId =
+                                options.toolRuntime.currentToolCallId;
+                            runtime.readApprovalMode =
+                                options.toolRuntime.readApprovalMode;
                             runtime.userInvokedSkill = request.userInvokedSkill;
                             runtime.allowedSkills = request.allowedSkills;
                         }

@@ -22,6 +22,7 @@ import type {
 import type { InstructionRoot } from "./memory.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { ApprovalMode, PermissionPreference } from "./permissions.ts";
+import type { SandboxInspection } from "../sdk/sandbox.ts";
 import type {
     ContextualContributionContext,
     PromptContribution,
@@ -72,6 +73,8 @@ export interface HostBoundary {
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly checkSkillFile?: CheckSkillFile;
+    /** The process's sandbox state, for the `/permissions` line. */
+    readonly readSandboxInspection?: () => SandboxInspection;
     readonly owned: HostOwnedObjects;
 }
 
@@ -111,6 +114,9 @@ export function createLocalHostBoundary(
         readState: () => state,
         ...(services.loadAgents === undefined ? {} : {
             loadAgents: services.loadAgents,
+        }),
+        ...(services.readSandboxInspection === undefined ? {} : {
+            readSandboxInspection: services.readSandboxInspection,
         }),
         ...(services.updateApprovalMode === undefined
             ? {}

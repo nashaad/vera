@@ -12,6 +12,7 @@ import {
     updateVeraConfigDefaults,
     type VeraConfig,
 } from "../config.ts";
+import { projectVeraConfigPath } from "../project-paths.ts";
 import type { InboxEntry } from "../store/inbox.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
@@ -199,7 +200,7 @@ export function parseInboxAdmissionList(
 }
 
 export function projectInboxConfigPath(projectRoot: string): string {
-    return join(resolve(projectRoot), ".vera", "config.json");
+    return projectVeraConfigPath(resolve(projectRoot));
 }
 
 export function loadProjectInboxAdmission(

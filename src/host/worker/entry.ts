@@ -17,7 +17,15 @@ import {
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 import { installLiveProcess } from "../../live-process.ts";
-import { createHostLogger, defaultHostLogPath } from "../host-log.ts";
+import { createHostLogger, defaultHostLogPath, type HostLog } from "../host-log.ts";
+import { DEFAULT_SANDBOX_CONFIG } from "../../config/sandbox.ts";
+import { SandboxManager } from "../../sandbox/manager.ts";
+import {
+    createLastGoodVeraConfigReader,
+    defaultVeraConfigPath,
+    sandboxConfigOf,
+    type VeraConfig,
+} from "../../config.ts";
 import {
     createSessionBlockLatch,
     type SessionBlockLatch,
@@ -71,6 +79,23 @@ export async function runWorker(
     });
 
     const options = await started;
+    const hostLog: HostLog = createHostLogger({
+        path: defaultHostLogPath(options.home),
+    });
+    const readConfig = createLastGoodVeraConfigReader({
+        path: defaultVeraConfigPath(options.home),
+    });
+    const readWorkerConfig = (): VeraConfig | undefined => readConfig().config;
+    const sandbox = new SandboxManager({
+        config: () => {
+            const config = readWorkerConfig();
+            return config === undefined
+                ? DEFAULT_SANDBOX_CONFIG
+                : sandboxConfigOf(config);
+        },
+        permissionRules: () => readWorkerConfig()?.permission_rules ?? [],
+        log: hostLog,
+    });
     let failure: string | undefined;
     let failureError: Error | undefined;
     let inbound: InboundCommandRouter | undefined;
@@ -112,6 +137,7 @@ export async function runWorker(
         const haltCheck = (): string | undefined => latch?.check() ?? cutHold;
         const remote = createRemoteHostBoundary({
             pipe,
+            sandbox,
             haltCheck,
             onReplicaDiverged: (error) => replicaDiverged(error),
             session: options.session,
@@ -229,8 +255,9 @@ export async function runWorker(
     }
     blockLatch?.close();
     await extensions?.close();
+    await sandbox.dispose();
     if (failure !== undefined && failureError !== undefined) {
-        createHostLogger({ path: defaultHostLogPath(options.home) })({
+        hostLog({
             type: "resident_agent_failed",
             level: "error",
             session_id: options.session.header.id,

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, parse, resolve, sep } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
+import { isSandboxInspection, type SandboxInspection } from "../sdk/sandbox.ts";
 import {
     isApprovalMode,
     isBuiltInPermissionMode,
@@ -133,6 +134,8 @@ export interface PermissionInspection {
     readonly activeGrants: readonly PermissionGrant[];
     readonly activePreferences?: readonly PermissionPreference[];
     readonly userRules?: readonly PermissionRule[];
+    // The sandbox state of the process that ran the session, when it reported one.
+    readonly sandbox?: SandboxInspection;
 }
 
 export interface PermissionActionDecision {
@@ -821,6 +824,7 @@ export function inspectPermissions(
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
     userRules: readonly PermissionRule[] = [],
+    sandbox?: SandboxInspection,
 ): PermissionInspection | undefined {
     const selected = builtInPermissionMode(name) ?? customModes[name];
     if (selected === undefined) {
@@ -864,6 +868,7 @@ export function inspectPermissions(
                     then: rule.then,
                 })),
             }),
+        ...(sandbox === undefined ? {} : { sandbox }),
     };
 }
 
@@ -894,7 +899,8 @@ export function isPermissionInspection(
                 && value.activePreferences.every(isPermissionPreference)))
         && (value.userRules === undefined
             || (Array.isArray(value.userRules)
-                && value.userRules.every(isPermissionRule)));
+                && value.userRules.every(isPermissionRule)))
+        && (value.sandbox === undefined || isSandboxInspection(value.sandbox));
 }
 
 function isPermissionRule(value: unknown): value is PermissionRule {

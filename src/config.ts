@@ -58,6 +58,16 @@ import {
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import { parsePermissionRules } from "./config/permission-rules.ts";
 import {
+    DEFAULT_SANDBOX_CONFIG,
+    parseSandboxConfig,
+    type SandboxConfig,
+} from "./config/sandbox.ts";
+export type { SandboxConfig };
+
+export function sandboxConfigOf(config: VeraConfig): SandboxConfig {
+    return config.sandbox ?? DEFAULT_SANDBOX_CONFIG;
+}
+import {
     collectConfigProblem,
     configProblem,
     describeConfigProblem,
@@ -258,6 +268,8 @@ export interface VeraConfig {
         Record<string, PermissionMode>
     >;
     readonly permission_rules?: readonly PermissionRule[];
+    // Parsed config always sets this; hand-built fixtures may leave it out.
+    readonly sandbox?: SandboxConfig;
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly hooks?: readonly VeraHookConfig[];
     readonly disabled_included_extensions?: readonly string[];
@@ -1533,6 +1545,8 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             ),
         );
     }
+    const sandbox = parseSandboxConfig(config.sandbox);
+    if (sandbox === undefined) return undefined;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -1592,6 +1606,7 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         ...(config.permission_rules === undefined
             ? {}
             : { permission_rules: permissionRules }),
+        sandbox,
         ...(config.extensions === undefined ? {} : { extensions }),
         ...(config.hooks === undefined ? {} : { hooks }),
         ...(config.disabled_included_extensions === undefined

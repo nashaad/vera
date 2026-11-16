@@ -47,6 +47,8 @@ import type {
     SubagentPoolPolicy,
 } from "./subagent.ts";
 
+import type { SandboxInspection } from "../sdk/sandbox.ts";
+
 export interface LoopPolicy {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
@@ -166,6 +168,7 @@ export interface RunHeadlessLoopServices {
     readonly readSelectedAgent?: () => AgentSnapshot | undefined;
     readonly loadAgents?: () => Promise<readonly AgentDefinition[]>;
     readonly readApprovalMode?: () => ApprovalMode;
+    readonly readSandboxInspection?: () => SandboxInspection;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;

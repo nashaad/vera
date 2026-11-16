@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import {
     ManagedProcessRegistry,
     type ManagedProcessScope,
+    type SandboxCommandIdentity,
 } from "./process-runtime.ts";
+import type { CommandSandbox } from "../sandbox/types.ts";
 
 export type PreimageRecorder = (
     path: string,
@@ -30,12 +32,18 @@ export class ToolRuntime {
     readonly scratchDirectory: string | undefined;
     readonly env: Readonly<Record<string, string>> | undefined;
     readonly processes: ManagedProcessScope;
+    readonly sandbox: CommandSandbox | undefined;
     allowedSkills: readonly string[] | undefined;
     userInvokedSkill: string | undefined;
     readonly isSubagent: boolean;
     readonly invocation: "top_level" | "subagent";
     allowedTools: readonly string[] | undefined;
     sessionId: string | undefined;
+    // Set by the executor for a tool that cannot run in parallel, so the
+    // command it starts can be logged with the call that started it.
+    currentToolCallId: string | undefined;
+    // The session's live approval mode, which decides the full_access exemption.
+    readApprovalMode: (() => string | undefined) | undefined;
     // Set by a host that owns skill settings; unset, the read tool checks locally.
     checkSkillFile: CheckSkillFile | undefined;
     private readonly fileSnapshots = new Map<string, string>();
@@ -65,15 +73,35 @@ export class ToolRuntime {
             const registry = new ManagedProcessRegistry();
             this.ownedProcessRegistry = registry;
             this.processes = registry.scope(`standalone-${randomUUID()}`);
+            this.sandbox = registry.commandSandbox;
         } else {
             this.ownedProcessRegistry = undefined;
             this.processes = processes;
+            this.sandbox = processes.sandbox;
         }
         this.allowedSkills = undefined;
         this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
         this.sessionId = undefined;
+        this.currentToolCallId = undefined;
+        this.readApprovalMode = undefined;
         this.checkSkillFile = undefined;
+    }
+
+    // What a sandboxed command needs to identify itself in the host log.
+    sandboxIdentity(): SandboxCommandIdentity | undefined {
+        if (this.sessionId === undefined) return undefined;
+        const mode = this.readApprovalMode?.();
+        return {
+            sessionId: this.sessionId,
+            ...(this.scratchDirectory === undefined
+                ? {}
+                : { scratchDir: this.scratchDirectory }),
+            ...(this.currentToolCallId === undefined
+                ? {}
+                : { toolCallId: this.currentToolCallId }),
+            ...(mode === undefined ? {} : { approvalMode: mode }),
+        };
     }
 
     recordFileSnapshot(path: string, content: string): void {
