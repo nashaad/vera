@@ -330,6 +330,8 @@ export interface VeraExtensionToolSpec {
     readonly parallel?: boolean;
     readonly permissionOperation?: string;
     readonly permissionInputs?: readonly PermissionInputSpec[];
+    /** A required string input checked as a shell command. */
+    readonly commandInput?: string;
     /** Restrict this tool to sessions that were not spawned by another agent. */
     readonly invocation?: "top_level";
     /** Per-call deadline. Omitted uses the registry default. */
@@ -337,12 +339,45 @@ export interface VeraExtensionToolSpec {
     readonly run: VeraExtensionToolHandler;
 }
 
+export interface VeraExtensionProcessSnapshot {
+    readonly processId: string;
+    readonly pid: number;
+    readonly status: "running" | "exited";
+    readonly elapsedMs: number;
+    readonly output: string;
+    readonly exitCode?: number;
+    readonly terminationError?: string;
+}
+
+export interface VeraExtensionProcessRunning {
+    readonly kind: "running" | "exited";
+    readonly snapshot: VeraExtensionProcessSnapshot;
+}
+
+export interface VeraExtensionProcessAborted {
+    readonly kind: "aborted";
+    readonly snapshot: VeraExtensionProcessSnapshot;
+    readonly terminated: boolean;
+}
+
+export interface VeraExtensionProcessRejected {
+    readonly kind: "rejected";
+    readonly reason: string;
+}
+
+export type VeraExtensionProcessStartResult =
+    | VeraExtensionProcessRunning
+    | VeraExtensionProcessAborted
+    | VeraExtensionProcessRejected;
+
 export interface VeraExtensionToolRequest {
     readonly input: Readonly<Record<string, unknown>>;
     readonly workspace: string;
     /** Absent when the tool runs outside a stored session. */
     readonly sessionId?: string;
     readonly signal: AbortSignal;
+    /** Available only when the tool declares a command input. */
+    readonly startProcess?: (description: string) => Promise<VeraExtensionProcessStartResult>;
 }
 
 export interface VeraExtensionToolResult {

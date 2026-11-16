@@ -548,7 +548,21 @@ export class InboxDeliveryCoordinator {
     }
 
     isPreAdmitted(seq: number): boolean {
-        return this.preAdmitted.has(seq);
+        return this.preAdmitted.has(seq) || this.consumers.isDurablyAdmitted(seq);
+    }
+
+    async appendOnceAdmitted(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): Promise<{ readonly entry: InboxEntry; readonly created: boolean }> {
+        if (this.sessionBridge !== undefined) {
+            throw new Error("Durable inbox admission is available only to the host");
+        }
+        if (this.beforeAppend !== undefined) await this.beforeAppend(entry);
+        const stored = this.consumers.appendOnceAdmitted(source, key, entry);
+        await this.pumpAll();
+        return stored;
     }
 
     async appendOnce(

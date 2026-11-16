@@ -1,0 +1,1 @@
+export const MAX_LIVE_PROCESSES_PER_OWNER = 8;

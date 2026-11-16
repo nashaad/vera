@@ -148,6 +148,29 @@ nothing to drop the notice. The notice is also dropped when the client half
 has no renderer, the renderer throws, or it returns anything else. Register
 it once, during activation.
 
+## Command tools in included extensions
+
+An included extension that declares `tools.register` can register a tool with
+`commandInput` naming a required string field in its input schema. Vera checks
+that field as a `bash` command, including permission rules, destructive-command
+guards, and automatic review. Installed extensions cannot declare
+`commandInput`, including through a link inside an included directory.
+
+For a tool with `commandInput`, `run` receives `request.startProcess(description)`.
+It uses the checked command, workspace, environment, and sandbox for that
+invocation. The description must be non-blank and within the process
+observation limit. The launch can be called once, while the handler is active;
+it is revoked when the handler ends or is cancelled. It returns a `running`,
+`exited`, `aborted`, or `rejected` result. A registry without process
+observation callbacks returns `rejected`; the current host does not bind
+those callbacks.
+
+A command tool cannot also set `permissionOperation`, `permissionInputs`, or
+`parallel: true`. The process registry waits for start registration before it
+returns a successful launch. If the invocation is cancelled while registration
+is pending, it stops the process and can return before registration finishes;
+the settlement callback still follows a successful registration.
+
 ## Host services
 
 | API | Capability | What it does |

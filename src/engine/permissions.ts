@@ -34,6 +34,7 @@ import {
     type BashStatement,
 } from "../tools/bash-parser.ts";
 import {
+    toolCommandInput,
     toolPermissionInputs,
     toolPermissionOperation,
 } from "../tools/execute.ts";
@@ -648,13 +649,28 @@ export function reviewedGrantProposals(
     );
 }
 
+export function canonicalPermissionToolCall(
+    toolCall: HookToolCall,
+    extensionTools: readonly RegisteredTool[] = [],
+): HookToolCall {
+    const field = toolCommandInput(toolCall.name, extensionTools);
+    if (field === undefined) return toolCall;
+    const command = toolCall.input[field];
+    return {
+        id: toolCall.id,
+        name: "bash",
+        input: typeof command === "string" ? { command } : {},
+    };
+}
+
 export function decideToolPermission(
     mode: ApprovalMode,
-    toolCall: HookToolCall,
+    requestedToolCall: HookToolCall,
     workspace: string,
     grants: readonly PermissionGrant[] = [],
     options: DecideToolPermissionOptions = {},
 ): ToolPermissionDecision {
+    const toolCall = canonicalPermissionToolCall(requestedToolCall, options.extensionTools);
     const homeDirectory = options.homeDirectory ?? homedir();
     const guardReason = accidentGuardReason(toolCall, workspace, homeDirectory);
     if (guardReason !== undefined) {
@@ -747,8 +763,9 @@ export function permissionRulesDenial(
         return undefined;
     }
     const home = options.homeDirectory ?? request.homeDirectory;
-    const command = bashCommand(request.toolCall);
-    const denied = extractPermissionActions(request, options.extensionTools)
+    const toolCall = canonicalPermissionToolCall(request.toolCall, options.extensionTools);
+    const command = bashCommand(toolCall);
+    const denied = extractPermissionActions({ ...request, toolCall }, options.extensionTools)
         .map((action) => rescopeScratchAction(action, options.scratchDir))
         .flatMap((action) => {
             const rule = matchingUserRule(
@@ -915,7 +932,8 @@ export function extractPermissionActions(
     request: PermissionRequest,
     extensionTools: readonly RegisteredTool[] = [],
 ): readonly PermissionAction[] {
-    const { toolCall, workspace } = request;
+    const toolCall = canonicalPermissionToolCall(request.toolCall, extensionTools);
+    const { workspace } = request;
     const actions: PermissionAction[] = [];
     const operation = toolPermissionOperation(toolCall.name, extensionTools);
     if (operation !== undefined) {
@@ -1154,10 +1172,11 @@ function structuredInputAction(
 // The bash write and delete targets as the shell would open them, unnormalized,
 // for the caller to resolve into realShellTargets.
 export function bashTargetPaths(
-    toolCall: HookToolCall,
+    requestedToolCall: HookToolCall,
     workspace: string,
     options: DecideToolPermissionOptions = {},
 ): readonly string[] {
+    const toolCall = canonicalPermissionToolCall(requestedToolCall, options.extensionTools);
     const command = toolCall.input.command;
     if (toolCall.name !== "bash" || typeof command !== "string") {
         return [];

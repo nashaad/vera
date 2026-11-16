@@ -7,8 +7,9 @@ import {
     veraRuntimeDirectoryIn,
 } from "../profile-paths.ts";
 import { backupSqliteDatabase } from "./sqlite-backup.ts";
+import { createProcessObservationTable, ProcessObservationStore } from "./process-observations.ts";
 
-export const INBOX_SCHEMA_VERSION = 3;
+export const INBOX_SCHEMA_VERSION = 4;
 
 export interface ConsumerId {
     readonly nodeId: string;
@@ -71,9 +72,11 @@ interface EntryRow {
 
 export class Inbox {
     private readonly database: Database;
+    readonly processObservations: ProcessObservationStore;
 
     private constructor(database: Database, readOnly = false) {
         this.database = database;
+        this.processObservations = new ProcessObservationStore(database);
         if (readOnly) {
             this.database.exec("PRAGMA busy_timeout = 5000");
             return;
@@ -131,6 +134,32 @@ export class Inbox {
         key: string,
         entry: InboxEntryInput,
     ): { readonly entry: InboxEntry; readonly created: boolean } {
+        return this.appendProducerEntry(source, key, entry, false);
+    }
+
+    appendOnceAdmitted(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
+        if (typeof entry.address !== "string" || entry.address.length === 0) {
+            throw new Error("admitted inbox entry requires an address");
+        }
+        return this.appendProducerEntry(source, key, entry, true);
+    }
+
+    isDurablyAdmitted(seq: number): boolean {
+        return this.database.query<{ seq: number }, [number]>(
+            "SELECT seq FROM admitted_entries WHERE seq = ?",
+        ).get(seq) !== null;
+    }
+
+    private appendProducerEntry(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+        admitted: boolean,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
         if (source.length === 0 || key.length === 0) {
             throw new Error("inbox producer source and key cannot be empty");
         }
@@ -144,6 +173,11 @@ export class Inbox {
                 if (stored === undefined) {
                     throw new Error("inbox producer key points to a missing entry");
                 }
+                if (admitted && (!this.isDurablyAdmitted(stored.seq)
+                    || stored.address !== entry.address || stored.source !== entry.source
+                    || stored.kind !== entry.kind)) {
+                    throw new Error("inbox producer key does not match the admitted entry");
+                }
                 return { entry: stored, created: false } as const;
             }
             const stored = this.append(entry);
@@ -152,6 +186,11 @@ export class Inbox {
                     producer_source, producer_key, seq
                  ) VALUES (?, ?, ?)`,
             ).run(source, key, stored.seq);
+            if (admitted) {
+                this.database.query<null, [number]>(
+                    "INSERT INTO admitted_entries (seq) VALUES (?)",
+                ).run(stored.seq);
+            }
             return { entry: stored, created: true } as const;
         })();
     }
@@ -483,5 +522,13 @@ const MIGRATIONS: readonly Migration[] = [
             PRIMARY KEY (producer_source, producer_key)
         );
     `);
+    },
+    (database) => {
+        database.exec(`
+        CREATE TABLE IF NOT EXISTS admitted_entries (
+            seq INTEGER PRIMARY KEY REFERENCES entries(seq)
+        );
+    `);
+        createProcessObservationTable(database);
     },
 ];

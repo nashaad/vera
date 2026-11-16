@@ -373,6 +373,47 @@ describe("inbox arrival notices", () => {
         inbox.close();
     });
 
+    test("@core durable admission survives reopen without admitting the source family", async () => {
+        const root = mkdtempSync(join(tmpdir(), "vera-inbox-admitted-"));
+        const path = join(root, "inbox.db");
+        try {
+            const first = Inbox.open(path);
+            const writer = new InboxDeliveryCoordinator(new ConsumerRegistry(first, "node-a"));
+            const parked = writer.attach({
+                label: "crow", session: SESSION, notify: () => undefined,
+                canStartTurn: () => false,
+            });
+            const message = entry({ source: "crow.lookout", kind: "crow.call", address: "crow" });
+            const saved = await writer.appendOnceAdmitted("crow.lookout", "flight-1", message);
+            await writer.append(message);
+            parked.release();
+            first.close();
+
+            const reopened = Inbox.open(path);
+            const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(reopened, "node-a"));
+            const started: number[] = [];
+            const asked: number[] = [];
+            const session = coordinator.attach({
+                label: "crow", session: SESSION, notify: () => undefined,
+                canStartTurn: () => true,
+                startTurn: (candidate) => { started.push(candidate.seq); },
+                requestAdmission: async (candidate) => {
+                    asked.push(candidate.seq);
+                    return undefined;
+                },
+            });
+            await session.pump();
+            await settle();
+            expect(started).toEqual([saved.entry.seq]);
+            expect(asked).toEqual([saved.entry.seq + 1]);
+            expect(session.hasAdmittedPending()).toBe(true);
+            session.release();
+            reopened.close();
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     test("only the first unadmitted entry is asked about while an admitted one starts behind it", async () => {
         const inbox = Inbox.open(":memory:");
         const consumers = new ConsumerRegistry(inbox, "node-a");

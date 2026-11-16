@@ -260,6 +260,18 @@ export class ConsumerRegistry {
         return this.inbox.appendOnce(source, key, entry);
     }
 
+    appendOnceAdmitted(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
+        return this.inbox.appendOnceAdmitted(source, key, entry);
+    }
+
+    isDurablyAdmitted(seq: number): boolean {
+        return this.inbox.isDurablyAdmitted(seq);
+    }
+
     entry(seq: number): InboxEntry | undefined {
         return this.inbox.entry(seq);
     }

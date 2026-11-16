@@ -161,6 +161,7 @@ import {
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     bashTargetPaths,
+    canonicalPermissionToolCall,
     decideToolPermission,
     stricterToolPermission,
     inspectPermissions,
@@ -2826,9 +2827,10 @@ async function executePreparedTool(
         return finishExecutedTool(state, toolCall, hookCall, replacement, 0);
     }
 
+    const reviewToolCall = canonicalPermissionToolCall(hookCall, state.extensionTools);
     const permissionContext = await resolvePermissionToolCall(
         state.toolRuntime.workspace,
-        hookCall,
+        reviewToolCall,
     );
     const realShellTargets = await resolveRealTargets(bashTargetPaths(
         permissionContext.toolCall,
@@ -2896,7 +2898,7 @@ async function executePreparedTool(
                 try {
                     pathFacts = await collectReviewerPathFacts(
                         permissionContext.workspace,
-                        hookCall,
+                        reviewToolCall,
                         permission.actions,
                         signal,
                     );
@@ -2910,7 +2912,7 @@ async function executePreparedTool(
                     ? reviewCancelled()
                     : await reviewCall(
                         {
-                            toolCall: hookCall,
+                            toolCall: reviewToolCall,
                             workspace: state.toolRuntime.workspace,
                             reason: permission.reason,
                             pathFacts,
