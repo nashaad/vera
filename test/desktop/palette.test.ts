@@ -90,6 +90,38 @@ test("command groups follow the id prefix and sort by group, then title", () => 
     expect(sectionRows(rankItems(items, "")).map((section) => section.title)).toEqual(["Go", "Theme", "Other"]);
 });
 
+test("@core interleaved palette groups number entries in screen order", () => {
+    const items = buildCommandItems(registryWith([
+        { id: "theme.light", title: "Theme: Light" },
+        { id: "import.theme", title: "A Theme Import" },
+        { id: "theme.choose", title: "Choose Theme" },
+    ]).list(), "darwin");
+    const ranked = rankItems(items, "theme");
+    expect(ranked.map((entry) => entry.item.id)).toEqual(["theme.light", "import.theme", "theme.choose"]);
+    const sections = sectionRows(ranked);
+    expect(sections.map((section) => section.title)).toEqual(["Theme", "Other"]);
+    expect(sections.flatMap((section) => section.entries).map((entry) => [entry.ranked.item.id, entry.index])).toEqual([
+        ["theme.light", 0],
+        ["theme.choose", 1],
+        ["import.theme", 2],
+    ]);
+    expect(sections[0]?.entries[0]?.index).toBe(0);
+    expect(sections[0]?.entries[0]?.ranked).toBe(ranked[0]);
+});
+
+test("session palette indexes preserve unsectioned ranked order", () => {
+    const ranked = rankItems(buildSessionItems([
+        row({ id: "a1", name: "Review notes" }),
+        row({ id: "b2", name: "Review" }),
+    ], 0), "review");
+    const sections = sectionRows(ranked);
+    expect(sections).toEqual([{
+        title: "",
+        entries: ranked.map((entry, index) => ({ ranked: entry, index })),
+    }]);
+    expect(sectionRows([])).toEqual([]);
+});
+
 test("a chat entry says Chat, not its internal folder", () => {
     const [item] = buildSessionItems([row({ id: "c1", name: "Ask crow", workspace: "/h/runtime/sessions/c1.jsonl.files", chat: true })], 0);
     expect(item?.detail).toBe("Chat");

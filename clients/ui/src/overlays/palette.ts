@@ -184,12 +184,16 @@ export function labelSegments(text: string, indices: readonly number[]): readonl
 
 // Sections keep the order of their first entry, so an empty query shows the groups in their fixed order.
 export function sectionRows(ranked: readonly RankedItem[]): readonly PaletteSection[] {
-    const sections = new Map<string, { readonly ranked: RankedItem; readonly index: number }[]>();
-    ranked.forEach((entry, index) => {
+    const sections = new Map<string, RankedItem[]>();
+    for (const entry of ranked) {
         const title = entry.item.group;
         const list = sections.get(title) ?? [];
-        list.push({ ranked: entry, index });
+        list.push(entry);
         sections.set(title, list);
-    });
-    return [...sections].map(([title, entries]) => ({ title, entries }));
+    }
+    let index = 0;
+    return [...sections].map(([title, entries]) => ({
+        title,
+        entries: entries.map((entry) => ({ ranked: entry, index: index++ })),
+    }));
 }
