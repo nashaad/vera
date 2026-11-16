@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { editTool } from "../../src/tools/edit.ts";
 import { readTool, READ_MAX_LINES, resolveReadPath } from "../../src/tools/files.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
@@ -29,7 +30,7 @@ test("read returns a line range and says how to continue", async () => {
             expect(result.output).not.toContain("1\tone");
             expect(result.output).toContain("Showing lines 2-3 of 5");
             expect(result.output).toContain("Use offset=4 to continue");
-            expect(result.output).toContain("whole-file read first");
+            expect(result.output).toContain("a read through its last line first");
         }
     } finally {
         await rm(cwd, { recursive: true, force: true });
@@ -106,7 +107,37 @@ test("a range read that stops short does not satisfy edit's read requirement", a
 
         expect(() => {
             runtime.assertFreshFileSnapshot(join(cwd, "a.txt"), "a\nb\nc\nd\ne\n", "a.txt");
-        }).toThrow("Read a.txt before editing it");
+        }).toThrow(
+            "Read a.txt with the read tool through its last line before editing it.",
+        );
+    } finally {
+        await rm(cwd, { recursive: true, force: true });
+    }
+});
+
+test("edit after a paged read asks for a read through the last line", async () => {
+    const cwd = await workspace();
+    const runtime = new ToolRuntime(cwd);
+    try {
+        await writeFile(join(cwd, "a.txt"), "a\nb\nc\nd\ne\n");
+
+        const page = await readTool.execute(
+            { path: "a.txt", limit: 2 },
+            runtime,
+            new AbortController().signal,
+        );
+        expect(page.kind).toBe("output");
+        if (page.kind === "output") {
+            expect(page.output).toContain("a read through its last line first");
+        }
+
+        await expect(editTool.execute(
+            { path: "a.txt", edits: [{ old_string: "a", new_string: "z" }] },
+            runtime,
+            new AbortController().signal,
+        )).rejects.toThrow(
+            "Read a.txt with the read tool through its last line before editing it.",
+        );
     } finally {
         await rm(cwd, { recursive: true, force: true });
     }
