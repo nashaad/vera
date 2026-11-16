@@ -1254,8 +1254,9 @@ of `editor.background`. A high contrast dark theme takes High contrast as its
 base and a high contrast light theme takes Light. Fonts, sizes, corner radius,
 spacing, row height and motion stay Vera's.
 
-The saved file keeps the theme's `tokenColors` and `semanticTokenColors`. Vera
-does not use them yet, so code in the conversation is not recolored.
+The saved file keeps the theme's `tokenColors` and `semanticTokenColors`. The
+`tokenColors` rules set the theme's syntax colors, which color fenced code in
+the conversation; `semanticTokenColors` are not used.
 
 An import is refused, with the reason in Settings or a toast and the current
 theme unchanged, when the file is not valid JSON, is not a `.json`, `.jsonc` or
