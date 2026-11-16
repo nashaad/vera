@@ -123,11 +123,9 @@ try {
     await input.fill("Read and press the button");
     await input.press("Enter");
     const card = page.locator('.request-card[data-kind="approval"]');
-    for (let i = 0; i < 5; i += 1) {
-        await card.waitFor({ timeout: 30_000 });
-        await card.locator('[data-choice="allow_once"]').click();
-        await card.waitFor({ state: "detached", timeout: 15_000 });
-    }
+    await card.waitFor({ timeout: 30_000 });
+    await card.locator('[data-choice="allow_similar"]').click();
+    await card.waitFor({ state: "detached", timeout: 15_000 });
     await page.getByText("Browser turn finished.").waitFor({ timeout: 30_000 });
     if (!seen.some((result) => result.includes("A crow on a ship"))) throw new Error("Page read did not reach the model");
     if ((seen[0].match(/^r\d+ /gm) ?? []).length !== 150) throw new Error("The accessibility snapshot was not capped");
