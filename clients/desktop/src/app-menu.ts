@@ -2,6 +2,7 @@ import type { MenuItemConstructorOptions } from "electron";
 
 import { importedThemeCommand, THEME_COMMANDS, THEME_IMPORT_COMMAND } from "../../ui/src/commands/theme-commands.ts";
 import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
 import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
@@ -130,6 +131,7 @@ export function buildMenuTemplate(
         {
             role: "help",
             submenu: withoutHidden([
+                plain(CHAT_COMMANDS.help, "New Help Chat"),
                 ...(keys === undefined ? [] : [keys]),
                 { type: "separator" },
                 sheet("diagnostics"),

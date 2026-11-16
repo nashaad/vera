@@ -30,9 +30,11 @@ full-width title bar and no status bar.
   and, when Host build is shown, the host build, at the right a button that
   toggles the panel when a view is placed there, and a gear that opens Settings. Hovering the state shows the host build, protocol version, host process id and
   home path. Feedback opens a report form from the footer or the command palette.
-  Help starts a new chat on the help agent each time it is pressed; the agent
+  Help, a button with an icon and the word Help, opens the right pane if it is
+  closed and a new Chat tab on a new chat with the help agent each time it is
+  pressed; the main area stays on its page, so Help works from New Chat too. The agent
   answers questions about Vera and can open a dialog, a Settings section or a
-  page in the window to show where something is.
+  page in the window to show where something is; see Chat tabs.
   The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
 - A banner under the main header appears when there is no connection or the
@@ -172,8 +174,9 @@ window.
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 New Chat is always there; the others show when their part of the window is shown.
 The row of the current page is filled. Work shows a count of sessions waiting on
-you. Tour, Devices, Feedback, Help and Settings open from the buttons in the
-sidebar's footer, where Tour and Devices show only when their parts are on.
+you. Tour, Devices, Feedback and Settings open from the buttons in the
+sidebar's footer, where Tour and Devices show only when their parts are on. Help
+in the same footer opens a Chat tab.
 
 Back and forward sit in the sidebar's top row, or in the main header when the
 sidebar is hidden. Each is disabled when there is no page in its direction.
@@ -250,12 +253,14 @@ collapses it. The right pane works differently, described below. The main area
 is not a location for views.
 
 The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
-Plan, Files or Browser. The kinds come from one list, and the tiles, the
+Plan, Files, Browser or Chat. The kinds come from one list, and the tiles, the
 launcher, the tab strip and the saved layout all follow it. The top row holds the
 tabs, a `+` button, and at the right the button that closes the pane. A tab shows
 its kind's icon and title, or the page's title for a Browser tab, and has a close
 button that shows while the pointer is over the tab and on the active tab. The
-same kind can be open any number of times, up to 16 tabs in the pane. With no tabs the
+same kind can be open any number of times, up to 16 tabs in the pane; Browser and
+Chat each have a limit of their own, and Chat tabs are limited to 6. The Chat kind's
+tile and launcher row are titled Help and start a new Help chat. With no tabs the
 pane shows one tile for each kind that can be opened, and a tile is disabled while
 its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
 opens a new tab of that kind and shows it. `+` opens the launcher, which has a
@@ -266,7 +271,7 @@ only filters. Up/Down move through the rows, Enter opens the focused row and Esc
 closes the launcher. A view's own empty state shows inside its tab as before.
 Closing the last tab brings the tiles back.
 
-Six views ship with the app:
+Seven views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
   first, in groups by folder. A group's heading is the last segment of the folder
@@ -310,6 +315,8 @@ Six views ship with the app:
   Settings > Show.
 - Browser, in its own container that opens as right pane tabs, opens sites and
   Vera's pages, one page per tab; see Browser.
+- Chat, in its own container that opens as right pane tabs, shows one session's
+  conversation with its own composer; see Chat tabs.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
   losing and regaining the host, startup questions and the answers sent. It keeps
   the last 200 lines in memory and does not survive a restart. The panel is
@@ -361,7 +368,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `layout.toggleRightPane`, `layout.togglePanel`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
-`container.reset`, `tab.open`, `tab.activate`, `tab.close`, `theme.dark`, `theme.light`, `theme.highContrast`,
+`container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.dark`, `theme.light`, `theme.highContrast`,
 `theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
@@ -385,8 +392,8 @@ returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
 
 The file also holds the right pane's tabs: each tab's kind and order, and which
-one is active. Browser tabs are not saved, so a Browser tab does not return after
-a restart, and a layout that holds only Browser tabs comes back with none. A layout saved before the
+one is active. Browser and Chat tabs are not saved, so neither returns after
+a restart, and a layout that holds only Browser and Chat tabs comes back with none. A layout saved before the
 right pane held tabs opens with one tab, of the container that was active in the
 pane. A tab saved for a kind that is not registered is ignored, and a tab list
 that cannot be read is dropped and the pane opens with no tabs.
@@ -408,7 +415,7 @@ restart. A missing, oversized (over 4 KB) or invalid file puts every part at its
 default. The host does not read the file.
 
 The core of the window has no setting and is always shown: New Chat, the
-Sessions view, the composer, Choose Agent, Settings and Feedback.
+Sessions view, the composer, Choose Agent, Settings, Feedback and Help.
 
 On shows a part. Off removes its entry points: its page row or button, its
 commands in the command palette, the menus and the slash menu, its shortcut, its
@@ -791,6 +798,69 @@ says to turn it on first. Turning it off does not ask. The switch is kept in the
 window's storage under the home. The page also names the default mode and the
 standing permissions and says where to change them: the window reads both only
 through a session's pill.
+
+## Chat tabs
+
+A Chat tab shows one session's conversation in the right pane: the transcript,
+the approval and question cards and a composer of its own, the same ones the
+main area uses. It needs no session open in the main area and works on New Chat.
+Each tab holds one chat. A Help tab is titled with the chat's name, and `Help` until it has one.
+
+Help opens a new Chat tab on a new chat that runs as the help agent. The sidebar's
+Help button, the Help tile, the launcher's Help row, `New Help Chat` in the Help
+menu and the command palette each open one, and each press opens another tab. If
+the right pane is closed it opens. The switch to the help agent is sent as soon
+as the chat is attached, and the composer says `Switching agent` and does not
+send until the host answers, so a message typed early reaches the help agent and
+never the default one. When the host refuses the switch, the tab says `Help did
+not start.` with the reason and the chat stays on its first agent. When the host
+cannot start the chat, a notice gives the host's reason, or says `Vera could not
+start a Help chat.`
+Help chats are durable sessions: closing the tab leaves the session in the
+sessions list, and it can be opened from there as any other. When the help agent
+asks to show a dialog, a Settings section or a page, the window opens it.
+
+`/btw` in a session's composer opens that session's sidekick in a Chat tab, the
+same readonly side conversation the terminal's `/btw` opens. The sidekick is
+branched from the session by the host with the same options the terminal uses,
+and it sees the conversation so far.
+
+- `/btw <question>` opens the sidekick, or shows the tab it already has, and
+  sends the question there. Nothing is added to the main conversation.
+- `/btw` alone opens or shows the tab and sends nothing.
+- `/btw close` closes the tab.
+- A second `/btw <question>` on a session that has a sidekick brings it up to
+  date with the main conversation first, and sends in the same tab. While the
+  main conversation is running, the notice says `BTW context can sync only
+  between turns` and the sidekick answers from what it had.
+- Each session has its own sidekick, with its own tab.
+- `/btw` shows in the slash menu of a session in the main area only while the
+  included extension `vera.btw` is on. Listing `vera.btw` in
+  `disabled_included_extensions` of `config.json` removes it, and a typed `/btw`
+  is then an unknown command. It is not offered in a Chat tab or on New Chat.
+- When the sidekick cannot be opened or brought up to date, a notice gives the
+  reason and the line returns to the box.
+
+A sidekick lives only as long as its tab. Closing the tab, or hiding the right
+pane, ends the sidekick, and the next `/btw` opens a new one; this differs from the
+terminal, where `/btw close` leaves the sidekick running and the next `/btw`
+reuses it. The terminal also catches the sidekick up on every message to the main
+conversation, and the desktop does so only when `/btw` sends a question. A
+sidekick tab is titled `BTW`.
+
+Chat tabs are limited to 6. At the limit, Help and `/btw` say `Close a Chat tab
+to open another.` and start nothing, and the launcher disables the Chat row. A
+Chat tab is not saved in the layout, so none returns after a restart. A tab whose
+chat is gone says `This tab holds no chat. Open one from Help or with /btw.`
+
+`/pair` stays in the terminal. The desktop has no peer pane.
+
+The slash menu asks which included extensions are on by reading `config.json`
+in a separate process, named Vera Model Assignments, that starts for the
+request and stops once it answers. It is read when a `/` is typed in the box of a
+session in the main area, and the answer is kept for 30 seconds. Nothing runs at
+launch or while the box holds no slash. If `config.json` cannot be read, `/btw` is
+treated as off until a later read works.
 
 ## Models
 
@@ -1378,6 +1448,9 @@ node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/defaults.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
+node clients/desktop/test/chattab.e2e.mjs
+node clients/desktop/test/help.e2e.mjs
+node clients/desktop/test/btw.e2e.mjs
 node clients/desktop/test/rename.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs
@@ -1454,6 +1527,22 @@ other kinds. It drags a tab to the panel and checks its kind's tabs close, moves
 the container back from its menu and checks it opens one tab, then checks the saved layout holds
 the tabs in order without the Browser tab and that a relaunch brings them back.
 It stops the host it started.
+
+The chat tab test presses Help on New Chat and checks that the right pane opens on a
+Chat tab titled Help holding an attached help chat, that the main area stays on New Chat,
+and that closing the tab brings the tiles back. It starts more chats from the tile,
+the launcher and the command palette, fills the Chat limit and checks Help says so
+without starting a session, and checks the layout on disk holds no Chat tab and
+a relaunch brings none back. The help test answers a question typed at once on the
+Chat tab with a request to open the themes sheet, checks the question reached the
+help agent with the help tools only, and checks another chat is never offered
+them. The btw test runs a session against a local provider and checks that
+`/btw` is in the slash menu, that a question opens a BTW tab and the provider
+receives it with the boundary and the conversation while the main transcript does
+not, that a second question reuses the tab, that `/btw close` and plain `/btw`
+work, that the readonly mode shows on the sidekick, that no task process runs at
+launch, that each request of the extension-state read starts one and none is left,
+and that with `vera.btw` turned off in `config.json` the menu has no `/btw`.
 
 The themes test launches the app on a throwaway home with a fake VS Code
 extensions folder and a stubbed file picker. It imports a theme file from Settings >

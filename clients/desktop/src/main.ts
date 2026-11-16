@@ -16,7 +16,8 @@ import type {
     DesktopEvent,
     FilePreview,
     FolderListing,
-    SessionPane,
+    OpenSidekickResult,
+    SyncSidekickResult,
 } from "../../ui/src/protocol/bridge.ts";
 import { THEME_IMPORTER_ID } from "../../ui/src/extensions/theme-importer.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
@@ -68,8 +69,9 @@ import { readNewSessionAgents } from "./agent-requests.ts";
 import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { moveSessionToFolder } from "./session-move.ts";
-import { SessionPipe } from "./session-pipe.ts";
+import { SessionPanes } from "./session-panes.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
+import { openSidekick, syncSidekick } from "./sidekick-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { startTaskProcess } from "./tasks/process.ts";
 import { TaskRunner } from "./tasks/runner.ts";
@@ -107,12 +109,7 @@ const pipe = new HostPipe(sendEvent);
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
 const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
-const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
-    main: new SessionPipe(sendEvent, "main", hidesReasoning),
-    companion: new SessionPipe(sendEvent, "companion", hidesReasoning),
-    probe: new SessionPipe(sendEvent, "probe", hidesReasoning),
-};
-const panes = Object.values(sessionPanes);
+const sessionPanes = new SessionPanes(sendEvent, hidesReasoning);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
 // Until the window reports, the menus hide every part the flags file does not turn on.
@@ -153,7 +150,7 @@ function receiveEvent(event: DesktopEvent): void {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
         browserGateway?.start(event.socketPath);
-        for (const pane of panes) pane.connect(event.socketPath);
+        sessionPanes.connect(event.socketPath);
     } else if (event.type === "disconnected" || event.type === "failed") {
         hostSocketPath = undefined;
         browserGateway?.stop();
@@ -165,7 +162,7 @@ function startBoot(): void {
     hostSocketPath = undefined;
     browserGateway?.stop();
     pipe.close();
-    for (const pane of panes) pane.close();
+    sessionPanes.close();
     boot = new BootSession(selectedVeraHome(), receiveEvent, installPreflight());
     boot.start();
 }
@@ -203,16 +200,12 @@ function shutdown(): void {
     boot = undefined;
     hostSocketPath = undefined;
     pipe.close();
-    for (const pane of panes) pane.close();
+    sessionPanes.close();
 }
 
 async function chooseFolder(parent: BrowserWindow): Promise<string | undefined> {
     const result = await dialog.showOpenDialog(parent, { properties: ["openDirectory", "createDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];
-}
-
-function paneArgument(value: unknown): SessionPipe | undefined {
-    return value === "main" || value === "companion" || value === "probe" ? sessionPanes[value] : undefined;
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
@@ -301,18 +294,18 @@ ipcMain.on(CHANNELS.send, (event, text: unknown) => {
     pipe.send(text);
 });
 ipcMain.on(CHANNELS.sessionWatch, (event, pane: unknown, agentId: unknown) => {
-    const target = paneArgument(pane);
+    const target = sessionPanes.get(pane);
     if (!fromWindow(event) || target === undefined) return;
     if (typeof agentId !== "string" || agentId.length === 0 || agentId.length > MAX_AGENT_ID_CHARS) return;
     target.watch(agentId);
 });
 ipcMain.on(CHANNELS.sessionSend, (event, pane: unknown, text: unknown) => {
-    const target = paneArgument(pane);
+    const target = sessionPanes.get(pane);
     if (!fromWindow(event) || target === undefined || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
     target.send(text);
 });
 ipcMain.on(CHANNELS.sessionUnwatch, (event, pane: unknown) => {
-    if (fromWindow(event)) paneArgument(pane)?.unwatch();
+    if (fromWindow(event)) sessionPanes.get(pane)?.unwatch();
 });
 ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryId: unknown): Promise<BranchSessionResult> => {
     const source = idArgument(agentId);
@@ -324,6 +317,16 @@ ipcMain.handle(CHANNELS.sessionClone, async (event, agentId: unknown): Promise<B
     const source = idArgument(agentId);
     if (!fromWindow(event) || source === undefined) return { ok: false, reason: "Open a session to clone." };
     return cloneSession(hostSocketPath, source);
+});
+ipcMain.handle(CHANNELS.sidekickOpen, async (event, agentId: unknown): Promise<OpenSidekickResult> => {
+    const primary = idArgument(agentId);
+    if (!fromWindow(event) || primary === undefined) return { ok: false, reason: "Open a session first." };
+    return openSidekick(hostSocketPath, primary);
+});
+ipcMain.handle(CHANNELS.sidekickSync, async (event, agentId: unknown): Promise<SyncSidekickResult> => {
+    const target = idArgument(agentId);
+    if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a side chat." };
+    return syncSidekick(hostSocketPath, target);
 });
 ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<CloseSessionResult> => {
     const target = idArgument(agentId);
@@ -382,7 +385,7 @@ ipcMain.handle(CHANNELS.flagsSave, (event, patch: unknown) => {
     const hidden = hidesReasoning();
     const saved = flagsStore.update(patch);
     if (saved === undefined) return null;
-    if (hidesReasoning() !== hidden) for (const pane of panes) pane.reattach();
+    if (hidesReasoning() !== hidden) sessionPanes.reattach();
     return saved;
 });
 ipcMain.on(CHANNELS.flagsHidden, (event, ids: unknown) => {
@@ -573,6 +576,8 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
 });
 ipcMain.handle(CHANNELS.assignmentsRead, (event) =>
     fromWindow(event) ? assignments.read() : { ok: false, reason: "That window cannot read assignments." });
+ipcMain.handle(CHANNELS.includedExtensionsRead, (event) =>
+    fromWindow(event) ? assignments.readIncludedExtensions() : { ok: false, reason: "That window cannot read extensions." });
 ipcMain.handle(CHANNELS.assignmentsEdit, (event, change: unknown) => {
     const edit = changeArgument(change);
     if (!fromWindow(event) || edit === undefined) return { ok: false, reason: "That is not an assignment change." };

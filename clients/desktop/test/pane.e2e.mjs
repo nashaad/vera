@@ -84,8 +84,9 @@ try {
     await press(app, "B", [MODIFIER, "alt"]);
     await page.waitForSelector("[data-pane-tiles]", { timeout: 10_000 });
     const tileKinds = await tiles().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneTile));
-    if (tileKinds.join() !== "core.review,core.plan,core.files,core.browser") throw new Error(`The tiles are ${tileKinds.join()}.`);
+    if (tileKinds.join() !== "core.review,core.plan,core.files,core.browser,core.chat") throw new Error(`The tiles are ${tileKinds.join()}.`);
     if (await tabs().count() !== 0) throw new Error("The pane has a tab before one was opened.");
+    if ((await page.locator('[data-pane-tile="core.chat"]').innerText()).trim() !== "Help") throw new Error("The Chat tile is not labelled Help.");
     await shoot("pane-tiles.png");
 
     // A tile opens a new tab of its kind and the tiles give way to it.
@@ -95,9 +96,10 @@ try {
 
     // The "+" lists the kinds, filters them, and opens a new tab for each pick, so a kind can be open twice.
     await openLauncher();
-    if ((await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption))).join() !== "core.review,core.plan,core.files,core.browser") {
+    if ((await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption))).join() !== "core.review,core.plan,core.files,core.browser,core.chat") {
         throw new Error("The launcher does not list every kind.");
     }
+    if ((await page.locator('[data-pane-option="core.chat"] .pane-launcher-title').innerText()).trim() !== "Help") throw new Error("The Chat entry is not labelled Help.");
     await shoot("pane-launcher.png");
     await launcherInput().fill("fi");
     await until("the filter to narrow to Files", async () => (await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption))).join() === "core.files");

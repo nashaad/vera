@@ -320,6 +320,14 @@ export function ShieldIcon({ className }: IconProps) {
     );
 }
 
+export function ChatIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 5h16v11H9l-5 4V5Z" />
+        </Icon>
+    );
+}
+
 export function QuestionIcon({ className }: IconProps) {
     return (
         <Icon className={className}>

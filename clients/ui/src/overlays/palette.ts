@@ -38,7 +38,7 @@ export function commandGroup(id: string): CommandGroup {
     if (id.startsWith("layout.") || id.startsWith("view.") || id.startsWith("container.")) return "Window";
     if (id.startsWith("session.")) return "Session";
     if (id.startsWith("theme.")) return "Theme";
-    if (id.startsWith("help.") || id.startsWith("palette.")) return "Help";
+    if (id.startsWith("help.") || id.startsWith("chat.") || id.startsWith("palette.")) return "Help";
     return "Other";
 }
 

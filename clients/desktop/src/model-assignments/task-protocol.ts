@@ -1,6 +1,11 @@
 import type { LastGoodConfigFile } from "../../../../src/config.ts";
 import type { AssignmentEdit } from "../../../../src/model/assignment-edits.ts";
 import {
+    MAX_DISABLED_INCLUDED,
+    MAX_INCLUDED_ID_CHARS,
+    type IncludedExtensionsResult,
+} from "../../../ui/src/protocol/included-extensions.ts";
+import {
     ASSIGNMENT_IDS,
     type AssignAllResult,
     type AssignedModel,
@@ -28,6 +33,7 @@ interface TaskBase {
 
 export type AssignmentTask =
     | (TaskBase & { readonly kind: "read" })
+    | (TaskBase & { readonly kind: "included-extensions" })
     | (TaskBase & { readonly kind: "edit"; readonly change: AssignmentChange })
     | (TaskBase & { readonly kind: "assign-all"; readonly provider: string; readonly model: string });
 
@@ -37,6 +43,7 @@ interface ReplyBase {
 
 export type AssignmentTaskReply =
     | (ReplyBase & { readonly kind: "read"; readonly result: AssignmentsResult })
+    | (ReplyBase & { readonly kind: "included-extensions"; readonly result: IncludedExtensionsResult })
     | (ReplyBase & { readonly kind: "edit"; readonly result: AssignmentWriteResult })
     | (ReplyBase & { readonly kind: "assign-all"; readonly result: AssignAllResult });
 
@@ -85,6 +92,7 @@ export function parseAssignmentTask(value: unknown): AssignmentTask | undefined 
     if (lastGood === null) return undefined;
     const base: TaskBase = { home: value.home, ...(lastGood === undefined ? {} : { lastGood }) };
     if (value.kind === "read") return { ...base, kind: "read" };
+    if (value.kind === "included-extensions") return { ...base, kind: "included-extensions" };
     if (value.kind === "edit") {
         const change = changeArgument(value.change);
         return change === undefined ? undefined : { ...base, kind: "edit", change };
@@ -106,6 +114,10 @@ export function parseAssignmentTaskReply(value: unknown): AssignmentTaskReply | 
         const result = failureOf(value.result) ?? viewOf(value.result);
         return result === undefined ? undefined : { ...base, kind: "read", result };
     }
+    if (value.kind === "included-extensions") {
+        const result = failureOf(value.result) ?? disabledOf(value.result);
+        return result === undefined ? undefined : { ...base, kind: "included-extensions", result };
+    }
     if (value.kind === "edit") {
         const result = failureOf(value.result) ?? writtenOf(value.result);
         return result === undefined ? undefined : { ...base, kind: "edit", result };
@@ -126,6 +138,15 @@ function lastGoodOf(value: unknown): LastGoodConfigFile | undefined | null {
 
 function failureOf(value: unknown): AssignmentsFailure | undefined {
     return isFields(value) && value.ok === false && typeof value.reason === "string" ? { ok: false, reason: value.reason } : undefined;
+}
+
+function disabledOf(value: unknown): IncludedExtensionsResult | undefined {
+    if (!isFields(value) || value.ok !== true) return undefined;
+    const disabled = strings(value.disabled);
+    if (disabled === undefined || disabled.length > MAX_DISABLED_INCLUDED) return undefined;
+    if (disabled.some((id) => id.length === 0 || id.length > MAX_INCLUDED_ID_CHARS)) return undefined;
+    if (value.notice !== undefined && typeof value.notice !== "string") return undefined;
+    return { ok: true, disabled, ...(value.notice === undefined ? {} : { notice: value.notice }) };
 }
 
 function writtenOf(value: unknown): AssignmentWriteResult | undefined {

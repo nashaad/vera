@@ -1,6 +1,6 @@
 // Help chat test for the desktop shell. Run with: node clients/desktop/test/help.e2e.mjs
-// The Help button opens a new chat on the Help agent. The provider asks to show the theme chooser
-// and the window opens it. Another chat is never offered the Help tools.
+// The Help button opens a new Help chat in a Chat tab of the right pane. The provider asks to show the theme
+// chooser and the window opens it. Another chat is never offered the Help tools.
 
 import { createServer } from "node:http";
 
@@ -76,7 +76,7 @@ try {
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
     await trial.waitForHost();
 
-    // The page counts the host's agent switches, so the test types only after the chat is on the Help agent.
+    // The page counts the host's agent switches.
     await page.evaluate(() => {
         window.__agentSwitches = 0;
         window.veraDesktop.onEvent((event) => {
@@ -84,35 +84,42 @@ try {
         });
     });
     const switches = () => page.evaluate(() => window.__agentSwitches);
-    const help = page.locator("button[aria-label=\"Help\"]");
+    const help = page.locator(".help-button");
+    const pane = "[data-location=\"rightPane\"]";
+    const active = `${pane} [data-tab-body]:not([hidden])`;
+    const chatTabs = page.locator(`${pane} [data-switcher="rightPane"] [data-tab][data-container="core.chat"]`);
     await until("the Help button to enable", async () => !(await help.isDisabled()), 45_000);
+    if ((await help.innerText()).trim() !== "Help") throw new Error("The Help button has no label.");
 
+    // A question typed as soon as the Chat tab is up still reaches the Help agent, not the default one.
     await help.click();
-    await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: 45_000 });
-    await until("the chat to switch to the Help agent", async () => (await switches()) === 1);
-    const firstId = await page.locator("[data-session][data-phase]").first().getAttribute("data-session");
-
-    const input = page.locator(".composer-input");
-    const send = page.locator(".send-button");
+    await chatTabs.first().waitFor({ timeout: 10_000 });
+    await page.locator(`${active} [data-session][data-phase="attached"]`).waitFor({ timeout: 45_000 });
+    if (await page.locator(".home-composer").count() !== 1) throw new Error("Help took over the main pane.");
+    const input = page.locator(`${active} .composer-input`);
+    const send = page.locator(`${active} .send-button`);
     await input.fill("Where do I change the theme?");
     await input.press("Enter");
+    await until("the chat to switch to the Help agent", async () => (await switches()) === 1);
+    const firstId = await page.locator(`${active} [data-session]`).first().getAttribute("data-session");
     await page.locator("[data-overlay=\"themes\"]").waitFor({ timeout: 45_000 });
     await page.waitForSelector(`text=${OPENED}`, { timeout: 45_000 });
     await until("the turn to end", async () => (await send.getAttribute("data-mode")) === "send");
 
     const helpRequest = requests.find((entry) => entry.help);
     if (helpRequest === undefined) throw new Error("No request carried the Help agent's instructions.");
+    if (!helpRequest.user.includes("Where do I change the theme?")) throw new Error("The first message did not reach the Help agent.");
     if (helpRequest.tools.slice().sort().join() !== HELP_TOOLS.join()) throw new Error(`The Help chat was offered ${helpRequest.tools.join(", ")}.`);
     if (calls !== 1) throw new Error(`The provider was asked for ${calls} show calls.`);
     await page.locator("[data-overlay=\"themes\"] .sheet-x").click();
     await page.locator("[data-overlay=\"themes\"]").waitFor({ state: "detached", timeout: 5_000 });
 
-    // Each press opens a new chat.
+    // Each press opens a new Chat tab on a new chat.
     await help.click();
-    await until("a second chat to open", async () => {
-        const id = await page.locator("[data-session][data-phase]").first().getAttribute("data-session").catch(() => null);
-        return id !== null && id !== firstId;
-    }, 45_000);
+    await until("a second Chat tab", async () => (await chatTabs.count()) === 2);
+    await page.locator(`${active} [data-session][data-phase="attached"]`).waitFor({ timeout: 45_000 });
+    const secondId = await page.locator(`${active} [data-session]`).first().getAttribute("data-session");
+    if (secondId === firstId) throw new Error("The second press showed the first chat.");
     await until("the second chat to switch to the Help agent", async () => (await switches()) === 2);
 
     // Another chat is not offered the Help tools.

@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SessionPipe } from "../../clients/desktop/src/session-pipe.ts";
+import { attachLine, SessionPipe } from "../../clients/desktop/src/session-pipe.ts";
 import type { DesktopEvent } from "../../clients/ui/src/protocol/bridge.ts";
 
 const cleanups: Array<() => void> = [];
@@ -93,7 +93,7 @@ test("@core watch attaches with the history capability and emits each host line"
     ]);
 });
 
-test("@core only the main pane asks to have screens opened for it", async () => {
+test("@core only the main pane and Chat tabs ask to have screens opened for them", async () => {
     const fake = serve((socket) => {
         socket.write(`${JSON.stringify({ type: "session_show", agent_id: "agent-a", target: "dialog.themes" })}\n`);
     });
@@ -115,6 +115,9 @@ test("@core only the main pane asks to have screens opened for it", async () => 
         text: `${JSON.stringify({ type: "session_show", agent_id: "agent-a", target: "dialog.themes" })}\n`,
     });
     expect(JSON.parse(ATTACH_AGENT_A).requested_capabilities).not.toContain("session.show-window.v1");
+    expect(JSON.parse(attachLine("agent-a", false, "chat:2")).requested_capabilities).toContain("session.show-window.v1");
+    expect(JSON.parse(attachLine("agent-a", false, "companion")).requested_capabilities).not.toContain("session.show-window.v1");
+    expect(JSON.parse(attachLine("agent-a", false, "probe")).requested_capabilities).not.toContain("session.show-window.v1");
 });
 
 test("send writes a request line on the open watch", async () => {

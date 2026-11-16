@@ -1,4 +1,6 @@
 import { BROWSER_TAB_LIMIT } from "../browser/native-types.ts";
+import { CHAT_TAB_LIMIT } from "../chat/limits.ts";
+import { CHAT_COMMANDS } from "../commands/chat-commands.ts";
 import type { ContributionRegistry } from "./contributions.ts";
 
 export const CORE_VIEWS = {
@@ -8,6 +10,7 @@ export const CORE_VIEWS = {
     plan: "core.plan",
     files: "core.files",
     browser: "core.browser",
+    chat: "core.chat",
 } as const;
 
 export const CORE_CONTAINERS = {
@@ -17,6 +20,7 @@ export const CORE_CONTAINERS = {
     plan: "core.plan",
     files: "core.files",
     browser: "core.browser",
+    chat: "core.chat",
 } as const;
 
 // A kind of tab the right pane opens. Its container and its one view share the id.
@@ -30,6 +34,8 @@ export interface PaneKind {
     readonly transientTabs?: boolean;
     // One letter, with Cmd or Ctrl; the shortcut shows the kind's most recent tab, or opens one.
     readonly shortcut?: { readonly key: string; readonly alt?: boolean; readonly shift?: boolean };
+    // A kind whose tab needs something to show starts one by running a command; its tile and launcher row use this title and icon.
+    readonly entry?: { readonly title: string; readonly icon: string; readonly command: string };
 }
 
 // Tiles, the launcher, the tab strip, saving and closing read this list and nothing per kind.
@@ -39,7 +45,25 @@ export const PANE_KINDS: readonly PaneKind[] = [
     { id: CORE_CONTAINERS.plan, title: "Plan", icon: "plan" },
     { id: CORE_CONTAINERS.files, title: "Files", icon: "files" },
     { id: CORE_CONTAINERS.browser, title: "Browser", icon: "browser", maxTabs: BROWSER_TAB_LIMIT, transientTabs: true },
+    {
+        id: CORE_CONTAINERS.chat,
+        title: "Chat",
+        icon: "chat",
+        maxTabs: CHAT_TAB_LIMIT,
+        transientTabs: true,
+        entry: { title: "Help", icon: "help", command: CHAT_COMMANDS.help },
+    },
 ];
+
+// What a container's tile and launcher row show and run: the kind's entry when it has one, else a new empty tab.
+export function paneEntry(
+    container: string,
+    fallback: { readonly title: string; readonly icon: string },
+    kinds: readonly PaneKind[] = PANE_KINDS,
+): { readonly title: string; readonly icon: string; readonly command: string | undefined } {
+    const entry = kinds.find((kind) => kind.id === container)?.entry;
+    return entry ?? { title: fallback.title, icon: fallback.icon, command: undefined };
+}
 
 // The command a kind's shortcut runs.
 export function paneKindCommand(kind: string): string {
