@@ -6,6 +6,7 @@ import { ModelPills } from "../models/ModelPills.tsx";
 import { useSessionModels } from "../models/useSessionModels.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
+import { stepAgentGate } from "../session/agentGate.ts";
 import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
@@ -17,6 +18,7 @@ import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
+import { NO_ANSWER } from "./slash/run.ts";
 import { arrowUpAction, enterAction, escapeAction, folderMissingNotice, MOVE_TO_FOLDER_LABEL } from "./rules.ts";
 import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { useBranch } from "./useBranch.ts";
@@ -29,12 +31,20 @@ const IMAGES_WAITING = "The images are still attaching.";
 const NO_FILES = "Could not attach this file.";
 const MODEL_REFUSED = "Vera could not start this session on the model you chose, so the prompt was not sent.";
 
+// A held first prompt gives up waiting for the agent switch after this long and hands the text back.
+const AGENT_WAIT_MS = 10_000;
+
 interface ModelGate {
     readonly requestId: string;
     readonly prompt: PendingPrompt;
 }
 
-export function SessionComposer({ bridge, agentId, watch, send, folder, chat, onMoved }: SessionComposerProps) {
+interface AgentGate {
+    readonly prompt: PendingPrompt;
+    readonly timer: ReturnType<typeof setTimeout>;
+}
+
+export function SessionComposer({ bridge, agentId, watch, send, folder, chat, onMoved, agentStart }: SessionComposerProps) {
     const [text, setText] = useState("");
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
@@ -46,6 +56,8 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
     const [landed, setLanded] = useState(0);
     // A New Chat prompt waits here until the session has switched to the model chosen for it.
     const modelGate = useRef<ModelGate | undefined>(undefined);
+    // A New Chat prompt waits here until the session has confirmed the agent chosen for it.
+    const agentGate = useRef<AgentGate | undefined>(undefined);
     const attached = watch.phase === "attached";
     const slowOpening = useSlowOpening(watch);
     const running = watch.status !== "idle";
@@ -121,11 +133,18 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
         setAutoSend(true);
     }, [send, add, selected.replace]);
 
-    // A prompt typed on New Chat goes out once, when the new session's watch attaches.
-    useEffect(() => {
-        if (!attached) return;
-        const pending = takePendingPrompt(agentId);
-        if (pending === undefined) return;
+    // A prompt that was held and not sent goes back into the box with what was attached to it.
+    const restorePending = useCallback((pending: PendingPrompt, reason: string): void => {
+        setNotice(reason);
+        setText(pending.text);
+        if (pending.images.length > 0) add(pending.images);
+        selected.replace(pending.files ?? []);
+    }, [add, selected.replace]);
+    const restoreLatest = useRef(restorePending);
+    restoreLatest.current = restorePending;
+
+    // Sends a held prompt, first putting the session on the model chosen for it.
+    const proceed = useCallback((pending: PendingPrompt): void => {
         const model = pending.model;
         if (model === undefined) {
             startPending(pending);
@@ -136,7 +155,39 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
         send(model.switched
             ? switchModelCommand(requestId, model.provider, model.model, model.effort)
             : effortCommand(requestId, model.effort ?? null));
-    }, [attached, agentId, send, startPending]);
+    }, [send, startPending]);
+
+    // A prompt typed on New Chat goes out once, when the new session's watch attaches.
+    useEffect(() => {
+        if (!attached) return;
+        const pending = takePendingPrompt(agentId);
+        if (pending === undefined) return;
+        if (pending.agent === undefined) {
+            proceed(pending);
+            return;
+        }
+        const timer = setTimeout(() => {
+            if (agentGate.current?.prompt !== pending) return;
+            agentGate.current = undefined;
+            restoreLatest.current(pending, NO_ANSWER);
+        }, AGENT_WAIT_MS);
+        agentGate.current = { prompt: pending, timer };
+    }, [attached, agentId, proceed]);
+
+    useEffect(() => {
+        const gate = agentGate.current;
+        if (gate?.prompt.agent === undefined) return;
+        const step = stepAgentGate(agentStart, gate.prompt.agent);
+        if (step.kind === "wait") return;
+        clearTimeout(gate.timer);
+        agentGate.current = undefined;
+        if (step.kind === "send") proceed(gate.prompt);
+        else restorePending(gate.prompt, step.reason);
+    }, [agentStart, proceed, restorePending]);
+
+    useEffect(() => () => {
+        if (agentGate.current !== undefined) clearTimeout(agentGate.current.timer);
+    }, []);
 
     useEffect(() => {
         const gate = modelGate.current;
@@ -146,12 +197,9 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
             startPending(gate.prompt);
         } else if (watch.modelRefused?.requestId === gate.requestId) {
             modelGate.current = undefined;
-            setNotice(MODEL_REFUSED);
-            setText(gate.prompt.text);
-            if (gate.prompt.images.length > 0) add(gate.prompt.images);
-            selected.replace(gate.prompt.files ?? []);
+            restorePending(gate.prompt, MODEL_REFUSED);
         }
-    }, [watch.models, watch.modelRefused, startPending, add, selected.replace]);
+    }, [watch.models, watch.modelRefused, startPending, restorePending]);
 
     const submit = async (): Promise<void> => {
         const content = text.trim();

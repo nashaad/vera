@@ -14,6 +14,7 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { ListedAgent } from "./agent-registry/select.ts";
 import type { StopRefusalReason, StopWaitEvent, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
@@ -192,6 +193,26 @@ export interface ExtensionLoadFailure {
 export interface ExtensionLoadFailuresResponse {
     readonly type: "extension_load_failures";
     readonly failures: readonly ExtensionLoadFailure[];
+}
+
+/**
+ * The agents a new session would offer, read without starting one.
+ *
+ * A folder reads that folder's own agents beside the home's and the extensions'.
+ * Without a folder the session is a chat, which has no project agents.
+ */
+export interface NewSessionAgentsRequest {
+    readonly type: "new_session_agents";
+    /** Absolute path of the folder the session would open in. Absent for a chat. */
+    readonly workspace?: string;
+}
+
+export interface NewSessionAgentsResponse {
+    readonly type: "new_session_agents";
+    /** The agent a new session there starts on. */
+    readonly starts_on: string;
+    readonly agents: readonly ListedAgent[];
+    readonly notices: readonly string[];
 }
 
 export interface CheckpointStoresRequest {
@@ -1019,6 +1040,7 @@ export type HostRequest =
     | ListImportableSessionsRequest
     | AnnexUrlRequest
     | ExtensionLoadFailuresRequest
+    | NewSessionAgentsRequest
     | CheckpointStoresRequest
     | LocateAgentRequest
     | AttachRequest;
@@ -1100,6 +1122,7 @@ export type HostResponse =
     | AnnexUrlResponse
     | AnnexUnavailableResponse
     | ExtensionLoadFailuresResponse
+    | NewSessionAgentsResponse
     | CheckpointStoresFinishedResponse
     | CheckpointStoresFailedResponse
     | ProtocolErrorResponse;
@@ -1242,6 +1265,19 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "extension_load_failures") {
         return { type: "extension_load_failures" };
+    }
+    if (value?.type === "new_session_agents") {
+        const workspace = value.workspace;
+        if (workspace === undefined) return { type: "new_session_agents" };
+        if (
+            typeof workspace !== "string"
+            || workspace.length === 0
+            || workspace.includes("\0")
+            || !isAbsolute(workspace)
+        ) {
+            return undefined;
+        }
+        return { type: "new_session_agents", workspace };
     }
     if (
         value?.type === "checkpoint_stores"

@@ -536,26 +536,14 @@ export class AgentRegistry {
         return registrySelect.selectedAgentPosture(this, entry);
     }
 
-    async listAgentsFor(id: string): Promise<{
-        readonly selected: string;
-        readonly agents: readonly {
-            readonly name: string;
-            readonly description?: string;
-            readonly scope: "project" | "user" | "extension";
-            readonly writable: boolean;
-            readonly tools?: readonly string[];
-            readonly skills?: readonly string[];
-            readonly posture?: string;
-            readonly forbiddenAccess?: readonly string[];
-            readonly subagentAssignment?: string;
-            readonly defaultPair?: {
-                readonly name: string;
-                readonly effort?: string;
-            };
-        }[];
-        readonly notices: readonly string[];
-    }> {
+    async listAgentsFor(id: string): Promise<registrySelect.AgentListing> {
         return registrySelect.listAgentsFor(this, id);
+    }
+
+    async listNewSessionAgents(
+        workspace: string | undefined,
+    ): Promise<registrySelect.NewSessionAgents> {
+        return registrySelect.listNewSessionAgents(this, workspace);
     }
 
     async listSkillsFor(id: string): Promise<SkillCommandCatalog> {
