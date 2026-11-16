@@ -296,7 +296,8 @@ export function instructionBudgetWarning(
     const biggest = budget.biggest === undefined
         ? ""
         : ` Biggest: ${budget.biggest.displayName} (${formatTokens(budget.biggest.estimatedTokens)}).`;
-    return `${formatTokens(budget.tokens)}, over the ${formatTokens(budget.budget)} budget.${biggest}`;
+    const [tokens, limit] = formatInstructionBudgetValues(budget);
+    return `${tokens}, over the ${limit} budget.${biggest}`;
 }
 
 export function instructionBudgetNotice(
@@ -305,8 +306,17 @@ export function instructionBudgetNotice(
 ): string | undefined {
     const budget = snapshotInstructionBudget(snapshot, budgetTokens);
     if (budget === undefined || !budget.over) return undefined;
-    return `Starting instructions are ${formatTokens(budget.tokens)} tokens,`
-        + ` over the ${formatTokens(budget.budget)} budget. See /context to trim.`;
+    const [tokens, limit] = formatInstructionBudgetValues(budget);
+    return `Starting instructions are ${tokens} tokens,`
+        + ` over the ${limit} budget. See /context to trim.`;
+}
+
+function formatInstructionBudgetValues(budget: InstructionBudget): [string, string] {
+    const tokens = formatTokens(budget.tokens);
+    const limit = formatTokens(budget.budget);
+    return tokens === limit
+        ? [budget.tokens.toLocaleString("en-US"), budget.budget.toLocaleString("en-US")]
+        : [tokens, limit];
 }
 
 export function formatTokens(tokens: number): string {
