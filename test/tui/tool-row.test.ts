@@ -9,7 +9,13 @@ import {
     updateTuiToolHeader,
     updateTuiToolRow,
 } from "../../clients/tui/tool-row.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "../../clients/tui/state.ts";
+import {
+    applyAgentUpdate,
+    createTuiState,
+    TUI_ACCENT,
+    TUI_MUTED,
+    TUI_TEXT,
+} from "../../clients/tui/state.ts";
 
 test("a compact tool preview stays to one row per summary", async () => {
     const setup = await createTestRenderer({ width: 28, height: 8 });
@@ -64,6 +70,42 @@ test("a short result keeps its tree row under the header", async () => {
         expect(rows[0]).toContain("Ctrl+T details");
         expect(rows[0]).not.toContain("└");
         expect(rows[1]).toContain("└ config-ok");
+        expect(rows[2]?.trim()).toBe("");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a failed edit updates the rendered heading and keeps its result", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 6 });
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "edit",
+        args: { path: "README.md" },
+        seq: 1,
+    });
+    const initial = state.entries.find((entry) => entry.kind === "tool_header");
+    if (initial?.kind !== "tool_header") throw new Error("Missing tool header");
+    const header = createTuiToolHeader(setup.renderer, "failed-edit", initial, 0);
+    setup.renderer.root.add(header);
+
+    try {
+        await setup.flush();
+        expect(setup.captureCharFrame().split("\n")[0]).toContain("Editing");
+        state = applyAgentUpdate(state, {
+            type: "tool_finished",
+            tool: "edit",
+            output: "Read README.md first.",
+            isError: true,
+            seq: 2,
+        });
+        const completed = state.entries.find((entry) => entry.kind === "tool_header");
+        if (completed?.kind !== "tool_header") throw new Error("Missing tool header");
+        updateTuiToolHeader(header, completed);
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        expect(rows[0]).toContain("  Failed  Edit README.md");
+        expect(rows[1]).toContain("  └ Read README.md first.");
         expect(rows[2]?.trim()).toBe("");
     } finally {
         setup.renderer.destroy();

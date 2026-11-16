@@ -2012,6 +2012,166 @@ test("a short completed tool result stays under its header", () => {
     )).toBe(true);
 });
 
+function failedEditHeaders(state: TuiState): string[] {
+    return state.entries.flatMap((entry) =>
+        entry.kind === "tool_header" && entry.header !== undefined ? [entry.header] : []
+    );
+}
+
+function failedEditRows(state: TuiState): TuiTextTranscriptEntry[] {
+    return state.entries.filter((entry): entry is TuiTextTranscriptEntry => entry.kind === "tool");
+}
+
+function failedEditHistory(entries: TranscriptEntry[]): TuiState {
+    return applyAgentUpdate(createTuiState(), { type: "history", entries, seq: 1 });
+}
+
+function startFailedEdit(state: TuiState, tool: string, path: string, seq: number): TuiState {
+    return applyAgentUpdate(state, { type: "tool_started", tool, args: { path }, seq });
+}
+
+function finishFailedEdit(state: TuiState, tool: string, output: string, isError: boolean, seq: number): TuiState {
+    return applyAgentUpdate(state, { type: "tool_finished", tool, output, isError, seq });
+}
+
+for (const tool of ["edit", "write"]) {
+    test(`${tool} reports failure live and from history`, () => {
+        let live = startFailedEdit(beginTuiTurn(createTuiState(), "go"), tool, "deck.txt", 1);
+        expect(failedEditHeaders(live)).toEqual(["Editing"]);
+        live = finishFailedEdit(live, tool, "Could not update the file", true, 2);
+        expect(failedEditHeaders(live)).toEqual(["Failed"]);
+        expect(failedEditRows(live).map((row) => row.text)).toEqual([
+            `${tool === "edit" ? "Edit" : "Write"} deck.txt`,
+            "Could not update the file",
+        ]);
+        const rebuilt = failedEditHistory([
+            { kind: "tool", tool, args: { path: "deck.txt" } },
+            { kind: "tool_result", tool, output: "Could not update the file", isError: true },
+        ]);
+        expect(failedEditHeaders(rebuilt)).toEqual(["Failed"]);
+        expect(failedEditRows(rebuilt).map((row) => row.text))
+            .toEqual(failedEditRows(live).map((row) => row.text));
+        expect(plainText(renderTuiEntry(rebuilt.entries[0]!))).toContain("  Failed  ");
+    });
+
+    test(`${tool} success and withheld results keep their headings`, () => {
+        let live = startFailedEdit(beginTuiTurn(createTuiState(), "go"), tool, "deck.txt", 1);
+        live = finishFailedEdit(live, tool, "Updated", false, 2);
+        expect(failedEditHeaders(live)).toEqual(["Edited"]);
+        expect(failedEditHeaders(failedEditHistory([
+            { kind: "tool", tool, args: { path: "deck.txt" } },
+            { kind: "tool_result", tool, output: "Updated", isError: false },
+        ]))).toEqual(["Edited"]);
+        expect(failedEditHeaders(failedEditHistory([
+            { kind: "tool", tool, args: { path: "deck.txt" } },
+            { kind: "tool_result", tool, output: "Denied", isError: true, withheld: true },
+        ]))).toEqual(["Did not run"]);
+    });
+}
+
+test("other tool failures keep their existing headings and withheld calls do not run", () => {
+    for (const [tool, args, header] of [
+        ["read", { path: "deck.txt" }, "Explored"],
+        ["grep", { pattern: "treasure", path: "deck.txt" }, "Explored"],
+        ["list", { path: "deck" }, "Explored"],
+        ["bash", { command: "false" }, "Ran"],
+    ] as const) {
+        let live = applyAgentUpdate(createTuiState(), { type: "tool_started", tool, args, seq: 1 });
+        live = finishFailedEdit(live, tool, "Failed", true, 2);
+        expect(failedEditHeaders(live)).toEqual([header]);
+        expect(failedEditHeaders(failedEditHistory([
+            { kind: "tool", tool, args },
+            { kind: "tool_result", tool, output: "Failed", isError: true },
+        ]))).toEqual([header]);
+    }
+    expect(failedEditHeaders(failedEditHistory([
+        { kind: "tool", tool: "read", args: { path: "hold.txt" } },
+        { kind: "tool_result", tool: "read", output: "Not run: session blocked", isError: true, withheld: true },
+    ]))).toEqual(["Did not run"]);
+});
+
+test("mixed completed and active edit calls retain distinct headings", () => {
+    let live = beginTuiTurn(createTuiState(), "go");
+    live = startFailedEdit(live, "edit", "failed.txt", 1);
+    live = startFailedEdit(live, "write", "success.txt", 2);
+    live = finishFailedEdit(live, "edit", "No match", true, 3);
+    expect(failedEditHeaders(live)).toEqual(["Failed", "Editing"]);
+    live = finishFailedEdit(live, "write", "Wrote file", false, 4);
+    expect(failedEditHeaders(live)).toEqual(["Failed", "Edited"]);
+    expect(failedEditRows(live).map((row) => row.text)).toEqual([
+        "Edit failed.txt", "No match", "Write success.txt", "Wrote file",
+    ]);
+    const rebuilt = failedEditHistory([
+        { kind: "tool", tool: "edit", args: { path: "failed.txt" } },
+        { kind: "tool", tool: "write", args: { path: "success.txt" } },
+        { kind: "tool", tool: "edit", args: { path: "blocked.txt" } },
+        { kind: "tool_result", tool: "edit", output: "No match", isError: true },
+        { kind: "tool_result", tool: "write", output: "Wrote file", isError: false },
+        { kind: "tool_result", tool: "edit", output: "Not run: session blocked", isError: true, withheld: true },
+    ]);
+    expect(failedEditHeaders(rebuilt)).toEqual(["Failed", "Edited", "Did not run"]);
+    expect(failedEditRows(rebuilt).map((row) => row.text)).toEqual([
+        "Edit failed.txt", "No match", "Write success.txt", "Wrote file",
+        "Edit blocked.txt", "Not run: session blocked",
+    ]);
+});
+
+test("identical failed edits collapse without losing result text", () => {
+    let live = beginTuiTurn(createTuiState(), "go");
+    live = startFailedEdit(live, "edit", "deck.txt", 1);
+    live = finishFailedEdit(live, "edit", "First failure", true, 2);
+    live = startFailedEdit(live, "edit", "deck.txt", 3);
+    live = finishFailedEdit(live, "edit", "Second failure", true, 4);
+    const rebuilt = failedEditHistory([
+        { kind: "tool", tool: "edit", args: { path: "deck.txt" } },
+        { kind: "tool", tool: "edit", args: { path: "deck.txt" } },
+        { kind: "tool_result", tool: "edit", output: "First failure", isError: true },
+        { kind: "tool_result", tool: "edit", output: "Second failure", isError: true },
+    ]);
+    for (const state of [live, rebuilt]) {
+        expect(failedEditHeaders(state)).toEqual(["Failed"]);
+        expect(failedEditRows(state).filter((row) => row.result !== true)).toMatchObject([
+            { text: "Edit deck.txt", repeat: 2 },
+        ]);
+        expect(failedEditRows(state).filter((row) => row.result === true).map((row) => row.text))
+            .toEqual(["First failure", "Second failure"]);
+    }
+});
+
+test("a classifier notice keeps consecutive failed calls in separate groups", () => {
+    let state = startFailedEdit(createTuiState(), "edit", "deck.txt", 1);
+    state = finishFailedEdit(state, "edit", "No match", true, 2);
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "write",
+        decision: "allow",
+        reason: "Writes the requested file.",
+        riskLevel: "medium",
+        userAuthorization: "high",
+        seq: 3,
+    });
+    state = startFailedEdit(state, "write", "sail.txt", 4);
+    state = finishFailedEdit(state, "write", "Cannot write", true, 5);
+    const visible = state.entries.filter((entry) => entry.kind === "tool_header" || entry.kind === "review");
+    expect(visible.map((entry) => entry.kind)).toEqual(["tool_header", "review", "tool_header"]);
+    expect(failedEditHeaders(state)).toEqual(["Failed", "Failed"]);
+});
+
+test("repeated earlier calls keep their results before a failed edit on replay", () => {
+    const rebuilt = failedEditHistory([
+        { kind: "tool", tool: "read", args: { path: "deck.txt" } },
+        { kind: "tool", tool: "read", args: { path: "deck.txt" } },
+        { kind: "tool", tool: "edit", args: { path: "deck.txt" } },
+        { kind: "tool_result", tool: "read", output: "First read", isError: false },
+        { kind: "tool_result", tool: "read", output: "Second read", isError: false },
+        { kind: "tool_result", tool: "edit", output: "No match", isError: true },
+    ]);
+    expect(failedEditHeaders(rebuilt)).toEqual(["Explored", "Failed"]);
+    expect(failedEditRows(rebuilt).map((row) => row.text)).toEqual([
+        "Read deck.txt", "First read", "Second read", "Edit deck.txt", "No match",
+    ]);
+});
+
 test("a folded tool header reserves a blank marker and an expanded one uses a chevron", () => {
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
