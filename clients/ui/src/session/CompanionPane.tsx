@@ -1,16 +1,11 @@
-import { useMemo } from "react";
-
 import { AgentIcon, ArrowRightIcon, XIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { closeCompanion } from "./paneLayout.ts";
-import { Transcript } from "./Transcript.tsx";
-import { watchOpening } from "./transcript.ts";
-import { usePinnedScroll } from "./usePinnedScroll.ts";
+import { SubagentTranscript } from "./SubagentTranscript.tsx";
 import { useSessionWatch } from "./useSessionWatch.ts";
-import { useSlowOpening } from "./useSlowOpening.ts";
 
 export interface CompanionPaneProps {
     readonly bridge: DesktopBridge;
@@ -25,22 +20,11 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
     const { watch } = useSessionWatch(bridge, agentId, connected, "companion");
     const row = connection.sessionRows?.find((candidate) => candidate.id === agentId);
     const title = watch.title ?? row?.name ?? "Subagent";
-    const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
-    const scroller = usePinnedScroll();
 
     const goTo = (): void => {
         closeCompanion();
         router.navigate({ kind: "session", agentId, title, ...(row === undefined ? {} : sessionPlace(row.workspace, row.chat)) });
     };
-
-    const slowOpening = useSlowOpening(watch);
-    const message = watch.phase === "failed" || watch.phase === "closed"
-        ? watch.error ?? "The subagent closed."
-        : !watchOpening(watch)
-            ? "The subagent has not said anything yet."
-            : slowOpening
-                ? "Opening the subagent."
-                : undefined;
 
     return (
         <section className="agent-companion" aria-label={title} data-companion={agentId} data-phase={watch.phase}>
@@ -56,23 +40,7 @@ export function CompanionPane({ bridge, agentId, connected }: CompanionPaneProps
                     <XIcon />
                 </button>
             </header>
-            <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll}>
-                <div className="transcript">
-                    <div className="transcript-inner">
-                        {blocks.length === 0 ? (
-                            message === undefined ? null : <p className="transcript-empty">{message}</p>
-                        ) : (
-                            <Transcript
-                                blocks={blocks}
-                                running={watch.status !== "idle"}
-                                status={watch.status}
-                                {...(watch.retry === undefined ? {} : { retry: watch.retry })}
-                                {...(row?.workspace ? { folder: row.workspace } : {})}
-                            />
-                        )}
-                    </div>
-                </div>
-            </div>
+            <SubagentTranscript watch={watch} folder={row?.workspace} />
         </section>
     );
 }

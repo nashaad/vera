@@ -9,6 +9,7 @@ import { resolveSpawnModelChoice, subagentModelBoundary, type MissingSubagentCon
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { SessionStore } from "../../store/session-store.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
+import { asyncSubagentStartedText } from "../../tools/subagent-started.ts";
 import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../../tools/types.ts";
 import { HOST_OWNED_COMMANDS, ReportedWorkerFailure, WorkerCapReachedError, cancelledSubagentConfiguration, defaultConcurrentWorkerCap, loopStateOf, requestedSubagentLabel, subagentResolutionLabel, unavailableSubagentConfiguration, workerExtensionsEnabled, workerOutcomeDetail } from "./helpers.ts";
 import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry, type SessionBlockControl } from "./support.ts";
@@ -705,8 +706,7 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
             if (resolved.notice !== undefined) {
                 reg.spawnNotices.set(child.id, resolved.notice);
             }
-            const started =
-                `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`;
+            const started = asyncSubagentStartedText(child.id);
             return {
                 kind: "output",
                 output: resolved.notice === undefined

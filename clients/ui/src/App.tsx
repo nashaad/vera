@@ -11,6 +11,8 @@ import { Overlays } from "./overlays/Overlays.tsx";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { SessionEvidenceReporter } from "./session/SessionEvidence.tsx";
+import { SubagentCommands } from "./subagents/SubagentCommands.tsx";
+import { SubagentsSync } from "./subagents/SubagentsSync.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
 import { hiddenCommands, unavailableContainers } from "./state/surfaces.ts";
@@ -78,8 +80,10 @@ export function App() {
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
                     <ChatCommands commands={commands} />
+                    <SubagentCommands commands={commands} />
                     {loaded ? <BrowserSync /> : null}
                     {loaded ? <ChatSync /> : null}
+                    {loaded ? <SubagentsSync /> : null}
                     <SessionEvidenceReporter />
                 </div>
             </ViewEnvContext.Provider>

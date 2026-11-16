@@ -14,7 +14,6 @@ import { usePaneLayout, type PaneLayout } from "./paneLayout.ts";
 import { RenameSheet } from "./RenameSheet.tsx";
 import { RewindSheet } from "./RewindSheet.tsx";
 import { closeSessionSheet, openSessionSheet, useSessionSheet, type SessionSheet } from "./sessionSheets.ts";
-import { SubagentsSheet } from "./SubagentsSheet.tsx";
 import { TasksIndicator } from "./TasksIndicator.tsx";
 import { TasksSheet } from "./TasksSheet.tsx";
 
@@ -80,8 +79,6 @@ function OpenSheet({ sheet, session }: { readonly sheet: SessionSheet; readonly 
             return <RewindSheet session={session} onClose={closeSessionSheet} />;
         case "tasks":
             return <TasksSheet session={session} onClose={closeSessionSheet} />;
-        case "subagents":
-            return <SubagentsSheet session={session} onClose={closeSessionSheet} />;
         case "rename":
             return <RenameSheet session={session} onClose={closeSessionSheet} />;
     }

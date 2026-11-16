@@ -7,6 +7,7 @@ import { OVERLAY_COMMANDS } from "../../clients/ui/src/commands/overlay-ids.ts";
 import { registerPageCommands } from "../../clients/ui/src/commands/page-commands.ts";
 import { registerSessionCommands } from "../../clients/ui/src/commands/session-commands.ts";
 import { registerSessionWindowCommands } from "../../clients/ui/src/commands/session-window-commands.ts";
+import { registerSubagentCommands } from "../../clients/ui/src/commands/subagent-commands.ts";
 import {
     BUILTIN_SLASH_ENTRIES,
     buildSlashEntries,
@@ -64,6 +65,7 @@ describe("the slash entries", () => {
         registerLayoutCommands(registry, () => {});
         registerSessionCommands(registry);
         registerSessionWindowCommands(registry, { navigate: () => {}, parentRoute: () => undefined, bridge: () => undefined });
+        registerSubagentCommands(registry, { show: () => {} });
         registerPageCommands(registry, { open: () => {} });
         // The overlay commands are registered by the overlay host, which needs a window.
         const overlayIds = new Set(Object.values(OVERLAY_COMMANDS).map((command) => command.id));

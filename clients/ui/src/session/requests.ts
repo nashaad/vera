@@ -7,7 +7,8 @@ import {
     type ApprovalAnswerGrant,
     type ApprovalDecision,
 } from "../../../shared/approval-answers.ts";
-import { describePredicate } from "./permissions.ts";
+import type { SessionPane } from "../protocol/panes.ts";
+import { describePredicate, type ApprovalState } from "./permissions.ts";
 
 export interface ApprovalRequest {
     readonly kind: "approval";
@@ -201,6 +202,11 @@ export function isSubagentApproval(request: ApprovalRequest): boolean {
 export interface ApprovalAnswerContext {
     readonly mode?: string;
     readonly modes?: readonly string[];
+}
+
+// Only the main pane's cards offer the switch to Approve for me; a Chat tab's cards leave the mode alone.
+export function paneAnswerContext(pane: SessionPane, approval: ApprovalState | undefined): ApprovalAnswerContext {
+    return approval === undefined || pane !== "main" ? {} : { mode: approval.mode, modes: approval.modes };
 }
 
 // The answers an approval offers, in order, from the shared module both clients read.

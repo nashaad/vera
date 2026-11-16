@@ -1,5 +1,17 @@
-import type { SessionRow } from "../protocol/sessions.ts";
+import type { SessionRow, SessionStatus } from "../protocol/sessions.ts";
 import type { BackgroundAgents } from "./model.ts";
+
+const STATUS_WORDS: Readonly<Record<SessionStatus, string>> = {
+    working: "Working",
+    waiting: "Waiting",
+    idle: "Idle",
+    completed: "Done",
+    other: "Ended",
+};
+
+export function statusWord(status: SessionStatus): string {
+    return STATUS_WORDS[status];
+}
 
 export function isRunningRow(row: SessionRow): boolean {
     return row.status === "working" || row.status === "waiting";
@@ -10,6 +22,18 @@ export function childRows(rows: readonly SessionRow[], parentId: string): Sessio
     return rows
         .filter((row) => row.parentId === parentId)
         .sort((left, right) => Number(isRunningRow(right)) - Number(isRunningRow(left)));
+}
+
+export interface ChildLists {
+    // Working or waiting children.
+    readonly active: readonly SessionRow[];
+    // Every other child; the host's order is kept within each list.
+    readonly done: readonly SessionRow[];
+}
+
+export function splitChildren(rows: readonly SessionRow[], parentId: string): ChildLists {
+    const children = childRows(rows, parentId);
+    return { active: children.filter(isRunningRow), done: children.filter((row) => !isRunningRow(row)) };
 }
 
 // The listed child rows may lag the session's own count, so the larger of the two wins.

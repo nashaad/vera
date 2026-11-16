@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
+import { SessionPanes } from "../../clients/desktop/src/session-panes.ts";
 import { SESSION_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import { registerSessionCommands, SESSION_COMMANDS } from "../../clients/ui/src/commands/session-commands.ts";
@@ -317,5 +318,18 @@ describe("agent pane shortcut", () => {
         if (!Array.isArray(view?.submenu)) throw new Error("The View menu has no items.");
         const entry = view.submenu.find((item) => item.id === SESSION_COMMANDS.cycleLayout);
         expect(entry?.accelerator).toBe(SESSION_SHORTCUTS[0]?.accelerator);
+    });
+});
+
+describe("the shell's watch panes", () => {
+    test("@core the main, companion and subagent panes each have their own pipe, and a name that is no pane has none", () => {
+        const panes = new SessionPanes(() => {}, () => false);
+        const main = panes.get("main");
+        const companion = panes.get("companion");
+        const subagent = panes.get("subagent");
+        expect(new Set([main, companion, subagent]).size).toBe(3);
+        expect(panes.get("subagent")).toBe(subagent);
+        expect(panes.get("elsewhere")).toBeUndefined();
+        panes.close();
     });
 });

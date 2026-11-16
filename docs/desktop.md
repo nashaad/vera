@@ -254,13 +254,13 @@ collapses it. The right pane works differently, described below. The main area
 is not a location for views.
 
 The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
-Plan, Files, Browser or Chat. The kinds come from one list, and the tiles, the
+Plan, Files, Browser, Chat or Subagents. The kinds come from one list, and the tiles, the
 launcher, the tab strip and the saved layout all follow it. The top row holds the
 tabs, a `+` button, and at the right the button that closes the pane. A tab shows
 its kind's icon and title, or the page's title for a Browser tab, and has a close
 button that shows while the pointer is over the tab and on the active tab. The
 same kind can be open any number of times, up to 16 tabs in the pane; Browser and
-Chat each have a limit of their own, and Chat tabs are limited to 6. The Chat kind's
+Chat each have a limit of their own, Chat tabs are limited to 6, and Subagents has one tab. The Chat kind's
 tile and launcher row are titled Help and start a new Help chat. With no tabs the
 pane shows one tile for each kind that can be opened, and a tile is disabled while
 its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
@@ -377,7 +377,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.dark`, `theme.light`, `theme.highContrast`,
 `theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
-`session.rewind`, `session.compact`, `session.subagents`, `session.tasks`,
+`session.rewind`, `session.compact`, `session.subagents` (shows the Subagents tab), `session.tasks`,
 `session.copyConversation`, `session.quote`, `session.cycleLayout` and
 `session.setLayout`. `container.activate` and the shortcuts of a kind show the most
 recently active tab of that kind, and open one when there is none; `tab.open`
@@ -398,8 +398,8 @@ returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
 
 The file also holds the right pane's tabs: each tab's kind and order, and which
-one is active. Browser and Chat tabs are not saved, so neither returns after
-a restart, and a layout that holds only Browser and Chat tabs comes back with none. A layout saved before the
+one is active. Browser, Chat and Subagents tabs are not saved, so none returns after
+a restart, and a layout that holds only those tabs comes back with none. A layout saved before the
 right pane held tabs opens with one tab, of the container that was active in the
 pane. A tab saved for a kind that is not registered is ignored, and a tab list
 that cannot be read is dropped and the pane opens with no tabs.
@@ -682,7 +682,7 @@ Slash commands:
   Session), `/clear` and its alias `/new` (New Chat), and `/models` (the Models
   browser). `/rewind` and `/fork` open the Rewind or Fork sheet, `/compact`
   compacts the conversation as `Compact` in the session menu does, and
-  `/subagents` opens the subagents sheet.
+  `/subagents` shows the Subagents tab.
 - `/model`, `/effort` and `/permissions` drive the composer's pills. With no
   argument each opens its pill's menu. `/model scout` runs the one available
   model that `scout` names and otherwise opens the model menu already searching
@@ -737,7 +737,8 @@ While a card is unanswered the status line at the end of the conversation says
   `curl commands`.
 - `Yes, and switch to Approve for me` runs it and switches the session to
   Approve for me. It appears in ask only, when Approve for me is available, and
-  never on a subagent's call or an ask from `permission_rules`.
+  never on a subagent's call, an ask from `permission_rules` or a card in a Chat
+  tab.
 - `No` (Escape or the `✕`) refuses it; the turn goes on without it.
 - The field below the answers takes a line of text. Enter refuses the call and
   passes what you typed to Vera, so it can try another way.
@@ -753,12 +754,6 @@ The grant answers appear only when Vera can propose one; a subagent's request
 offers only `Yes, this time` and `No`, and no field. An ask from
 `permission_rules` offers the same two answers and keeps the field, since no
 grant can lift it.
-
-In ask mode, once you have allowed five requests and denied none, the card
-adds one line under its choices: `You've allowed every request so far. Switch
-to Approve for me?` `Switch` does what picking `Approve for me` in the approval
-pill does, and `Not now` dismisses the line. It shows once per conversation in
-this window, and answering the card counts as dismissing it.
 
 A question from Vera shows its choices, numbered, in the same card. A number
 key or a click picks one. When the question takes a typed answer, a box under
@@ -817,7 +812,8 @@ through a session's pill.
 
 A Chat tab shows one session's conversation in the right pane: the transcript,
 the approval and question cards and a composer of its own, the same ones the
-main area uses. It needs no session open in the main area and works on New Chat.
+main area uses, except that its approval cards do not offer `Yes, and switch to
+Approve for me`. It needs no session open in the main area and works on New Chat.
 Each tab holds one chat. A Help tab is titled with the chat's name, and `Help` until it has one.
 
 Help opens a new Chat tab on a new chat that runs as the help agent. The sidebar's
@@ -999,18 +995,52 @@ The session menu (the `…` button) has:
   `Nothing to compact yet.` When both counts round to the same figure, the
   line gives them in full, such as `from 6,540 to 6,492 tokens`. A second
   `Compact` while one runs does nothing.
-- `Subagents`, which lists the session's subagents with their status. `Open`
-  shows one in a second pane beside the conversation, `Go to` opens its own
-  page, and `Stop` stops a running one. Subagents still starting, which the host
-  has not listed yet, show by title.
+- `Subagents`, which shows the Subagents tab in the right pane and opens the
+  pane if it is closed. The tab is described below.
 - `One Pane`, `Subagent Beside` and `Subagent Below`, which choose how the
   second pane sits. Cmd+Alt+A cycles them. The second pane shows the subagent
   you opened, or else the running one, or else the newest. It updates live and
   has no composer.
 
 The background tasks pill shows how many subagents and background agents are
-running. It opens the tasks sheet, which lists the subagents as above. The host
-does not list background shell processes, and the sheet says so.
+running. It opens the tasks sheet, which lists the subagents with their status.
+`Open` on a row shows that subagent in the Subagents tab and closes the sheet,
+`Go to` opens its own page, and `Stop` stops a running one. Subagents still
+starting, which the host has not listed yet, show by title. The host does not
+list background shell processes, and the sheet says so.
+
+A subagent is a session the open session started. Each `subagent` or
+`async_subagent` call in the conversation shows as a card of its own in place of
+that call's part of the run line: the subagent's icon, its title (the call's
+description), a status word and a chevron. While the host has not listed the
+subagent, the word is that of the call: `Working`, `Done` or `Failed`. Once it is
+listed, the word is the subagent's own: `Working`, `Waiting`, `Idle`, `Done` or
+`Ended`. The other calls of the run keep their run line, and while a run is still
+being made only its cards show, with the status line naming the current call.
+Cards show in the open session's conversation, not in a Chat tab or a second pane.
+A card opens the Subagents tab on that subagent.
+
+The Subagents tab is also opened by the session menu's `Subagents`, by a
+delivery's `Open it` when the delivery comes from a subagent of the open session
+(a delivery from any other session opens that session's page), and by `Open` in
+the tasks sheet. It opens the right pane if that is closed and is always the same
+tab: the kind holds one tab, so opening another subagent changes what it shows.
+When the pane already holds 16 tabs and none is Subagents, a notice says to close
+a tab first and nothing changes. The tab shows the list for the open session, or
+`Open a session to see its subagents.` when none is open:
+
+- `Active`, with a row for each running subagent (a dot, the title, the status
+  word and the time since its last step), or `No active subagents`. A subagent the
+  host has not listed yet shows by title as `Working` and cannot be opened.
+- `Done · N`, with a row for each of the others, drawn only when there are some.
+- `No subagents in this session.` when it has none.
+
+A row opens that subagent in the same tab. The page has a back arrow (`Back to
+subagents`) that returns to the list, then the subagent's icon, its title and its
+status word, `Go to`, which opens the subagent's own page, and `Stop` while it
+runs. Below is its conversation, which updates live and is read only: it has no
+composer and no `Start session`. Opening another session shows that session's
+list in the tab, and closing the tab and opening it again shows the list.
 
 When a turn edits files, its end shows a card with the number of files edited
 and the lines added and removed. Each file row opens to its patch, cut at 400
@@ -1032,7 +1062,7 @@ session's conversation, so when the session is not running and nothing of it
 has loaded, each says `This session is not running. Start it to see its plan.`
 or `This session is not running. Start it to see its changes.` with
 `Start session`. Files, Output and Browser do not need the session. The second
-pane for a subagent is read only and has no `Start session`. While the right
+pane for a subagent and the Subagents tab are read only and have no `Start session`. While the right
 pane is closed, a rail at the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
@@ -1623,10 +1653,22 @@ reached the provider, and enters a misspelt name and checks the text stays with
 a `Did you mean` line. In the session it checks the three groups, that the menu
 sits above the box and outside the bar, that it narrows as it is typed and stays
 inside a 720 pixel wide window without changing how the pills fit, and that
-Escape, the arrow keys and Tab work. It runs `/subagents`, `/import`, an
+Escape, the arrow keys and Tab work. It runs `/subagents` and checks the
+Subagents tab opens on `No subagents in this session.`, then `/import`, an
 extension command and the skill, and checks the provider received the skill's
 line. It renames, clones and closes the session from the box, and checks that
 `/parent` says there is no parent.
+
+The subagents test runs a local provider whose first reply to the session is an
+`async_subagent` call described as `Count the doubloons in the hold`, whose
+reply to the subagent is plain text, and whose other replies are plain text. It
+checks the call shows as one card titled by the description and that the right pane
+has no Subagents tab until something opens it. It clicks the card and checks the
+Subagents tab opens on that subagent with its reply and without a composer, then
+clicks the back arrow and checks the list shows `No active subagents` and the
+subagent under `Done · 1`. It opens the subagent from its row, closes the tab,
+opens the list again from the session menu's `Subagents`, and checks that the card
+opens the same single tab on the subagent.
 
 The rename test starts a session against a local provider, checks its row and
 the title bar show the title and not the generated name, then renames it with

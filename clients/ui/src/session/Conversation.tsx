@@ -11,8 +11,9 @@ import { MAX_HISTORY_BLOCKS, type SessionWatch } from "./model.ts";
 import type { PaneLayout } from "./paneLayout.ts";
 import { QueueStrip } from "./QueueStrip.tsx";
 import { RequestCards } from "./RequestCards.tsx";
-import { holdsTurn } from "./requests.ts";
+import { holdsTurn, paneAnswerContext } from "./requests.ts";
 import { StartSessionButton } from "./StartSession.tsx";
+import { SubagentCardsProvider } from "./SubagentCards.tsx";
 import { Transcript } from "./Transcript.tsx";
 import { watchOpening } from "./transcript.ts";
 import { usePinnedScroll } from "./usePinnedScroll.ts";
@@ -124,15 +125,17 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                     {blocks.length === 0 ? (
                         watchOpening(watch) ? null : <p className="transcript-empty">Nothing has been said in this session yet.</p>
                     ) : (
-                        <Transcript
-                            blocks={blocks}
-                            running={running}
-                            status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
-                            {...(watch.retry === undefined ? {} : { retry: watch.retry })}
-                            {...(folder === undefined ? {} : { folder })}
-                            {...(compacting === undefined || !liveTurn ? {} : { compaction: compacting })}
-                            replyMenu
-                        />
+                        <SubagentCardsProvider parentId={agentId} blocks={blocks} enabled={pane === "main"}>
+                            <Transcript
+                                blocks={blocks}
+                                running={running}
+                                status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
+                                {...(watch.retry === undefined ? {} : { retry: watch.retry })}
+                                {...(folder === undefined ? {} : { folder })}
+                                {...(compacting === undefined || !liveTurn ? {} : { compaction: compacting })}
+                                replyMenu
+                            />
+                        </SubagentCardsProvider>
                     )}
                     {compacting === undefined || liveTurn ? null : <CompactionStatus compaction={compacting} />}
                     {ended ? (
@@ -151,9 +154,7 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                         requests={watch.requests}
                         send={send}
                         running={running}
-                        {...(watch.approval === undefined
-                            ? {}
-                            : { mode: watch.approval.mode, modes: watch.approval.modes })}
+                        {...paneAnswerContext(pane, watch.approval)}
                     />
                     <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
                 </div>
