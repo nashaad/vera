@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import { readFolderCustomizations } from "../../clients/desktop/src/customization-requests.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { parseHostRequest, type FolderCustomizationsResponse } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -168,6 +169,27 @@ socketTest("a malformed folder_customizations request gets no reading", async ()
     try {
         await expect(ask(setup.socketPath, { type: "folder_customizations", workspace: "relative/folder" })).rejects.toThrow();
         await expect(ask(setup.socketPath, { type: "folder_customizations", workspace: "" })).rejects.toThrow();
+    } finally {
+        await setup.close();
+    }
+});
+
+socketTest("@core the window reads a real host's answer for a folder and for a chat", async () => {
+    const setup = await startHost("vera-folder-customizations-window-");
+    try {
+        const inFolder = await readFolderCustomizations(setup.socketPath, setup.folder);
+        if (!inFolder.ok) throw new Error(inFolder.reason);
+        expect(inFolder.startsOn).toBe("default");
+        expect(inFolder.skills.map((skill) => skill.name)).toEqual(expect.arrayContaining(["nest-check", "mast-watch"]));
+        expect(inFolder.agents.find((agent) => agent.name === "plan")).toMatchObject({ scope: "project" });
+        expect(inFolder.sources.find((source) => source.id === "skills:nest-check")).toMatchObject({ scope: "project", category: "skills" });
+        expect(inFolder.sources.find((source) => source.category === "instructions")?.content).toContain("Caw before you commit.");
+
+        const chat = await readFolderCustomizations(setup.socketPath, undefined);
+        if (!chat.ok) throw new Error(chat.reason);
+        expect(chat.skills.map((skill) => skill.name)).toContain("mast-watch");
+        expect(chat.skills.map((skill) => skill.name)).not.toContain("nest-check");
+        expect(chat.agents.map((agent) => agent.name)).not.toContain("plan");
     } finally {
         await setup.close();
     }

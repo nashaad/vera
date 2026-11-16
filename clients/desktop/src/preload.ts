@@ -15,6 +15,7 @@ import type {
     FeedbackSaveResult,
     DesktopEvent,
     ExtensionFailuresResult,
+    FolderCustomizationsResult,
     NewSessionAgentsResult,
     FilePreview,
     FolderListing,
@@ -145,6 +146,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
     readNewSessionAgents: async (workspace: string | undefined) =>
         (await ipcRenderer.invoke(CHANNELS.newSessionAgents, workspace)) as NewSessionAgentsResult,
+    readFolderCustomizations: async (workspace: string | undefined) =>
+        (await ipcRenderer.invoke(CHANNELS.folderCustomizations, workspace)) as FolderCustomizationsResult,
     readAnnexPages: async () => (await ipcRenderer.invoke(CHANNELS.annexPages)) as AnnexPagesResult,
     openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
     browser: async (command: string, value?: string | number | boolean | null | BrowserBounds) =>

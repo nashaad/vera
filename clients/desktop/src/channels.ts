@@ -61,6 +61,7 @@ export const CHANNELS = {
     folderReveal: "vera:folder-reveal",
     extensionFailures: "vera:extension-failures",
     newSessionAgents: "vera:new-session-agents",
+    folderCustomizations: "vera:folder-customizations",
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
     browser: "vera:browser",
