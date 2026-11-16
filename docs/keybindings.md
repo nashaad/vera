@@ -25,6 +25,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | Ctrl+\ | Cycle split and single-pane layouts. |
 | Escape | Stop work and keep the draft, clear an idle draft, or cancel a first Ctrl+C. |
 | Ctrl+C | Stop work, clear an idle draft, or exit with an empty composer when pressed twice. |
+| Ctrl+U, Ctrl+D | Scroll the transcript half a page up or down. Escape or Ctrl+C clears an idle draft. |
 
 With an empty composer, the first Ctrl+C only asks for a second press. The
 second press can come any time later, and Escape cancels the first. Ctrl+C
