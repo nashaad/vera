@@ -87,17 +87,17 @@ window.
   its sidebar row shows it. It is described under Session view.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
-  starts on the folder of the session last open, and lists no chats. The page reads through one
-  top-level session in that folder, preferring a running one, and names it under
-  the toolbar. A session that has stopped is not started by opening the page:
-  the page says the session is not running and offers `Start session`, which
-  resumes it without sending a message and then reads it. With
-  no session in the folder the page says so and offers New chat here. Pills
-  filter by kind with a count on each, a search box matches names and
+  starts on the folder of the session last open, and lists no chats. The page
+  asks the host to read the folder, so it needs no session: a stopped session is
+  not started and no message is sent. With no folder picked it lists the skills,
+  agents and extensions a new chat loads from the home, and no project items.
+  If the host was started before this request existed, the page says `Vera needs
+  a restart to read what this folder loads.` with Retry. Pills filter by kind
+  with a count on each, a search box matches names and
   descriptions, and Reload reads again. Items are grouped as This folder, Your
   home, Extensions, Built in and Other. Extensions included with Vera are not
   listed; their skills and agents are. A card shows the name, the description, the kind
-  and badges such as Current for the session's agent, Manual only for a skill
+  and badges such as Current for the agent a new session starts on, Manual only for a skill
   Vera does not load on its own, and an extension's state. An extension the host
   could not load shows its error. Picking a card opens a sheet with its facts
   and the file's text, and Show in Finder (Open folder on other platforms) when
@@ -137,8 +137,9 @@ window.
     `machine/desktop/chromium`, not in `config.json`, so other clients do not use
     them.
   - Agents has the Suggest keeping notes switch, on by default, and lists the
-    agents a session in the folder of the last open session can run as, with
-    their scope and description, read the same way as Customize. The list does
+    agents a session in the folder of the last open session can run as, or a new
+    chat when there is none, with their scope and description, read from the
+    host the same way as Customize, with or without a session. The list does
     not change them; Choose Agent does. With the switch on, each of the first
     two sessions the window creates afterwards is told to offer to keep notes
     once, when a conversation produces something worth keeping; later sessions

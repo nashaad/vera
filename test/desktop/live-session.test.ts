@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import { CORE_VIEWS } from "../../clients/ui/src/registry/core.ts";
-import { canStart, gateView, needsStartToRead, watchEnded } from "../../clients/ui/src/session/liveSession.ts";
+import { canStart, gateView, watchEnded } from "../../clients/ui/src/session/liveSession.ts";
 import type { SessionWatch } from "../../clients/ui/src/session/model.ts";
 import { initialWatch, reduceWatch, watchClosed } from "../../clients/ui/src/session/transcript.ts";
 import { parseSessionLine, type SessionMessage } from "../../clients/ui/src/session/wire.ts";
@@ -20,10 +19,6 @@ function failedWith(reason: string): SessionWatch {
 function loaded(): SessionWatch {
     const attached = reduceWatch(initialWatch("a1"), line({ type: "attached" }));
     return reduceWatch(attached, line({ type: "history", entries: [], status: "idle" }));
-}
-
-function row(overrides: Partial<SessionRow> = {}): SessionRow {
-    return { id: "s1", name: "s1", workspace: "/work", status: "idle", live: true, chat: false, ...overrides };
 }
 
 describe("a session the host stopped", () => {
@@ -79,14 +74,5 @@ describe("which views need the session", () => {
         for (const view of [CORE_VIEWS.files, CORE_VIEWS.output, CORE_VIEWS.browser, CORE_VIEWS.sessions]) {
             expect(gateView(view, closed)).toEqual({ kind: "open" });
         }
-    });
-});
-
-describe("customize and a stopped session", () => {
-    test("@core a stopped session is read only after the person starts it", () => {
-        expect(needsStartToRead(row({ live: true }), undefined)).toBe(false);
-        expect(needsStartToRead(row({ live: false }), undefined)).toBe(true);
-        expect(needsStartToRead(row({ live: false }), "s1")).toBe(false);
-        expect(needsStartToRead(row({ live: false }), "other")).toBe(true);
     });
 });

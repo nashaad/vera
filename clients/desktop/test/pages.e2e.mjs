@@ -1,7 +1,7 @@
 // Pages test for the desktop shell. Run with: node clients/desktop/test/pages.e2e.mjs
 // One session says a rare word; Search finds it, Work shows a slow turn finishing
 // while another page is open, the Workspace page counts the folder's sessions,
-// Devices describes this machine, Customize lists what the folder's session can use,
+// Devices describes this machine, Customize lists what the folder loads,
 // and the command palette and shortcuts sheet open from their keys.
 
 import { mkdirSync } from "node:fs";
@@ -138,7 +138,7 @@ try {
     await page.locator(".list-row-title", { hasText: "This Mac" }).click();
     await page.locator(".device-state", { hasText: "Connected" }).waitFor({ timeout: 10_000 });
 
-    // Customize reads the catalogs through the folder's session; Vera's own help skill is always there.
+    // Customize reads the folder from the host; Vera's own help skill is always there.
     await openPage("customize");
     await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 20_000 });
     await page.locator(".customize-card[data-name=\"vera-help\"]").click();

@@ -10,12 +10,6 @@
     overflow-y: auto;
 }
 
-.customize-source {
-    margin: calc(var(--vera-space) * -3) 0 calc(var(--vera-space) * 4);
-    color: var(--vera-text-disabled);
-    font-size: var(--vera-font-size-label);
-}
-
 .customize-note {
     margin: 0 0 calc(var(--vera-space) * 3);
     color: var(--vera-text-dim);

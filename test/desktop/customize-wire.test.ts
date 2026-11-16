@@ -2,20 +2,11 @@ import { expect, test } from "bun:test";
 
 import { parseFailures } from "../../clients/desktop/src/extension-requests.ts";
 import {
-    IDLE_PROBE,
-    probeFailed,
-    probeIds,
-    probeTarget,
-    reduceProbe,
-    startProbe,
-} from "../../clients/ui/src/customize/probe.ts";
-import {
     CATALOG_LIMIT,
     listSkillsCommand,
     parseCatalogLine,
     selectAgentCommand,
 } from "../../clients/ui/src/customize/wire.ts";
-import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 
 function frame(value: unknown): string {
     return JSON.stringify(value);
@@ -91,45 +82,6 @@ test("agent selection replies carry the name or the reason", () => {
         .toEqual({ type: "agent_rejected", requestId: "x", reason: "No agent named ghost." });
     expect(parseCatalogLine("not json")).toBeUndefined();
     expect(parseCatalogLine(frame({ type: "history", requestId: "x" }))).toBeUndefined();
-});
-
-test("@core the probe is ready only when all three of its own replies arrived", () => {
-    const ids = probeIds("t");
-    let state = startProbe("agent-1");
-    state = reduceProbe(state, ids, { type: "skills", requestId: "someone-else", skills: [], warnings: [] });
-    expect(state.skills).toBeUndefined();
-    state = reduceProbe(state, ids, { type: "skills", requestId: ids.skills, skills: [], warnings: ["w"] });
-    state = reduceProbe(state, ids, { type: "sources", requestId: ids.sources, sources: [], warnings: [] });
-    expect(state.phase).toBe("loading");
-    state = reduceProbe(state, ids, { type: "agents", requestId: ids.agents, selected: "", agents: [], notices: ["n"] });
-    expect(state.phase).toBe("ready");
-    expect(state.warnings).toEqual(["w", "n"]);
-    expect(probeFailed(state, "late").phase).toBe("ready");
-    expect(probeFailed(startProbe("a"), "timed out")).toEqual({ phase: "failed", agentId: "a", warnings: [], error: "timed out" });
-    expect(reduceProbe(IDLE_PROBE, ids, { type: "skills", requestId: ids.skills, skills: [], warnings: [] })).toBe(IDLE_PROBE);
-});
-
-function row(id: string, extra: Partial<SessionRow> = {}): SessionRow {
-    return { id, name: id, workspace: "/p/crow", status: "idle", live: false, chat: false, ...extra };
-}
-
-test("the probe reads through a live top-level session in the folder before a newer parked one", () => {
-    const rows = [
-        row("parked", { updatedAt: 9 }),
-        row("live", { updatedAt: 2, live: true }),
-        row("child", { updatedAt: 10, live: true, parentId: "live" }),
-        row("elsewhere", { workspace: "/p/heron", live: true, updatedAt: 20 }),
-    ];
-    expect(probeTarget(rows, "/p/crow")?.id).toBe("live");
-    expect(probeTarget(rows)?.id).toBe("elsewhere");
-    expect(probeTarget(rows, "/p/none")).toBeUndefined();
-    expect(probeTarget([row("a", { updatedAt: 1 }), row("b", { updatedAt: 5 })], "/p/crow")?.id).toBe("b");
-});
-
-test("a chat is never the probe target", () => {
-    const rows = [row("chat", { workspace: "/h/c.jsonl.files", live: true, updatedAt: 50, chat: true }), row("a", { updatedAt: 1 })];
-    expect(probeTarget(rows)?.id).toBe("a");
-    expect(probeTarget(rows, "/h/c.jsonl.files")).toBeUndefined();
 });
 
 test("extension failures parse into ids and messages, and a malformed entry refuses the reply", () => {

@@ -1,7 +1,7 @@
 // Start session test for the desktop shell. Run with: node clients/desktop/test/startsession.e2e.mjs
-// The host stops a session while its page is open: the page, the context pill and Customize
-// each say it is not running and offer Start session. Starting resumes it on the host without
-// sending a message, and the view loads without another click.
+// The host stops a session while its page is open: the page and the context pill each say it is
+// not running and offer Start session. Starting resumes it on the host without sending a message,
+// and the view loads without another click. Customize reads the folder without the session.
 
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -109,25 +109,18 @@ try {
     if (turns !== 1) throw new Error(`Starting the session sent a message: ${turns} turns.`);
     if (await page.locator(".turn").count() > 1) throw new Error("Starting the session added a turn.");
 
-    // Customize reads through the session, so for a stopped one it asks before starting it.
+    // Customize reads the folder from the host, so a stopped session needs no start.
     await stop();
     await strip.waitFor({ timeout: 15_000 });
     await until("the row to show the session stopped", async () => (await row.getAttribute("data-live")) === "false", 30_000);
     await page.locator("[data-page=\"customize\"]").first().click();
     await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
-    const offer = page.locator(".empty-state", { hasText: "This session is not running" });
-    await offer.waitFor({ timeout: 10_000 });
-    await offer.locator("[data-start-session]").waitFor({ timeout: 5_000 });
-    // The desktop extensions are listed with or without a session, so only the session's own items are counted.
-    if (await page.locator(".customize-card:not([data-desktop-extension])").count() !== 0) throw new Error("Customize listed items before the session started.");
+    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 30_000 });
+    if (await page.locator("main[data-page=\"customize\"] [data-start-session]").count() !== 0) throw new Error("Customize offered Start session.");
     // Sessions refresh every few seconds; the row stays stopped across several of them.
     await new Promise((resolve) => setTimeout(resolve, 8_000));
     if (await row.getAttribute("data-live") !== "false") throw new Error("Opening Customize started the session.");
-
-    await offer.locator("[data-start-session]").click();
-    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 30_000 });
-    await offer.waitFor({ state: "detached", timeout: 5_000 });
-    if (turns !== 1) throw new Error(`Reading the session sent a message: ${turns} turns.`);
+    if (turns !== 1) throw new Error(`Reading the folder sent a message: ${turns} turns.`);
     console.log("startsession e2e passed");
 } catch (error) {
     failed = true;
