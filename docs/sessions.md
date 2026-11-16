@@ -30,6 +30,11 @@ read earlier text, the row containing that text stays at the top. Returning to
 the original width restores the original row until you scroll or the transcript
 changes. At the bottom, the transcript continues to follow new text.
 
+A `write` or `edit` that ran and returned an error is headed **Failed**, also
+when you reopen the conversation. A call denied by the classifier or skipped
+by a halt is headed **Did not run**. Other tools that return errors keep their
+usual headings, such as **Ran** or **Explored**.
+
 Older parts of a long conversation load as you scroll up, in the main transcript
 and in a side pane.
 

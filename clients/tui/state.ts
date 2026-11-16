@@ -705,6 +705,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                     update.tool,
                     update.output,
                     update.processId,
+                    update.isError,
                 ),
                 state.toolDetailsExpanded,
             ),
@@ -2193,6 +2194,7 @@ const TOOL_HEADER_GROUPS: Readonly<Record<string, string>> = {
     Ran: "Ran",
     Editing: "Edited",
     Edited: "Edited",
+    Failed: "Failed",
     Delegating: "Delegated",
     Delegated: "Delegated",
     Asking: "Asked",
@@ -2202,6 +2204,7 @@ const TOOL_HEADER_GROUPS: Readonly<Record<string, string>> = {
 };
 
 const NOT_RUN_HEADER = "Did not run";
+const FAILED_EDIT_HEADER = "Failed";
 
 function toolHeaderGroup(header: string): string {
     return TOOL_HEADER_GROUPS[header] ?? header;
@@ -2300,19 +2303,20 @@ function withToolEntry(
     active: boolean,
     withheld = false,
     entryId?: string,
+    failed = false,
 ): TuiTranscriptEntry[] {
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
         && entry.kind !== "thinking"
     );
     const previous = entries[previousIndex];
-    const header = withheld ? NOT_RUN_HEADER : toolHeader(tool, active);
+    const header = withheld ? NOT_RUN_HEADER : failed ? FAILED_EDIT_HEADER : toolHeader(tool, active);
     const row = toolRowText(tool, args);
     const activity = active ? toolActivity(tool, args) : undefined;
     const repeated = previous?.kind === "tool"
         && previous.header === header
         && previous.text === row;
-    if (!active && repeated) {
+    if (!active && !failed && repeated) {
         const counted: TuiTranscriptEntry = withTranscriptEntryAlias({
             ...previous,
             repeat: (previous.repeat ?? 1) + 1,
@@ -2387,7 +2391,11 @@ function finishToolEntry(
     tool: string,
     output?: string,
     processId?: string,
+    isError = false,
 ): TuiTranscriptEntry[] {
+    if (tool === "edit" || tool === "write") {
+        return finishEditToolEntry(entries, tool, output, isError);
+    }
     const toolIndex = entries.findIndex((entry) =>
         entry.kind === "tool" && entry.active === true && entry.tool === tool
     );
@@ -2475,6 +2483,137 @@ function finishToolEntry(
         text: toolResultText(output, tool),
     });
     return completed;
+}
+
+function finishEditToolEntry(
+    entries: readonly TuiTranscriptEntry[],
+    tool: string,
+    output: string | undefined,
+    isError: boolean,
+): TuiTranscriptEntry[] {
+    const toolIndex = entries.findIndex((entry) =>
+        entry.kind === "tool" && entry.active === true && entry.tool === tool
+    );
+    if (toolIndex === -1) return [...entries];
+    let headerIndex = toolIndex - 1;
+    while (headerIndex >= 0 && entries[headerIndex]?.kind !== "tool_header") headerIndex -= 1;
+    const groupHeader = entries[headerIndex];
+    const call = entries[toolIndex];
+    if (groupHeader?.kind !== "tool_header" || call?.kind !== "tool") return [...entries];
+
+    let groupEnd = headerIndex + 1;
+    while (groupEnd < entries.length && (
+        entries[groupEnd]?.kind === "tool"
+        || entries[groupEnd]?.kind === "review"
+        || entries[groupEnd]?.kind === "thought"
+        || entries[groupEnd]?.kind === "thinking"
+    )) groupEnd += 1;
+
+    const { active: _active, tool: _tool, activity: _activity, ...completed } = call;
+    const header = isError ? FAILED_EDIT_HEADER : toolHeader(tool, false);
+    const body = entries.slice(headerIndex + 1, groupEnd);
+    const position = toolIndex - headerIndex - 1;
+    body[position] = {
+        ...completed,
+        header,
+        ...(output === undefined ? {} : { prefix: "  │ ", hasResult: true }),
+    };
+    if (output !== undefined) {
+        body.splice(position + 1, 0, {
+            kind: "tool",
+            header,
+            result: true,
+            prefix: "  └ ",
+            text: toolResultText(output, tool),
+        });
+    }
+
+    const groups: TuiTranscriptEntry[][] = [];
+    let rows: TuiTranscriptEntry[] = [];
+    let failed: boolean | undefined;
+    for (const row of body) {
+        if (row.kind === "tool" && row.result !== true) {
+            const rowFailed = row.header === FAILED_EDIT_HEADER;
+            if (failed !== undefined && failed !== rowFailed) {
+                groups.push(rows);
+                rows = [];
+            }
+            failed = rowFailed;
+        }
+        rows.push(row);
+    }
+    if (rows.length > 0) groups.push(rows);
+
+    const { active: _headerActive, ...plainHeader } = groupHeader;
+    const rebuilt = groups.flatMap((group, index): TuiTranscriptEntry[] => {
+        const groupFailed = group.some((row) =>
+            row.kind === "tool" && row.result !== true && row.header === FAILED_EDIT_HEADER
+        );
+        const active = group.some((row) => row.kind === "tool" && row.active === true);
+        const groupLabel = groupFailed ? FAILED_EDIT_HEADER : toolHeader(tool, active);
+        return [{
+            ...plainHeader,
+            header: groupLabel,
+            text: groupLabel,
+            ...(active ? { active: true } : {}),
+            ...(index === 0 ? {} : { reviewSplit: undefined }),
+        }, ...group.map((row) => row.kind === "tool" ? { ...row, header: groupLabel } : row)];
+    });
+    return foldFailedToolGroups([
+        ...entries.slice(0, headerIndex),
+        ...rebuilt,
+        ...entries.slice(groupEnd),
+    ]);
+}
+
+function foldFailedToolGroups(entries: readonly TuiTranscriptEntry[]): TuiTranscriptEntry[] {
+    const next: TuiTranscriptEntry[] = [];
+    let failedGroup = false;
+    let previousCall = -1;
+    let reviewBoundary = false;
+    for (const entry of entries) {
+        if (entry.kind === "tool_header") {
+            if (entry.header === FAILED_EDIT_HEADER) {
+                if (!failedGroup || entry.reviewSplit === true || reviewBoundary) {
+                    next.push(entry);
+                    previousCall = -1;
+                }
+                failedGroup = true;
+            } else {
+                next.push(entry);
+                failedGroup = false;
+                previousCall = -1;
+            }
+            reviewBoundary = false;
+            continue;
+        }
+        if (entry.kind === "review") {
+            reviewBoundary = true;
+        } else if (entry.kind !== "thought" && entry.kind !== "thinking") {
+            reviewBoundary = false;
+        }
+        if (failedGroup && entry.kind === "tool" && entry.result !== true) {
+            const previous = next[previousCall];
+            if (previous?.kind === "tool" && previous.text === entry.text) {
+                let counted = withTranscriptEntryAlias({
+                    ...previous,
+                    repeat: (previous.repeat ?? 1) + (entry.repeat ?? 1),
+                }, entry.entryId);
+                for (const alias of entry.entryAliases ?? []) {
+                    counted = withTranscriptEntryAlias(counted, alias);
+                }
+                next[previousCall] = counted;
+                continue;
+            }
+            previousCall = next.length;
+        } else if (failedGroup && entry.kind !== "tool" && entry.kind !== "review"
+            && entry.kind !== "thought" && entry.kind !== "thinking") {
+            failedGroup = false;
+            previousCall = -1;
+        }
+        next.push(entry);
+    }
+    return next;
 }
 
 function toolResultText(output: string, tool?: string): string {
@@ -2735,6 +2874,16 @@ function toTuiTranscriptEntries(
     let converted: TuiTranscriptEntry[] = [];
     const withheld = withheldToolEntries(entries);
     const pairs = toolCallPairs(entries);
+    const failedEdits = new Set<TranscriptEntry>();
+    for (const [result, call] of pairs) {
+        if (result.kind === "tool_result" && result.isError === true && result.withheld !== true
+            && call.kind === "tool" && (call.tool === "edit" || call.tool === "write")) {
+            failedEdits.add(call);
+        }
+    }
+    const remainingResults = failedEdits.size === 0
+        ? undefined
+        : new WeakMap<TuiTextTranscriptEntry, number>();
     for (const entry of entries) {
         // A body that was only whitespace never opened a row live, so a rebuild drops it.
         const blankAssistant = entry.kind === "assistant" && entry.text.trim().length === 0;
@@ -2750,6 +2899,7 @@ function toTuiTranscriptEntries(
                     false,
                     withheld.has(entry),
                     entry.id,
+                    failedEdits.has(entry),
                 )
                 : withWaitPoll(
                     converted,
@@ -2770,6 +2920,7 @@ function toTuiTranscriptEntries(
                     entry.tool,
                     entry.output,
                     entry.classifierOutcome,
+                    remainingResults,
                     entry.processId,
                     entry.id,
                 )
@@ -2798,7 +2949,7 @@ function toTuiTranscriptEntries(
             converted.push(workedDividerEntry(entry.turnTiming));
         }
     }
-    return converted;
+    return failedEdits.size === 0 ? converted : foldFailedToolGroups(converted);
 }
 
 // Pairs results with calls in order, the same way withHistoricalToolResult does.
@@ -2926,6 +3077,7 @@ function withHistoricalToolResult(
     tool: string,
     output: string,
     classifierOutcome: ClassifierOutcome | undefined,
+    remainingResults: WeakMap<TuiTextTranscriptEntry, number> | undefined,
     processId?: string,
     entryId?: string,
 ): TuiTranscriptEntry[] {
@@ -2946,30 +3098,38 @@ function withHistoricalToolResult(
     if (callIndex === -1) {
         return [...entries, ...outcomeRows];
     }
+    const call = entries[callIndex];
+    if (call?.kind !== "tool") return [...entries, ...outcomeRows];
+    const remaining = remainingResults === undefined
+        ? 1
+        : remainingResults.get(call) ?? call.repeat ?? 1;
+    const completed = {
+        ...call,
+        ...(remaining === 1 ? { hasResult: true } : {}),
+        ...(classifierOutcome === undefined ? { prefix: "  │ " } : {}),
+        ...(classifierOutcome === undefined && tool === "bash" && processId !== undefined
+            ? { startedProcessId: processId }
+            : {}),
+    };
+    const markedCall = classifierOutcome === undefined
+        ? completed
+        : withTranscriptEntryAlias(completed, entryId);
+    if (remaining > 1) remainingResults?.set(markedCall, remaining - 1);
+    const next = entries.map((entry, index) => index === callIndex ? markedCall : entry);
+    let resultIndex = callIndex + 1;
+    if (remainingResults !== undefined) {
+        while (true) {
+            const row = next[resultIndex];
+            if (row?.kind !== "tool" || row.result !== true) break;
+            resultIndex += 1;
+        }
+    }
     // The classifier's own row, or the turn's CLASSIFIER FAILED error, already says why.
     if (classifierOutcome !== undefined) {
-        const marked = entries.map((entry, index) =>
-            index === callIndex && entry.kind === "tool"
-                ? withTranscriptEntryAlias({ ...entry, hasResult: true }, entryId)
-                : entry
-        );
-        marked.splice(callIndex + 1, 0, ...outcomeRows);
-        return marked;
+        next.splice(resultIndex, 0, ...outcomeRows);
+        return next;
     }
-    const call = entries[callIndex]!;
-    const next = entries.map((entry, index) =>
-        index === callIndex && entry.kind === "tool"
-            ? {
-                ...entry,
-                hasResult: true,
-                prefix: "  │ ",
-                ...(tool === "bash" && processId !== undefined
-                    ? { startedProcessId: processId }
-                    : {}),
-            }
-            : entry
-    );
-    next.splice(callIndex + 1, 0, {
+    next.splice(resultIndex, 0, {
         kind: "tool",
         header: call.kind === "tool" ? call.header : toolHeader(tool, false),
         result: true,

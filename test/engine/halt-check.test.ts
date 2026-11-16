@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState, type TurnHaltCheck } from "../../src/engine/run-turn.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { buildModelRequest } from "../../src/engine/model-request.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import {
@@ -16,6 +17,7 @@ import {
     type ToolResultMessage,
 } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 
@@ -75,7 +77,7 @@ async function setup(
         ...(haltCheck === undefined ? {} : { haltCheck }),
     };
     channel.client.send({ type: "prompt", content: "read the files" });
-    return { adapter, requests, state };
+    return { adapter, requests, state, workspace };
 }
 
 function toolResults(messages: readonly { role: string }[]): ToolResultMessage[] {
@@ -116,6 +118,47 @@ test("halt between tool calls skips the remaining calls and keeps results paired
     expect(results[0]!.isError).toBeFalsy();
     expect(results[1]!.content).toEqual([{ type: "text", text: "Not run: session blocked" }]);
     expect(results[2]!.content).toEqual([{ type: "text", text: "Not run: session blocked" }]);
+});
+
+test("a halted batch persists skipped results as withheld", async () => {
+    let checks = 0;
+    const { adapter, requests, state, workspace } = await setup(
+        [readCalls(["a", "b"]), reply("unused")],
+        () => ++checks >= 3 ? "session blocked" : undefined,
+    );
+    const path = join(workspace, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "halted", cwd: workspace });
+        const storedState = { ...state, store };
+        await runTurn(adapter, "test", storedState);
+
+        expect(requests).toHaveLength(1);
+        const results = toolResults((await SessionStore.open(path)).messages());
+        expect(results).toHaveLength(2);
+        expect(results[0]).toMatchObject({ toolCallId: "a", isError: false });
+        expect(results[0]?.withheld).toBeUndefined();
+        expect(results[1]).toMatchObject({
+            toolCallId: "b",
+            isError: true,
+            withheld: true,
+            content: [{ type: "text", text: "Not run: session blocked" }],
+        });
+        const skipped = results[1]!;
+        const { withheld: _withheld, ...withoutFlag } = skipped;
+        const requestMessages = (result: ToolResultMessage) => buildModelRequest({
+            model: "test",
+            maxTokens: 4096,
+            messages: [result],
+            tools: [],
+            workspace,
+            date: new Date(2026, 10, 16),
+            projectInstructions: { files: [], warnings: [] },
+            signal: new AbortController().signal,
+        }).messages;
+        expect(requestMessages(skipped)).toEqual(requestMessages(withoutFlag));
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
 });
 
 test("a check that turns true after a tool finishes stops before the next model request", async () => {
