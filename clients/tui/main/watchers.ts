@@ -106,7 +106,8 @@ export function writeTerminal(rt: TuiRuntime, sequence: string): void {
 export function applyBackgroundAgents(rt: TuiRuntime, 
     agents: BackgroundAgentsSnapshot | undefined,
 ): void {
-    rt.runningBackgroundAgents = agents?.running ?? 0;
+    rt.runningBackgroundAgents = agents?.children.length ?? 0;
+    rt.hostRunningBackgroundAgents = agents?.running ?? 0;
     rt.runningBackgroundAgentNames = [...new Set(agents?.children ?? [])];
     rt.currentAgentHasParent = agents?.has_parent ?? false;
 }

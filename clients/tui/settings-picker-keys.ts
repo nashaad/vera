@@ -135,7 +135,8 @@ function leaveConfirmKey(
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return unchanged(state, false);
     }
-    if (creating && !key.shift && (key.name === "1" || key.name === "2")) {
+    const shortcut = !key.shift && (key.name === "1" || key.name === "2");
+    if (creating && shortcut) {
         return {
             selection: {
                 kind: "session_create_leave",
@@ -162,8 +163,8 @@ function leaveConfirmKey(
             handled: true,
         };
     }
-    const choice = state.options[state.selectedIndex];
-    if ((key.name !== "return" && key.name !== "enter") || choice === undefined) {
+    const choice = state.options[shortcut ? Number(key.name) - 1 : state.selectedIndex];
+    if ((!shortcut && key.name !== "return" && key.name !== "enter") || choice === undefined) {
         return unchanged(state, true);
     }
     const sourceDisposition = choice.value === "keep_running"

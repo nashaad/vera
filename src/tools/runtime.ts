@@ -126,7 +126,9 @@ export class ToolRuntime {
     ): void {
         const snapshot = this.fileSnapshots.get(path);
         if (snapshot === undefined) {
-            throw new Error(`Read ${requestedPath} before editing it`);
+            throw new Error(
+                `Read ${requestedPath} with the read tool through its last line before editing it.`,
+            );
         }
         if (snapshot !== content) {
             throw new Error(`File changed since it was read: ${requestedPath}`);

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { homedir } from "node:os";
 
+import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
+import { applyBackgroundAgents } from "../../clients/tui/main/watchers.ts";
 import {
     needsYouChipColumns,
     renderTuiCompactionHint,
@@ -364,6 +366,26 @@ test("the idle status line reports the background agents still running", () => {
     // Back to the plain hint once the children are done.
     expect(renderTuiIdleHint("ready · Ctrl+P commands", 0))
         .toBe("ready · Ctrl+P commands");
+});
+
+test("the footer counts this conversation's children, not the host's running agents", () => {
+    const rt = {
+        runningBackgroundAgents: 0,
+        hostRunningBackgroundAgents: 0,
+        runningBackgroundAgentNames: [],
+        currentAgentHasParent: false,
+    } as unknown as TuiRuntime;
+    // Another conversation's child is running; this one started nothing.
+    applyBackgroundAgents(rt, { running: 1, children: [], has_parent: false });
+    expect(rt.runningBackgroundAgents).toBe(0);
+    expect(rt.hostRunningBackgroundAgents).toBe(1);
+    expect(renderTuiIdleHint("ready · Ctrl+P commands", rt.runningBackgroundAgents))
+        .toBe("ready · Ctrl+P commands");
+    // This conversation's own children are what the footer reports.
+    applyBackgroundAgents(rt, { running: 3, children: ["one", "two"], has_parent: false });
+    expect(rt.runningBackgroundAgents).toBe(2);
+    expect(renderTuiIdleHint("ready", rt.runningBackgroundAgents))
+        .toBe("waiting for 2 background agents");
 });
 
 test("the place row keeps ready off the band while a turn is live", () => {

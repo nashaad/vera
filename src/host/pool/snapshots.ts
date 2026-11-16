@@ -63,15 +63,16 @@ export class RoutedSnapshots {
         for (const entry of current) {
             if (entry.owner === "host") continue;
             const pid = this.workers.find((worker) => worker.id === entry.owner)?.pid?.();
-            if (pid !== undefined) {
-                entry.snapshot = {
-                    ...entry.snapshot,
-                    summaries: entry.snapshot.summaries.map((summary) => ({
-                        ...summary,
-                        worker_pid: pid,
-                    })),
-                };
-            }
+            const residents = new Set(entry.snapshot.residents.filter((session) => !session.closed).map((session) => session.id));
+            entry.snapshot = {
+                ...entry.snapshot,
+                summaries: entry.snapshot.summaries.map((summary) => {
+                    if (residents.has(summary.id)) return pid === undefined ? summary : { ...summary, worker_pid: pid };
+                    if (summary.worker_pid === undefined) return summary;
+                    const { worker_pid: _workerPid, ...stored } = summary;
+                    return stored;
+                }),
+            };
             this.lastWorkers.set(entry.owner, entry.snapshot);
         }
         for (const worker of this.workers) {

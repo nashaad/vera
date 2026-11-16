@@ -41,14 +41,16 @@ fi
 mkdir "$work/out"
 
 git -C "$root" bundle create "$work/source.bundle" HEAD >/dev/null 2>&1
-git -C "$root" ls-files -z --modified --others --exclude-standard >"$work/changes.list"
+{
+    git -C "$root" -c diff.renames=false diff --name-only -z --diff-filter=ACMT HEAD --
+    git -C "$root" ls-files -z --others --exclude-standard
+} >"$work/changes.list"
 if [ -s "$work/changes.list" ]; then
-    (cd "$root" && COPYFILE_DISABLE=1 xargs -0 tar --no-xattrs -cf "$work/changes.tar" -- <"$work/changes.list") 2>/dev/null
+    (cd "$root" && COPYFILE_DISABLE=1 tar --no-xattrs -cf "$work/changes.tar" --null -T "$work/changes.list") 2>/dev/null
 else
     tar -cf "$work/changes.tar" -T /dev/null
 fi
-deleted=$(git -C "$root" ls-files --deleted)
-printf '%s\n' "$deleted" >"$work/deleted.txt"
+git -C "$root" -c diff.renames=false diff --name-only -z --diff-filter=D HEAD -- >"$work/deleted.list"
 
 echo "== build: linux/$arch tarball"
 docker run --rm --init --platform "$docker_platform" \
@@ -60,8 +62,8 @@ docker run --rm --init --platform "$docker_platform" \
         apt-get install -y --no-install-recommends git ca-certificates >/dev/null
         git -c advice.detachedHead=false clone -q /smoke/source.bundle /src
         cd /src
+        xargs -0 -r rm -f -- </smoke/deleted.list
         tar --warning=no-unknown-keyword -xf /smoke/changes.tar
-        while IFS= read -r path; do [ -n "$path" ] && rm -f -- "$path"; done </smoke/deleted.txt
         bun install --frozen-lockfile >/tmp/install.log 2>&1 || { tail -30 /tmp/install.log; exit 1; }
         bun run scripts/pack-web.ts dist/release/annex >/tmp/pack-web.log 2>&1 || { tail -30 /tmp/pack-web.log; exit 1; }
         # Packed on the container filesystem: a host bind mount can damage the compiled binary.

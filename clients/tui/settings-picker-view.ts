@@ -879,7 +879,8 @@ function optionRowLabel(
     row: Extract<PickerDisplayRow, { kind: "option" }>,
 ): string {
     return (digitQuickSelect(state) && state.kind !== "settings"
-            || state.kind === "session_create_leave")
+            || state.kind === "session_create_leave"
+            || state.kind === "session_leave")
             && state.query === ""
             && row.index < 9
         ? `${row.index + 1}. ${row.option.label}`
@@ -1935,7 +1936,7 @@ export function pickerFooterText(
 ): string {
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
-    if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
+    if (state.kind === "session_leave") return "1/2 switch · ↑↓ choose · ⏎ switch · esc back";
     if (state.kind === "session_preview") {
         return [
             "↑↓ scroll",

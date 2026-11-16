@@ -12,10 +12,10 @@ export function childRows(rows: readonly SessionRow[], parentId: string): Sessio
         .sort((left, right) => Number(isRunningRow(right)) - Number(isRunningRow(left)));
 }
 
-// The listed child rows may lag the session's own count, so the larger of the two wins.
+// The listed child rows may lag the session's own children, so the larger of the two wins.
 export function runningChildCount(rows: readonly SessionRow[], parentId: string, background: BackgroundAgents | undefined): number {
     const listed = rows.filter((row) => row.parentId === parentId && isRunningRow(row)).length;
-    return Math.max(listed, background?.running ?? 0);
+    return Math.max(listed, background?.children.length ?? 0);
 }
 
 // Running children the session reports by title but the listing does not carry.

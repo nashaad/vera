@@ -1,5 +1,6 @@
 import type { CompactionState, NoticeTone } from "./model.ts";
 import type { ModelFailure, Substitution } from "./wireTools.ts";
+import { droppedCompactionNotice, failedDropNotice } from "../../../shared/compaction-notice.ts";
 
 // Words for substitution, failure and compaction notices. Mirrors the host's own substitution sentence.
 
@@ -56,20 +57,22 @@ export function compactionNotice(compaction: CompactionState): CompactionNotice 
     const why = compaction.reason === undefined ? "" : ` ${compaction.reason}`;
     switch (compaction.outcome) {
         case "compacted": {
+            const dropped = droppedCompactionNotice(compaction.strategy);
+            if (dropped !== undefined) return { tone: "warning", text: dropped };
             const counts = compactedCounts(compaction.tokensBefore, compaction.tokensAfter);
             return { tone: "info", text: `Compacted the conversation${counts}.` };
         }
         case "not_needed":
             return { tone: "info", text: `Nothing to compact yet.${why}` };
         case "no_boundary":
-            return { tone: "info", text: `Nothing older to summarize yet.${why}` };
+            return { tone: "info", text: failedDropNotice(compaction.strategy, compaction.reason) ?? `Nothing older to summarize yet.${why}` };
         case "busy":
             return { tone: "warning", text: "Compact waits until the turn ends and the queue is empty." };
         case "cancelled":
             return { tone: "info", text: "Compaction was cancelled." };
         case "rejected":
         case "unavailable":
-            return { tone: "warning", text: `Compaction did not run.${why}` };
+            return { tone: "warning", text: failedDropNotice(compaction.strategy, compaction.reason) ?? `Compaction did not run.${why}` };
         default:
             return undefined;
     }

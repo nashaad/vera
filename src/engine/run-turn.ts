@@ -2343,6 +2343,7 @@ function haltedToolResult(toolCall: ToolCallContent, reason: string): CompletedT
         toolName: toolCall.name,
         content: [{ type: "text", text: `Not run: ${reason}` }],
         isError: true,
+        withheld: true,
     };
 }
 

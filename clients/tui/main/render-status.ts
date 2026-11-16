@@ -315,7 +315,7 @@ export function renderStatus(rt: TuiRuntime): void {
             statusState.approvalMode,
             statusState.context,
             process.cwd(),
-            rt.runningBackgroundAgents,
+            rt.hostRunningBackgroundAgents,
             rt.state.working
                 ? "working"
                 : uiRequest === undefined
