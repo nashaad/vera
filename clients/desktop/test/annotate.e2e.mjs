@@ -162,7 +162,7 @@ try {
         };
     });
     if (sampledPixels.background.join(",") !== "240,240,240,255") throw new Error(`The selected image background pixel is ${sampledPixels.background.join(",")}.`);
-    if (sampledPixels.rectangle.join(",") !== "217,119,87,255") throw new Error(`The rectangle stroke pixel is ${sampledPixels.rectangle.join(",")}.`);
+    if (sampledPixels.rectangle.join(",") !== "232,88,42,255") throw new Error(`The rectangle stroke pixel is ${sampledPixels.rectangle.join(",")}.`);
     if (!(await card.innerText()).includes("Element\n<p /> #target")) throw new Error(`The capture card lacks element details: ${await card.innerText()}`);
     if (!(await card.innerText()).includes("This domain is for annotation testing.")) throw new Error("The capture card lacks the selected text.");
     await card.getByRole("button", { name: "Show details" }).click();

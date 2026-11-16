@@ -16,7 +16,7 @@
     --vera-text: #e6e6e6;
     --vera-text-muted: #b4b4b4;
     --vera-text-dim: #8a8a8a;
-    --vera-accent: #d97757;
+    --vera-accent: #e8582a;
     --vera-accent-text: #000000;
     --vera-danger: #d16b5e;
     --vera-shadow: 0 12px 34px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.05);
@@ -46,7 +46,7 @@
         --vera-text: #1a1916;
         --vera-text-muted: #5c5b55;
         --vera-text-dim: #66655e;
-        --vera-accent: #c2512c;
+        --vera-accent: #e8582a;
         --vera-accent-text: #ffffff;
         --vera-danger: #b13228;
         --vera-shadow: 0 12px 34px rgba(60, 50, 35, 0.18), 0 0 0 1px rgba(60, 50, 35, 0.08);
