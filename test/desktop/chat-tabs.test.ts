@@ -53,8 +53,8 @@ afterEach(() => {
 
 describe("session panes", () => {
     test("@core the shell serves the fixed panes and chat slots below the limit, and nothing else", () => {
-        for (const pane of ["main", "companion", "probe", "chat:0", `chat:${CHAT_PANE_LIMIT - 1}`]) expect(isSessionPane(pane)).toBe(true);
-        for (const pane of [`chat:${CHAT_PANE_LIMIT}`, "chat:01", "chat:-1", "chat:", "chat:1e1", "chat:0 ", "chat", "side", "", 3, undefined, null]) {
+        for (const pane of ["main", "companion", "chat:0", `chat:${CHAT_PANE_LIMIT - 1}`]) expect(isSessionPane(pane)).toBe(true);
+        for (const pane of [`chat:${CHAT_PANE_LIMIT}`, "chat:01", "chat:-1", "chat:", "chat:1e1", "chat:0 ", "chat", "side", "probe", "", 3, undefined, null]) {
             expect(isSessionPane(pane)).toBe(false);
         }
     });
