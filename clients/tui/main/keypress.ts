@@ -530,6 +530,14 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 }
                 focusActiveSurface(rt);
             }
+            if (result.switchToAuto === true) {
+                requestPermissionsChange(
+                    rt,
+                    "auto",
+                    focusedAgentClient(rt),
+                    "session",
+                );
+            }
             renderState(rt);
             return;
         }

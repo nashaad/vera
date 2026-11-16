@@ -3,7 +3,6 @@ import { fg } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
-    describeGrantPredicate,
     tuiApprovalBody,
     tuiApprovalBodyText,
     tuiApprovalPath,
@@ -13,6 +12,7 @@ import {
 import {
     createTuiApprovalView,
     renderTuiApproval,
+    type TuiApprovalSession,
 } from "../../clients/tui/approval.ts";
 import {
     setTuiWorkspaceRoot,
@@ -27,12 +27,16 @@ beforeEach(() => {
     setTuiWorkspaceRoot(process.cwd());
 });
 
+const ask: TuiApprovalSession = {
+    mode: "ask",
+    modes: ["readonly", "ask", "auto"],
+};
+
 function approval(
     name: string,
     input: JsonObject,
     requestId = "request-1",
-): ToolApprovalUiRequestUpdate {
-    return {
+): ToolApprovalUiRequestUpdate {    return {
         type: "ui_request",
         requestId,
         request: {
@@ -275,7 +279,7 @@ test("ctrl+r expands the capped call in place", async () => {
     }
 });
 
-test("a set of predicates is written out rather than summarized", () => {
+test("the always-allow row carries the words and the body does not repeat them", () => {
     const update = approval("bash", { command: "curl https://example.com" });
     const single = {
         ...update,
@@ -283,19 +287,14 @@ test("a set of predicates is written out rather than summarized", () => {
             ...update.request,
             permissionGrants: [{
                 kind: "command" as const,
-                when: {
-                    tool: "bash",
-                    executable: "curl",
-                    path: `${process.cwd()}/clients`,
-                },
+                when: { tool: "bash", executable: "curl" },
                 scope: "session" as const,
                 lifetime: "session" as const,
             }],
         },
     };
-    // One grant fits on the choice label, and every field of it is written
-    // there: a label that named only the executable would understate the grant.
-    expect(renderTuiApproval(single)).toContain("2 Allow for this chat curl clients");
+    expect(renderTuiApproval(single, ask))
+        .toContain("2 Yes, and always allow curl commands");
     expect(tuiApprovalBodyText(single)).not.toContain("remember");
 
     const many = {
@@ -313,10 +312,10 @@ test("a set of predicates is written out rather than summarized", () => {
             ],
         },
     };
-    expect(renderTuiApproval(many)).toContain("\n2 Allow for this chat\n");
-    expect(tuiApprovalBodyText(many)).toContain("Allow for this chat and Always allow remember:");
-    // The tool name is implied by the executable, so it is not repeated.
-    expect(tuiApprovalBodyText(many)).toContain("- wget");
+    // Grants the words cannot describe fall back to the fixed phrase.
+    expect(renderTuiApproval(many, ask))
+        .toContain("2 Yes, and always allow actions like this");
+    expect(tuiApprovalBodyText(many)).not.toContain("remember");
 });
 
 test("a described bash call is approved by its command alone", () => {
@@ -327,11 +326,4 @@ test("a described bash call is approved by its command alone", () => {
 
     expect(body).toContain("rm -rf build");
     expect(body).not.toContain("Tidy up a little");
-});
-
-test("a grant description includes the host", () => {
-    expect(describeGrantPredicate({
-        operation: "web.download",
-        host: "github.com",
-    })).toBe("web.download github.com");
 });

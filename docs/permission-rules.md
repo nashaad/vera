@@ -67,8 +67,8 @@ switches it and also makes that mode your default. For a one-shot run, pass
 In every mode, including full access, Vera refuses a recursive `rm` in the
 `bash` tool when it targets a filesystem root, your home directory or everything
 in it (`~/*`), the workspace or everything in it (`./*`), or a folder above the
-workspace. This check runs before the mode, so an Always allow answer or an Allow
-for this chat grant cannot allow it. Run the deletion yourself if you mean it. The check reads
+workspace. This check runs before the mode, so a Yes, and always allow answer or a Yes, for
+this chat answer cannot allow it. Run the deletion yourself if you mean it. The check reads
 the command as written, so a target built from a variable or a command
 substitution, such as `$HOME`, is not caught.
 
@@ -150,8 +150,8 @@ ignore those two and decide themselves.
 
 Within the list, deny beats allow and ask beats allow whatever the order of
 the entries. After the list, the selected mode's own rules and default decide.
-An ask from this list cannot be turned into Session or Always, and its prompt
-offers only Allow once and Deny.
+An ask from this list cannot be remembered, and its prompt offers only
+Yes, this time and No, beside the line to tell Vera what to do instead.
 
 Paths are read as the filesystem sees them: `~`, `..`, and a symlinked folder
 such as `/tmp` on a Mac name the same place they really point at. A shell
@@ -174,20 +174,34 @@ chat's folder?`, with the folder it lands in on the line below. When Vera
 cannot tell what a shell command does, it names the program, as in `Run curl?`,
 or asks `Run this command?`. The command itself shows under the question.
 
-| Key | Effect |
+| Answer | Effect |
 |---|---|
-| 1 Allow | Runs this call. |
-| 2 Allow for this chat | Allows calls like this one for the rest of the conversation. |
-| 3 Deny | Refuses this call. Escape does the same. |
-| 4 Always allow | Saves an allow rule that applies in every conversation. |
-| 5 Tell Vera what to do instead | Opens a line to type in. Enter refuses this call and passes what you typed to Vera; Escape goes back to the choices. |
+| 1 Yes, for this chat | Runs this call and allows calls like it for the rest of the session. |
+| 2 Yes, and always allow <words> | Runs this call and saves an allow rule that applies in every session. |
+| 3 Yes, and switch to Approve for me | Runs this call and switches the session to Approve for me. It appears in ask only, when Approve for me is available, and never on a subagent's call or an ask from `permission_rules`. |
+| 4 No | Refuses this call. Escape does the same. |
 
-Allow for this chat and Always allow describe "calls like this one" as
-narrowly as Vera can: the same operation, the same file, or the same shell
-command name. A prompt from a subagent offers only Allow and Deny.
+Answers are numbered from 1 in the order they are shown. An answer that is
+left out leaves no gap in the numbers. The words after always allow name what
+the grant remembers as narrowly as Vera can: `reading plunder.md`,
+`writing 3 files`, `example.com`, `downloads from example.com`, `git pushes`,
+or `curl commands`. When no grant can be named they read `actions like this`.
 
-To see or remove what Allow for this chat and Always allow granted, open
-Ctrl+P and choose
+A web fetch or download grant names the host. Yes, for this chat and
+Yes, and always allow on one of those calls remember that host only, so a
+fetch from another host still asks. A saved rule that names only the
+operation, without a host, still matches every host.
+
+When no grant can be named, when the call comes from a subagent, and when the
+ask comes from `permission_rules`, the first answer reads Yes, this time and
+the always answer is left out. A subagent's prompt offers only Yes, this time
+and No, and no line to tell Vera what to do instead.
+
+In the terminal, Tab opens the line to tell Vera what to do instead; on the
+desktop, the card has the field below its answers. Enter refuses the call and
+passes what you typed to Vera; Escape or Tab goes back to the answers.
+
+To see or remove what the grant answers allowed, open Ctrl+P and choose
 **Review granted permissions**.
 
 ## Write a custom mode

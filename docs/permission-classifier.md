@@ -17,7 +17,7 @@ An allow line sits just above the action it allowed.
 
 When the classifier allows a tool from an extension, the rest of the
 conversation runs that extension operation without asking it again, the same
-as answering Session on a prompt. Vera's own operations, such as `git.push`,
+as answering Yes, for this chat on a prompt. Vera's own operations, such as `git.push`,
 are classified on every call. **Review granted permissions** in Ctrl+P lists
 and removes these grants.
 
@@ -97,8 +97,8 @@ $ mkdir -p build && bun test
 A spent subscription usage limit shows when it resets. A rate limit with no
 reset time says to wait a minute and send again, or pick a model on another
 provider. A timeout shows how long Vera waited. When no classifier model is
-set, the prompt says so. Whatever you choose applies to that action; Allow for
-this chat and Always allow also stop later matching actions from being
+set, the prompt says so. Whatever you choose applies to that action; Yes, for
+this chat and Yes, and always allow also stop later matching actions from being
 classified. If nobody answers, the action is denied after a minute and the
 model carries on without it.
 

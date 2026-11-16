@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { sendSessionMode } from "../composer/requests.ts";
 import { useAppearance } from "../theme/useAppearance.ts";
 import { ApprovalCard, DeniedLine } from "./ApprovalCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
@@ -12,11 +13,14 @@ export interface RequestCardsProps {
     readonly send: (line: string) => void;
     // True while a turn runs. The answered approvals of the last turn go when the next one starts.
     readonly running: boolean;
+    // The session's mode and the modes it offers, which decide the switch answer.
+    readonly mode?: string;
+    readonly modes?: readonly string[];
 }
 
 // Keys answer the first unanswered request. A question or setup card stays on screen after its answer until the
 // host closes it. An answered approval leaves the cards: a denial keeps one muted line, an allow keeps nothing.
-export function RequestCards({ requests, send, running }: RequestCardsProps) {
+export function RequestCards({ requests, send, running, mode = "", modes = [] }: RequestCardsProps) {
     const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
     const [past, setPast] = useState<readonly PastApproval[]>([]);
     const [notes, setNotes] = useState<Readonly<Record<string, string>>>({});
@@ -27,9 +31,11 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
         if (running) setPast([]);
     }, [running]);
 
+    // Answer 3 sends its allow first, then the session mode change, the same line the picker sends.
     const respond = useCallback(
-        (request: OpenRequest, line: string, decision?: ApprovalDecision): void => {
+        (request: OpenRequest, line: string, decision?: ApprovalDecision, switchToAuto = false): void => {
             send(line);
+            if (switchToAuto) sendSessionMode(send, "auto");
             setAnswered((previous) => new Set(previous).add(request.requestId));
             if (request.kind === "approval" && decision !== undefined) {
                 setPast((previous) => rememberApproval(previous, { request, decision }));
@@ -44,17 +50,22 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
             // Number keys belong to an open sheet, not to the cards under it.
             if (document.querySelector("[aria-modal='true']") !== null) return;
             if (!requestKeysAllowed(event, focusedElement())) return;
-            const action = requestKeyAction(first, event.key);
+            const action = requestKeyAction(first, event.key, { mode, modes });
             if (action === undefined) return;
             const line = requestKeyResponse(first, action, notes[first.requestId] ?? "");
             if (line === undefined) return;
             event.preventDefault();
             event.stopPropagation();
-            respond(first, line, action.type === "decide" ? action.decision : undefined);
+            respond(
+                first,
+                line,
+                action.type === "decide" ? action.decision : undefined,
+                action.type === "decide" && action.switchToAuto === true,
+            );
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
-    }, [first, notes, respond]);
+    }, [first, mode, modes, notes, respond]);
 
     return (
         <>
@@ -68,6 +79,8 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
                             outcome={entry.decision}
                             {...(entry.request.workspace === undefined ? {} : { workspace: entry.request.workspace })}
                             chat={entry.request.chat === true}
+                            mode={mode}
+                            modes={modes}
                             onDecide={noDecision}
                         />
                     );
@@ -86,7 +99,14 @@ export function RequestCards({ requests, send, running }: RequestCardsProps) {
                                 request={request}
                                 {...(request.workspace === undefined ? {} : { workspace: request.workspace })}
                                 chat={request.chat === true}
-                                onDecide={(decision, notes) => respond(request, approvalResponse(request.requestId, decision, notes), decision)}
+                                mode={mode}
+                                modes={modes}
+                                onDecide={(decision, notes, switchToAuto) => respond(
+                                    request,
+                                    approvalResponse(request.requestId, decision, notes),
+                                    decision,
+                                    switchToAuto === true,
+                                )}
                             />
                         );
                     case "question":

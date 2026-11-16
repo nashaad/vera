@@ -533,24 +533,31 @@ conversation. Its title asks what the call does, such as `Write plunder.md
 outside this chat's folder?`. When Vera cannot tell what a shell command does,
 the title names the program, as in `Run curl?`, or asks `Run this command?`.
 While a card is unanswered the status line at the end of the conversation says
-`Waiting on you`. The card's choices:
+`Waiting on you`. The card's choices, numbered from 1 in the order shown:
 
-- `Allow` (key 1) runs this call.
-- `Allow for this chat` (key 2) runs it and allows calls like it for the rest
-  of the session.
-- `Deny` (key 3, Escape or the `✕`) refuses it; the turn goes on without it.
-- `Always allow` (key 4) runs it and allows calls like it in every session.
-- `Or tell Vera what to do instead` takes a line of text. Enter refuses the
-  call and passes what you typed to Vera, so it can try another way.
+- `Yes, for this chat` runs this call and allows calls like it for the rest of
+  the session.
+- `Yes, and always allow <words>` runs it and allows calls like it in every
+  session; the words name what it remembers, such as `reading plunder.md` or
+  `curl commands`.
+- `Yes, and switch to Approve for me` runs it and switches the session to
+  Approve for me. It appears in ask only, when Approve for me is available, and
+  never on a subagent's call or an ask from `permission_rules`.
+- `No` (Escape or the `✕`) refuses it; the turn goes on without it.
+- The field below the answers takes a line of text. Enter refuses the call and
+  passes what you typed to Vera, so it can try another way.
+
+An answer that is left out leaves no gap in the numbers.
 
 `Show command` opens the folder the call lands in, the command, Vera's reason,
-any warning, and what Allow for this chat and Always allow would allow. It
-starts open when the title does not say what the command does. For a tool other
-than a shell the card shows its preview, such as a diff, and the same fold is
-called `Show details`.
+any warning, and what the grant answers remember. It starts open when the title
+does not say what the command does. For a tool other than a shell the card
+shows its preview, such as a diff, and the same fold is called `Show details`.
 
-Allow for this chat and Always allow appear only when Vera offers them for that
-call; a subagent's request offers only Allow and Deny.
+The grant answers appear only when Vera can propose one; a subagent's request
+offers only `Yes, this time` and `No`, and no field. An ask from
+`permission_rules` offers the same two answers and keeps the field, since no
+grant can lift it.
 
 A question from Vera shows its choices, numbered, in the same card. A number
 key or a click picks one. When the question takes a typed answer, a box under
@@ -588,9 +595,9 @@ and opens a menu:
 - `Make this the default for new sessions` saves the session's mode as the
   home's default. It is left out for a session in `Full access` while Full
   access is not offered.
-- `This session allows` lists what Allow for this chat has allowed, and
-  `Every session allows` lists what Always allow has allowed, each with an `x`
-  that removes it.
+- `This session allows` lists what `Yes, for this chat` has allowed, and
+  `Every session allows` lists what `Yes, and always allow` has allowed, each
+  with an `x` that removes it.
 
 When Vera refuses a change, the pill's menu says so. On New Chat the pill says
 `Default approvals` and starts the new session in the home's default mode until

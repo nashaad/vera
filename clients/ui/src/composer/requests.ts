@@ -1,4 +1,5 @@
 import { promptCommand } from "../session/wire.ts";
+import { sessionModeCommand } from "../session/permissions.ts";
 
 export interface SentPrompt {
     readonly requestId: string;
@@ -22,4 +23,9 @@ export function sendPrompt(
     const requestId = freshRequestId("prompt");
     send(promptCommand(text, requestId, attachmentIds));
     return { requestId, text };
+}
+
+// The session mode change the mode picker sends, for answer 3 on an approval card.
+export function sendSessionMode(send: (line: string) => void, mode: string): void {
+    send(sessionModeCommand(freshRequestId("mode"), mode));
 }

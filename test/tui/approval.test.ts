@@ -5,15 +5,19 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     applyTuiApprovalUpdate,
     createTuiApprovalView,
-    createTuiApprovalResponse,
     renderTuiApproval,
     selectableApprovalKeys,
     tuiApprovalHint,
-    tuiApprovalDecision,
+    type TuiApprovalSession,
 } from "../../clients/tui/approval.ts";
 import type {
     ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+
+const ask: TuiApprovalSession = {
+    mode: "ask",
+    modes: ["readonly", "ask", "auto"],
+};
 
 const request: ToolApprovalUiRequestUpdate = {
     type: "ui_request",
@@ -37,7 +41,23 @@ const request: ToolApprovalUiRequestUpdate = {
     seq: 1,
 };
 
-test("TUI approval shows the exact command and honest warning", () => {
+test("TUI approval shows the exact command, honest warning, and the ask answers in order", () => {
+    expect(renderTuiApproval(request, ask)).toBe([
+        "Run curl?",
+        "This command may access the network.",
+        "",
+        "$ curl https://example.com",
+        "",
+        "This command runs with your full user permissions.",
+        "",
+        "1 Yes, for this chat",
+        "2 Yes, and always allow curl commands",
+        "3 Yes, and switch to Approve for me",
+        "4 No",
+    ].join("\n"));
+});
+
+test("TUI approval without a known mode leaves out the switch and leaves no gap", () => {
     expect(renderTuiApproval(request)).toBe([
         "Run curl?",
         "This command may access the network.",
@@ -46,17 +66,13 @@ test("TUI approval shows the exact command and honest warning", () => {
         "",
         "This command runs with your full user permissions.",
         "",
-        // The predicate rides on the row that offers it rather than repeating
-        // itself as a block above the answers.
-        "1 Allow",
-        "2 Allow for this chat curl",
-        "3 Deny",
-        "4 Always allow",
-        "5 Tell Vera what to do instead",
+        "1 Yes, for this chat",
+        "2 Yes, and always allow curl commands",
+        "3 No",
     ].join("\n"));
 });
 
-test("child approvals identify their agent and task", () => {
+test("child approvals identify their agent and task, and take only one-call answers", () => {
     const childRequest: ToolApprovalUiRequestUpdate = {
         ...request,
         request: {
@@ -68,91 +84,62 @@ test("child approvals identify their agent and task", () => {
         },
     };
 
-    expect(renderTuiApproval(childRequest)).toContain(
+    expect(renderTuiApproval(childRequest, ask)).toContain(
         "Requested by agent 12345678\nTask: Run the focused tests",
     );
     // A reason that only restates the header is dropped, the mode expression
     // with it.
-    expect(renderTuiApproval(childRequest)).not.toContain("Permission mode");
-    expect(renderTuiApproval(childRequest)).not.toContain("ask.default");
-    expect(renderTuiApproval(childRequest)).not.toContain("Allow for this chat");
-    expect(renderTuiApproval(childRequest)).not.toContain("Always allow");
-    expect(renderTuiApproval(childRequest)).not.toContain("Tell Vera");
+    expect(renderTuiApproval(childRequest, ask)).not.toContain("Permission mode");
+    expect(renderTuiApproval(childRequest, ask)).not.toContain("ask.default");
+    expect(renderTuiApproval(childRequest, ask)).not.toContain("Yes, for this chat");
+    expect(renderTuiApproval(childRequest, ask)).not.toContain("always allow");
+    expect(renderTuiApproval(childRequest, ask)).not.toContain("switch to Approve");
     expect(tuiApprovalHint(childRequest)).toBe(
-        "approval required · 1 allow · 3/esc deny · Ctrl+C stop",
+        "approval required · Esc deny · Ctrl+C stop",
     );
-    expect(tuiApprovalHint(request)).toContain("2 this chat");
-    expect(tuiApprovalHint(request)).toContain("5 tell Vera");
-    expect(selectableApprovalKeys(childRequest)).toEqual(["1", "3"]);
-    expect(createTuiApprovalResponse(childRequest, { name: "2" }))
-        .toBeUndefined();
-    expect(createTuiApprovalResponse(childRequest, { name: "4" }))
-        .toBeUndefined();
+    expect(tuiApprovalHint(request)).toBe(
+        "approval required · Tab tell Vera · Esc deny · Ctrl+C stop",
+    );
+    expect(selectableApprovalKeys(childRequest, ask)).toEqual(["1", "2"]);
 });
 
-test("a restricted approval offers Allow, Deny and the typed answer", () => {
+test("a restricted approval offers this time, no, and the typed answer", () => {
     const restricted: ToolApprovalUiRequestUpdate = {
         ...request,
         request: { ...request.request, restrictedChoices: true },
     };
 
-    expect(selectableApprovalKeys(restricted)).toEqual(["1", "3", "5"]);
+    expect(selectableApprovalKeys(restricted, ask)).toEqual(["1", "2"]);
     expect(tuiApprovalHint(restricted)).toBe(
-        "approval required · 1 allow · 3/esc deny · 5 tell Vera · Ctrl+C stop",
+        "approval required · Tab tell Vera · Esc deny · Ctrl+C stop",
     );
-    expect(createTuiApprovalResponse(restricted, { name: "2" }))
-        .toBeUndefined();
-    expect(createTuiApprovalResponse(restricted, { name: "4" }))
-        .toBeUndefined();
-    expect(renderTuiApproval(restricted)).not.toContain("Session curl");
-    expect(renderTuiApproval(restricted)).not.toContain("4 Always");
+    expect(renderTuiApproval(restricted, ask)).toContain("1 Yes, this time");
+    expect(renderTuiApproval(restricted, ask)).not.toContain("for this chat");
+    expect(renderTuiApproval(restricted, ask)).not.toContain("always allow");
+    expect(renderTuiApproval(restricted, ask)).not.toContain("switch to Approve");
 });
 
-test("TUI approval accepts numeric once, similar, and deny keys", () => {
-    expect(tuiApprovalDecision({ name: "1" })).toBe("allow_once");
-    expect(tuiApprovalDecision({ name: "2" })).toBe("allow_similar");
-    expect(tuiApprovalDecision({ name: "3" })).toBe("deny");
-    expect(tuiApprovalDecision({ name: "4" })).toBe("allow_always");
-    expect(tuiApprovalDecision({ name: "5" })).toBeUndefined();
-    expect(tuiApprovalDecision({ name: "escape" })).toBe("deny");
-    expect(tuiApprovalDecision({ name: "1", ctrl: true })).toBeUndefined();
-    expect(tuiApprovalDecision({ name: "return" })).toBeUndefined();
-    expect(createTuiApprovalResponse(request, { name: "1" })).toEqual({
-        type: "ui_response",
-        requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow_once" },
-    });
-    expect(createTuiApprovalResponse(request, { name: "2" })).toEqual({
-        type: "ui_response",
-        requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow_similar" },
-    });
-    expect(createTuiApprovalResponse(request, { name: "4" })).toEqual({
-        type: "ui_response",
-        requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow_always" },
-    });
-});
-
-test("both remembering rows are unavailable without a derived predicate", () => {
-    // No predicate means nothing honest to remember, in either tier. The
-    // buttons stay rendered so the key numbering does not shift under the user.
+test("without a grant the first answer is this time and the switch still shows", () => {
     const noGrants: ToolApprovalUiRequestUpdate = {
         ...request,
         request: { ...request.request, permissionGrants: undefined },
     };
-    expect(tuiApprovalDecision({ name: "2" }, false)).toBeUndefined();
-    expect(tuiApprovalDecision({ name: "4" }, false)).toBeUndefined();
-    const rendered = renderTuiApproval(noGrants);
-    expect(rendered).toContain("2 Allow for this chat");
-    expect(rendered).toContain("4 Always allow");
-    expect(rendered).toContain("Allow for this chat and Always allow are unavailable.");
-    expect(selectableApprovalKeys(noGrants)).toEqual(["1", "3", "5"]);
-    expect(createTuiApprovalResponse(noGrants, { name: "4" }))
-        .toBeUndefined();
+    expect(renderTuiApproval(noGrants, ask)).toBe([
+        "Run this command?",
+        "This command may access the network.",
+        "",
+        "$ curl https://example.com",
+        "",
+        "This command runs with your full user permissions.",
+        "",
+        "1 Yes, this time",
+        "2 Yes, and switch to Approve for me",
+        "3 No",
+    ].join("\n"));
+    expect(selectableApprovalKeys(noGrants, ask)).toEqual(["1", "2", "3"]);
 });
 
-test("arrow selection moves only across available answers", async () => {
+test("TUI approval answers map to the rows in order", async () => {
     const setup = await createTestRenderer({
         width: 80,
         height: 18,
@@ -161,73 +148,88 @@ test("arrow selection moves only across available answers", async () => {
     const view = createTuiApprovalView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    const noGrants: ToolApprovalUiRequestUpdate = {
-        ...request,
-        requestId: "request-no-grants",
-        request: { ...request.request, permissionGrants: undefined },
-    };
-    view.update(noGrants);
+    view.update(request, ask);
+    const answer = (name: string) => view.handleKey(request, { name });
 
     try {
-        // Only 1 and 3 are selectable, so a single ↓ lands on Deny: the
-        // unavailable session/always answers are skipped, not stopped on.
-        expect(view.handleKey(noGrants, { name: "down" }))
-            .toEqual({ handled: true });
-        const denied = view.handleKey(noGrants, { name: "return" });
-        expect(denied.response).toEqual({
-            type: "ui_response",
-            requestId: "request-no-grants",
-            response: { type: "tool_approval", decision: "deny" },
+        expect(answer("1").response?.response).toEqual({
+            type: "tool_approval",
+            decision: "allow_similar",
         });
-        // ↑ from the first answer stays put and still confirms Allow.
-        view.update(request);
-        expect(view.handleKey(request, { name: "up" }))
-            .toEqual({ handled: true });
-        expect(view.handleKey(request, { name: "return" }).response).toEqual({
-            type: "ui_response",
-            requestId: "request-1",
-            response: { type: "tool_approval", decision: "allow_once" },
+        expect(answer("2").response?.response).toEqual({
+            type: "tool_approval",
+            decision: "allow_always",
         });
-        // Digits keep answering directly regardless of the highlight.
-        expect(view.handleKey(request, { name: "4" }).response).toEqual({
-            type: "ui_response",
-            requestId: "request-1",
-            response: { type: "tool_approval", decision: "allow_always" },
+        expect(answer("3")).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "request-1",
+                response: { type: "tool_approval", decision: "allow_once" },
+            },
+            switchToAuto: true,
         });
-        expect(view.handleKey(request, { name: "a" }))
+        expect(answer("4").response?.response).toEqual({
+            type: "tool_approval",
+            decision: "deny",
+        });
+        expect(answer("5")).toEqual({ handled: false });
+        expect(answer("a")).toEqual({ handled: false });
+        expect(answer("escape").response?.response).toEqual({
+            type: "tool_approval",
+            decision: "deny",
+        });
+        expect(view.handleKey(request, { name: "1", ctrl: true }))
             .toEqual({ handled: false });
-
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("answers that cannot be chosen are dimmed", async () => {
+test("arrow selection walks every offered answer and stops at the edges", async () => {
+    const setup = await createTestRenderer({
+        width: 80,
+        height: 18,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(request, ask);
+
+    try {
+        expect(view.handleKey(request, { name: "up" })).toEqual({ handled: true });
+        expect(view.handleKey(request, { name: "return" }).response?.response)
+            .toEqual({ type: "tool_approval", decision: "allow_similar" });
+        for (const _ of [1, 2]) view.handleKey(request, { name: "down" });
+        expect(view.handleKey(request, { name: "return" }).response?.response)
+            .toEqual({ type: "tool_approval", decision: "allow_once" });
+        expect(view.handleKey(request, { name: "down" }).handled).toBe(true);
+        expect(view.handleKey(request, { name: "return" }).response?.response)
+            .toEqual({ type: "tool_approval", decision: "deny" });
+        expect(view.handleKey(request, { name: "down" }).handled).toBe(true);
+        expect(view.handleKey(request, { name: "return" }).response?.response)
+            .toEqual({ type: "tool_approval", decision: "deny" });
+        view.handleKey(request, { name: "left" });
+        expect(view.handleKey(request, { name: "return" }).response?.response)
+            .toEqual({ type: "tool_approval", decision: "allow_once" });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("every offered row is bright; none is dimmed", async () => {
     const setup = await createTestRenderer({ width: 80, height: 18 });
     const view = createTuiApprovalView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    const noGrants: ToolApprovalUiRequestUpdate = {
-        ...request,
-        requestId: "request-dim",
-        request: { ...request.request, permissionGrants: undefined },
-    };
     const attributes = () => (view.actions.getChildren()[0]!.getChildren() as TextRenderable[])
         .map((row) => row.attributes);
 
     try {
-        view.update(noGrants);
+        view.update(request, ask);
         expect(attributes()).toEqual([
             TextAttributes.BOLD,
-            TextAttributes.DIM,
-            TextAttributes.NONE,
-            TextAttributes.DIM,
-            TextAttributes.NONE,
-        ]);
-        view.update(request);
-        expect(attributes()).toEqual([
-            TextAttributes.BOLD,
-            TextAttributes.NONE,
             TextAttributes.NONE,
             TextAttributes.NONE,
             TextAttributes.NONE,
@@ -237,7 +239,7 @@ test("answers that cannot be chosen are dimmed", async () => {
     }
 });
 
-test("left and right move the approval highlight like up and down and stay at the edges", async () => {
+test("Tab opens the typed answer and Escape returns to the list", async () => {
     const setup = await createTestRenderer({
         width: 80,
         height: 18,
@@ -246,31 +248,22 @@ test("left and right move the approval highlight like up and down and stay at th
     const view = createTuiApprovalView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    view.update(request);
-    const decision = (name: string) =>
-        view.handleKey(request, { name }).response?.response;
+    view.update(request, ask);
 
     try {
-        expect(view.handleKey(request, { name: "left" }))
-            .toEqual({ handled: true });
-        expect(decision("return"))
-            .toEqual({ type: "tool_approval", decision: "allow_once" });
-        expect(view.handleKey(request, { name: "right" }))
-            .toEqual({ handled: true });
-        expect(decision("return"))
-            .toEqual({ type: "tool_approval", decision: "allow_similar" });
-        for (const _ of [1, 2]) view.handleKey(request, { name: "right" });
-        expect(decision("return"))
-            .toEqual({ type: "tool_approval", decision: "allow_always" });
-        view.handleKey(request, { name: "left" });
-        expect(decision("return"))
-            .toEqual({ type: "tool_approval", decision: "deny" });
-        // Tell Vera is the last stop; going further stays on it.
-        for (const _ of [1, 2, 3]) view.handleKey(request, { name: "right" });
-        expect(view.handleKey(request, { name: "return" }))
-            .toEqual({ handled: true });
-        expect(setup.renderer.currentFocusedRenderable)
-            .not.toBe(view.details);
+        expect(view.handleKey(request, { name: "tab" })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable?.id)
+            .toBe("approval-notes");
+        expect(view.handleKey(request, { name: "escape" })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+        // A subagent's call has no typed answer, so Tab stays on the list.
+        const child: ToolApprovalUiRequestUpdate = {
+            ...request,
+            request: { ...request.request, sourceAgentId: "agent-1" },
+        };
+        view.update(child, ask);
+        view.handleKey(child, { name: "tab" });
+        expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
     } finally {
         setup.renderer.destroy();
     }
@@ -299,7 +292,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
     const view = createTuiApprovalView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    view.update(longRequest());
+    view.update(longRequest(), ask);
     view.focus();
 
     try {
@@ -312,9 +305,9 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         const commandLine = lines.find((line) => line.includes("$ grep"));
         expect(headerLine?.indexOf("Run"))
             .toBe(commandLine?.indexOf("$"));
-        expect(frame).toContain("1 Allow");
-        expect(frame).toContain("5 Tell Vera what to do instead");
-        expect(frame).toContain("up/down select");
+        expect(frame).toContain("1 Yes, for this chat");
+        expect(frame).toContain("2 Yes, and always allow curl commands");
+        expect(frame).toContain("Tab to tell Vera what to do instead · Esc to deny");
         expect(view.box.bottom).toBe(0);
         expect(view.box.width).toBe(80);
         expect(view.box.left).toBe(0);
@@ -328,7 +321,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
 
         setup.resize(42, 12);
         // Geometry is re-read on update, so the resize goes through one.
-        view.update(longRequest());
+        view.update(longRequest(), ask);
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(view.box.bottom).toBe(0);
@@ -336,10 +329,8 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(view.box.left).toBe(0);
         expect(frame).toContain("Run curl?");
         expect(frame).toContain("$ grep");
-        expect(frame).toContain("1 Allow");
-        expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always allow");
-        expect(frame).toContain("5 Tell Vera what to do instead");
+        expect(frame).toContain("1 Yes, for this chat");
+        expect(frame).toContain("2 Yes, and always allow");
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
             .toBe(`┃${" ".repeat(41)}`);
         expect(view.actions.screenY).toBeLessThan(12);
@@ -350,36 +341,32 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
-        expect(setup.captureCharFrame()).toContain("1 Allow");
+        expect(setup.captureCharFrame()).toContain("1 Yes, for this chat");
 
         setup.resize(30, 8);
-        view.update(requestWithCommand("pwd", "short-terminal"));
+        view.update(requestWithCommand("pwd", "short-terminal"), ask);
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(view.box.left).toBe(0);
-        expect(frame).toContain("1 Allow");
-        expect(frame).toContain("2 Allow for this chat");
-        expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always allow");
-        expect(frame).toContain("5 Tell Vera what to");
+        expect(frame).toContain("1 Yes, for this chat");
+        expect(frame).toContain("2 Yes, and always");
+        // Answer rows win over the footer when the terminal is this short.
+        expect(frame).not.toContain("Tab to tell");
         expect(view.bar.visible).toBe(false);
 
         setup.resize(24, 6);
-        view.update(requestWithCommand("pwd", "very-short-terminal"));
+        view.update(requestWithCommand("pwd", "very-short-terminal"), ask);
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(frame).not.toContain("Run curl?");
-        expect(frame).toContain("1 Allow");
-        expect(frame).toContain("2 Allow for this");
-        expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Always allow");
-        expect(frame).toContain("5 Tell Vera what to");
+        expect(frame).toContain("1 Yes, for");
+        expect(frame).toContain("2 Yes, and");
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("a predicate too long for its row is stated in the body", async () => {
+test("the always allow row names the file and the body does not repeat it", async () => {
     const path = "/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/";
     const longScope: ToolApprovalUiRequestUpdate = {
         ...request,
@@ -393,7 +380,7 @@ test("a predicate too long for its row is stated in the body", async () => {
             },
             permissionGrants: [{
                 kind: "action",
-                when: { verb: "write", path },
+                when: { verb: "write", path: `${path}todo.md` },
                 scope: "session",
                 lifetime: "session",
             }],
@@ -409,22 +396,11 @@ test("a predicate too long for its row is stated in the body", async () => {
     view.box.visible = true;
 
     try {
-        // A full-width row carries the whole predicate, so the body says
-        // nothing and the scope is stated once.
-        view.update(longScope);
+        view.update(longScope, ask);
         await setup.flush();
-        let frame = setup.captureCharFrame();
-        expect(frame).toContain(`2 Allow for this chat write ${path}`);
-        expect(frame).not.toContain("Allow for this chat and Always allow remember:");
-
-        // Narrow enough to clip it, so the body takes it instead.
-        setup.resize(56, 28);
-        view.update(longScope);
-        await setup.flush();
-        frame = setup.captureCharFrame();
-        expect(frame).not.toContain(`2 Allow for this chat write ${path}`);
-        expect(frame).toContain("Allow for this chat and Always allow remember:");
-        expect(frame).toContain("4 Always allow");
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("2 Yes, and always allow writing todo.md");
+        expect(frame).not.toContain("remember:");
     } finally {
         setup.renderer.destroy();
     }
@@ -441,7 +417,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
     view.box.visible = true;
 
     try {
-        view.update(requestWithCommand("pwd", "short-request"));
+        view.update(requestWithCommand("pwd", "short-request"), ask);
         await setup.flush();
         const shortHeight = view.box.height;
         expect(view.box.screenY + shortHeight).toBe(22);
@@ -450,7 +426,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand(
             `grep ${"prompt.assembly|".repeat(8)}`,
             "medium-request",
-        ));
+        ), ask);
         await setup.flush();
         const mediumHeight = view.box.height;
         expect(mediumHeight).toBeGreaterThan(shortHeight);
@@ -459,13 +435,13 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand(
             `grep ${"prompt.assembly|".repeat(100)}`,
             "overflow-request",
-        ));
+        ), ask);
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(20);
         expect(view.box.screenY + view.box.height).toBe(22);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
-        expect(setup.captureCharFrame()).toContain("1 Allow");
+        expect(setup.captureCharFrame()).toContain("1 Yes, for this chat");
     } finally {
         setup.renderer.destroy();
     }

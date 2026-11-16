@@ -1,6 +1,12 @@
 // Approvals and questions a session is waiting on, read from `ui_request` updates,
 // and the `ui_response` lines that answer them.
 
+import {
+    approvalAnswers,
+    type ApprovalAnswer,
+    type ApprovalAnswerGrant,
+    type ApprovalDecision,
+} from "../../../shared/approval-answers.ts";
 import { describePredicate } from "./permissions.ts";
 
 export interface ApprovalRequest {
@@ -10,12 +16,12 @@ export interface ApprovalRequest {
     readonly input: Readonly<Record<string, unknown>>;
     readonly reason: string;
     readonly warning: string;
-    // Set when a subagent asked; the session-wide choices are then not offered.
+    // Set when a subagent asked; it takes no remembered answer and no typed answer.
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
-    // Only Allow once and Deny: an ask from permission_rules cannot be lifted.
+    // Only Yes, this time and No: an ask from permission_rules cannot be lifted.
     readonly restrictedChoices?: boolean;
-    // What Allow for this chat and Always allow would remember, in words; empty means neither is offered.
+    // What the grant answers would remember, in words; empty means neither is offered.
     readonly grants: readonly string[];
     // The `when` objects the grants were read from, as the host sent them.
     readonly grantPredicates: readonly Readonly<Record<string, unknown>>[];
@@ -58,7 +64,7 @@ export function holdsTurn(requests: readonly OpenRequest[]): boolean {
     return requests.some((request) => request.kind !== "question" || !request.outOfBand);
 }
 
-export type ApprovalDecision = "allow_once" | "allow_similar" | "allow_always" | "deny";
+export type { ApprovalDecision } from "../../../shared/approval-answers.ts";
 
 export interface PastApproval {
     readonly request: ApprovalRequest;
@@ -186,12 +192,33 @@ export function isSubagentApproval(request: ApprovalRequest): boolean {
     return request.sourceAgentId !== undefined || request.sourceTask !== undefined;
 }
 
-// Subagent approvals offer only Allow and Deny, as in the terminal.
-export function approvalChoices(request: ApprovalRequest): readonly ApprovalDecision[] {
-    if (request.restrictedChoices || request.sourceAgentId !== undefined || request.grants.length === 0) {
-        return ["allow_once", "deny"];
+// The session facts that decide which answers an approval offers.
+export interface ApprovalAnswerContext {
+    readonly mode?: string;
+    readonly modes?: readonly string[];
+}
+
+// The answers an approval offers, in order, from the shared module both clients read.
+export function approvalAnswersFor(
+    request: ApprovalRequest,
+    context: ApprovalAnswerContext = {},
+): readonly ApprovalAnswer[] {
+    return approvalAnswers({
+        grants: request.grantPredicates.map(answerGrant),
+        subagent: isSubagentApproval(request),
+        restricted: request.restrictedChoices === true,
+        mode: context.mode ?? "",
+        modes: context.modes ?? [],
+    });
+}
+
+function answerGrant(when: Readonly<Record<string, unknown>>): ApprovalAnswerGrant {
+    const grant: { -readonly [K in keyof ApprovalAnswerGrant]: ApprovalAnswerGrant[K] } = {};
+    for (const key of ["tool", "verb", "path", "operation", "host", "executable"] as const) {
+        const value = when[key];
+        if (typeof value === "string") grant[key] = value;
     }
-    return ["allow_once", "allow_similar", "allow_always", "deny"];
+    return grant;
 }
 
 // `notes` is what the person typed to tell Vera what to do instead. The host closes the connection when notes

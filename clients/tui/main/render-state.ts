@@ -373,7 +373,14 @@ export function renderState(rt: TuiRuntime): void {
         uiRequest !== undefined
         && isToolApprovalUiRequestUpdate(uiRequest)
     ) {
-        rt.approvalView.update(uiRequest);
+        rt.approvalView.update(uiRequest, {
+            ...(focusedState.permissionInspection?.selected.name === undefined
+                ? {}
+                : { mode: focusedState.permissionInspection.selected.name }),
+            ...(focusedState.permissionInspection?.availableModes === undefined
+                ? {}
+                : { modes: focusedState.permissionInspection.availableModes }),
+        });
     }
     if (
         uiRequest !== undefined

@@ -84,13 +84,13 @@ test("@core an approval's title is the action and its target", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, onDecide: () => undefined }));
     expect(html).toContain(">Create<");
     expect(html).toContain("/nest/index.html");
-    expect(html).toContain(">Allow<");
+    expect(html).toContain(">Yes, this time<");
 });
 
 test("an answered approval shows its answer in place of the choices", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { request: approval, outcome: "deny", onDecide: () => undefined }));
     expect(html).toContain("Denied");
-    expect(html).not.toContain(">Allow<");
+    expect(html).not.toContain(">Yes, this time<");
     expect(html).toContain("data-answered=\"true\"");
 });
 
