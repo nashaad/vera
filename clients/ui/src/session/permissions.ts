@@ -1,6 +1,11 @@
 // A session's approval mode and what it has already allowed, read from `permissions` updates,
 // and the commands that change them.
 
+import {
+    isSandboxInspection,
+    type SandboxInspection,
+} from "../../../../src/sdk/sandbox.ts";
+
 export interface StandingPermission {
     readonly id: string;
     readonly description: string;
@@ -21,6 +26,7 @@ export interface ApprovalState {
     readonly preferences: readonly StandingPermission[];
     // The home's permission_rules list, in config order.
     readonly rules?: readonly StandingPermission[];
+    readonly sandbox?: SandboxInspection;
     readonly warning?: string;
 }
 
@@ -78,6 +84,9 @@ export function parsePermissions(value: Fields): ApprovalState | undefined {
         grants: standing(inspection.activeGrants),
         preferences: standing(inspection.activePreferences),
         rules: permissionRules(inspection.userRules),
+        ...(isSandboxInspection(inspection.sandbox)
+            ? { sandbox: inspection.sandbox }
+            : {}),
         ...(warning === undefined ? {} : { warning }),
     };
 }

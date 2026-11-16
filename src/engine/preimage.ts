@@ -12,6 +12,7 @@ export function newStashingToolRuntime(
     processRegistry?: ManagedProcessRegistry,
     isSubagent?: boolean,
     scratchDirectory?: string,
+    readApprovalMode?: () => string | undefined,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -29,5 +30,6 @@ export function newStashingToolRuntime(
         scratchDirectory,
     );
     runtime.sessionId = sessionId;
+    runtime.readApprovalMode = readApprovalMode;
     return runtime;
 }

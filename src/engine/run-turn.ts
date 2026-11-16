@@ -548,6 +548,7 @@ export async function runHeadlessLoop(
             readPermissionGrants(),
             readPermissionPreferences(),
             policy().permissionRules ?? [],
+            boundary.readSandboxInspection?.(),
         );
     const addPermissionGrants = async (
         grants: readonly PermissionGrantProposal[],
@@ -886,6 +887,7 @@ export async function runHeadlessLoop(
             processRegistry,
             sessionIsSubagent(store.header),
             scratchDir,
+            readApprovalMode,
         ),
         instructionRoot,
         inbound,
@@ -2144,6 +2146,9 @@ export async function runTurn(
         throw error;
     } finally {
         state.turnStartPending = false;
+        // A denial srt's monitor dropped is read from the system log after the
+        // turn, in the background: the query must not delay anything.
+        state.toolRuntime.sandbox?.turnEnded?.();
         const outcome: InboundTurnOutcome =
             turnThrew
                 ? "failed"

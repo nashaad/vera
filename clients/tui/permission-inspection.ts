@@ -2,6 +2,7 @@ import type {
     PermissionInspection,
     PermissionRule,
 } from "../../src/engine/permissions.ts";
+import { sandboxInspectionLine } from "../../src/sandbox/inspection.ts";
 import { tuiPermissionModeDescription } from "./settings-picker.ts";
 
 export function renderPermissionInspection(
@@ -14,6 +15,7 @@ export function renderPermissionInspection(
     const userRules = inspection.userRules ?? [];
     return [
         `Permission mode: ${mode.name}`,
+        sandboxInspectionLine(inspection.sandbox, mode.name),
         ...(userRules.length === 0
             ? []
             : [

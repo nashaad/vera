@@ -11,7 +11,7 @@ import {
     type PermissionRule,
 } from "../../src/engine/permissions.ts";
 import { collectReviewerPathFacts } from "../../src/engine/reviewer-path-facts.ts";
-import { workspaceScope } from "../../src/engine/workspace-scope.ts";
+import { linkedWorktreeSharedDirectory, workspaceScope } from "../../src/engine/workspace-scope.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
@@ -141,6 +141,20 @@ test("workspaceScope marks a nested checkout of the same repository outside and 
     expect(workspaceScope(join(foreignNested, "a.ts"), repo)).toBe("workspace");
     expect(workspaceScope(join(nested, "src", "a.ts"), nested)).toBe("workspace");
     expect(workspaceScope(join(repo, "..", "elsewhere.txt"), repo)).toBe("outside_workspace");
+});
+
+test("linkedWorktreeSharedDirectory finds the shared git folder only for a linked worktree", () => {
+    const repo = repository();
+    const worktree = addWorktree(repo, "a");
+    const submodule = addSubmodule(repo, "vendor");
+
+    expect(linkedWorktreeSharedDirectory(repo)).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(join(repo, "src"))).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(submodule)).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(worktree)).toBe(join(repo, ".git"));
+    expect(linkedWorktreeSharedDirectory(join(worktree, "src"))).toBe(
+        join(repo, ".git"),
+    );
 });
 
 test("a workspace subfolder keeps its own checkout inside and the others outside", () => {

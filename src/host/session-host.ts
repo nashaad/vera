@@ -15,6 +15,7 @@ import {
     configuredSubagentModel,
     configuredToolResults,
     eventLogEnabled,
+    sandboxConfigOf,
     type VeraConfig,
 } from "../config.ts";
 import { defaultEventLogPath, eventLogRoot } from "../engine/events.ts";
@@ -47,6 +48,7 @@ import { createExtensionHostServices } from "./extension-host-services.ts";
 import { orderByExtension } from "./pool/extension-catalog.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
 
+import { SandboxManager } from "../sandbox/manager.ts";
 import { startSessionExtensions, withoutHostExtensions } from "./session-host/extensions.ts";
 import { createSessionHandlers } from "./session-host/handlers.ts";
 import { createSessionHooks } from "./session-host/hooks.ts";
@@ -131,7 +133,13 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         : orderByExtension(options.remoteExtensions.catalog.extensionOrder,
             [...extensions.toolsByExtension(), ...options.remoteExtensions.tools], (entry) => entry.extensionId)
             .map((entry) => entry.tool);
+    const sandbox = new SandboxManager({
+        config: () => sandboxConfigOf(currentConfig()),
+        permissionRules: () => currentConfig().permission_rules ?? [],
+        log: hostLog,
+    });
     const registry: AgentRegistry = new AgentRegistry({
+        sandbox,
         ...services.models,
         hostLog,
         ...(options.workerGlobals === undefined ? {} : {
@@ -335,6 +343,8 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             try {
                 await extensions.close();
             } catch {
+            } finally {
+                await sandbox.dispose();
             }
             await registry.close();
         },
@@ -345,6 +355,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                 await registry.close();
             } finally {
                 await extensions.close();
+                await sandbox.dispose();
             }
         },
     };

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { HandIcon, WarningIcon } from "../components/Icons.tsx";
+import { sandboxInspectionLine } from "../../../../src/sandbox/inspection.ts";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import {
     defaultModeCommand,
@@ -112,6 +113,9 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                             </button>
                         </>
                     )}
+                    <p className="approval-note">
+                        {sandboxInspectionLine(approval.sandbox, approval.mode)}
+                    </p>
                     <ApprovalStanding
                         heading="Your rules (permission_rules)"
                         entries={approval.rules ?? []}
