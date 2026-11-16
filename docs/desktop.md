@@ -520,9 +520,10 @@ Slash commands:
 - The terminal commands `/animations`, `/import`, `/extension` and
   `/reload-extensions` are listed with a muted `Not implemented yet`. Running one
   shows `/name: Not implemented yet` under the box and sends nothing.
-- On New Chat the menu lists the built-in commands only, since skills and
-  extension commands are read from a session. An unknown name there adds that
-  skills and extension commands work inside a session.
+- On New Chat the menu lists built-in commands and the host's available
+  extension commands. Running an extension command starts a conversation and
+  shows its result there. An unknown command stays on New Chat and can suggest
+  built-in and extension commands. Skills are read from a session.
 - The menu is drawn above the box, outside the bar, and stays inside the window
   however narrow it is.
 
@@ -1037,7 +1038,7 @@ clears compaction and checks it falls back to eco, adds a subagent model, turns
 on the switch, and reads each change back from the home's `config.json`.
 
 The slash test serves one skill and starts a session. On New Chat it types `/`
-and checks the menu lists only the built-in group with a muted `Not implemented
+and checks the menu lists built-in and extension commands with a muted `Not implemented
 yet` beside `/import`, runs `/imp`, which names `/import`, and checks the notice and that nothing
 reached the provider, and enters a misspelt name and checks the text stays with
 a `Did you mean` line. In the session it checks the three groups, that the menu

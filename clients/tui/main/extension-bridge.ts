@@ -250,15 +250,41 @@ export function requestExtensionPicker(rt: TuiRuntime,
     });
 }
 
-export async function loadExtensionCommands(rt: TuiRuntime): Promise<void> {
-    if (rt.client.listExtensionCommands === undefined) {
-        return;
+export function loadExtensionCommands(rt: TuiRuntime): Promise<boolean> {
+    const client = rt.client;
+    const listCommands = client.listExtensionCommands;
+    if (listCommands === undefined) {
+        return Promise.resolve(false);
+    }
+    if (
+        rt.extensionCommandsLoadClient === client
+        && rt.extensionCommandsLoadPromise !== undefined
+    ) {
+        return rt.extensionCommandsLoadPromise;
     }
     const generation = ++rt.extensionCommandsGeneration;
+    rt.extensionCommandsLoaded = false;
+    rt.extensionCommandsLoading = true;
+    rt.extensionCommandsLoadClient = client;
+    const loading = loadExtensionCommandsFor(rt, listCommands, generation).finally(() => {
+        if (rt.extensionCommandsLoadPromise === loading) {
+            rt.extensionCommandsLoadClient = undefined;
+            rt.extensionCommandsLoadPromise = undefined;
+        }
+    });
+    rt.extensionCommandsLoadPromise = loading;
+    return loading;
+}
+
+async function loadExtensionCommandsFor(
+    rt: TuiRuntime,
+    listCommands: NonNullable<TuiAgentClient["listExtensionCommands"]>,
+    generation: number,
+): Promise<boolean> {
     try {
-        const commands = await rt.client.listExtensionCommands();
+        const commands = await listCommands();
         if (generation !== rt.extensionCommandsGeneration) {
-            return;
+            return false;
         }
         rt.skillCatalogRequestId = undefined;
         rt.disposeSkillCommands();
@@ -266,6 +292,7 @@ export async function loadExtensionCommands(rt: TuiRuntime): Promise<void> {
         rt.disposeHostExtensionCommands();
         const disposers: (() => void)[] = [];
         rt.hostExtensionCommands = commands;
+        rt.extensionCommandsLoaded = true;
         const commandsBySource = Map.groupBy(
             commands,
             (command) => command.source,
@@ -307,9 +334,10 @@ export async function loadExtensionCommands(rt: TuiRuntime): Promise<void> {
         renderCommandSuggestions(rt);
         renderState(rt);
         requestSkillCommands(rt);
+        return true;
     } catch (error) {
         if (rt.shuttingDown || generation !== rt.extensionCommandsGeneration) {
-            return;
+            return false;
         }
         const message = error instanceof Error
             ? error.message
@@ -319,6 +347,7 @@ export async function loadExtensionCommands(rt: TuiRuntime): Promise<void> {
             `Could not load extension commands: ${message}`,
         );
         renderState(rt);
+        return false;
     } finally {
         if (generation === rt.extensionCommandsGeneration) {
             rt.extensionCommandsLoading = false;

@@ -1139,7 +1139,7 @@ function isExtensionResponseType(
         || value === "extension_command_failed";
 }
 
-function parseExtensionCommandList(
+export function parseExtensionCommandList(
     value: Record<string, unknown>,
 ): readonly ExtensionCommandDescriptor[] | undefined {
     if (
@@ -1179,7 +1179,7 @@ function parseExtensionCommandList(
     return commands;
 }
 
-function parseExtensionFailure(
+export function parseExtensionFailure(
     value: Record<string, unknown>,
 ): {
     readonly source: string;

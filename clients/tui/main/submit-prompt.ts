@@ -11,6 +11,7 @@ import { startTuiHelp } from "../help.ts";
 import { disarmQuit } from "./notices.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { isHomeClient } from "../home-client.ts";
+import { loadExtensionCommands } from "./extension-bridge.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, disconnectedRecoveryHint, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestFocusedPaneClose, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
@@ -116,10 +117,45 @@ export function submitPrompt(rt: TuiRuntime,
         }
         rt.jsonlCommandMode = false;
     }
+    const unknownCommand = commandAction === undefined
+        ? rt.commandRegistry.unknownCommandMessage(prompt)
+        : undefined;
+    if (
+        isHomeClient(rt.client)
+        && commandAction === undefined
+        && unknownCommand !== undefined
+        && !rt.extensionCommandsLoaded
+        && rt.client.listExtensionCommands !== undefined
+    ) {
+        const homeClient = rt.client;
+        const heldPrompt = prompt;
+        void loadExtensionCommands(rt).then((loaded) => {
+            if (
+                !loaded
+                || rt.shuttingDown
+                || rt.client !== homeClient
+            ) {
+                return;
+            }
+            submitPrompt(rt, heldPrompt);
+        });
+        return;
+    }
+    if (
+        isHomeClient(rt.client)
+        && commandAction === undefined
+        && unknownCommand === undefined
+    ) {
+        rt.homeSubmitPending = true;
+        beginCreateSession(rt, "stop", () => ({ text: prompt, attachmentIds: [] }));
+        return;
+    }
     if (
         commandAction === undefined
         && (rt.extensionCommandsLoading || rt.skillCommandsLoading)
-        && prompt.startsWith("/")
+        && (isHomeClient(rt.client)
+            ? unknownCommand !== undefined
+            : prompt.startsWith("/"))
     ) {
         rt.state = appendTuiNotice(
             rt.state,
@@ -130,9 +166,6 @@ export function submitPrompt(rt: TuiRuntime,
         renderState(rt);
         return;
     }
-    const unknownCommand = commandAction === undefined
-        ? rt.commandRegistry.unknownCommandMessage(prompt)
-        : undefined;
     if (unknownCommand !== undefined) {
         rt.state = appendTuiNotice(rt.state, unknownCommand);
         renderState(rt);
@@ -573,6 +606,53 @@ export function submitPrompt(rt: TuiRuntime,
         return;
     }
     if (commandAction?.type === "run_extension") {
+        if (isHomeClient(rt.client)) {
+            if (
+                commandAction.origin !== "host"
+                || !rt.hostExtensionCommands.some((command) =>
+                    command.name === commandAction.command
+                    && command.source === commandAction.source
+                )
+            ) {
+                rt.state = appendTuiNotice(
+                    rt.state,
+                    rt.commandRegistry.unknownCommandMessage(prompt)
+                        ?? `Unknown command: /${commandAction.command}`,
+                );
+                renderState(rt);
+                return;
+            }
+            rt.composer.rememberSubmittedText(prompt);
+            const initialClient = rt.client;
+            beginCreateSession(
+                rt,
+                "stop",
+                () => ({ text: prompt, attachmentIds: [] }),
+                () => {
+                    const conversationClient = rt.client;
+                    void loadExtensionCommands(rt).then(() => {
+                        if (
+                            rt.shuttingDown
+                            || rt.client !== conversationClient
+                            || conversationClient === initialClient
+                        ) {
+                            return;
+                        }
+                        const loadedAction = rt.commandRegistry.dispatch(prompt);
+                        if (loadedAction?.type !== "run_extension") {
+                            rt.state = appendTuiError(
+                                rt.state,
+                                `Could not load extension command /${commandAction.command}`,
+                            );
+                            renderState(rt);
+                            return;
+                        }
+                        submitPrompt(rt, prompt);
+                    });
+                },
+            );
+            return;
+        }
         const directExtension = rt.directClientExtensions.find(
             (extension) =>
                 commandAction.origin === "direct"
@@ -586,8 +666,12 @@ export function submitPrompt(rt: TuiRuntime,
             renderState(rt);
             return;
         }
+        const composerMatchesPrompt =
+            rt.composer.expandedText().trim() === prompt;
         rt.composer.rememberSubmittedText(prompt);
-        rt.composer.clearComposer();
+        if (interceptedText === undefined || composerMatchesPrompt) {
+            rt.composer.clearComposer();
+        }
         renderCommandSuggestions(rt);
         if (
             (commandAction.origin === "direct"

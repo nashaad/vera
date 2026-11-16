@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
+import { listExtensionCommandsThroughHost } from "../../src/host/extension-command-list-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../src/host/capabilities.ts";
@@ -968,6 +969,107 @@ socketTest(
         } finally {
             client.close();
             agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "a pooled worker forwards unattached extension discovery to the host",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const forwarded: unknown[] = [];
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            listExtensionCommands: () => {
+                throw new Error("worker must not list commands");
+            },
+            forwardHostRequest: async (request, send) => {
+                forwarded.push(request);
+                await send({
+                    type: "extension_command_list",
+                    request_id: "list-1",
+                    commands: [{ name: "budget", description: "Budget", usage: "/budget", source: "vera.budget" }],
+                });
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "list_extension_commands", request_id: "list-1" });
+            expect(await connection.receive()).toMatchObject({
+                type: "extension_command_list",
+                request_id: "list-1",
+                commands: [{ name: "budget", source: "vera.budget" }],
+            });
+            expect(forwarded).toEqual([{ type: "list_extension_commands", request_id: "list-1" }]);
+            await expect(connection.receive()).rejects.toThrow();
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "unattached extension discovery rejects a response for another request",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            forwardHostRequest: async (_request, send) => {
+                await send({
+                    type: "extension_command_list",
+                    request_id: "another-request",
+                    commands: [],
+                });
+            },
+        });
+        try {
+            await expect(listExtensionCommandsThroughHost(socketPath))
+                .rejects.toThrow("Host sent an invalid extension response");
+        } finally {
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "host reports extension discovery failure without an attachment",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            listExtensionCommands: () => {
+                throw new Error("broken registry");
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await expect(listExtensionCommandsThroughHost(socketPath)).rejects.toMatchObject({
+                name: "ExtensionCommandError",
+                source: "vera.extensions",
+                reason: "unavailable",
+                message: "Extension commands are unavailable",
+            });
+            await connection.send({ type: "list_extension_commands", request_id: "list-1" });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_failed",
+                request_id: "list-1",
+                failure: {
+                    source: "vera.extensions",
+                    reason: "unavailable",
+                    message: "Extension commands are unavailable",
+                },
+            });
+            await expect(connection.receive()).rejects.toThrow();
+        } finally {
+            connection.close();
             await server.close();
         }
     },

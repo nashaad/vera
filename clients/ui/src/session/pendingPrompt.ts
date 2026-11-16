@@ -9,6 +9,7 @@ export interface PendingPrompt {
     readonly images: readonly string[];
     // Applied to the session before the prompt goes out.
     readonly model?: DraftModel;
+    readonly slashCommand?: boolean;
 }
 
 const pending = new Map<string, PendingPrompt>();

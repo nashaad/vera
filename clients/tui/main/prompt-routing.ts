@@ -42,7 +42,13 @@ export function availableCommandSuggestions(rt: TuiRuntime,
         ? suggestions.filter((entry) => {
             const action = rt.commandRegistry.dispatch(`/${entry.name}`);
             return workerFreeAction(rt, action, viewingFile)
-                || (homeMode && action?.type === "update_session_name");
+                || (homeMode && action?.type === "update_session_name")
+                || (homeMode && action?.type === "run_extension"
+                    && action.origin === "host"
+                    && rt.hostExtensionCommands.some((command) =>
+                        command.name === action.command
+                        && command.source === action.source
+                    ));
         })
         : suggestions;
 }

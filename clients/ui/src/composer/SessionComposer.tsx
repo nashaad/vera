@@ -104,12 +104,12 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat }: 
     }, [watch.withdrawn]);
 
     const startPending = useCallback((pending: PendingPrompt): void => {
-        if (pending.images.length === 0) {
+        if (pending.slashCommand !== true && pending.images.length === 0) {
             lastSent.current = sendPrompt(send, pending.text);
             return;
         }
         setText(pending.text);
-        add(pending.images);
+        if (pending.images.length > 0) add(pending.images);
         setAutoSend(true);
     }, [send, add]);
 

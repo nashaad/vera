@@ -41,7 +41,14 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const branch = useBranch(bridge, folder);
     const { controls: models, draft } = useDraftModels(bridge, folder, connection.phase === "attached", !busy);
     const mounted = useRef(true);
-    const slash = useSlashMenu({ text, setText, session: undefined, notify: setNotice });
+    const slash = useSlashMenu({
+        text,
+        setText,
+        session: undefined,
+        hostBridge: bridge,
+        onNewChatExtension: (line) => void startSession(line, true),
+        notify: setNotice,
+    });
 
     useEffect(() => {
         mounted.current = true;
@@ -50,10 +57,8 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
         };
     }, []);
 
-    const submit = async (): Promise<void> => {
-        const content = text.trim();
-        if (content.length === 0 || busy) return;
-        if (slash.runLine(content)) return;
+    async function startSession(content: string, slashCommand = false): Promise<void> {
+        if (busy) return;
         setNotice(undefined);
         setBusy(true);
         setProblem(undefined);
@@ -68,6 +73,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             text: content,
             images: images.map((image) => image.path),
             ...(draft === undefined ? {} : { model: draft }),
+            ...(slashCommand ? { slashCommand: true } : {}),
         });
         navigate({
             kind: "session",
@@ -75,6 +81,13 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             title: sessionTitle(content),
             ...(folder === undefined ? { chat: true } : { workspace: result.workspace }),
         });
+    }
+
+    const submit = async (): Promise<void> => {
+        const content = text.trim();
+        if (content.length === 0 || busy) return;
+        if (slash.runLine(content)) return;
+        await startSession(content);
     };
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
