@@ -88,7 +88,7 @@ failed classification does not stop the turn. The prompt names the action and
 says what went wrong, with a **Fix** line under it:
 
 ```text
-Permission required  bash
+Run this command?
 The classifier, deepseek/deepseek-flash, did not answer within 60s, so Vera is asking you instead.
 Fix: open /settings, then Classifier, and pick another model, or set a failsafe there.
 $ mkdir -p build && bun test
@@ -97,10 +97,10 @@ $ mkdir -p build && bun test
 A spent subscription usage limit shows when it resets. A rate limit with no
 reset time says to wait a minute and send again, or pick a model on another
 provider. A timeout shows how long Vera waited. When no classifier model is
-set, the prompt says so. Whatever you choose applies to that action; Session
-and Always also stop later matching actions from being classified. If nobody
-answers, the action is denied after a minute and the model carries on without
-it.
+set, the prompt says so. Whatever you choose applies to that action; Allow for
+this chat and Always allow also stop later matching actions from being
+classified. If nobody answers, the action is denied after a minute and the
+model carries on without it.
 
 The one failure that ends the turn is an action Vera cannot describe to the
 classifier. It shows as a **CLASSIFIER FAILED** error that names the tool,

@@ -15,8 +15,14 @@ export interface ApprovalRequest {
     readonly sourceTask?: string;
     // Only Allow once and Deny: an ask from permission_rules cannot be lifted.
     readonly restrictedChoices?: boolean;
-    // What Allow similar and Always would remember, in words; empty means neither is offered.
+    // What Allow for this chat and Always allow would remember, in words; empty means neither is offered.
     readonly grants: readonly string[];
+    // The `when` objects the grants were read from, as the host sent them.
+    readonly grantPredicates: readonly Readonly<Record<string, unknown>>[];
+    // The working folder of the session whose tool asks, and whether it is that session's own chat folder.
+    // An older host sends neither.
+    readonly workspace?: string;
+    readonly chat?: true;
 }
 
 export interface QuestionChoice {
@@ -116,6 +122,10 @@ function parseApproval(requestId: string, request: Fields): ApprovalRequest | un
     if (tool === undefined) return undefined;
     const sourceAgentId = str(request.sourceAgentId);
     const sourceTask = str(request.sourceTask);
+    const workspace = str(request.workspace);
+    const predicates = Array.isArray(request.permissionGrants)
+        ? request.permissionGrants.map((grant): Fields => (isRecord(grant) && isRecord(grant.when) ? grant.when : {}))
+        : [];
     return {
         kind: "approval",
         requestId,
@@ -126,9 +136,10 @@ function parseApproval(requestId: string, request: Fields): ApprovalRequest | un
         ...(sourceAgentId === undefined ? {} : { sourceAgentId }),
         ...(sourceTask === undefined ? {} : { sourceTask }),
         ...(request.restrictedChoices === true ? { restrictedChoices: true } : {}),
-        grants: Array.isArray(request.permissionGrants)
-            ? request.permissionGrants.map((grant) => describePredicate(isRecord(grant) && isRecord(grant.when) ? grant.when : {}))
-            : [],
+        grants: predicates.map(describePredicate),
+        grantPredicates: predicates,
+        ...(workspace === undefined || workspace.length === 0 ? {} : { workspace }),
+        ...(request.chat === true ? { chat: true as const } : {}),
     };
 }
 
@@ -170,7 +181,12 @@ function parseSetup(requestId: string, request: Fields): SetupRequest | undefine
     return { kind: "setup", requestId, reason, waiting };
 }
 
-// Subagent approvals offer only Allow once and Deny, as in the terminal.
+// A subagent asked when either source field is set.
+export function isSubagentApproval(request: ApprovalRequest): boolean {
+    return request.sourceAgentId !== undefined || request.sourceTask !== undefined;
+}
+
+// Subagent approvals offer only Allow and Deny, as in the terminal.
 export function approvalChoices(request: ApprovalRequest): readonly ApprovalDecision[] {
     if (request.restrictedChoices || request.sourceAgentId !== undefined || request.grants.length === 0) {
         return ["allow_once", "deny"];
@@ -178,8 +194,12 @@ export function approvalChoices(request: ApprovalRequest): readonly ApprovalDeci
     return ["allow_once", "allow_similar", "allow_always", "deny"];
 }
 
-export function approvalResponse(requestId: string, decision: ApprovalDecision): string {
-    return line({ type: "ui_response", requestId, response: { type: "tool_approval", decision } });
+// `notes` is what the person typed to tell Vera what to do instead. The host closes the connection when notes
+// come with an allow, so only a deny carries them; blank text is left out.
+export function approvalResponse(requestId: string, decision: ApprovalDecision, notes?: string): string {
+    const text = decision === "deny" ? notes?.trim() ?? "" : "";
+    const response = { type: "tool_approval", decision, ...(text.length === 0 ? {} : { notes: text }) };
+    return line({ type: "ui_response", requestId, response });
 }
 
 export function questionResponse(requestId: string, answer: QuestionAnswer): string {

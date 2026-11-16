@@ -42,7 +42,7 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         expect(pane).toContain("Ctrl+T details");
         expect(pane).toContain("auto");
         expect(pane).not.toContain("Permission required");
-        expect(pane).not.toContain("Allow once");
+        expect(pane).not.toContain("3 Deny");
 
         const lines = pane.split("\n");
         const row = lines.findIndex((line) => line.includes("─ 1 auto-approved ─"));
@@ -112,14 +112,14 @@ test("a classifier timeout asks the user and keeps the turn going", async () => 
         session.sendText("run the routine command");
         session.sendKey("Enter");
 
-        pane = await session.waitForVisiblePane("Permission required");
+        pane = await session.waitForVisiblePane("1 Allow");
         const flat = pane
             .split("\n")
             .map((line) => line.replace(/^┃\s?/, "").trim())
             .join(" ");
         expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
             .toBe("timed out\n");
-        expect(pane).toContain("1 Allow once");
+        expect(pane).toContain("Run this command?");
         expect(flat).toContain("did not answer within 60s, so Vera is asking you instead.");
         expect(flat).toContain("Fix: open /settings, then Classifier");
         expect(pane).not.toContain("CLASSIFIER FAILED");
@@ -128,7 +128,7 @@ test("a classifier timeout asks the user and keeps the turn going", async () => 
         pane = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
         expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
         expect(pane).not.toContain("CLASSIFIER FAILED");
-        expect(pane).not.toContain("Permission required");
+        expect(pane).not.toContain("Run this command?");
         expect(pane).not.toContain("Did not run");
     } finally {
         await session.close();
@@ -146,8 +146,7 @@ test("approval actions stay visible above long details", async () => {
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("Allow once");
-        expect(pane).toContain("Permission required");
+        pane = await session.waitForVisiblePane("1 Allow");
         expect(pane).toContain("$ grep");
         expect(pane).not.toContain("approval required ·");
         expect(pane).not.toContain("gpt-5.6-sol");
@@ -159,11 +158,11 @@ test("approval actions stay visible above long details", async () => {
         }
         pane = await session.waitForVisiblePaneWhere(
             (current) => current.includes(
-                "Session and always are unavailable.",
+                "are unavailable.",
             ) && !current.includes("$ grep"),
             "scrolled approval actions",
         );
-        expect(pane).toContain("Allow once");
+        expect(pane).toContain("1 Allow");
         expect(pane).not.toContain("$ grep");
     } finally {
         await session.close();
@@ -196,7 +195,7 @@ test("an extension modal cannot intercept a native approval answer", async () =>
     });
 
     try {
-        await session.waitForVisiblePane("Allow once");
+        await session.waitForVisiblePane("1 Allow");
         for (let attempt = 0; attempt < 100; attempt += 1) {
             if (existsSync(mountedPath)) break;
             await Bun.sleep(10);
@@ -205,7 +204,7 @@ test("an extension modal cannot intercept a native approval answer", async () =>
 
         session.sendKey("1");
         const pane = await session.waitForVisiblePane("RESPONSE AFTER APPROVAL");
-        expect(pane).not.toContain("Permission required");
+        expect(pane).not.toContain("Run this command?");
         expect(existsSync(interceptedPath)).toBe(false);
     } finally {
         await session.close();
@@ -225,11 +224,12 @@ test("child approval shows only exact allow and deny", async () => {
     try {
         pane = await session.waitForVisiblePane("Requested by agent 5a5d7460");
         expect(pane).toContain("Task: Write the child approval marker");
-        expect(pane).toContain("1 Allow once");
+        expect(pane).toContain("1 Allow");
         expect(pane).toContain("3 Deny");
-        expect(pane).not.toContain("2 Session");
-        expect(pane).not.toContain("4 Always");
-        expect(pane).not.toContain("session prefix");
+        expect(pane).not.toContain("2 Allow for this chat");
+        expect(pane).not.toContain("4 Always allow");
+        expect(pane).not.toContain("5 Tell Vera");
+        expect(pane).not.toContain("this chat");
         expect(pane).not.toContain("ask.default");
 
         session.sendKey("1");

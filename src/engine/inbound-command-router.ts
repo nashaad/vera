@@ -22,7 +22,11 @@ import type {
     SessionNameReplyUpdate,
     UiResponseCommand,
 } from "./protocol.ts";
-import { isTimelineCommand, type TimelineCommand } from "./protocol.ts";
+import {
+    isTimelineCommand,
+    normalizeApprovalNotes,
+    type TimelineCommand,
+} from "./protocol.ts";
 import type { EngineCommand } from "./timeline-control.ts";
 import type { DeliveryDiscardReason } from "./host-protocol.ts";
 import type { NoticeFacts } from "./notice-facts.ts";
@@ -129,6 +133,8 @@ export interface ToolApprovalOptions {
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
     readonly restrictedChoices?: true;
+    readonly workspace?: string;
+    readonly chat?: boolean;
 }
 
 export interface ToolApprovalAllowed {
@@ -138,6 +144,8 @@ export interface ToolApprovalAllowed {
 export interface ToolApprovalDenied {
     readonly behavior: "deny";
     readonly reason: string;
+    /** What the person typed with the denial, already normalized. */
+    readonly notes?: string;
 }
 
 export type ToolApprovalResult = ToolApprovalAllowed | ToolApprovalDenied;
@@ -1214,6 +1222,10 @@ export class InboundCommandRouter {
                 ...(options.restrictedChoices === true
                     ? { restrictedChoices: true as const }
                     : {}),
+                ...(options.workspace === undefined
+                    ? {}
+                    : { workspace: options.workspace }),
+                ...(options.chat === true ? { chat: true as const } : {}),
             },
         });
         return result;
@@ -2644,7 +2656,16 @@ function approvalResult(
         || response.decision === "allow_similar"
         || response.decision === "allow_always"
         ? { behavior: "allow" }
-        : { behavior: "deny", reason: "Tool use was denied by the user." };
+        : userDenial(response.notes);
+}
+
+function userDenial(notes: string | undefined): ToolApprovalDenied {
+    const said = notes === undefined ? undefined : normalizeApprovalNotes(notes);
+    return {
+        behavior: "deny",
+        reason: "Tool use was denied by the user.",
+        ...(said === undefined ? {} : { notes: said }),
+    };
 }
 
 function copyPermissionGrantProposal(

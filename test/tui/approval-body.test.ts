@@ -295,7 +295,7 @@ test("a set of predicates is written out rather than summarized", () => {
     };
     // One grant fits on the choice label, and every field of it is written
     // there: a label that named only the executable would understate the grant.
-    expect(renderTuiApproval(single)).toContain("2 Session curl clients");
+    expect(renderTuiApproval(single)).toContain("2 Allow for this chat curl clients");
     expect(tuiApprovalBodyText(single)).not.toContain("remember");
 
     const many = {
@@ -313,8 +313,8 @@ test("a set of predicates is written out rather than summarized", () => {
             ],
         },
     };
-    expect(renderTuiApproval(many)).toContain("\n2 Session\n");
-    expect(tuiApprovalBodyText(many)).toContain("Session and always remember:");
+    expect(renderTuiApproval(many)).toContain("\n2 Allow for this chat\n");
+    expect(tuiApprovalBodyText(many)).toContain("Allow for this chat and Always allow remember:");
     // The tool name is implied by the executable, so it is not repeated.
     expect(tuiApprovalBodyText(many)).toContain("- wget");
 });

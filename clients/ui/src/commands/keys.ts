@@ -64,7 +64,7 @@ export const PAGE_KEYS: readonly PageKey[] = [
     { keys: "Enter", label: "Run the highlighted slash command", where: "Slash menu" },
     { keys: "Tab", label: "Complete the slash command name", where: "Slash menu" },
     { keys: "Escape", label: "Close the slash menu", where: "Slash menu" },
-    { keys: "1 2 4", label: "Allow once, allow similar, always allow", where: "Approval card" },
+    { keys: "1 2 4", label: "Allow, allow for this chat, always allow", where: "Approval card" },
     { keys: "3 or Escape", label: "Deny", where: "Approval card" },
     { keys: "1 to 9", label: "Pick an answer", where: "Question card" },
     { keys: "1 to 9", label: "Pick a favorite model", where: "Model menu" },

@@ -63,6 +63,7 @@ describe("open requests", () => {
             reason: "Shell commands need approval.",
             warning: "",
             grants: ["bash"],
+            grantPredicates: [{ tool: "bash" }],
         });
     });
 
@@ -76,6 +77,46 @@ describe("open requests", () => {
         }
         expect(message.request.restrictedChoices).toBe(true);
         expect(approvalChoices(message.request)).toEqual(["allow_once", "deny"]);
+    });
+
+    test("an approval carries the folder facts the host sent", () => {
+        const message = line({
+            ...approval,
+            request: { ...approval.request, workspace: "/work/project", chat: true },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") throw new Error("expected an approval");
+        expect(message.request.workspace).toBe("/work/project");
+        expect(message.request.chat).toBe(true);
+    });
+
+    test("an approval without folder facts has no workspace and is not a chat", () => {
+        const message = line(approval);
+        if (message.type !== "ui_request" || message.request.kind !== "approval") throw new Error("expected an approval");
+        expect(message.request.workspace).toBeUndefined();
+        expect(message.request.chat).toBeUndefined();
+        const blank = line({
+            ...approval,
+            request: { ...approval.request, workspace: "", chat: "yes" },
+        });
+        if (blank.type !== "ui_request" || blank.request.kind !== "approval") throw new Error("expected an approval");
+        expect(blank.request.workspace).toBeUndefined();
+        expect(blank.request.chat).toBeUndefined();
+    });
+
+    test("an approval keeps each grant's raw predicate beside its words", () => {
+        const message = line({
+            ...approval,
+            request: {
+                ...approval.request,
+                permissionGrants: [
+                    { kind: "path", when: { verb: "write", path: "/home/ana/hello.txt" }, scope: "session" },
+                    { kind: "tool", scope: "session" },
+                ],
+            },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") throw new Error("expected an approval");
+        expect(message.request.grants).toEqual(["write /home/ana/hello.txt", "similar actions"]);
+        expect(message.request.grantPredicates).toEqual([{ verb: "write", path: "/home/ana/hello.txt" }, {}]);
     });
 
     test("a question keeps only choices with an id and a label", () => {
@@ -128,7 +169,7 @@ describe("open requests", () => {
 describe("answers", () => {
     test("a subagent approval or one without grants offers only once and deny", () => {
         const base: ApprovalRequest = {
-            kind: "approval", requestId: "r", tool: "bash", input: {}, reason: "", warning: "", grants: ["bash"],
+            kind: "approval", requestId: "r", tool: "bash", input: {}, reason: "", warning: "", grants: ["bash"], grantPredicates: [{ tool: "bash" }],
         };
         expect(approvalChoices(base)).toEqual(["allow_once", "allow_similar", "allow_always", "deny"]);
         expect(approvalChoices({ ...base, sourceAgentId: "child" })).toEqual(["allow_once", "deny"]);
@@ -145,6 +186,22 @@ describe("answers", () => {
         expect(approvalResponse("r1", "allow_once").endsWith("\n")).toBe(true);
     });
 
+    test("a deny can carry what the person typed, trimmed, and blank text is left out", () => {
+        expect(JSON.parse(approvalResponse("r1", "deny", "  use the notes folder  "))).toEqual({
+            type: "ui_response",
+            requestId: "r1",
+            response: { type: "tool_approval", decision: "deny", notes: "use the notes folder" },
+        });
+        expect(JSON.parse(approvalResponse("r1", "deny", "   ")).response).toEqual({ type: "tool_approval", decision: "deny" });
+        expect(JSON.parse(approvalResponse("r1", "deny", "")).response).toEqual({ type: "tool_approval", decision: "deny" });
+    });
+
+    test("notes never travel with an allow, which the host would refuse", () => {
+        for (const decision of ["allow_once", "allow_similar", "allow_always"] as const) {
+            expect(JSON.parse(approvalResponse("r1", decision, "use the notes folder")).response).toEqual({ type: "tool_approval", decision });
+        }
+    });
+
     test("question answers trim text and drop empty notes", () => {
         expect(JSON.parse(questionResponse("q1", { outcome: "selected", choiceId: "a", notes: "  " })).response)
             .toEqual({ type: "user_question", outcome: "selected", choiceId: "a" });
@@ -158,7 +215,7 @@ describe("answers", () => {
 });
 
 test("an answered approval leaves nothing for an allow, one line for a denial, and the whole card when kept", () => {
-    const request = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+    const request = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [], grantPredicates: [] } as const;
     expect(pastApprovalView({ request, decision: "allow_once" }, false)).toBe("none");
     expect(pastApprovalView({ request, decision: "allow_always" }, false)).toBe("none");
     expect(pastApprovalView({ request, decision: "deny" }, false)).toBe("line");
@@ -169,7 +226,7 @@ test("an answered approval leaves nothing for an allow, one line for a denial, a
 test("only the newest answered approvals are kept", () => {
     let past: readonly PastApproval[] = [];
     for (let index = 0; index < PAST_APPROVAL_LIMIT + 3; index += 1) {
-        const request = { kind: "approval", requestId: `r${index}`, tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+        const request = { kind: "approval", requestId: `r${index}`, tool: "bash", input: {}, reason: "", warning: "", grants: [], grantPredicates: [] } as const;
         past = rememberApproval(past, { request, decision: "deny" });
     }
     expect(past).toHaveLength(PAST_APPROVAL_LIMIT);
@@ -178,7 +235,7 @@ test("only the newest answered approvals are kept", () => {
 });
 
 test("an open approval or question holds the turn, and an out-of-band question does not", () => {
-    const approvalRequest = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [] } as const;
+    const approvalRequest = { kind: "approval", requestId: "r1", tool: "bash", input: {}, reason: "", warning: "", grants: [], grantPredicates: [] } as const;
     const question = { kind: "question", requestId: "q1", question: "Which nest?", choices: [], allowCustom: false, allowNotes: false, outOfBand: false } as const;
     expect(holdsTurn([])).toBe(false);
     expect(holdsTurn([approvalRequest])).toBe(true);

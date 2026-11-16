@@ -4527,6 +4527,116 @@ test("ask mode turns a client denial into a tool result", async () => {
     });
 });
 
+test("ask mode gives the model the notes typed with a denial", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "ask",
+    };
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "env SHOULD_NOT=run" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "moved on" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await answerToolApproval(
+        channel,
+        "deny",
+        "  put it in the Desktop folder instead ",
+    );
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{
+            type: "text",
+            text: "Tool use was denied by the user. They said: put it in the Desktop folder instead",
+        }],
+        isError: true,
+        withheld: true,
+    });
+});
+
+test("a denial puts the tool's hint before what the person said", async () => {
+    const channel = createInProcessChannel();
+    const state: RunTurnState = {
+        ...denialTurnState(channel, "/tmp/vera-scratch-note"),
+        approvalMode: "ask",
+    };
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "echo hi > /tmp/vera-denial-note.txt" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "moved on" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+
+    channel.client.send({ type: "prompt", content: "write it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await answerToolApproval(channel, "deny", "use the Desktop folder");
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    const result = state.messages[2];
+    if (result?.role !== "tool_result") {
+        throw new Error("Expected a tool result message");
+    }
+    expect(result.content).toEqual([{
+        type: "text",
+        text: "Tool use was denied by the user. Write the finished file "
+            + "somewhere you can reach and offer it rather than stopping. The "
+            + "working directory is the first choice; if it is not a fit "
+            + "either, writes inside the session scratch directory "
+            + "(/tmp/vera-scratch-note) need no approval. They said: use the "
+            + "Desktop folder",
+    }]);
+});
+
 test("full access permits an ordinary recursive deletion after hook mutation", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-permission-"));
     temporaryWorkspaces.push(workspace);
@@ -5592,6 +5702,7 @@ async function expectContextMeasured(
 async function answerToolApproval(
     channel: InProcessChannel,
     decision: "allow_once" | "deny",
+    notes?: string,
 ): Promise<string> {
     let requestId = "";
     let reason = "";
@@ -5606,7 +5717,11 @@ async function answerToolApproval(
     channel.client.send({
         type: "ui_response",
         requestId,
-        response: { type: "tool_approval", decision },
+        response: {
+            type: "tool_approval",
+            decision,
+            ...(notes === undefined ? {} : { notes }),
+        },
     });
     return reason;
 }

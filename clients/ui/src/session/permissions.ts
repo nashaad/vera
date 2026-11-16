@@ -20,9 +20,9 @@ export interface ApprovalState {
     // "user" when someone chose the mode for this session, "agent-default" when it came from the agent's definition.
     readonly origin?: "user" | "agent-default";
     readonly modes: readonly string[];
-    // Allowed for this session through Allow similar.
+    // Allowed for this session through Allow for this chat.
     readonly grants: readonly StandingPermission[];
-    // Allowed in every session through Always.
+    // Allowed in every session through Always allow.
     readonly preferences: readonly StandingPermission[];
     // The home's permission_rules list, in config order.
     readonly rules?: readonly StandingPermission[];

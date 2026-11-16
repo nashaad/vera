@@ -1646,6 +1646,65 @@ test("a session waiting on an approval says which tool it waits on", async () =>
     }
 });
 
+test("a tool approval names the folder it runs in and whether that is the session's own chat folder", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "vera-approval-facts-")));
+    const outside = join(tmpdir(), `vera-approval-facts-${process.pid}.txt`);
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([1, 2].map((turn) => ({
+            role: "assistant" as const,
+            content: [{
+                type: "tool_call" as const,
+                id: `write-${turn}`,
+                name: "bash",
+                input: { command: `printf map > ${outside}` },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use" as const,
+        })).flatMap((call) => [call, textResponse("done")])),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+    const project = join(root, "project");
+
+    try {
+        await mkdir(project);
+        await registry.create({ id: "chat", sessionPath: join(root, "chat.jsonl") });
+        await registry.create({
+            id: "project",
+            workspace: project,
+            sessionPath: join(root, "project.jsonl"),
+        });
+
+        const approvals: Record<string, ToolApprovalUiRequestUpdate> = {};
+        for (const id of ["chat", "project"]) {
+            const attachment = registry.find(id)!.attach();
+            expect((await attachment.receive()).type).toBe("history");
+            attachment.send({ type: "prompt", content: "write the map" });
+            const approval = await receiveToolApproval(attachment);
+            approvals[id] = approval;
+            attachment.send({
+                type: "ui_response",
+                requestId: approval.requestId,
+                response: { type: "tool_approval", decision: "deny" },
+            });
+            await receiveTurnFinished(attachment);
+            attachment.detach();
+        }
+
+        expect(approvals.chat?.request).toMatchObject({
+            workspace: `${join(root, "chat.jsonl")}.files`,
+            chat: true,
+        });
+        expect(approvals.project?.request).toMatchObject({ workspace: project });
+        expect("chat" in approvals.project!.request).toBe(false);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
+    }
+});
+
 test("session rename reaches a session nobody is attached to", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-rename-"));
     const registry = new AgentRegistry({
@@ -4513,7 +4572,9 @@ test("async subagent approvals surface in the interactive parent", async () => {
         expect(approval.request).toMatchObject({
             sourceAgentId: expect.any(String),
             sourceTask: "write the background marker",
+            workspace: await realpath(root),
         });
+        expect("chat" in approval.request).toBe(false);
         expect(approval.request.permissionGrants).toBeUndefined();
         attachment.send({
             type: "ui_response",

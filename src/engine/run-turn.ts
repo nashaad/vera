@@ -60,6 +60,7 @@ import {
 } from "./events.ts";
 import { createModelFailureRecorder } from "./model-failure-recorder.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
+import { isChatFolder } from "../store/chat-folder.ts";
 import type { ReviewLog } from "./review-log.ts";
 import {
     boundToolResult,
@@ -345,6 +346,8 @@ export interface RunTurnState {
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly imageSource?: (attachmentId: string) => string | undefined;
     readonly scratchDir?: string;
+    /** True when the session's working folder is its own chat folder. */
+    readonly chatFolder?: true;
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
     readonly disabledPromptContributions?: readonly string[];
@@ -934,6 +937,9 @@ export async function runHeadlessLoop(
             readSessionImageContent(store, attachmentId),
         imageSource: sessionAttachmentSource(store),
         scratchDir,
+        ...(isChatFolder(store.path, store.header.cwd)
+            ? { chatFolder: true as const }
+            : {}),
         toolResultSpill: createToolResultSpill(scratchDir),
         ...(owned.toolResults === undefined
             ? {}
@@ -3005,6 +3011,8 @@ async function executePreparedTool(
                     ...(ruleAsk || grantProposals.length === 0
                         ? {}
                         : { permissionGrants: grantProposals }),
+                    workspace: permissionContext.workspace,
+                    ...(state.chatFolder === true ? { chat: true as const } : {}),
                 },
             );
             if (approval.behavior === "deny") {
@@ -3013,6 +3021,7 @@ async function executePreparedTool(
                         toolCall,
                         approval.reason,
                         scratchNote,
+                        approval.notes,
                     ),
                 };
             }
@@ -3678,15 +3687,18 @@ function deniedToolResult(
     toolCall: ToolCallContent,
     reason: string,
     note?: string,
+    said?: string,
 ): ToolResultMessage {
+    const text = [
+        reason,
+        ...(note === undefined ? [] : [note]),
+        ...(said === undefined ? [] : [`They said: ${said}`]),
+    ].join(" ");
     return {
         role: "tool_result",
         toolCallId: toolCall.id,
         toolName: toolCall.name,
-        content: [{
-            type: "text",
-            text: note === undefined ? reason : `${reason} ${note}`,
-        }],
+        content: [{ type: "text", text }],
         isError: true,
         withheld: true,
     };

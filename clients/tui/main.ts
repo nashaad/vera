@@ -2791,6 +2791,17 @@ export async function startTui(
             renderState(rt);
             return;
         }
+        if (
+            uiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(uiRequest)
+            && rt.approvalView.box.visible
+            && rt.approvalView.handlePaste(pasted())
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            renderState(rt);
+            return;
+        }
         if (rt.timelinePicker !== undefined && rt.timelinePickerView.box.visible) {
             const transition = rt.timelinePickerView.handleEditorPaste(
                 rt.timelinePicker,

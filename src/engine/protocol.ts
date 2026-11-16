@@ -8,6 +8,7 @@ import type {
     EngineEventSubscriber,
     PoolAdmissionVerdict,
     ToolApprovalUiRequest,
+    ToolApprovalUiResponse,
     UiResponse,
     UserQuestionUiRequest,
 } from "./events.ts";
@@ -1332,22 +1333,14 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         && command.response !== null
     ) {
         const response = command.response as Record<string, unknown>;
-        if (
-            response.type === "tool_approval"
-            && (
-                response.decision === "allow_once"
-                || response.decision === "allow_similar"
-                || response.decision === "allow_always"
-                || response.decision === "deny"
-            )
-        ) {
+        const approval = response.type === "tool_approval"
+            ? parseToolApprovalResponse(response)
+            : undefined;
+        if (approval !== undefined) {
             return {
                 type: "ui_response",
                 requestId: command.requestId,
-                response: {
-                    type: "tool_approval",
-                    decision: response.decision,
-                },
+                response: approval,
             };
         }
         if (
@@ -1772,6 +1765,45 @@ function parseModelSettingsPatch(
             reviewer: source.reviewer as ReviewerSettingsPatch | null,
         }),
     };
+}
+
+export const TOOL_APPROVAL_NOTES_LIMIT = 2000;
+
+/** Trims, cuts to the limit without splitting a surrogate pair, and returns undefined when nothing is left. */
+export function normalizeApprovalNotes(notes: string): string | undefined {
+    let text = notes.trim().slice(0, TOOL_APPROVAL_NOTES_LIMIT);
+    const last = text.charCodeAt(text.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) {
+        text = text.slice(0, -1);
+    }
+    return text.length === 0 ? undefined : text;
+}
+
+function parseToolApprovalResponse(
+    response: Record<string, unknown>,
+): ToolApprovalUiResponse | undefined {
+    const decision = response.decision;
+    if (
+        decision !== "allow_once"
+        && decision !== "allow_similar"
+        && decision !== "allow_always"
+        && decision !== "deny"
+    ) {
+        return undefined;
+    }
+    if (response.notes === undefined) {
+        return { type: "tool_approval", decision };
+    }
+    if (typeof response.notes !== "string") {
+        return undefined;
+    }
+    const notes = normalizeApprovalNotes(response.notes);
+    if (notes === undefined) {
+        return { type: "tool_approval", decision };
+    }
+    return decision === "deny"
+        ? { type: "tool_approval", decision, notes }
+        : undefined;
 }
 
 function isRequestId(value: unknown): value is string {

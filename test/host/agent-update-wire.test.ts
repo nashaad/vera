@@ -1049,6 +1049,43 @@ test("host wire validates semantic session grants on approvals", () => {
     })).toBeUndefined();
 });
 
+test("host wire accepts approvals with or without folder facts", () => {
+    const approval = {
+        type: "ui_request",
+        requestId: "approval-1",
+        request: {
+            type: "tool_approval",
+            toolCall: { id: "call-1", name: "bash", input: { command: "ls" } },
+            reason: "This command may read files.",
+            warning: "",
+        },
+        seq: 1,
+    } as const;
+
+    expect(parseAgentUpdate(approval)).toEqual(approval);
+    const withFacts = {
+        ...approval,
+        request: { ...approval.request, workspace: "/work/project", chat: true },
+    };
+    expect(parseAgentUpdate(withFacts)).toEqual(withFacts);
+    const project = {
+        ...approval,
+        request: { ...approval.request, workspace: "/work/project", chat: false },
+    };
+    expect(parseAgentUpdate(project)).toEqual(project);
+
+    for (const bad of [
+        { workspace: "" },
+        { workspace: 7 },
+        { chat: "yes" },
+    ]) {
+        expect(parseAgentUpdate({
+            ...approval,
+            request: { ...approval.request, ...bad },
+        })).toBeUndefined();
+    }
+});
+
 test("host wire validates semantic configuration destinations", () => {
     const request = {
         type: "ui_request",
