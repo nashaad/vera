@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
@@ -7,6 +7,7 @@ import { packageEntries, unpackEntries } from "../../clients/desktop/src/extensi
 import { MAX_EXTENSIONS } from "../../clients/desktop/src/extensions/limits.ts";
 import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/src/extensions/paths.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
+import { MAX_PAGE_SCRIPT_BYTES } from "../../clients/desktop/src/extensions/read-extension.ts";
 import { ExtensionStore, themeKey } from "../../clients/desktop/src/extensions/store.ts";
 import { tarGzBytes, themeFiles, type FixtureTheme, type TarItem } from "./extension-fixtures.ts";
 import { removeScratchDirectories, scratchDirectory, writeText } from "./theme-fixtures.ts";
@@ -40,7 +41,7 @@ test("@core a committed extension is listed, and its themes are keyed by the ext
     const store = storeFor(home);
     install(store, "crow.pack", "1.2.0", [CROW, { label: "Crow Day", name: "Crow Day" }]);
     expect(store.entries()).toEqual([
-        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [] }, included: false, enabled: true },
+        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true },
     ]);
     expect(store.themes().map((theme) => [theme.slug, theme.name])).toEqual([
         ["crow.pack.crow-day", "Crow Day"],
@@ -155,6 +156,7 @@ function taskExtension(directory: string, id: string, worker = true): void {
             menus: {
                 appearance: [{ command: `${id}.scan`, title: "Scan for crows", description: "Find crows.", button: "Scan" }, { command: `${id}.list` }],
                 theme: [{ command: `${id}.scan` }],
+                browser: [],
             },
         },
     };
@@ -197,9 +199,10 @@ test("@core the entries list the commands and menu entries of an included extens
         menus: {
             appearance: [{ command: "vera.scan.scan", title: "Scan for crows", description: "Find crows.", button: "Scan" }, { command: "vera.scan.list", title: "List" }],
             theme: [{ command: "vera.scan.scan", title: "Scan" }],
+            browser: [],
         },
     });
-    expect(entries.find((entry) => entry.id === "crow.scan")).toMatchObject({ commands: [], menus: { appearance: [], theme: [] } });
+    expect(entries.find((entry) => entry.id === "crow.scan")).toMatchObject({ commands: [], menus: { appearance: [], theme: [], browser: [] } });
     expect(store.menu("theme")).toEqual([{ command: "vera.scan.scan", title: "Scan" }]);
     expect(store.menu("appearance").map((item) => item.command)).toEqual(["vera.scan.scan", "vera.scan.list"]);
 });
@@ -209,6 +212,62 @@ test("a task worker that is not a regular file inside the extension is refused",
     taskExtension(included, "vera.scan", false);
     mkdirSync(join(included, "vera.scan", "scan.cjs"));
     expect(storeFor(scratchDirectory(), included).commandTarget("vera.scan.scan")).toBeUndefined();
+});
+
+test("@core an included page-only extension surfaces its command and browser menu, while installed code stays hidden", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    const manifest = (id: string) => JSON.stringify({
+        id,
+        version: "1.0.0",
+        engine: DESKTOP_ENGINE,
+        contributes: {
+            commands: [{ command: `${id}.select`, title: "Select element", page: "pages/select.js" }],
+            menus: { browser: [{ command: `${id}.select`, icon: "pointer" }] },
+        },
+    });
+    writeText(join(included, "vera.page", "vera.desktop.json"), manifest("vera.page"));
+    writeText(join(included, "vera.page", "pages", "select.js"), "document.body;\n");
+    writeText(join(extensionsDirectory(home), "crow.page", "vera.desktop.json"), manifest("crow.page"));
+    writeText(join(extensionsDirectory(home), "crow.page", "pages", "select.js"), "document.body;\n");
+
+    const store = storeFor(home, included);
+    expect(store.entries()).toMatchObject([
+        { id: "crow.page", included: false, commands: [], menus: { browser: [] } },
+        { id: "vera.page", included: true, commands: [{ id: "vera.page.select", title: "Select element" }], menus: { browser: [{ command: "vera.page.select", title: "Select element", icon: "pointer" }] } },
+    ]);
+    expect(store.menu("browser")).toEqual([{ command: "vera.page.select", title: "Select element", icon: "pointer" }]);
+    expect(store.pageScript("vera.page.select")).toBe("document.body;\n");
+    expect(store.pageScript("crow.page.select")).toBeUndefined();
+});
+
+test("page scripts that are missing, linked through a nested directory, or oversized are refused", () => {
+    const included = scratchDirectory();
+    const writePageExtension = (id: string, page: string): string => {
+        const folder = join(included, id);
+        writeText(join(folder, "vera.desktop.json"), JSON.stringify({
+            id,
+            version: "1.0.0",
+            engine: DESKTOP_ENGINE,
+            contributes: {
+                commands: [{ command: `${id}.select`, title: "Select element", page }],
+                menus: { browser: [{ command: `${id}.select`, icon: "pointer" }] },
+            },
+        }));
+        return folder;
+    };
+    writePageExtension("vera.missing", "pages/select.js");
+    const linked = writePageExtension("vera.linked", "nested/select.js");
+    mkdirSync(join(linked, "nested"));
+    const external = writeText(join(scratchDirectory(), "select.js"), "external page script");
+    symlinkSync(external, join(linked, "nested", "select.js"));
+    const oversized = writePageExtension("vera.large", "select.js");
+    writeText(join(oversized, "select.js"), "x".repeat(MAX_PAGE_SCRIPT_BYTES + 1));
+
+    const store = storeFor(scratchDirectory(), included);
+    expect(store.pageScript("vera.missing.select")).toBeUndefined();
+    expect(store.pageScript("vera.linked.select")).toBeUndefined();
+    expect(store.pageScript("vera.large.select")).toBeUndefined();
 });
 
 test("@core turning an extension off hides its themes, persists across stores, and removing it resets the switch", () => {

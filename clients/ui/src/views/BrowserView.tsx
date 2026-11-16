@@ -8,6 +8,7 @@ import { useAnnexPages } from "../browser/useAnnexPages.ts";
 import { useNativeSurface } from "../browser/useNativeSurface.ts";
 import { ArrowLeftIcon, ArrowRightIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { AnnexPage, AnnexPagesAnswer, DesktopBridge } from "../protocol/bridge.ts";
+import { BrowserCommands } from "../extensions/BrowserCommands.tsx";
 import { usePaneTab, usePublishTabTitle } from "../workbench/tab-context.tsx";
 import { AnnexFrame } from "./AnnexFrame.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
@@ -119,6 +120,7 @@ export function BrowserView({ visible }: ViewProps) {
                 >
                     <ExternalIcon />
                 </button>
+                <BrowserCommands hasPage={visible && (page !== undefined || (annex !== undefined && pageAt(entry, annex.pages) !== undefined))} onError={setError} />
             </div>
             <div className="browser-controls">
                 <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native?.toolsEnabled ?? false} disabled={!(native?.toolsAvailable ?? false)} onChange={(event) => void nativeCommand("tools", event.target.checked)} /> Browser tools {native?.toolsEnabled ? "on" : "off"}</label>
@@ -127,7 +129,7 @@ export function BrowserView({ visible }: ViewProps) {
             {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
             {page === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
             {page === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
-            {page === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} browse={(next) => browserSlots.browse(key, next)} /> : null}
+            {page === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} frameName={`browser-${key}`} browse={(next) => browserSlots.browse(key, next)} /> : null}
             {page === undefined ? null : <div className="browser-frame" ref={surface} />}
         </div>
     );
@@ -137,10 +139,11 @@ interface BrowserBodyProps {
     readonly annex: AnnexPagesAnswer;
     readonly entry: string;
     readonly frameRound: number;
+    readonly frameName: string;
     readonly browse: (entry: string) => void;
 }
 
-function BrowserBody({ annex, entry, frameRound, browse }: BrowserBodyProps) {
+function BrowserBody({ annex, entry, frameRound, frameName, browse }: BrowserBodyProps) {
     if (entry === "") return <StartPage annex={annex} browse={browse} />;
     if (!isAnnexPath(entry)) {
         return <p className="view-empty">Only the pages Vera serves on this machine open here, and “{entry}” is not one of them.</p>;
@@ -176,7 +179,7 @@ function BrowserBody({ annex, entry, frameRound, browse }: BrowserBodyProps) {
                     <p>The annex serves nothing at {entry}. Pick a page above.</p>
                 </div>
             ) : (
-                <AnnexFrame annex={annex} entry={entry} title={page.label} round={frameRound} />
+                <AnnexFrame annex={annex} entry={entry} title={page.label} round={frameRound} name={frameName} />
             )}
         </>
     );

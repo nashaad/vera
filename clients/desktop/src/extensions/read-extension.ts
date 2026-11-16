@@ -7,6 +7,8 @@ import { isThemeSlug } from "../../../ui/src/theme/tokens.ts";
 import { MAX_THEME_BYTES } from "../theme-store.ts";
 import { MAX_MANIFEST_BYTES } from "./limits.ts";
 
+export const MAX_PAGE_SCRIPT_BYTES = 256 * 1024;
+
 export interface ExtensionTheme {
     readonly label: string;
     // The saved theme without its token rules.
@@ -22,7 +24,7 @@ export type ExtensionRead =
     | { readonly ok: false; readonly reason: string };
 
 // Reads a regular file of at most `limit` bytes. Anything else, including a link, reads as undefined.
-function readRegularFile(path: string, limit: number): string | undefined {
+export function readRegularFile(path: string, limit: number): string | undefined {
     let descriptor: number | undefined;
     try {
         descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -43,9 +45,10 @@ function readRegularFile(path: string, limit: number): string | undefined {
     }
 }
 
-function isRegularFile(path: string): boolean {
+function isRegularFile(path: string, limit = Infinity): boolean {
     try {
-        return lstatSync(path).isFile();
+        const stat = lstatSync(path);
+        return stat.isFile() && stat.size <= limit;
     } catch {
         return false;
     }
@@ -61,12 +64,22 @@ function insideFolder(folder: string, path: string): string | undefined {
 // The file a task's `main` names, or undefined when it is not a regular file inside the extension folder.
 export function taskWorkerFile(folder: string, main: string): string | undefined {
     const file = insideFolder(folder, main);
-    return file !== undefined && isRegularFile(file) ? file : undefined;
+    if (file === undefined) return undefined;
+    try {
+        let part = resolve(folder);
+        for (const name of main.replace(/\\/g, "/").split("/")) {
+            part = join(part, name);
+            if (lstatSync(part).isSymbolicLink()) return undefined;
+        }
+        return isRegularFile(file) ? file : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
-// True when the extension carries code that this version of Vera does not load: a main module or a task.
+// Installed extensions cannot run modules, tasks or page scripts.
 export function carriesCode(manifest: DesktopManifest): boolean {
-    return manifest.main !== undefined || manifest.tasks.length > 0;
+    return manifest.main !== undefined || manifest.tasks.length > 0 || manifest.commands.some((command) => command.page !== undefined);
 }
 
 export function readManifest(folder: string): ManifestRead {
@@ -96,6 +109,12 @@ export function readExtension(folder: string): ExtensionRead {
     for (const task of manifest.tasks) {
         if (taskWorkerFile(folder, task.main) === undefined) {
             return { ok: false, reason: `The file "${task.main}" that task "${task.id}" names is not in the extension.` };
+        }
+    }
+    for (const command of manifest.commands) {
+        const file = command.page === undefined ? undefined : taskWorkerFile(folder, command.page);
+        if (command.page !== undefined && (file === undefined || !isRegularFile(file, MAX_PAGE_SCRIPT_BYTES))) {
+            return { ok: false, reason: `The page script "${command.page}" is not in the extension.` };
         }
     }
     const themes: ExtensionTheme[] = [];

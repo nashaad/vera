@@ -13,7 +13,7 @@ import type { DesktopExtensionEntry, DesktopExtensionMenus, DesktopMenuItem } fr
 import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import { MAX_EXTENSIONS, MAX_LISTED_THEMES } from "./limits.ts";
 import { STAGING_PREFIX } from "./paths.ts";
-import { carriesCode, readExtension, readManifest, taskWorkerFile, type ExtensionTheme } from "./read-extension.ts";
+import { MAX_PAGE_SCRIPT_BYTES, carriesCode, readExtension, readManifest, readRegularFile, taskWorkerFile, type ExtensionTheme } from "./read-extension.ts";
 import type { ExtensionStateStore } from "./state.ts";
 
 export type CommitResult =
@@ -45,7 +45,7 @@ interface Found {
 
 // The commands the window can run: those that name a task of an extension included with Vera, the only ones that run.
 function runnableCommands(entry: Found): readonly DesktopCommand[] {
-    return entry.included ? entry.commands.filter((command) => command.task !== undefined) : [];
+    return entry.included ? entry.commands.filter((command) => command.task !== undefined || command.page !== undefined) : [];
 }
 
 function menuItems(entry: Found, place: DesktopMenuPlace): readonly DesktopMenuItem[] {
@@ -59,13 +59,14 @@ function menuItems(entry: Found, place: DesktopMenuPlace): readonly DesktopMenuI
             title: listed.title ?? command.title,
             ...(listed.description === undefined ? {} : { description: listed.description }),
             ...(listed.button === undefined ? {} : { button: listed.button }),
+            ...(listed.icon === undefined ? {} : { icon: listed.icon }),
         });
     }
     return items;
 }
 
 function menusOf(entry: Found): DesktopExtensionMenus {
-    const menus: Record<DesktopMenuPlace, readonly DesktopMenuItem[]> = { appearance: [], theme: [] };
+    const menus: Record<DesktopMenuPlace, readonly DesktopMenuItem[]> = { appearance: [], theme: [], browser: [] };
     for (const place of DESKTOP_MENU_PLACES) menus[place] = menuItems(entry, place);
     return menus;
 }
@@ -197,6 +198,14 @@ export class ExtensionStore {
         const taskFile = taskWorkerFile(entry.folder, task.main);
         if (taskFile === undefined) return undefined;
         return { taskFile, taskTitle: task.title, ...(declared.file === undefined ? {} : { file: declared.file }) };
+    }
+
+    pageScript(command: string): string | undefined {
+        const entry = this.scan(this.included, true).find((candidate) => candidate.commands.some((declared) => declared.command === command));
+        const declared = entry?.commands.find((candidate) => candidate.command === command);
+        if (entry === undefined || declared?.page === undefined) return undefined;
+        const file = taskWorkerFile(entry.folder, declared.page);
+        return file === undefined ? undefined : readRegularFile(file, MAX_PAGE_SCRIPT_BYTES);
     }
 
     // False when the id is not an installed extension, or the state file could not be written. An included

@@ -16,7 +16,9 @@ import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
 import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
+import { PageCaptureChip } from "./PageCaptureChip.tsx";
 import { imageLabel, imageState, readyAttachments } from "./images.ts";
+import { appendPageCaptureText, subscribePageCaptures, type PageCapture } from "./page-captures.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
 import { NO_ANSWER } from "./slash/run.ts";
 import { arrowUpAction, enterAction, escapeAction, folderMissingNotice, MOVE_TO_FOLDER_LABEL } from "./rules.ts";
@@ -46,6 +48,7 @@ interface AgentGate {
 
 export function SessionComposer({ bridge, agentId, pane = "main", watch, send, folder, chat, onMoved, agentStart }: SessionComposerProps) {
     const [text, setText] = useState("");
+    const [pageCaptures, setPageCaptures] = useState<readonly { readonly key: string; readonly number: number; readonly capture: PageCapture }[]>([]);
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
     const [autoSend, setAutoSend] = useState(false);
@@ -67,7 +70,8 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const running = watch.status !== "idle";
     const queued = watch.queue.length > 0;
     const held = watch.queue.some((prompt) => prompt.state === "held");
-    const empty = text.trim().length === 0;
+    const promptText = appendPageCaptureText(text.trim(), pageCaptures.map(({ capture }) => capture));
+    const empty = promptText.trim().length === 0;
     const branch = useBranch(bridge, chat ? undefined : folder);
     const missing = useFolderMissing(bridge, folder, chat);
     const move = useMoveToFolder(bridge, agentId, onMoved);
@@ -76,7 +80,23 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         setAutoSend(false);
     }, []);
     const { images, add, remove, clear } = useSessionImages(send, watch.images, onRefused);
+    const previousImages = useRef(images);
     const selected = useFiles(bridge, folder, chat, images.length, add, setNotice);
+    useEffect(() => {
+        if (pane !== "main") return undefined;
+        return subscribePageCaptures(agentId, (capture) => {
+            const [image] = add([capture.path]);
+            if (image !== undefined) {
+                setPageCaptures((current) => [...current, { key: image.requestId, number: image.number, capture }]);
+            }
+        });
+    }, [agentId, add, pane]);
+    useEffect(() => {
+        if (previousImages.current === images) return;
+        previousImages.current = images;
+        const imageIds = new Set(images.map((image) => image.requestId));
+        setPageCaptures((current) => current.filter((capture) => imageIds.has(capture.key)));
+    }, [images]);
     const ready = readyAttachments(images, watch.images);
     const models = useSessionModels(bridge, watch, send, folder);
     const slash = useSlashMenu({
@@ -207,13 +227,13 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
 
     const submit = async (): Promise<void> => {
         const content = text.trim();
-        if (!attached || hold !== undefined || content.length === 0 || preparing || selected.busy) return;
-        if (slash.runLine(content)) return;
+        let sentContent = appendPageCaptureText(content, pageCaptures.map(({ capture }) => capture));
+        if (!attached || hold !== undefined || sentContent.trim().length === 0 || preparing || selected.busy) return;
+        if (content.length > 0 && slash.runLine(content)) return;
         if (ready.kind === "waiting") {
             setNotice(IMAGES_WAITING);
             return;
         }
-        let sentContent = content;
         if (selected.files.length > 0) {
             if (folder === undefined) { setNotice("The session folder is not available."); return; }
             setPreparing(true);
@@ -227,12 +247,13 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
             }
             setPreparing(false);
             if (result.paths === undefined) { setNotice(result.error ?? "Could not attach these files."); return; }
-            sentContent = `${content}\n\n${fileReferences(result.paths)}`;
+            sentContent = `${sentContent}\n\n${fileReferences(result.paths)}`;
         }
         setNotice(undefined);
         setText("");
         lastSent.current = sendPrompt(send, sentContent, ready.attachmentIds);
         clear();
+        setPageCaptures([]);
         selected.clear();
     };
 
@@ -299,7 +320,8 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
             : running
                 ? "Queue a message for when this turn ends"
                 : "Reply to Vera";
-    const chips = [...images.map((image) => ({
+    const captureIds = new Set(pageCaptures.map((capture) => capture.key));
+    const chips = [...images.filter((image) => !captureIds.has(image.requestId)).map((image) => ({
         key: image.requestId,
         label: imageLabel(image),
         name: image.name,
@@ -316,6 +338,24 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
                 move={{ onMove: move.run, disabled: move.moving }}
             />
             <ImageChips chips={chips} onRemove={(key) => { remove(key); selected.remove(key); }} />
+            {pageCaptures.length === 0 ? null : (
+                <div className="context-chips attached">
+                    {pageCaptures.map((capture) => (
+                        <PageCaptureChip
+                            key={capture.key}
+                            item={{
+                                ...capture,
+                                attaching: images.some((image) => image.requestId === capture.key)
+                                    && imageState(images.find((image) => image.requestId === capture.key)!, watch.images).kind === "attaching",
+                            }}
+                            onRemove={(key) => {
+                                remove(key);
+                                setPageCaptures((current) => current.filter((item) => item.key !== key));
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
             {missing && folder !== undefined ? (
                 <div className="composer-notice-row">
                     <p className="composer-notice" data-tone="warning" role="status">{folderMissingNotice(folder)}</p>

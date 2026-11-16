@@ -75,6 +75,7 @@ import { shortcutCommand } from "./shortcuts.ts";
 import { startTaskProcess } from "./tasks/process.ts";
 import { TaskRunner } from "./tasks/runner.ts";
 import { ExtensionCommandService } from "./extension-commands/service.ts";
+import { browserFrame, PageCommandService } from "./extension-commands/page.ts";
 import { parseCommandReply, type CommandReply, type CommandTask } from "./extension-commands/task-protocol.ts";
 import { ThemeService } from "./theme-service.ts";
 import { themesDirectory } from "./theme-store.ts";
@@ -129,6 +130,7 @@ const extensionCatalog = new ExtensionCatalogService(catalogAddress(), extension
 
 // One runner per worker file, so runs of the same worker go one at a time.
 const commandRunners = new Map<string, TaskRunner<CommandTask, CommandReply>>();
+const pageCommands = new PageCommandService();
 const extensionCommands = new ExtensionCommandService(
     {
         target: (command) => extensionStore.commandTarget(command),
@@ -206,6 +208,7 @@ function shutdown(): void {
     if (stopping) return;
     stopping = true;
     browserGateway?.stop();
+    pageCommands.stop();
     browserPane?.dispose();
     browserPane = undefined;
     boot?.cancel();
@@ -423,6 +426,14 @@ ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService
 ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown): Promise<ExtensionCommandResult> => {
     if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
     if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string")) return { ok: false, reason: "Vera could not import that theme." };
+    const script = extensionStore.pageScript(command);
+    if (script !== undefined && pick === undefined) {
+        const native = browserPane?.current();
+        const contents = native ?? window.webContents;
+        const frame = native === undefined ? await browserFrame(contents, onAnnex) : undefined;
+        if (native === undefined && frame === undefined) return { ok: true, kind: "closed" };
+        return pageCommands.run(script, contents, pastedImageDirectory(selectedVeraHome()), frame);
+    }
     return extensionCommands.run(command, pick);
 });
 registerExtensionHandlers({ service: extensionService, catalog: extensionCatalog, window: () => window, fromWindow });
@@ -630,7 +641,10 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         if (pane.current() === undefined) pane.open(value);
         else await pane.navigate(value).catch(() => {});
     }
-    if (command === "select" && (value === null || typeof value === "number")) pane.select(value);
+    if (command === "select" && (value === null || typeof value === "number")) {
+        if (pane.state().active !== value) pageCommands.stop();
+        pane.select(value);
+    }
     if (command === "close" && typeof value === "number") pane.close(value);
     if (command === "back" && pane.current()?.navigationHistory.canGoBack()) pane.current()?.navigationHistory.goBack();
     if (command === "forward" && pane.current()?.navigationHistory.canGoForward()) pane.current()?.navigationHistory.goForward();

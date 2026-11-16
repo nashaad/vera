@@ -1,3 +1,5 @@
+import { queuePageCapture } from "../composer/page-captures.ts";
+import { activeSession } from "../session/activeSession.ts";
 import { openPicker } from "../overlays/store.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { FAILED, reportImport, UNAVAILABLE, type ImportReport } from "../theme/import-flow.ts";
@@ -15,6 +17,7 @@ export async function runExtensionCommand(
         report(UNAVAILABLE);
         return;
     }
+    const owner = activeSession()?.agentId;
     let result;
     try {
         result = await bridge.runExtensionCommand(command, pick);
@@ -31,6 +34,11 @@ export async function runExtensionCommand(
         });
         return;
     }
+    if (result.ok && result.kind === "capture") {
+        if (owner !== undefined) queuePageCapture(owner, result.capture);
+        return;
+    }
+    if (result.ok && result.kind === "closed") return;
     const outcome = reportImport(result);
     if (outcome !== undefined) report(outcome);
 }
