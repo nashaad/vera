@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
-import { THEME_COMMANDS, THEME_IMPORT_COMMAND, importedThemeCommand } from "../../clients/ui/src/commands/theme-commands.ts";
+import { THEME_COMMANDS, importedThemeCommand } from "../../clients/ui/src/commands/theme-commands.ts";
+import type { DesktopMenuItem } from "../../clients/ui/src/protocol/extensions.ts";
 import { THEME_NAMES, importedThemeId, type ThemeChoice } from "../../clients/ui/src/theme/tokens.ts";
 import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 import { acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
@@ -118,8 +119,8 @@ test("the View menu carries each toggle with its accelerator, plus Reset Layout"
     expect(run).toEqual([...LAYOUT_SHORTCUTS.map((shortcut) => shortcut.command), "layout.reset"]);
 });
 
-function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name: string }[] = [], run: (id: string) => void = () => {}, importerOn = false) {
-    const template = buildMenuTemplate("darwin", run, current, imported, new Set(), importerOn);
+function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name: string }[] = [], run: (id: string) => void = () => {}, extensionItems: readonly DesktopMenuItem[] = []) {
+    const template = buildMenuTemplate("darwin", run, current, imported, new Set(), extensionItems);
     const view = template.find((entry) => entry.label === "View");
     const submenu = Array.isArray(view?.submenu) ? view.submenu : [];
     const themeMenu = submenu.find((entry) => entry.label === "Theme");
@@ -140,10 +141,13 @@ test("@core the View menu has a Theme submenu of radio items that run the theme 
     expect(run).toEqual(THEME_NAMES.map((name) => THEME_COMMANDS[name]));
 });
 
-test("@core imported themes follow the built-in ones in the Theme submenu, then Import VS Code Theme while the importer is on", () => {
+const THEME_IMPORT_COMMAND = "vera.vscode-theme-import.import";
+const IMPORT_ITEM: DesktopMenuItem = { command: THEME_IMPORT_COMMAND, title: "Import VS Code Theme…" };
+
+test("@core imported themes follow the built-in ones in the Theme submenu, then the commands an enabled extension lists", () => {
     const run: string[] = [];
     const imported = [{ slug: "pirate-crow", name: "Pirate & Crow" }, { slug: "crow-nest", name: "Crow Nest" }];
-    const entries = themeMenuEntries(importedThemeId("crow-nest"), imported, (id) => run.push(id), true);
+    const entries = themeMenuEntries(importedThemeId("crow-nest"), imported, (id) => run.push(id), [IMPORT_ITEM]);
     const radios = entries.filter((entry) => entry.type === "radio");
     expect(radios.map((entry) => entry.label)).toEqual(["Dark", "Light", "High contrast", "Pirate && Crow", "Crow Nest"]);
     expect(radios.map((entry) => entry.checked)).toEqual([false, false, false, false, true]);
@@ -156,7 +160,7 @@ test("@core imported themes follow the built-in ones in the Theme submenu, then 
     expect(run).toEqual([...imported.map((entry) => importedThemeCommand(entry.slug)), THEME_IMPORT_COMMAND]);
 });
 
-test("@core the Theme submenu has no Import VS Code Theme item while the importer is off", () => {
+test("@core the Theme submenu has no extension command while none is listed", () => {
     const entries = themeMenuEntries(undefined, [{ slug: "crow-nest", name: "Crow Nest" }]);
     expect(entries.some((entry) => entry.id === THEME_IMPORT_COMMAND || entry.label === "Import VS Code Theme…")).toBe(false);
     expect(entries[entries.length - 1]?.label).toBe("Crow Nest");

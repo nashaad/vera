@@ -14,6 +14,9 @@ const desktopFolder = join(trial.home, "machine", "desktop");
 const extensionsFolder = join(desktopFolder, "extensions");
 const IMPORTER = "vera.vscode-theme-import";
 const IMPORT_COMMAND = `${IMPORTER}.import`;
+const INSTALLED_COMMAND = `${IMPORTER}.installed`;
+const IMPORT_BUTTON = `[data-extension-command="${IMPORT_COMMAND}"]`;
+const INSTALLED_BUTTON = `[data-extension-command="${INSTALLED_COMMAND}"]`;
 const SERVICE = "Vera Theme Import";
 
 // A theme saved by an import is an extension named imported.<slug> with its file under themes/.
@@ -98,7 +101,7 @@ async function openAppearance(app, page, withImport = true) {
     await palette.press("Enter");
     await page.waitForSelector("main[data-page=\"settings\"]", { timeout: 10_000 });
     await page.locator(".rail-row", { hasText: "Appearance" }).click();
-    if (withImport) await page.locator("[data-theme-import=\"file\"]").waitFor({ timeout: 10_000 });
+    if (withImport) await page.locator(IMPORT_BUTTON).waitFor({ timeout: 10_000 });
     else await page.locator("[data-theme-card=\"dark\"]").waitFor({ timeout: 10_000 });
 }
 
@@ -162,7 +165,7 @@ try {
     // A theme file imports through the picker and applies at once.
     await chosenFile(app, join(files, "pirate-crow.json"));
     const importNote = await timed(async () => {
-        await page.locator("[data-theme-import=\"file\"]").click();
+        await page.locator(IMPORT_BUTTON).click();
         return note(page, true);
     });
     expectEqual(importNote, "Imported \"Pirate Crow\" and switched to it.", "the import note");
@@ -189,12 +192,12 @@ try {
 
     // A file that does not parse, and one that sets none of the colors, are refused and the theme stays.
     await chosenFile(app, join(files, "broken.json"));
-    await page.locator("[data-theme-import=\"file\"]").click();
+    await page.locator(IMPORT_BUTTON).click();
     let refusal = await note(page, false);
     if (!refusal.includes("The file is not valid JSON") || !refusal.endsWith("Your theme is unchanged.")) throw new Error(`Unexpected refusal: ${refusal}`);
     expectEqual((await themeState(page)).theme, "imported:pirate-crow", "the theme after a broken file");
     await chosenFile(app, join(files, "bare.json"));
-    await page.locator("[data-theme-import=\"file\"]").click();
+    await page.locator(IMPORT_BUTTON).click();
     await until("the second refusal", async () => (await note(page, false)).includes("sets none of the colors Vera reads"));
     expectEqual((await themeState(page)).theme, "imported:pirate-crow", "the theme after a file with no mapped colors");
     expectEqual(readdirSync(extensionsFolder).join(","), "imported.pirate-crow", "the extensions folder after refusals");
@@ -203,7 +206,7 @@ try {
     await app.evaluate(({ dialog }) => {
         dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
     });
-    await page.locator("[data-theme-import=\"file\"]").click();
+    await page.locator(IMPORT_BUTTON).click();
     await new Promise((resolve) => setTimeout(resolve, 500));
     expectEqual((await themeState(page)).theme, "imported:pirate-crow", "the theme after a closed picker");
 
@@ -211,7 +214,7 @@ try {
     write(join(files, "pirate-crow.json"), { ...PIRATE_CROW, colors: { ...PIRATE_CROW.colors, "editor.background": "#202830" } });
     await chosenFile(app, join(files, "pirate-crow.json"));
     await timed(async () => {
-        await page.locator("[data-theme-import=\"file\"]").click();
+        await page.locator(IMPORT_BUTTON).click();
         await until("the replaced colors", async () => (await themeState(page)).surface === "rgb(32, 40, 48)");
     });
     expectEqual(readdirSync(extensionsFolder).join(","), "imported.pirate-crow", "the extensions folder after a re-import");
@@ -228,16 +231,42 @@ try {
     await palette.press("Enter");
     await page.locator(".toast-text", { hasText: "Imported \"Pirate Crow\"" }).waitFor({ timeout: 10_000 });
 
-    // A theme of an installed VS Code extension imports from the list.
-    await page.locator("[data-theme-import=\"installed\"]").click();
-    await page.locator("[data-installed-theme=\"Crow Hold Night\"]").waitFor({ timeout: 15_000 });
+    // The installed VS Code themes open as a list, and choosing one imports it. The list holds labels only: the paths
+    // stay in the shell, which gets a key back.
+    await timed(async () => {
+        await page.locator(INSTALLED_BUTTON).click();
+        await page.locator("[data-overlay=\"picker\"]").waitFor({ timeout: 15_000 });
+    });
     await importProcessGone(app, 6);
-    await page.locator("[data-installed-theme=\"Crow Hold Night\"]").click();
+    const listRow = page.locator(".palette-row[data-pick]", { hasText: "Crow Hold Night" });
+    await listRow.waitFor({ timeout: 5_000 });
+    expectEqual(await listRow.innerText().then((text) => text.includes("Crow Hold")), true, "the detail of the listed theme");
+    const listHtml = await page.locator("[data-overlay=\"picker\"]").innerHTML();
+    expectEqual(listHtml.includes(fakeHome) || listHtml.includes("night.json"), false, "a path in the list the window shows");
+    await page.locator("[data-overlay=\"picker\"] input").fill("zzz");
+    await page.locator("[data-overlay=\"picker\"] .palette-empty", { hasText: "No matches" }).waitFor({ timeout: 5_000 });
+    const filter = page.locator("[data-overlay=\"picker\"] input");
+    await filter.fill("hold");
+    await filter.press("Enter");
     await until("the installed theme", async () => (await themeState(page)).theme === "imported:crow-hold-night");
     expectEqual((await themeState(page)).surface, "rgb(27, 42, 31)", "the installed theme's surface");
+    expectEqual(await page.locator("[data-overlay=\"picker\"]").count(), 0, "the list after choosing");
+    expectEqual(
+        (await note(page, true)).startsWith("Imported \"Crow Hold Night\""),
+        true,
+        "the note after choosing an installed theme",
+    );
     const source = JSON.parse(readFileSync(savedThemeFile("crow-hold-night"), "utf8")).source;
     expectEqual(source, "Extension Crow Hold", "the installed theme's source");
     await importProcessGone(app, 7);
+
+    // A list can be closed with Escape and nothing is imported or started again.
+    await page.locator(INSTALLED_BUTTON).click();
+    await page.locator("[data-overlay=\"picker\"]").waitFor({ timeout: 15_000 });
+    await importProcessGone(app, 8);
+    await page.locator("[data-overlay=\"picker\"] input").press("Escape");
+    await page.locator("[data-overlay=\"picker\"]").waitFor({ state: "detached", timeout: 5_000 });
+    await importProcessGone(app, 8);
 
     // Each imported theme is an installed extension of its own. The included importer is not listed, so it has no
     // switch, and a request to turn it off is refused. The command, its menu and palette entries stay.
@@ -259,13 +288,13 @@ try {
     expectEqual(importer === undefined ? "missing" : `${importer.included}/${importer.enabled}`, "true/true", "the importer in the list the window reads");
     expectEqual(await menuItem(app, IMPORT_COMMAND), true, "the import item of the Theme menu");
     await openAppearance(app, page);
-    expectEqual(await page.locator("[data-theme-import]").count() > 0, true, "the import controls");
+    expectEqual(await page.locator("[data-extension-command]").count(), 2, "the import controls");
     await press(app, "K", [MODIFIER]);
     await palette.waitFor({ timeout: 10_000 });
     await palette.fill("import vs code");
     await page.locator(`.palette-row[data-command="${IMPORT_COMMAND}"]`).waitFor({ timeout: 10_000 });
     await palette.press("Escape");
-    await importProcessGone(app, 7);
+    await importProcessGone(app, 8);
 
     // The choice and its colors are there again after a relaunch on the same home.
     await app.close();

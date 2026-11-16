@@ -1,6 +1,7 @@
 import type { MenuItemConstructorOptions } from "electron";
 
-import { importedThemeCommand, THEME_COMMANDS, THEME_IMPORT_COMMAND } from "../../ui/src/commands/theme-commands.ts";
+import { importedThemeCommand, THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
+import type { DesktopMenuItem } from "../../ui/src/protocol/extensions.ts";
 import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice, type ThemeName } from "../../ui/src/theme/tokens.ts";
 import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
 import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
@@ -39,8 +40,8 @@ export function buildMenuTemplate(
     theme: ThemeChoice = DEFAULT_THEME,
     imported: readonly ImportedMenuTheme[] = [],
     hidden: ReadonlySet<string> = new Set(),
-    // Whether the theme importer extension is on; its menu item is left out when it is off.
-    importerOn = false,
+    // Commands that enabled extensions list in the Theme submenu, after the themes.
+    themeCommands: readonly DesktopMenuItem[] = [],
 ): MenuItemConstructorOptions[] {
     const item = (shortcut: NativeShortcut): MenuItemConstructorOptions => ({
         id: shortcut.command,
@@ -103,7 +104,7 @@ export function buildMenuTemplate(
                 submenu: [
                     ...themeItems,
                     ...(importedItems.length === 0 ? [] : [{ type: "separator" } as const, ...importedItems]),
-                    ...(importerOn ? [{ type: "separator" } as const, plain(THEME_IMPORT_COMMAND, "Import VS Code Theme…")] : []),
+                    ...(themeCommands.length === 0 ? [] : [{ type: "separator" } as const, ...themeCommands.map((entry) => plain(entry.command, entry.title))]),
                 ],
             },
             sheet("themes"),

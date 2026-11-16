@@ -145,15 +145,15 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
     );
 }
 
-interface PaletteRowProps {
-    readonly mode: "commands" | "sessions";
+export interface PaletteRowProps {
+    readonly mode: "commands" | "sessions" | "pick";
     readonly entry: RankedItem;
     readonly selected: boolean;
     readonly onHover: () => void;
     readonly onRun: () => void;
 }
 
-function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) {
+export function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) {
     const { item } = entry;
     return (
         <button
@@ -163,6 +163,7 @@ function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) 
             className="palette-row"
             data-command={mode === "commands" ? item.id : undefined}
             data-session={mode === "sessions" ? item.id : undefined}
+            data-pick={mode === "pick" ? item.id : undefined}
             onMouseEnter={onHover}
             onClick={onRun}
         >

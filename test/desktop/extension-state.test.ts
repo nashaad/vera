@@ -1,17 +1,29 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { THEME_IMPORT_COMMAND, THEME_IMPORTER_ID } from "../../clients/ui/src/extensions/theme-importer.ts";
 import { readExtensions, syncDesktopExtensions, toggleExtension } from "../../clients/ui/src/customize/desktop-extensions.ts";
 import { isExtensionOn, setDesktopExtensions, subscribeDesktopExtensions } from "../../clients/ui/src/extensions/state.ts";
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
 import type { DesktopExtensionEntry, ExtensionChangeResult } from "../../clients/ui/src/protocol/extensions.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
-import { registerThemeCommands } from "../../clients/ui/src/commands/theme-commands.ts";
+import { registerExtensionCommands } from "../../clients/ui/src/extensions/commands.ts";
 
 afterEach(() => setDesktopExtensions([]));
 
+const THEME_IMPORTER_ID = "vera.vscode-theme-import";
+const THEME_IMPORT_COMMAND = `${THEME_IMPORTER_ID}.import`;
+
 function importer(enabled: boolean): DesktopExtensionEntry {
-    return { id: THEME_IMPORTER_ID, version: "1.0.0", themes: [], hasMain: true, hasCommands: true, included: true, enabled };
+    return {
+        id: THEME_IMPORTER_ID,
+        version: "1.0.0",
+        themes: [],
+        hasMain: true,
+        hasCommands: true,
+        commands: [{ id: THEME_IMPORT_COMMAND, title: "Import VS Code Theme…", category: "Theme" }],
+        menus: { appearance: [], theme: [] },
+        included: true,
+        enabled,
+    };
 }
 
 function bridge(answer: ExtensionChangeResult): DesktopBridge {
@@ -50,13 +62,17 @@ test("listeners hear each answer until they unsubscribe", () => {
     expect(heard).toBe(2);
 });
 
-test("@core the import command is in the palette only while the importer is on", () => {
+test("@core a command is in the palette only while its extension is on, and a command already registered is left alone", () => {
     const registry = new CommandRegistry();
-    const register = (on: boolean) => registerThemeCommands(registry, () => {}, [], on ? () => {} : undefined);
+    const ran: string[] = [];
     expect(registry.list().some((command) => command.id === THEME_IMPORT_COMMAND)).toBe(false);
-    const dispose = register(true);
+    const dispose = registerExtensionCommands(registry, [importer(true)], (command) => ran.push(command));
     expect(registry.list().find((command) => command.id === THEME_IMPORT_COMMAND)?.title).toBe("Theme: Import VS Code Theme…");
+    registry.execute(THEME_IMPORT_COMMAND);
+    expect(ran).toEqual([THEME_IMPORT_COMMAND]);
+    expect(registerExtensionCommands(registry, [importer(true)], () => {})).toBeInstanceOf(Function);
     dispose();
-    register(false);
+    expect(registry.list().some((command) => command.id === THEME_IMPORT_COMMAND)).toBe(false);
+    registerExtensionCommands(registry, [importer(false)], () => {});
     expect(registry.list().some((command) => command.id === THEME_IMPORT_COMMAND)).toBe(false);
 });

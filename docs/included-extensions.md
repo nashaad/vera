@@ -19,6 +19,11 @@ examples/extensions/   example extensions: never loaded unless added by path
 src/extensions/        the extension host: discovery, manifests, registry, manager
 ```
 
+The `extensions/` folder also holds `vscode-theme-import/`, which has a
+`vera.desktop.json` and no `vera.extension.json`. It is a desktop extension that
+only the desktop app runs, always on; the terminal UI does not load it. See
+[Desktop extensions](desktop.md#desktop-extensions).
+
 To use an example, install its folder with `/extension install <path>`, as in
 [Install a local extension](extensions.md#install-a-local-extension), or add
 it by path when it needs configuration.

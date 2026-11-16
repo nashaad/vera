@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { classifyType, COLOR_ROWS, mapColors } from "../../clients/desktop/src/theme-import/color-map.ts";
-import { parseJsonc } from "../../clients/desktop/src/theme-import/jsonc.ts";
-import { NEUTRAL_TOKENS } from "../../clients/desktop/src/theme-import/neutral-colors.ts";
-import { ThemeRefusal } from "../../clients/desktop/src/theme-import/refusal.ts";
-import { brightness, parseColor } from "../../clients/desktop/src/theme-import/vscode-color.ts";
+import { classifyType, COLOR_ROWS, mapColors } from "../../extensions/vscode-theme-import/color-map.ts";
+import { parseJsonc } from "../../extensions/vscode-theme-import/jsonc.ts";
+import { NEUTRAL_TOKENS } from "../../extensions/vscode-theme-import/neutral-colors.ts";
+import { ThemeRefusal } from "../../extensions/vscode-theme-import/refusal.ts";
+import { brightness, parseColor } from "../../extensions/vscode-theme-import/vscode-color.ts";
 import { baseColor, shadowFor } from "../../clients/ui/src/theme/imported.ts";
 import { COLOR_TOKENS, type ColorToken } from "../../clients/ui/src/theme/tokens.ts";
 import { PIRATE_CROW } from "./theme-fixtures.ts";

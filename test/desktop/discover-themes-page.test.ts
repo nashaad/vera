@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { mapColors } from "../../clients/desktop/src/theme-import/color-map.ts";
+import { mapColors } from "../../extensions/vscode-theme-import/color-map.ts";
 import { DiscoverThemesView } from "../../clients/ui/src/customize/DiscoverThemes.tsx";
 import {
     CATALOG_UNREACHABLE,

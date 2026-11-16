@@ -19,7 +19,6 @@ import { extensionsDirectory, extensionStatePath } from "../../clients/desktop/s
 import { ExtensionService } from "../../clients/desktop/src/extensions/service.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
-import { runThemeTask } from "../../clients/desktop/src/theme-import/run-task.ts";
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
 import { themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { catalogBytes, PALETTE, rawEntry, serve, sha256Of } from "./extension-catalog-fixtures.ts";
@@ -146,7 +145,7 @@ interface Catalog {
 // The install task and the catalog task each run on a cloned task with no state, over a store in a scratch home.
 function catalogOver(address: string | undefined, home = scratchDirectory()): Catalog {
     const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
-    const themes = new ThemeService(store, themesDirectory(home), runThemeTask);
+    const themes = new ThemeService(store, themesDirectory(home));
     const extensions = new ExtensionService(store, themes, async (task) => {
         const parsed = parseInstallTask(structuredClone(task));
         if (parsed === undefined) throw new Error("The task did not read.");

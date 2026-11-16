@@ -1,4 +1,3 @@
-import { THEME_IMPORT_COMMAND } from "../extensions/theme-importer.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import { IMPORTED_THEME_PREFIX, importedThemeId, isThemeName, type ThemeChoice, type ThemeName } from "../theme/tokens.ts";
 import type { CommandRegistry } from "./registry.ts";
@@ -9,8 +8,6 @@ export const THEME_COMMANDS: Readonly<Record<ThemeName, string>> = {
     light: "theme.light",
     "high-contrast": "theme.highContrast",
 };
-
-export { THEME_IMPORT_COMMAND };
 
 const THEME_TITLES: Readonly<Record<ThemeName, string>> = {
     dark: "Theme: Dark",
@@ -32,7 +29,6 @@ export function registerThemeCommands(
     registry: CommandRegistry,
     apply: (choice: ThemeChoice) => void,
     imported: readonly ImportedThemeSummary[] = [],
-    importTheme?: () => void,
 ): () => void {
     const disposers = (Object.keys(THEME_COMMANDS) as ThemeName[]).map((name) => registry.register({
         id: THEME_COMMANDS[name],
@@ -45,9 +41,6 @@ export function registerThemeCommands(
             title: `Theme: ${theme.name}`,
             run: () => apply(importedThemeId(theme.slug)),
         }));
-    }
-    if (importTheme !== undefined) {
-        disposers.push(registry.register({ id: THEME_IMPORT_COMMAND, title: "Theme: Import VS Code Theme…", run: importTheme }));
     }
     return () => disposers.forEach((dispose) => dispose());
 }

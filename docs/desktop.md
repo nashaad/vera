@@ -374,7 +374,8 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.dark`, `theme.light`, `theme.highContrast`,
-`theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`, `go.newChat`,
+`theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`,
+`vera.vscode-theme-import.installed`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents` (shows the Subagents tab), `session.tasks`,
 `session.copyConversation` and `session.quote`. `container.activate` and the shortcuts of a kind show the most
@@ -1182,14 +1183,23 @@ The desktop app imports a VS Code color theme from:
   choice;
 - the extensions installed in VS Code on this machine, listed from
   `~/.vscode/extensions` and, on macOS, from the VS Code app's built-in
-  extensions. Settings > Appearance > Installed in VS Code > Show themes lists
-  them and a click imports one.
+  extensions. Settings > Appearance > Installed in VS Code > Show themes, and
+  the command palette's `Theme: Import Theme Installed in VS Code…`, open a
+  list of them with a filter field. Enter or a click imports the chosen theme,
+  and Escape closes the list. The list shows each theme's name and the
+  extension it comes from, not file paths. A list cut at 300 themes, or after 500 extension folders, says
+  `More themes are installed than this list shows.`
 
-The importer is an included desktop extension, `vera.vscode-theme-import`. It
-is always on, and Customize does not list it. Start an
+The importer is an included desktop extension, `vera.vscode-theme-import`. Its
+source and manifest are in `extensions/vscode-theme-import/` in the repository,
+and the desktop build copies the manifest and bundles its task into the app. It
+is always on, and Customize does not list it. The app has no code of its own for
+it: the commands, the rows in Settings and the View > Theme item come from the
+manifest (see Commands and menus below). Start an
 import from Settings > Appearance > Import a VS Code theme > Import…, from
 View > Theme > Import VS Code Theme…, or from the command palette's
-`Theme: Import VS Code Theme…`. The first two open a file picker. After a
+`Theme: Import VS Code Theme…`. Each opens a file picker for `.json`, `.jsonc`
+and `.vsix` files. After a
 successful import the window switches to the theme at once, the theme sits in
 the lists beside Dark, Light and High contrast, and Settings shows
 `Imported "<name>" and switched to it.` Each imported theme is installed as its
@@ -1197,7 +1207,9 @@ own desktop extension named `imported.<name>`, so it appears under Desktop
 extensions and can be turned off or removed there. Importing the same name
 again replaces that extension. Each import, and each listing of the installed themes, runs in
 a separate process, named Vera Theme Import, that starts for the request and stops
-once it answers; no such process runs at launch or between requests. A request
+once it answers; no such process runs at launch or between requests. Choosing a
+theme from the installed list is a second request: the app keeps the file paths
+of the list, the window sends back a key, and a new process imports that file. A request
 that takes longer than 60 seconds is stopped and refused. The process only reads
 the file, package or VS Code extension folder and answers with the converted
 themes. The app, not the process, installs each theme as its extension, and an
@@ -1298,7 +1310,8 @@ of those, and on a `var(--vera-*)` name that is not declared.
 ## Desktop extensions
 
 A desktop extension adds to the desktop app itself. Today an extension can add
-themes, and an extension that ships with the app can add tasks. It is a folder
+themes, and an extension that ships with the app can add tasks, the commands
+that run them, and entries for those commands in Settings and the View menu. It is a folder
 with a `vera.desktop.json` manifest. The terminal UI
 does not use desktop extensions and keeps its own themes.
 
@@ -1373,6 +1386,64 @@ The app runs a task only for an extension included with the app, one task at
 a time, and stops it after 60 seconds. The process starts when a request
 arrives, answers once, and stops; it keeps nothing between runs. An extension
 installed from a package keeps its tasks listed but does not run them.
+
+### Commands and menus
+
+A command that names a task is run by the app when the person chooses it. While
+its extension is on, the command is in the command palette as
+`<category>: <title>`, or the title alone when it has no category. Turning the
+extension off removes it. A command may also carry a file filter, and an
+extension may list commands under two menu places:
+
+```json
+{
+    "contributes": {
+        "commands": [
+            {
+                "command": "vera.vscode-theme-import.import",
+                "title": "Import VS Code Theme…",
+                "category": "Theme",
+                "task": "import",
+                "file": { "label": "VS Code themes", "extensions": ["json", "jsonc", "vsix"] }
+            }
+        ],
+        "menus": {
+            "appearance": [
+                {
+                    "command": "vera.vscode-theme-import.import",
+                    "title": "Import a VS Code theme",
+                    "description": "Choose a theme .json file or a .vsix extension package.",
+                    "button": "Import…"
+                }
+            ],
+            "theme": [
+                { "command": "vera.vscode-theme-import.import" }
+            ]
+        }
+    }
+}
+```
+
+A command id starts with the extension's id and a `.`, has no whitespace, and is
+unique in the extension. A `category` is 1 to 40 characters. `file` has a
+`label` of 1 to 60 characters and 1 to 8 `extensions`, each 1 to 16 letters or
+digits without the dot. The app shows an open-file dialog with that filter
+before it runs the task and passes the chosen path to it; cancelling the dialog
+runs nothing and reports nothing.
+
+`menus` is an object keyed by place. `appearance` adds a row to Settings >
+Appearance and `theme` adds an item to the View menu's Theme submenu. Any other
+place is refused. A place holds at most 8 entries. Each entry names a command
+declared in the same manifest, and may set `title` (1 to 100 characters, in place
+of the command's title), `description` (1 to 300 characters) and `button` (1 to
+30 characters; an Appearance row's button says `Run` when it has none). Only the
+entries of enabled extensions show.
+
+A task answers a command in one of three ways: themes the app installs as
+`imported.<name>` extensions, a list the window shows for the person to choose
+from, or a refusal with a reason. Choosing a list item runs the same command
+again with that item. The app keeps the list's values and sends the window only
+each item's name and detail.
 
 ### Packages
 
@@ -1596,8 +1667,10 @@ extensions folder and a stubbed file picker. It imports a theme file from Settin
 Appearance, checks the switch, a mapped color on the page, the saved file and
 the View menu, then refuses an unparsable file and one with none of the mapped
 colors, closes the picker with no change, imports the same theme again and
-checks it replaced the first, imports a theme from the installed list and from
-the command palette, relaunches to check the imported theme is remembered, and
+checks it replaced the first, imports a theme from the command palette, opens the
+installed list, filters it and chooses a theme from it (checking the list holds no
+file path), closes the list with Escape, counts the Vera Theme Import processes
+at each step, relaunches to check the imported theme is remembered, and
 removes the saved file to check the window falls back to Dark.
 
 The compose test runs a local provider that streams fixed replies and points a

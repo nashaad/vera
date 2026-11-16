@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { syntaxColors } from "../../clients/desktop/src/theme-import/syntax-colors.ts";
-import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
+import { syntaxColors } from "../../extensions/vscode-theme-import/syntax-colors.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
 import { ThemeStore, themesDirectory } from "../../clients/desktop/src/theme-store.ts";
 import { themeFile } from "../../clients/ui/src/theme/apply.ts";
 import { baseColor } from "../../clients/ui/src/theme/imported.ts";

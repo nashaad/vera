@@ -7,7 +7,7 @@ import { importedThemeId, THEME_NAMES, type ThemeChoice } from "../../theme/toke
 import { DENSITY_LABELS, SCALE_LABELS, themeFromAttribute, themeLabel, themeSwatch } from "./appearance.ts";
 import { Segmented } from "./Segmented.tsx";
 import { SettingRow } from "./SettingRow.tsx";
-import { ThemeImport } from "./ThemeImport.tsx";
+import { ExtensionRows } from "./ExtensionRows.tsx";
 
 // The theme can also change from the View menu, so the cards follow the root attribute.
 function useActiveTheme(): ThemeChoice {
@@ -66,7 +66,7 @@ export function AppearanceSection() {
                     return <ThemeCard key={choice} choice={choice} active={choice === activeTheme} source={theme.source} />;
                 })}
             </div>
-            <ThemeImport />
+            <ExtensionRows />
             <SettingRow name="Text size" description="Scales the text of the interface in this window.">
                 <Segmented
                     label="Text size"

@@ -21,7 +21,7 @@ import type { ImportedThemeSummary } from "../../clients/ui/src/theme/imported.t
 import { storeTheme, readStoredTheme, readThemeCache } from "../../clients/ui/src/theme/storage.ts";
 import { applyThemeList } from "../../clients/ui/src/theme/sync.ts";
 import { importedThemeId } from "../../clients/ui/src/theme/tokens.ts";
-import { mapColors } from "../../clients/desktop/src/theme-import/color-map.ts";
+import { mapColors } from "../../extensions/vscode-theme-import/color-map.ts";
 import { PIRATE_CROW } from "./theme-fixtures.ts";
 
 const DARK_THEME: ImportedThemeSummary = {
@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 function entry(id: string, overrides: Partial<DesktopExtensionEntry> = {}): DesktopExtensionEntry {
-    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, included: false, enabled: true, ...overrides };
+    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [] }, included: false, enabled: true, ...overrides };
 }
 
 function listed(extensions: DesktopExtensionEntry[], themes: ImportedThemeSummary[]): ExtensionChangeResult {

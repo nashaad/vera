@@ -3,6 +3,6 @@
     "compilerOptions": {
         "lib": ["ESNext", "DOM", "DOM.Iterable"]
     },
-    "include": ["./**/*.ts", "../../catalog/**/*.ts"],
+    "include": ["./**/*.ts", "../../catalog/**/*.ts", "../../extensions/vscode-theme-import/**/*.ts"],
     "exclude": []
 }

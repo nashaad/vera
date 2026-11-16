@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
-import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
 import { pirateCrowText, scratchDirectory, writeText } from "./theme-fixtures.ts";
 
 export interface TarItem {
