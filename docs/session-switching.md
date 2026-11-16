@@ -22,6 +22,10 @@ live conversation, choose what happens to it:
 | Switch, keep running | Leave it working and open the selected conversation. |
 | Escape | Return to the picker. |
 
+In the leave menu, press `1` to stop and switch or `2` to switch and keep
+running. Either key acts immediately. You can also move with the arrows and
+press Enter. In the conversation list, digits remain search input.
+
 Space on a highlighted conversation opens a preview and does not switch.
 Escape closes the preview.
 

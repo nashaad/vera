@@ -1170,6 +1170,47 @@ test("picking a live conversation from Ctrl+E asks, then attaches", async () => 
     }
 }, 15_000);
 
+for (const [digit, closed] of [
+    ["1", "current-session-id,target-session-id"],
+    ["2", "target-session-id"],
+] as const) {
+    test(`switch confirmation ${digit} applies its leave disposition`, async () => {
+        const home = mkdtempSync(join(tmpdir(), `vera-tui-switch-${digit}-`));
+        const scenario = createTuiResumeScenario({ home, targetLive: true });
+        const session = await startTuiTestSession({
+            home,
+            width: 100,
+            height: 30,
+            dependencies: () => scenario.dependencies,
+        });
+
+        try {
+            await session.waitForVisiblePane("Start a conversation");
+            session.sendKey("C-e");
+            await session.waitForVisiblePane("Continue the theme picker");
+            session.sendText("theme");
+            await session.waitForVisiblePaneWhere(
+                (visible) => visible.includes("Continue the theme picker")
+                    && !visible.includes("The one already open"),
+                "the filtered conversation",
+            );
+            session.sendKey("Enter");
+            const confirmation = await session.waitForVisiblePane("1. Stop & switch");
+            expect(confirmation).toContain("2. Switch, keep running");
+            expect(confirmation).toContain("1/2 switch");
+            session.sendKey(digit);
+            await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+            session.sendKey("C-c");
+            session.sendKey("C-c");
+            await scenario.finish(await session.waitForSessionExit());
+            expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+                .toBe(`${scenario.targetPath}\ndetached\ntarget-session-id\nclosed ${closed}`);
+        } finally {
+            await session.close();
+        }
+    }, 15_000);
+}
+
 test("theme preview and cancel repaint an attached sidebar transcript", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-theme-"));
     const scenario = createTuiResumeScenario({ home });

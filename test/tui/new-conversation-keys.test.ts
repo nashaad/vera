@@ -36,10 +36,3 @@ test("new conversation consumes other digits without choosing", () => {
         expect(result.selection).toBeUndefined();
     }
 });
-
-test("switch confirmation does not acquire quick digit triggers", () => {
-    const state = { ...startTuiCreateLeavePicker(), kind: "session_leave" as const };
-    for (const name of ["1", "2"]) {
-        expect(handleTuiSettingsPickerKey(state, { name }).selection).toBeUndefined();
-    }
-});

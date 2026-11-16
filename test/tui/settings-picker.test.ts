@@ -230,7 +230,13 @@ test("session picker filters titled durable conversations and selects an agent",
     expect(leave?.kind).toBe("session_leave");
     expect(leave?.options.map((option) => option.label))
         .toEqual(["Stop & switch", "Switch, keep running"]);
-    expect(pickerFooter(leave!)).toBe("↑↓ choose · ⏎ switch · esc back");
+    expect(pickerFooter(leave!)).toBe("1/2 switch · ↑↓ choose · ⏎ switch · esc back");
+    for (const [width, height] of [[80, 24], [120, 36]] as const) {
+        const confirmation = await pickerFrame(leave!, width, height);
+        expect(confirmation).toContain("1. Stop & switch");
+        expect(confirmation).toContain("2. Switch, keep running");
+        expect(confirmation).toContain("1/2 switch · ↑↓ choose · ⏎ switch · esc back");
+    }
     expect(handleTuiSettingsPickerKey(leave!, { name: "escape" }).state)
         .toBe(state);
     expect(handleTuiSettingsPickerKey(leave!, { name: "up" }).state?.selectedIndex)
