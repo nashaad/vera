@@ -516,7 +516,7 @@ test("edit rejects an empty batch and requires a prior read", async () => {
         );
         expect(unread.isError).toBe(true);
         expect(unread.content[0]?.text).toBe(
-            "Read notes.txt before editing it",
+            "Read notes.txt with the read tool through its last line before editing it.",
         );
     } finally {
         await rm(workspace, { recursive: true, force: true });

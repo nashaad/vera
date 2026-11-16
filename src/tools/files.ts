@@ -100,7 +100,7 @@ export const readTool: RegisteredTool = {
             ? `[vera] Showing lines ${start + 1}-${end} of ${totalLines}.`
             : `[vera] Showing lines ${start + 1}-${end} of ${totalLines}. `
                 + `Use offset=${end + 1} to continue. Editing this file needs `
-                + "a whole-file read first.";
+                + "a read through its last line first.";
         return {
             kind: "output",
             output: `${numbered}\n${footer}`,
