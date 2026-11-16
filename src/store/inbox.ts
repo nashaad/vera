@@ -148,6 +148,13 @@ export class Inbox {
         return this.appendProducerEntry(source, key, entry, true);
     }
 
+    producerEntry(source: string, key: string): InboxEntry | undefined {
+        const row = this.database.query<{ seq: number }, [string, string]>(
+            "SELECT seq FROM producer_entries WHERE producer_source = ? AND producer_key = ?",
+        ).get(source, key);
+        return row === null ? undefined : this.entry(row.seq);
+    }
+
     isDurablyAdmitted(seq: number): boolean {
         return this.database.query<{ seq: number }, [number]>(
             "SELECT seq FROM admitted_entries WHERE seq = ?",

@@ -207,6 +207,7 @@ export interface VeraExtensionCommands {
 
 export interface VeraExtensionTools {
     register(spec: VeraExtensionToolSpec): void;
+    onProcessOutcome(handler: VeraExtensionProcessOutcomeHandler): void;
 }
 
 /**
@@ -338,6 +339,23 @@ export interface VeraExtensionToolSpec {
     readonly timeoutMs?: number;
     readonly run: VeraExtensionToolHandler;
 }
+
+export interface VeraExtensionProcessOutcome {
+    readonly processId: string;
+    readonly description: string;
+    readonly pid: number;
+    readonly startedAt: string;
+    readonly outcome: "settled" | "interrupted";
+    readonly elapsedMs?: number;
+    readonly exitCode?: number;
+    readonly outputTail?: string;
+    readonly outputTruncated?: boolean;
+}
+
+export type VeraExtensionProcessOutcomeHandler = (
+    outcome: VeraExtensionProcessOutcome,
+    signal: AbortSignal,
+) => string | Promise<string>;
 
 export interface VeraExtensionProcessSnapshot {
     readonly processId: string;

@@ -27,8 +27,8 @@ The core and optional extensions are:
 
 ```text
 core       vera.chat, vera.command-hooks, vera.context, vera.customize,
-           vera.explorer, vera.reasoning-cycle, vera.session-identity,
-           vera.web-search
+           vera.explorer, vera.monitor, vera.reasoning-cycle,
+           vera.session-identity, vera.web-search
 included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
            vera.mcp, vera.recap, vera.titles
 ```
@@ -85,6 +85,28 @@ Type to filter. Enter scrolls the transcript to that point, and the next
 `/recap` starts on the row you jumped to. Otherwise it starts on the newest
 phase. Time between turns, while Vera was
 waiting on you, does not count toward a phase.
+
+## Monitor a background command
+
+The included `vera.monitor` extension lets Vera start a shell command with a
+short description and continue the conversation while it runs. It uses the same
+permission checks, destructive-command guard, automatic review and sandbox as
+`bash`. Ask, for example, "Run the crow tests in the background and tell me
+when they finish."
+
+When the command and its output finish, its owning conversation receives a
+notice with the description, process ID, exit status and the last output. It can
+start a new turn even when no client is attached; a child command wakes the
+child's conversation, not its parent. Work already in progress finishes before
+the notice starts its turn. If the executor is lost or an outcome cannot be
+confirmed, the notice reports an interruption rather than inventing an exit
+code. Vera does not rerun the command. If formatting or saving a notice fails,
+Vera shows an error in the live owning conversation; any saved outcome is
+retried when the host restarts.
+
+The `process` tool can still read or stop a running command. Disable this
+extension with `/extension disable vera.monitor` to remove `monitor` and
+prevent new monitor notices; ordinary `bash` and `process` remain available.
 
 ## Run command hooks
 

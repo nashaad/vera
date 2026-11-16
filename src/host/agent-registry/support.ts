@@ -138,7 +138,7 @@ import type {
     ToolEffectContext,
     ToolOutput,
 } from "../../tools/types.ts";
-import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
+import { ManagedProcessRegistry, type ManagedProcessObservationHandlers } from "../../tools/process-runtime.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import {
     defaultSessionPath,
@@ -314,6 +314,7 @@ export function importedSessionSummary(
 export interface AgentRegistryOptions {
     readonly hostLog?: HostLog;
     readonly sandbox?: CommandSandbox & SandboxInspector;
+    readonly processObservations?: ManagedProcessObservationHandlers;
     // Flag directory read on every turn start; see src/host/session-block.ts.
     readonly sessionBlockDirectory?: string;
     /** True while a host stop holds new turns. */

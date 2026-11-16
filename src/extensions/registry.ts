@@ -34,6 +34,8 @@ import type {
     VeraExtensionToolHandler,
     VeraExtensionAgentSpec,
     VeraExtensionToolSpec,
+    VeraExtensionProcessOutcome,
+    VeraExtensionProcessOutcomeHandler,
     SessionIdentityProvider,
     VeraSearchProvider,
     VeraExtensionRequestHandler,
@@ -212,6 +214,11 @@ export interface ExtensionRegistry {
         payload: JsonValue,
         signal: AbortSignal,
     ): Promise<JsonValue>;
+    formatProcessOutcome(
+        extensionId: string,
+        outcome: VeraExtensionProcessOutcome,
+        signal?: AbortSignal,
+    ): Promise<string | undefined>;
     close(): Promise<void>;
 }
 
@@ -253,6 +260,7 @@ interface LoadedRegistryExtension {
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
+    readonly processOutcomeHandler?: VeraExtensionProcessOutcomeHandler;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -624,6 +632,38 @@ export async function startExtensionRegistry(
                 }
             }
         },
+        async formatProcessOutcome(extensionId, outcome, signal) {
+            if (closing !== undefined) throw new Error("Extension registry is closing");
+            const owner = owners.get(extensionId);
+            const handler = owner?.disposing === false ? owner.processOutcomeHandler : undefined;
+            if (owner === undefined || handler === undefined) return undefined;
+            const controller = new AbortController();
+            let active: ActiveExtensionInvocation | undefined;
+            try {
+                const notice = await runExtensionOperation(
+                    (operationSignal) => handler(structuredClone(outcome), operationSignal),
+                    {
+                        timeoutMs: handlerTimeoutMs,
+                        timeoutMessage: `Extension ${extensionId} process outcome timed out after ${handlerTimeoutMs}ms`,
+                        abortMessage: `Extension ${extensionId} process outcome was cancelled`,
+                        signal: signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]),
+                        onExecutionStart(execution) {
+                            active = { controller, completion: execution.then(() => undefined, () => undefined) };
+                            owner.activeInvocations.add(active);
+                        },
+                    },
+                );
+                if (typeof notice !== "string" || notice.trim().length === 0
+                    || Buffer.byteLength(notice) > MAX_EXTENSION_HOOK_BYTES) {
+                    throw new Error(`Extension ${extensionId} returned an invalid process notice`);
+                }
+                return notice;
+            } finally {
+                if (active !== undefined) {
+                    void active.completion.finally(() => owner.activeInvocations.delete(active!));
+                }
+            }
+        },
         close(): Promise<void> {
             closing ??= close();
             return closing;
@@ -685,6 +725,7 @@ async function activateExtension(
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
     let identityProvider: SessionIdentityProvider | undefined;
+    let processOutcomeHandler: VeraExtensionProcessOutcomeHandler | undefined;
     const requestHandlers = new Map<string, VeraExtensionRequestHandler>();
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
@@ -741,6 +782,15 @@ async function activateExtension(
                     handlerTimeoutMs,
                     activeInvocations,
                 );
+            },
+            onProcessOutcome(handler: VeraExtensionProcessOutcomeHandler): void {
+                if (phase !== "activating" || !loaded.manifest.capabilities.includes("processes.observe")) {
+                    throw new Error("Process outcomes require processes.observe during activation");
+                }
+                if (typeof handler !== "function" || processOutcomeHandler !== undefined) {
+                    throw new Error("Invalid or duplicate process outcome handler");
+                }
+                processOutcomeHandler = handler;
             },
         }),
         agents: Object.freeze({
@@ -1239,6 +1289,7 @@ async function activateExtension(
                 ? {}
                 : { identityProvider }),
             requestHandlers,
+            ...(processOutcomeHandler === undefined ? {} : { processOutcomeHandler }),
             disposers,
             activeInvocations,
             disposing: false,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isCompiledRelease, runtimePath } from "../release/runtime-path.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,12 +40,14 @@ import { applyConfigDefaults } from "./pool/config-defaults.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { skillScriptTool } from "../skills/script.ts";
+import type { ManagedProcessObservationHandlers, ManagedProcessObservationSettlement } from "../tools/process-runtime.ts";
 import {
     AgentRegistry,
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
 import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
+import { ProcessObservationCoordinator } from "./process-observations.ts";
 import { orderByExtension } from "./pool/extension-catalog.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
 
@@ -121,6 +124,22 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
                 : createLeasedAdapter(selected, adapterOptions, lease);
         });
     const services = options.createServices(createAdapter, options.sessionWorker);
+    const processObservations = options.workerGlobals === undefined && options.processObservations === undefined
+        ? new ProcessObservationCoordinator(services.inboxDelivery.store, services.inboxDelivery, {
+            formatProcessOutcome(extensionId, outcome, signal) {
+                if (currentConfig().disabled_included_extensions?.includes(extensionId) === true) {
+                    return Promise.resolve(undefined);
+                }
+                return extensions.formatProcessOutcome(extensionId, outcome, signal);
+            },
+        })
+        : undefined;
+    const observationExecutorId = processObservations === undefined ? undefined : `local:${randomUUID()}`;
+    const observationHandlers = options.processObservations ?? (processObservations === undefined ? undefined : {
+        async onObservationStarted(start) { processObservations.start(observationExecutorId!, start); },
+        async onObservationSettled(settlement) { await processObservations.settle(observationExecutorId!, settlement); },
+        async onObservationInterrupted(start) { await processObservations.interruptObservation(observationExecutorId!, start); },
+    } satisfies ManagedProcessObservationHandlers);
     const eventLogPathForId = eventLogEnabled(currentConfig())
         ? (agentId: string, cwd: string) =>
             eventLogDirectory === undefined
@@ -140,6 +159,23 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     });
     const registry: AgentRegistry = new AgentRegistry({
         sandbox,
+        processObservations: observationHandlers === undefined ? undefined : {
+            ...observationHandlers,
+            ...(observationHandlers.onObservationSettled === undefined ? {} : {
+                async onObservationSettled(settlement: ManagedProcessObservationSettlement) {
+                    try {
+                        await observationHandlers.onObservationSettled!(settlement);
+                    } catch (error) {
+                        registry.agents.get(settlement.ownerId)?.agent.appendHarnessMessage(
+                            `Could not confirm delivery of monitored process ${settlement.processId}. `
+                                + "Inspect the process; any saved outcome will be retried when the host restarts.",
+                            "error",
+                        );
+                        throw error;
+                    }
+                },
+            }),
+        },
         ...services.models,
         hostLog,
         ...(options.workerGlobals === undefined ? {} : {
@@ -310,6 +346,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     };
     return {
         registry, extensions, handlers, createAdapter, localExtensionSessions, inboxDelivery: services.inboxDelivery,
+        ...(processObservations === undefined ? {} : { processObservations, observationExecutorId }),
         setExtensionSessions(services) {
             extensionSessions = services;
         },

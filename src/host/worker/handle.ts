@@ -24,6 +24,8 @@ import type { SessionStore } from "../../store/session-store.ts";
 import { sessionRecordForWire } from "../../store/session-record-projection.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
+import type { ManagedProcessObservationHandlers } from "../../tools/process-runtime.ts";
+import { createChildObservationTracker } from "./process-observations.ts";
 import { superviseWorker, type SupervisorHandle } from
     "../worker-supervisor-handle.ts";
 import { NO_DEADLINE } from "../worker-supervisor.ts";
@@ -60,6 +62,7 @@ export interface StartWorkerOptions {
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly home?: string;
     readonly toolRuntime?: ToolRuntime;
+    readonly processObservations?: ManagedProcessObservationHandlers;
     readonly deadlineMs?: number;
     readonly onUpdate?: (update: AgentUpdate, ownerId?: string) => void;
     readonly command?: readonly string[];
@@ -71,6 +74,7 @@ export interface StartWorkerOptions {
 export interface WorkerHandle {
     readonly pid: number;
     readonly reportedFailure: boolean;
+    readonly hasUnsettledObservations?: boolean;
     readonly supervisor?: SupervisorHandle;
     readonly server: WorkerBoundaryServer;
     send(command: EngineCommand): void;
@@ -204,6 +208,15 @@ export async function startWorker(
     );
     const settleBlockAck = (ack: SessionBlockAck): void => ackWaiters.settle(ack);
     const services = options.services ?? {};
+    const handlers = options.processObservations;
+    const canObserve = handlers?.onObservationStarted !== undefined
+        && handlers.onObservationSettled !== undefined && handlers.onObservationInterrupted !== undefined;
+    const tracker = !canObserve ? undefined : createChildObservationTracker(options.store.header.id, {
+        onObservationStarted: handlers.onObservationStarted!,
+        onObservationSettled: handlers.onObservationSettled!,
+        onObservationInterrupted: handlers.onObservationInterrupted!,
+    });
+    const observationHandlers = tracker?.handlers;
     let supervisor: SupervisorHandle | undefined;
     const pipe = createJsonPipe(
         { input: child.stdout, output: child.stdin },
@@ -231,26 +244,28 @@ export async function startWorker(
         },
         onProcessStarted: (pid, processStartedAt) => supervisor?.watchProcessGroup(pid, processStartedAt),
         onProcessSettled: (pid) => supervisor?.forgetProcessGroup(pid),
+        ...(observationHandlers === undefined ? {} : { processObservations: observationHandlers }),
         onBlockAck: (ack) => settleBlockAck(ack),
     });
 
+    let finishing = false;
+    const finish = async (result: WorkerOutcome): Promise<void> => {
+        if (finishing) return;
+        finishing = true;
+        const failed = await tracker?.finish() ?? 0;
+        resolveOutcome(failed === 0 ? result : {
+            kind: "failed",
+            error: `Could not recover ${failed} child process observation(s); restart the host to retry.`,
+        });
+    };
     child.once("close", (code: number | null, signal: string | null) => {
-        if (signal !== null) {
-            resolveOutcome({ kind: "killed", signal });
-            return;
-        }
-        if (reported === null) {
-            resolveOutcome({ kind: "exited", code: code ?? 0 });
-            return;
-        }
-        resolveOutcome(
-            reported === undefined
-                ? { kind: "finished" }
-                : { kind: "failed", error: reported },
-        );
+        const result: WorkerOutcome = signal !== null ? { kind: "killed", signal }
+            : reported === null ? { kind: "exited", code: code ?? 0 }
+            : reported === undefined ? { kind: "finished" } : { kind: "failed", error: reported };
+        void finish(result);
     });
     child.once("error", (error: Error) => {
-        resolveOutcome({ kind: "failed", error: error.message });
+        void finish({ kind: "failed", error: error.message });
     });
 
     supervisor = superviseWorker({
@@ -271,7 +286,7 @@ export async function startWorker(
         session: options.session,
         offers: options.offers
             ?? { approvalModeRead: false, modelSettings: false, selectedAgent: false },
-        capabilities: capabilitiesOf(services, options.extensionTools),
+        capabilities: capabilitiesOf(services, options.extensionTools, canObserve),
         ...(options.extensions === undefined || options.extensions.length === 0
             ? {}
             : { extensions: options.extensions }),
@@ -308,6 +323,7 @@ export async function startWorker(
     return {
         pid,
         get reportedFailure() { return typeof reported === "string"; },
+        get hasUnsettledObservations() { return tracker?.hasUnsettledObservations === true; },
         ...(supervisor === undefined ? {} : { supervisor }),
         server,
         send: (command_: EngineCommand) => server.sendCommand(command_),
@@ -333,8 +349,10 @@ export async function startWorker(
 function capabilitiesOf(
     services: RunHeadlessLoopServices,
     extensionTools?: readonly RegisteredTool[],
+    processObservations = false,
 ): WorkerHostCapabilities {
     return {
+        processObservations,
         loadAgents: services.loadAgents !== undefined,
         selectAgent: services.router?.selectAgent !== undefined,
         listSkills: services.router?.listSkills !== undefined,

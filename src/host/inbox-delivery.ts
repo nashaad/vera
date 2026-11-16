@@ -473,6 +473,10 @@ export class InboxDeliveryCoordinator {
         this.admissionFor = options.admissionFor;
     }
 
+    get store(): import("../store/inbox.ts").Inbox {
+        return this.consumers.store;
+    }
+
     attach(request: AttachInboxConsumerRequest): InboxDeliverySession {
         const handle = this.consumers.hello({
             label: request.label,
@@ -548,7 +552,11 @@ export class InboxDeliveryCoordinator {
     }
 
     isPreAdmitted(seq: number): boolean {
-        return this.preAdmitted.has(seq) || this.consumers.isDurablyAdmitted(seq);
+        return this.preAdmitted.has(seq) || this.isDurablyAdmitted(seq);
+    }
+
+    isDurablyAdmitted(seq: number): boolean {
+        return this.consumers.isDurablyAdmitted(seq);
     }
 
     async appendOnceAdmitted(

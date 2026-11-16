@@ -137,6 +137,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
             adapter: options.adapter,
             data: options.data,
             services,
+            ...(reg.options.processObservations === undefined ? {} : { processObservations: reg.options.processObservations }),
             ...(reg.options.sessionBlockDirectory === undefined
                 ? {}
                 : { blockedDirectory: reg.options.sessionBlockDirectory }),

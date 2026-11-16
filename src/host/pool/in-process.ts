@@ -78,7 +78,19 @@ export interface WorkerHealth {
 export async function prepareInProcessWorker(options: InProcessWorkerOptions): Promise<InProcessWorker> {
     const restoringSessions = options.sessionOptions.restoringSessions ?? new Map();
     const forwardedShutdowns = new ForwardedShutdowns();
-    const worker = await startSessionHost({ ...options.sessionOptions, restoringSessions, sessionWorker: true });
+    const observations = options.host.processObservations;
+    const executor = options.host.observationExecutorId;
+    if (observations === undefined || executor === undefined) throw new Error("Process observation host is unavailable");
+    const worker = await startSessionHost({
+        ...options.sessionOptions,
+        restoringSessions,
+        sessionWorker: true,
+        processObservations: {
+            async onObservationStarted(start) { observations.start(`${executor}:w0`, start); },
+            async onObservationSettled(settlement) { await observations.settle(`${executor}:w0`, settlement); },
+            async onObservationInterrupted(start) { await observations.interruptObservation(`${executor}:w0`, start); },
+        },
+    });
     worker.startStorage();
     let workerReady = false;
     let workerStarting = true;

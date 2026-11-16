@@ -18,7 +18,9 @@ that span several files. When delegation is justified, it prefers `subagent`,
 which waits for the result. Independent calls can run in parallel.
 `async_subagent` returns a child ID immediately and delivers its summary on
 a later turn. The guidance reserves it for substantial independent work the
-parent can continue without the child's answer.
+parent can continue without the child's answer. When a child starts a monitored
+command, its exit notice belongs to that child's conversation and can wake it
+while detached; the parent does not receive that notice as its own.
 
 Definitions can restrict the conversation's permissions. They cannot grant
 access beyond what the conversation allows.

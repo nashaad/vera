@@ -90,6 +90,13 @@ export interface ManagedProcessRunOptions {
     readonly observation?: ManagedProcessObservation;
 }
 
+/** Host-owned callbacks, including the loss of one child executor. */
+export interface ManagedProcessObservationHandlers {
+    readonly onObservationStarted?: (start: ManagedProcessObservationStart) => Promise<void>;
+    readonly onObservationSettled?: (settlement: ManagedProcessObservationSettlement) => Promise<void>;
+    readonly onObservationInterrupted?: (start: ManagedProcessObservationStart) => Promise<void>;
+}
+
 export interface ManagedProcessRegistryOptions {
     readonly maxLivePerOwner?: number;
     readonly maxRetainedPerOwner?: number;
@@ -105,6 +112,7 @@ export interface ManagedProcessRegistryOptions {
     readonly onProcessSettled?: (pid: number) => void;
     readonly onObservationStarted?: (start: ManagedProcessObservationStart) => Promise<void>;
     readonly onObservationSettled?: (settlement: ManagedProcessObservationSettlement) => Promise<void>;
+    readonly onObservationInterrupted?: (start: ManagedProcessObservationStart) => Promise<void>;
     readonly sandbox?: CommandSandbox;
 }
 
@@ -169,6 +177,7 @@ function applySandboxSuffix(
 
 export class ManagedProcessRegistry {
     private readonly records = new Map<string, ManagedProcessRecord>();
+    private readonly unsettledObservations = new Map<string, number>();
     private readonly maxLivePerOwner: number;
     private readonly maxRetainedPerOwner: number;
     private readonly exitRetentionMs: number;
@@ -180,8 +189,9 @@ export class ManagedProcessRegistry {
     private readonly groupAlive: (pid: number) => boolean;
     private readonly onProcessStarted: (pid: number, startedAt: string) => void;
     private readonly onProcessSettled: (pid: number) => void;
-    private readonly onObservationStarted: ManagedProcessRegistryOptions["onObservationStarted"];
-    private readonly onObservationSettled: ManagedProcessRegistryOptions["onObservationSettled"];
+    private onObservationStarted: ManagedProcessRegistryOptions["onObservationStarted"];
+    private onObservationSettled: ManagedProcessRegistryOptions["onObservationSettled"];
+    private onObservationInterrupted: ManagedProcessRegistryOptions["onObservationInterrupted"];
     readonly sandbox: CommandSandbox | undefined;
     private idSequence = 0;
     private closed = false;
@@ -223,7 +233,17 @@ export class ManagedProcessRegistry {
         this.onProcessSettled = options.onProcessSettled ?? (() => {});
         this.onObservationStarted = options.onObservationStarted;
         this.onObservationSettled = options.onObservationSettled;
+        this.onObservationInterrupted = options.onObservationInterrupted;
         this.sandbox = options.sandbox;
+    }
+
+    bindObservationHandlers(handlers: ManagedProcessObservationHandlers): void {
+        if (this.records.size > 0 || this.onObservationStarted !== undefined || this.onObservationSettled !== undefined) {
+            throw new Error("Process observation handlers are already in use");
+        }
+        this.onObservationStarted = handlers.onObservationStarted;
+        this.onObservationSettled = handlers.onObservationSettled;
+        this.onObservationInterrupted = handlers.onObservationInterrupted;
     }
 
     /** The wrapper this registry hands every command, when it has one. */
@@ -243,11 +263,16 @@ export class ManagedProcessRegistry {
             .some((record) => record.finishedAt === undefined);
     }
 
+    hasUnsettledObservedProcess(ownerId: string): boolean {
+        return (this.unsettledObservations.get(ownerId) ?? 0) > 0;
+    }
+
     async close(): Promise<void> {
         if (this.closed) return;
         this.closed = true;
         const records = [...this.records.values()];
         const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        await Promise.allSettled(records.map((record) => record.observationSettled));
         for (const [index, record] of records.entries()) {
             if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
         }
@@ -286,12 +311,21 @@ export class ManagedProcessRegistry {
 
         // Allocate before spawn: an allocator failure must not leave an unregistered child that no caller can address.
         const processId = this.uniqueId();
-        const identityStartedAt = new Date().toISOString();
         const preparation = await this.prepareSandbox(options, processId);
         if (preparation.refusal !== undefined) {
             return { kind: "rejected", reason: preparation.refusal };
         }
         const prepared = preparation.prepared;
+        if (options.observation !== undefined
+            && (this.unsettledObservations.get(ownerId) ?? 0) >= this.maxRetainedPerOwner) {
+            if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
+            return {
+                kind: "rejected",
+                reason: `Process observation limit reached (${this.maxRetainedPerOwner} awaiting settlement for this session).`,
+            };
+        }
+        // Record the spawn identity after potentially slow sandbox preparation.
+        const identityStartedAt = new Date().toISOString();
         const subprocess = (() => {
             try {
                 return Bun.spawn(
@@ -347,6 +381,7 @@ export class ManagedProcessRegistry {
         this.records.set(record.processId, record);
         this.onProcessStarted(record.subprocess.pid, record.identityStartedAt);
         if (options.observation !== undefined) {
+            this.unsettledObservations.set(ownerId, (this.unsettledObservations.get(ownerId) ?? 0) + 1);
             record.observation = {
                 ...options.observation,
                 ownerId,
@@ -395,12 +430,20 @@ export class ManagedProcessRegistry {
             } catch (error) {
                 options.signal?.removeEventListener("abort", onAbort);
                 const stopped = await this.stopAndWait(record);
-                if (stopped) this.remove(record);
-                else record.visible = true;
+                let cleanupError: string | undefined;
+                if (stopped) {
+                    try {
+                        await record.observationSettled;
+                    } catch (cleanup) {
+                        cleanupError = errorMessage(cleanup);
+                    }
+                    this.remove(record);
+                } else record.visible = true;
                 return {
                     kind: "rejected",
                     reason: `Could not register process observation: ${errorMessage(error)}`
-                        + (stopped ? "" : ` Process remains managed as ${processId}.`),
+                        + (stopped ? "" : ` Process remains managed as ${processId}.`)
+                        + (cleanupError === undefined ? "" : ` Observation cleanup failed: ${cleanupError}`),
                 };
             }
         }
@@ -508,6 +551,7 @@ export class ManagedProcessRegistry {
         const records = this.ownerRecords(ownerId);
         for (const record of records) record.visible = true;
         const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        await Promise.allSettled(records.map((record) => record.observationSettled));
         for (const [index, record] of records.entries()) {
             if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
         }
@@ -821,15 +865,31 @@ export class ManagedProcessRegistry {
                 outputTail: output.text,
                 outputTruncated: output.truncated,
             };
-            record.observationSettled = record.observationStarted.then(() =>
-                this.onObservationSettled!(settlement)
+            record.observationSettled = record.observationStarted.then(
+                () => this.onObservationSettled!(settlement),
+                () => {
+                    if (this.onObservationInterrupted === undefined) {
+                        throw new Error("Uncertain observation cleanup is unavailable");
+                    }
+                    return this.onObservationInterrupted(record.observation!);
+                },
             );
-            void record.observationSettled.catch((error) => {
-                process.stderr.write(`Process observation failed: ${errorMessage(error)}\n`);
-            });
+            void record.observationSettled.then(
+                () => this.releaseObservation(record.ownerId),
+                (error: unknown) => {
+                    this.releaseObservation(record.ownerId);
+                    process.stderr.write(`Process observation failed: ${errorMessage(error)}\n`);
+                },
+            );
         }
         record.resolveCompletion();
         if (record.visible) this.retainExited(record);
+    }
+
+    private releaseObservation(ownerId: string): void {
+        const count = this.unsettledObservations.get(ownerId) ?? 0;
+        if (count <= 1) this.unsettledObservations.delete(ownerId);
+        else this.unsettledObservations.set(ownerId, count - 1);
     }
 
     private uniqueId(): string {

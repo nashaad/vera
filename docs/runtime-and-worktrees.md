@@ -40,7 +40,11 @@ the host replaces it and an interrupted prompt turn fails. Send the prompt
 again to retry it. After three process failures in one minute, the host leaves that
 process unavailable until the host restarts.
 An interrupted inbox, schedule, or watch wake stays unread and appears when
-you next attach. A later entry can wake the conversation normally.
+you next attach. A later entry can wake the conversation normally. A monitored
+command keeps its owning conversation resident until its outcome is handed off.
+If its executor is lost, Vera verifies and stops its remaining command group
+before recording an interruption; it does not rerun the command. A host
+reconnect alone is not executor loss.
 
 If the host crashes while a session process is still running, that process keeps
 its client connections for 30 seconds. A running turn can finish during that

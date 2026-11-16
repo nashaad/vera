@@ -9,6 +9,7 @@ import type { ImportRoots } from "../../session-import/discover.ts";
 import type { AgentRegistry, AgentRegistryOptions } from "../agent-registry.ts";
 import type { HostLog } from "../host-log.ts";
 import type { InboxDeliveryCoordinator } from "../inbox-delivery.ts";
+import type { ProcessObservationCoordinator } from "../process-observations.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
 import type { StartupFindings } from "../startup-findings.ts";
 import type { SessionHandlers } from "./handlers.ts";
@@ -57,6 +58,7 @@ export interface StartSessionHostOptions {
     readonly onPreferencesChanged?: () => void;
     readonly poolHost?: boolean;
     readonly remoteExtensions?: WorkerExtensionServices;
+    readonly processObservations?: AgentRegistryOptions["processObservations"];
     readonly config: VeraConfig;
     readonly currentConfig: () => VeraConfig;
     readonly currentReachability: () => ReturnType<typeof poolReachability>;
@@ -96,6 +98,8 @@ export interface SessionHost {
     readonly createAdapter: AgentRegistryOptions["createAdapter"];
     readonly localExtensionSessions: ExtensionSessionServices;
     readonly inboxDelivery: InboxDeliveryCoordinator;
+    readonly processObservations?: ProcessObservationCoordinator;
+    readonly observationExecutorId?: string;
     setExtensionSessions(services: ExtensionSessionServices): void;
     setParkIdle(park: () => Promise<void>): void;
     // The resident host starts the scan after publishing its listener.

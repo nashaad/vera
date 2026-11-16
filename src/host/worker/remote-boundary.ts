@@ -111,6 +111,17 @@ export function createRemoteHostBoundary(
             pipe.notify({ method: "process.started", pid, started_at: startedAt }),
         onProcessSettled: (pid) =>
             pipe.notify({ method: "process.settled", pid }),
+        ...(capabilities.processObservations === true ? {
+            onObservationStarted: async (observation) => {
+                await pipe.request({ method: "process.observationStart", observation }, AbortSignal.timeout(30_000));
+            },
+            onObservationSettled: async (settlement) => {
+                await pipe.request({ method: "process.observationSettled", settlement }, AbortSignal.timeout(30_000));
+            },
+            onObservationInterrupted: async (observation) => {
+                await pipe.request({ method: "process.observationInterrupted", observation }, AbortSignal.timeout(30_000));
+            },
+        } : {}),
         ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
     });
 

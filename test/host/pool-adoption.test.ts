@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { expect, spyOn } from "bun:test";
+import { Database } from "bun:sqlite";
 import { socketAndLoopbackTest, socketTest } from "../support/socket-probe.ts";
 import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
@@ -8,6 +9,7 @@ import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { HOST_CAPABILITY_STOP_WAIT } from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
@@ -19,6 +21,7 @@ import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
+import { defaultInboxPath } from "../../src/store/inbox.ts";
 import * as store from "../../src/store/session-store.ts";
 
 interface PoolInfo {
@@ -175,6 +178,172 @@ socketAndLoopbackTest("a new host adopts both workers and a running turn survive
         const annexPid = host?.annexPid;
         await host?.close();
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await child.exited;
+        for (const pid of [...(info?.workers ?? []), ...(info?.annexPid === undefined ? [] : [info.annexPid])]) {
+            if (alive(pid)) signalStarted(started, pid, "SIGKILL");
+            await waitFor(() => !alive(pid), `process ${pid} exit`);
+        }
+        if (annexPid !== undefined) await waitFor(() => !alive(annexPid), "replacement annex exit");
+        stub.stop(true);
+        await stderr;
+        await rm(home, { recursive: true, force: true });
+    }
+}, 40_000);
+
+socketAndLoopbackTest("@core a monitored command survives host loss and settles after worker adoption", async () => {
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "monitor-adopt-"));
+    const webRoot = join(home, "web");
+    const releasePath = join(home, "crow-release");
+    await mkdir(webRoot);
+    await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
+    let calls = 0;
+    const stub = Bun.serve({
+        hostname: "127.0.0.1", port: 0,
+        fetch(request) {
+            if (!new URL(request.url).pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
+            calls += 1;
+            const toolCall = calls === 1;
+            const content = calls === 2 ? "Crow is watching." : calls === 3 ? "Crow saw the map." : "Crow is ready again.";
+            const delta = toolCall ? { role: "assistant", tool_calls: [{
+                index: 0, id: "crow-call", type: "function", function: {
+                    name: "monitor", arguments: JSON.stringify({
+                        command: "while [ ! -f crow-release ]; do sleep 0.1; done; printf 'crow found the map\\n'; exit 7",
+                        description: "Crow checks the hold",
+                    }),
+                },
+            }] } : { role: "assistant", content };
+            const chunk = {
+                id: "stub", object: "chat.completion.chunk", model: "stub-model",
+                choices: [{ index: 0, delta, finish_reason: toolCall ? "tool_calls" : "stop" }],
+            };
+            return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+                headers: { "content-type": "text/event-stream" },
+            });
+        },
+    });
+    const config = {
+        schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "full_access", curated_models_url: "",
+        providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
+    } as const;
+    await writeFile(join(home, "config.json"), JSON.stringify(config));
+    const child = Bun.spawn([process.execPath, "test/host/fixtures/pool-adoption-host.ts", "1", "15000"], {
+        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home }, stdout: "ignore", stderr: "pipe",
+    });
+    const stderr = new Response(child.stderr).text();
+    const started = new Map<number, StartedProcess>();
+    let info: PoolInfo | undefined;
+    let host: ResidentHost | undefined;
+    let client: AttachedAgentClient | undefined;
+    let database: Database | undefined;
+    let commandPid: number | undefined;
+    try {
+        await waitFor(() => processCommandLine(child.pid)?.includes("test/host/fixtures/pool-adoption-host.ts") === true
+            || child.exitCode !== null, "fixture process identity");
+        if (child.exitCode !== null) throw new Error(`Pool host failed: ${await stderr}`);
+        remember(started, child.pid);
+        await waitFor(() => existsSync(join(home, "ready.json")) || child.exitCode !== null, "pool startup");
+        if (!existsSync(join(home, "ready.json"))) throw new Error(`Pool host failed: ${await stderr}`);
+        info = JSON.parse(await readFile(join(home, "ready.json"), "utf8")) as PoolInfo;
+        expect(info.pid).toBe(child.pid);
+        expect(started.get(child.pid)!.command).toContain("test/host/fixtures/pool-adoption-host.ts");
+        for (const pid of [...info.workers, ...(info.annexPid === undefined ? [] : [info.annexPid])]) remember(started, pid);
+        const worker = await requestHostIdentity(inProcessWorkerSocket(home));
+        expect(worker?.pid).toBe(info.workers[0]);
+        expect(started.get(worker!.pid)!.command).toContain(join(process.cwd(), "clients/host/session-worker.ts"));
+        const owner = await createAgentThroughHost(info.socket, home);
+        client = await attachAgent({ socketPath: owner.location!.socket_path, agentId: owner.id });
+        expect((await client.receive()).type).toBe("history");
+        await client.send({ type: "prompt", content: "Watch the crow command." });
+        const first = [];
+        while (true) {
+            const update = await client.receive(AbortSignal.timeout(10_000));
+            first.push(update);
+            if (update.type === "turn_finished") break;
+        }
+        expect(JSON.stringify(first)).toContain("Started process");
+        client.close();
+        client = undefined;
+        database = new Database(defaultInboxPath(home), { readonly: true });
+        const running = database.query<{
+            process_id: string; executor_id: string; owner_id: string; pid: number; outcome: string;
+        }, []>("SELECT process_id, executor_id, owner_id, pid, outcome FROM process_observations").get()!;
+        expect(running).toMatchObject({ owner_id: owner.id, outcome: "running" });
+        commandPid = running.pid;
+        remember(started, commandPid);
+        expect(started.get(commandPid)!.command).toContain("crow-release");
+        signalStarted(started, child.pid, "SIGKILL");
+        await child.exited;
+        await waitFor(() => !alive(child.pid), "host exit");
+        expect(await requestHostIdentity(info.socket)).toBeUndefined();
+        expect(alive(worker!.pid)).toBe(true);
+        expect(alive(commandPid)).toBe(true);
+        expect(Math.abs(processStartedAt(commandPid)! - started.get(commandPid)!.startedAt)).toBeLessThanOrEqual(2_000);
+        expect(processCommandLine(commandPid)).toBe(started.get(commandPid)!.command);
+        expect(database.query("SELECT process_id, executor_id, owner_id, pid, outcome FROM process_observations").get()).toEqual(running);
+
+        host = await startResidentHost({ home, config, webRoot, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true });
+        expect((await requestHostIdentity(inProcessWorkerSocket(home)))?.pid).toBe(worker!.pid);
+        expect(alive(commandPid)).toBe(true);
+        expect(Math.abs(processStartedAt(commandPid)! - started.get(commandPid)!.startedAt)).toBeLessThanOrEqual(2_000);
+        expect(processCommandLine(commandPid)).toBe(started.get(commandPid)!.command);
+        expect(database.query("SELECT process_id, executor_id, owner_id, pid, outcome FROM process_observations").get()).toEqual(running);
+        expect(database.query<{ count: number }, []>(
+            "SELECT COUNT(*) AS count FROM producer_entries WHERE producer_source = 'vera.process-observation'",
+        ).get()!.count).toBe(0);
+        client = await attachReconnectingAgent({
+            socketPath: () => host!.server.socketPath, agentId: owner.id,
+            buildId: worker!.build_id!, initialLocation: owner.location,
+        });
+        expect((await client.receive()).type).toBe("history");
+        await writeFile(releasePath, "");
+        const wake = [];
+        while (true) {
+            const update = await client.receive(AbortSignal.timeout(10_000));
+            wake.push(update);
+            if (update.type === "turn_finished") break;
+        }
+        expect(JSON.stringify(wake)).toContain("Crow saw the map.");
+        const notices = database.query<{ kind: string; address: string; payload: string }, []>(
+            "SELECT entries.kind, entries.address, entries.payload FROM entries JOIN producer_entries USING (seq) WHERE producer_source = 'vera.process-observation'",
+        ).all();
+        expect(notices).toHaveLength(1);
+        expect(notices[0]).toMatchObject({ kind: "process.exited", address: owner.id });
+        expect(notices[0]!.payload).toContain("Exited with code 7");
+        expect(notices[0]!.payload).toContain("crow found the map");
+        expect(database.query("SELECT * FROM process_observations").all()).toEqual([]);
+        const path = join(store.defaultSessionDirectory(home), `${owner.id}.jsonl`);
+        expect(await readFile(path, "utf8")).not.toContain("Interrupted before its outcome could be confirmed");
+        const deadline = Date.now() + 10_000;
+        while ((await listAgentsThroughHost(host.server.socketPath)).find((row) => row.id === owner.id)?.status !== "idle") {
+            if (Date.now() >= deadline) throw new Error("Owner did not become idle after the notice");
+            await Bun.sleep(10);
+        }
+        await client.send({ type: "prompt", content: "Are you ready?" });
+        const next = [];
+        while (true) {
+            const update = await client.receive(AbortSignal.timeout(10_000));
+            next.push(update);
+            if (update.type === "turn_finished") break;
+        }
+        expect(JSON.stringify(next)).toContain("Crow is ready again.");
+        expect(calls).toBe(4);
+    } finally {
+        await writeFile(releasePath, "").catch(() => {});
+        client?.close();
+        database?.close();
+        if (commandPid !== undefined) await waitFor(() => !alive(commandPid!), "monitored command exit");
+        const annexPid = host?.annexPid;
+        await host?.close();
+        if (child.exitCode === null && child.signalCode === null) {
+            if (!started.has(child.pid)) {
+                if (!processCommandLine(child.pid)?.includes("test/host/fixtures/pool-adoption-host.ts")) {
+                    throw new Error("Cannot verify fixture host identity during cleanup");
+                }
+                remember(started, child.pid);
+            }
+            signalStarted(started, child.pid, "SIGKILL");
+        }
         await child.exited;
         for (const pid of [...(info?.workers ?? []), ...(info?.annexPid === undefined ? [] : [info.annexPid])]) {
             if (alive(pid)) signalStarted(started, pid, "SIGKILL");

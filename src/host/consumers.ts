@@ -213,6 +213,10 @@ export class ConsumerRegistry {
         this.nodeId = nodeId;
     }
 
+    get store(): Inbox {
+        return this.inbox;
+    }
+
     hello(request: ConsumerHelloRequest): ConsumerHandle {
         const label = this.availableLabel(request.label);
         const id: ConsumerId = { nodeId: this.nodeId, label };

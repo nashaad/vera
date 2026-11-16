@@ -10,7 +10,7 @@ export type PipeRequestHandler = (body: unknown) => Promise<unknown>;
 export type PipeNotificationHandler = (body: unknown) => void;
 
 export interface JsonPipe {
-    request(body: unknown): Promise<unknown>;
+    request(body: unknown, signal?: AbortSignal): Promise<unknown>;
     notify(body: unknown): void;
     readonly closed: Promise<void>;
     close(): void;
@@ -23,7 +23,8 @@ export interface JsonPipeOptions {
 
 interface Pending {
     readonly resolve: (value: unknown) => void;
-    readonly reject: (error: Error) => void;
+    readonly reject: (error: unknown) => void;
+    readonly cleanup: () => void;
 }
 
 export function createJsonPipe(
@@ -33,6 +34,7 @@ export function createJsonPipe(
     const pending = new Map<number, Pending>();
     let nextId = 1;
     let closedByUs = false;
+    let closeError: Error | undefined;
     let resolveClosed: () => void = () => {};
     const closed = new Promise<void>((resolve) => {
         resolveClosed = resolve;
@@ -46,7 +48,10 @@ export function createJsonPipe(
     };
 
     const fail = (error: Error): void => {
+        if (closeError !== undefined) return;
+        closeError = error;
         for (const entry of pending.values()) {
+            entry.cleanup();
             entry.reject(error);
         }
         pending.clear();
@@ -54,6 +59,7 @@ export function createJsonPipe(
     };
 
     readLines(streams.input, (line) => {
+        if (closeError !== undefined) return;
         let frame: Record<string, unknown>;
         try {
             frame = JSON.parse(line) as Record<string, unknown>;
@@ -68,6 +74,7 @@ export function createJsonPipe(
             if (entry === undefined) {
                 return;
             }
+            entry.cleanup();
             if ("error" in frame) {
                 entry.reject(new Error(String(frame.error)));
             } else {
@@ -92,12 +99,27 @@ export function createJsonPipe(
     }, () => fail(new Error("The worker pipe closed")));
 
     return {
-        request(body: unknown): Promise<unknown> {
+        request(body: unknown, signal?: AbortSignal): Promise<unknown> {
+            if (closeError !== undefined) return Promise.reject(closeError);
+            if (signal?.aborted === true) return Promise.reject(signal.reason);
             const id = nextId;
             nextId += 1;
             return new Promise<unknown>((resolve, reject) => {
-                pending.set(id, { resolve, reject });
-                write({ id, body });
+                const onAbort = (): void => {
+                    if (!pending.delete(id)) return;
+                    cleanup();
+                    reject(signal?.reason);
+                };
+                const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+                pending.set(id, { resolve, reject, cleanup });
+                signal?.addEventListener("abort", onAbort, { once: true });
+                try {
+                    write({ id, body });
+                } catch (error) {
+                    pending.delete(id);
+                    cleanup();
+                    reject(error);
+                }
             });
         },
         notify(body: unknown): void {
@@ -106,6 +128,7 @@ export function createJsonPipe(
         closed,
         close(): void {
             closedByUs = true;
+            fail(new Error("The worker pipe closed"));
             streams.output.end?.();
         },
     };

@@ -134,9 +134,10 @@ export class AgentRegistry {
 
     constructor(options: AgentRegistryOptions) {
         this.options = options;
-        this.processRegistry = new ManagedProcessRegistry(
-            options.sandbox === undefined ? {} : { sandbox: options.sandbox },
-        );
+        this.processRegistry = new ManagedProcessRegistry({
+            ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+            ...options.processObservations,
+        });
         this.reviewerSettings = options.reviewer;
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
@@ -1548,9 +1549,9 @@ export class AgentRegistry {
                 agent.fail(failureId, detail);
             }
         }).finally(() => blockLatch?.close());
-        if (kind === "interactive" && this.options.inboxDelivery !== undefined) {
+        if (this.options.inboxDelivery !== undefined) {
             const inboxDelivery = this.options.inboxDelivery;
-            const admissionPath = inboxDelivery.hasAdmissionPath();
+            const admissionPath = kind === "interactive" && inboxDelivery.hasAdmissionPath();
             const inbox = inboxDelivery.attach({
                 label: agent.id,
                 actor: this.options.inboxActorForSession?.(agent.id) ?? null,
@@ -1565,7 +1566,9 @@ export class AgentRegistry {
                         });
                     }
                 },
-                canStartTurn: () => agent.attached,
+                canStartTurn: () => !agent.closed && !agent.failed,
+                canWake: (candidate) => (kind === "interactive" && agent.attached)
+                    || inboxDelivery.isDurablyAdmitted(candidate.seq),
                 startTurn: (candidate) => {
                     const started = registryRoster.startAdmittedInboxTurn(this, entry, candidate);
                     // The inbox handles a rejection; the tracked copy only waits for the task to end.

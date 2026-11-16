@@ -64,6 +64,8 @@ export function createProcessObservationTable(database: Database): void {
             ON process_observations (owner_id, outcome);
         CREATE INDEX IF NOT EXISTS process_observations_pending
             ON process_observations (process_id) WHERE delivered = 0 AND outcome != 'running';
+        CREATE INDEX IF NOT EXISTS process_observations_all_running
+            ON process_observations (process_id) WHERE outcome = 'running';
     `);
 }
 
@@ -71,17 +73,17 @@ export class ProcessObservationStore {
     constructor(private readonly database: Database) {}
 
     register(executorId: string, start: ManagedProcessObservationStart): ProcessObservation {
-        validateStart(executorId, start);
+        validateObservationStart(executorId, start);
         return this.database.transaction(() => {
             const existing = this.get(start.processId);
             if (existing !== undefined) {
                 assertIdentity(existing, executorId, start);
                 return existing;
             }
-            const active = this.database.query<{ count: number }, [string]>(
-                "SELECT COUNT(*) AS count FROM process_observations WHERE owner_id = ? AND outcome = 'running'",
+            const outstanding = this.database.query<{ count: number }, [string]>(
+                "SELECT COUNT(*) AS count FROM process_observations WHERE owner_id = ? AND delivered = 0",
             ).get(start.ownerId)?.count ?? 0;
-            if (active >= MAX_LIVE_PROCESSES_PER_OWNER) {
+            if (outstanding >= MAX_LIVE_PROCESSES_PER_OWNER) {
                 throw new Error("Process observation limit reached for this owner");
             }
             this.database.query<null, [string, string, string, string, string, number, string]>(
@@ -94,21 +96,15 @@ export class ProcessObservationStore {
     }
 
     settle(executorId: string, settlement: ManagedProcessObservationSettlement): ProcessObservation {
-        validateStart(executorId, settlement);
-        if (!Number.isFinite(settlement.elapsedMs) || settlement.elapsedMs < 0
-            || (settlement.exitCode !== undefined && !Number.isSafeInteger(settlement.exitCode))
-            || typeof settlement.outputTail !== "string"
-            || Buffer.byteLength(settlement.outputTail, "utf8") > MAX_WIRE_OUTPUT_BYTES
-            || typeof settlement.outputTruncated !== "boolean") {
-            throw new Error("Invalid process settlement");
-        }
-        const tail = boundedTail(settlement.outputTail);
-        const truncated = settlement.outputTruncated || tail.truncated;
+        validateObservationStart(executorId, settlement);
+        const normalized = normalizeObservationSettlement(settlement);
+        const tail = normalized.outputTail;
+        const truncated = normalized.outputTruncated;
         return this.database.transaction(() => {
             const current = this.requireIdentity(executorId, settlement);
             if (current.outcome === "settled") {
                 if (current.elapsedMs !== settlement.elapsedMs || current.exitCode !== settlement.exitCode
-                    || current.outputTail !== tail.text || current.outputTruncated !== truncated) {
+                    || current.outputTail !== tail || current.outputTruncated !== truncated) {
                     throw new Error("Process settlement does not match the recorded outcome");
                 }
                 return current;
@@ -117,7 +113,7 @@ export class ProcessObservationStore {
             this.database.query<null, [number, number | null, string, number, string]>(
                 `UPDATE process_observations SET outcome = 'settled', elapsed_ms = ?, exit_code = ?,
                  output_tail = ?, output_truncated = ? WHERE process_id = ?`,
-            ).run(settlement.elapsedMs, settlement.exitCode ?? null, tail.text, truncated ? 1 : 0, settlement.processId);
+            ).run(settlement.elapsedMs, settlement.exitCode ?? null, tail, truncated ? 1 : 0, settlement.processId);
             return this.get(settlement.processId)!;
         }).immediate();
     }
@@ -149,6 +145,17 @@ export class ProcessObservationStore {
         ).run(processId);
     }
 
+    removeTerminal(executorId: string, ownerId: string, processId: string): void {
+        const current = this.get(processId);
+        if (current === undefined || current.executorId !== executorId || current.ownerId !== ownerId) {
+            throw new Error("Process observation is not owned by this executor and session");
+        }
+        if (current.outcome === "running") throw new Error("A running process cannot be removed");
+        this.database.query<null, [string]>(
+            "DELETE FROM process_observations WHERE process_id = ?",
+        ).run(processId);
+    }
+
     get(processId: string): ProcessObservation | undefined {
         const row = this.database.query<ObservationRow, [string]>(
             "SELECT * FROM process_observations WHERE process_id = ?",
@@ -161,6 +168,13 @@ export class ProcessObservationStore {
             `SELECT * FROM process_observations WHERE executor_id = ? AND outcome = 'running'
              AND process_id > ? ORDER BY process_id LIMIT ?`,
         ).all(executorId, after, pageLimit(limit)).map(observationFrom);
+    }
+
+    allRunning(after: string, limit: number): ProcessObservation[] {
+        return this.database.query<ObservationRow, [string, number]>(
+            `SELECT * FROM process_observations WHERE outcome = 'running'
+             AND process_id > ? ORDER BY process_id LIMIT ?`,
+        ).all(after, pageLimit(limit)).map(observationFrom);
     }
 
     pending(after: string, limit: number): ProcessObservation[] {
@@ -178,7 +192,7 @@ export class ProcessObservationStore {
     }
 }
 
-function validateStart(executorId: string, start: ManagedProcessObservationStart): void {
+export function validateObservationStart(executorId: string, start: ManagedProcessObservationStart): void {
     for (const value of [executorId, start.processId, start.ownerId, start.extensionId]) {
         if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > MAX_ID_BYTES) {
             throw new Error("Invalid process observation identity");
@@ -218,6 +232,21 @@ function pageLimit(limit: number): number {
         throw new Error(`Process observation page size must be between 1 and ${PAGE_LIMIT}`);
     }
     return limit;
+}
+
+export function normalizeObservationSettlement(settlement: ManagedProcessObservationSettlement): {
+    readonly outputTail: string;
+    readonly outputTruncated: boolean;
+} {
+    if (!Number.isFinite(settlement.elapsedMs) || settlement.elapsedMs < 0
+        || (settlement.exitCode !== undefined && !Number.isSafeInteger(settlement.exitCode))
+        || typeof settlement.outputTail !== "string"
+        || Buffer.byteLength(settlement.outputTail, "utf8") > MAX_WIRE_OUTPUT_BYTES
+        || typeof settlement.outputTruncated !== "boolean") {
+        throw new Error("Invalid process settlement");
+    }
+    const tail = boundedTail(settlement.outputTail);
+    return { outputTail: tail.text, outputTruncated: settlement.outputTruncated || tail.truncated };
 }
 
 function boundedTail(output: string): { readonly text: string; readonly truncated: boolean } {

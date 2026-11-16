@@ -162,14 +162,27 @@ invocation. The description must be non-blank and within the process
 observation limit. The launch can be called once, while the handler is active;
 it is revoked when the handler ends or is cancelled. It returns a `running`,
 `exited`, `aborted`, or `rejected` result. A registry without process
-observation callbacks returns `rejected`; the current host does not bind
-those callbacks.
+observation callbacks returns `rejected`. The resident host supplies these
+callbacks for supported conversation workers.
 
 A command tool cannot also set `permissionOperation`, `permissionInputs`, or
 `parallel: true`. The process registry waits for start registration before it
 returns a successful launch. If the invocation is cancelled while registration
 is pending, it stops the process and can return before registration finishes;
-the settlement callback still follows a successful registration.
+the settlement callback still follows a successful registration. If registration
+fails after the host may have saved the start, the process is stopped and the
+host reconciles that observation as interrupted.
+
+An included extension declaring `processes.observe` can register one
+`vera.tools.onProcessOutcome(handler)` during activation. The handler receives
+the process ID, description, PID, start time, outcome, and available exit and
+output facts, and returns readable text. The host chooses the
+notification's source, kind and owning conversation; the formatter cannot choose
+another recipient. The saved output is a tail of at most 20 lines and 8 KiB.
+If the extension is unavailable or disabled when an outcome arrives, the host
+keeps the bounded pending outcome for a later replay instead of sending it. If
+formatting or admission fails, the live owner sees an error and any saved outcome
+remains available for retry on host restart.
 
 ## Host services
 

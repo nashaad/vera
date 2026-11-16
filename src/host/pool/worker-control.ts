@@ -28,6 +28,7 @@ import { indexStoredSession, withSessionReservation } from "../session-host/stor
 import { SessionStore } from "../../store/session-store.ts";
 import type { StopWaitEvent } from "../stop-when-idle.ts";
 import { StopWaitRelay } from "./stop-wait-relay.ts";
+import type { ManagedProcessObservationHandlers } from "../../tools/process-runtime.ts";
 
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
@@ -91,9 +92,20 @@ export async function startControlledWorker(
     });
     await globals.initialize();
     const reservations = remoteReservations(peer);
+    const observations = {
+        async onObservationStarted(start) {
+            await peer.requestReconnecting("process.observationStart", [start], AbortSignal.timeout(30_000));
+        },
+        async onObservationSettled(settlement) {
+            await peer.requestReconnecting("process.observationSettled", [settlement], AbortSignal.timeout(30_000));
+        },
+        async onObservationInterrupted(start) {
+            await peer.requestReconnecting("process.observationInterrupted", [start], AbortSignal.timeout(30_000));
+        },
+    } satisfies Required<ManagedProcessObservationHandlers>;
     const runtime = await startSessionWorkerRuntime(bootstrap.options, reservations, {
         index: hello.index, count: hello.count,
-    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog), () => turnsHeld);
+    }, globals, remoteExtensions(peer, bootstrap.extensionCatalog), () => turnsHeld, observations);
     const host = runtime.sessionHost;
     const currentConfig = createLiveVeraConfigReader(bootstrap.options.config, {
         path: bootstrap.options.configPath ?? defaultVeraConfigPath(home),
