@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { buildWithDiagnostics } from "./build-diagnostics.ts";
+
 export const RELEASE_EXECUTABLE_NAME = "vera-bin";
 
 export async function bundleRelease(releaseRoot: string, sourceRoot: string, entrypoint = join(sourceRoot, "scripts", "release-role-entry.ts")): Promise<void> {
@@ -10,7 +12,7 @@ export async function bundleRelease(releaseRoot: string, sourceRoot: string, ent
         "index.js": transpiler.scan(readFileSync(join(tuiPackage, "index.js"), "utf8")).exports,
         "testing.js": transpiler.scan(readFileSync(join(tuiPackage, "testing.js"), "utf8")).exports,
     };
-    const result = await Bun.build({
+    await buildWithDiagnostics({
         entrypoints: [entrypoint],
         root: sourceRoot,
         target: "bun",
@@ -60,8 +62,5 @@ export async function bundleRelease(releaseRoot: string, sourceRoot: string, ent
                 });
             },
         }],
-    });
-    if (!result.success) {
-        throw new Error(`Release compilation failed: ${result.logs.map(String).join("; ")}`);
-    }
+    }, "Release compilation failed");
 }
