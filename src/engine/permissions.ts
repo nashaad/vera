@@ -49,6 +49,7 @@ import {
     type PermissionGrantProposal,
 } from "./permission-grants.ts";
 import { urlHost } from "./permission-host.ts";
+import { permissionRuleMatches } from "./permission-rules.ts";
 import {
     applyPermissionPreference,
     isPermissionPreference,
@@ -131,6 +132,7 @@ export interface PermissionInspection {
     readonly availableModes: readonly string[];
     readonly activeGrants: readonly PermissionGrant[];
     readonly activePreferences?: readonly PermissionPreference[];
+    readonly userRules?: readonly PermissionRule[];
 }
 
 export interface PermissionActionDecision {
@@ -139,6 +141,8 @@ export interface PermissionActionDecision {
     readonly rule: string;
     readonly grant?: string;
     readonly preference?: string;
+    // An ask from permission_rules: preferences and session grants do not lift it.
+    readonly liftable?: false;
 }
 
 export interface AllowToolPermission {
@@ -176,6 +180,7 @@ export type ToolPermissionDecision =
 export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly extensionTools?: readonly RegisteredTool[];
     readonly scratchDir?: string;
@@ -668,6 +673,7 @@ export function decideToolPermission(
             source: "mode",
         };
     }
+    const command = bashCommand(toolCall);
     const decisions = extractPermissionActions({
         toolCall,
         workspace,
@@ -683,6 +689,8 @@ export function decideToolPermission(
             action,
             grants,
             options.permissionPreferences ?? [],
+            options.permissionRules ?? [],
+            { home: homeDirectory, ...(command === undefined ? {} : { command }) },
         )
     );
     const effective = decisions.reduce<PermissionOutcome>(
@@ -721,6 +729,43 @@ export function decideToolPermission(
         behavior: "deny",
         reason,
         actions: decisions,
+        source: "mode",
+    };
+}
+
+// The deny pass on its own, for the moment before a waited call runs: config may
+// have changed while the review or the person was deciding.
+export function permissionRulesDenial(
+    request: PermissionRequest,
+    rules: readonly PermissionRule[],
+    options: DecideToolPermissionOptions = {},
+): DenyToolPermission | undefined {
+    if (rules.length === 0) {
+        return undefined;
+    }
+    const home = options.homeDirectory ?? request.homeDirectory;
+    const command = bashCommand(request.toolCall);
+    const denied = extractPermissionActions(request, options.extensionTools)
+        .map((action) => rescopeScratchAction(action, options.scratchDir))
+        .flatMap((action) => {
+            const rule = matchingUserRule(
+                rules,
+                "deny",
+                action,
+                command,
+                home,
+            );
+            return rule === undefined
+                ? []
+                : [{ action, outcome: "deny" as const, rule: rule.name }];
+        });
+    if (denied.length === 0) {
+        return undefined;
+    }
+    return {
+        behavior: "deny",
+        reason: `Your permission rules require deny: ${denied.map((decision) => `${describeAction(decision.action)} (${decision.rule})`).join(", ")}.`,
+        actions: denied,
         source: "mode",
     };
 }
@@ -775,6 +820,7 @@ export function inspectPermissions(
     customModes: Readonly<Record<string, PermissionMode>> = {},
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
+    userRules: readonly PermissionRule[] = [],
 ): PermissionInspection | undefined {
     const selected = builtInPermissionMode(name) ?? customModes[name];
     if (selected === undefined) {
@@ -809,6 +855,15 @@ export function inspectPermissions(
             when: { ...preference.when },
             createdAt: preference.createdAt,
         })),
+        ...(userRules.length === 0
+            ? {}
+            : {
+                userRules: userRules.map((rule) => ({
+                    name: rule.name,
+                    when: { ...rule.when },
+                    then: rule.then,
+                })),
+            }),
     };
 }
 
@@ -823,14 +878,7 @@ export function isPermissionInspection(
         && typeof selected.name === "string"
         && selected.name.length > 0
         && Array.isArray(selected.rules)
-        && selected.rules.every((rule) => {
-            if (!isRecord(rule)) {
-                return false;
-            }
-            return typeof rule.name === "string"
-                && isPermissionPredicate(rule.when)
-                && isPermissionOutcome(rule.then);
-        })
+        && selected.rules.every(isPermissionRule)
         && isPermissionOutcome(selected.defaultOutcome)
         && (selected.reviewerProfile === undefined
             || (typeof selected.reviewerProfile === "string"
@@ -843,7 +891,18 @@ export function isPermissionInspection(
         && value.activeGrants.every(isPermissionGrant)
         && (value.activePreferences === undefined
             || (Array.isArray(value.activePreferences)
-                && value.activePreferences.every(isPermissionPreference)));
+                && value.activePreferences.every(isPermissionPreference)))
+        && (value.userRules === undefined
+            || (Array.isArray(value.userRules)
+                && value.userRules.every(isPermissionRule)));
+}
+
+function isPermissionRule(value: unknown): value is PermissionRule {
+    return isRecord(value)
+        && typeof value.name === "string"
+        && value.name.length > 0
+        && isPermissionPredicate(value.when)
+        && isPermissionOutcome(value.then);
 }
 
 export function extractPermissionActions(
@@ -925,7 +984,24 @@ export function evaluateAction(
     action: PermissionAction,
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
+    userRules: readonly PermissionRule[] = [],
+    options: {
+        readonly command?: string;
+        readonly home?: string;
+    } = {},
 ): PermissionActionDecision {
+    const home = options.home ?? homedir();
+    const denyRule = matchingUserRule(
+        userRules,
+        "deny",
+        action,
+        options.command,
+        home,
+    );
+    if (denyRule !== undefined) {
+        return { action, outcome: "deny", rule: denyRule.name };
+    }
+
     // Process IDs are session-scoped by the host registry, so this can only reduce authority the same session already holds.
     if (action.operation === "process.kill") {
         return {
@@ -934,6 +1010,53 @@ export function evaluateAction(
             rule: "core.process_kill",
         };
     }
+
+    if (mode.name === "ask" || mode.name === "auto") {
+        for (const rule of mode.rules) {
+            if (
+                rule.then === "deny"
+                && permissionPredicateMatches(rule.when, action)
+            ) {
+                return { action, outcome: "deny", rule: rule.name };
+            }
+        }
+        const userAsk = matchingUserRule(
+            userRules,
+            "ask",
+            action,
+            options.command,
+            home,
+        );
+        if (userAsk !== undefined) {
+            return {
+                action,
+                outcome: "ask",
+                rule: userAsk.name,
+                liftable: false,
+            };
+        }
+        const otherWorktreeAsk = OTHER_WORKTREE_RULES.find((rule) =>
+            permissionPredicateMatches(rule.when, action)
+        );
+        if (otherWorktreeAsk !== undefined) {
+            return applyPermissionSafetyNets({
+                action,
+                outcome: "ask",
+                rule: otherWorktreeAsk.name,
+            }, preferences, grants);
+        }
+        const userAllow = matchingUserRule(
+            userRules,
+            "allow",
+            action,
+            options.command,
+            home,
+        );
+        if (userAllow !== undefined) {
+            return { action, outcome: "allow", rule: userAllow.name };
+        }
+    }
+
     for (const rule of mode.rules) {
         if (permissionPredicateMatches(rule.when, action)) {
             return applyPermissionSafetyNets({
@@ -950,11 +1073,37 @@ export function evaluateAction(
     }, preferences, grants);
 }
 
+function matchingUserRule(
+    rules: readonly PermissionRule[],
+    outcome: PermissionOutcome,
+    action: PermissionAction,
+    command: string | undefined,
+    home: string,
+): PermissionRule | undefined {
+    return rules.find((rule) =>
+        rule.then === outcome
+        && permissionRuleMatches(rule, action, {
+            home,
+            ...(command === undefined ? {} : { command }),
+        })
+    );
+}
+
+function bashCommand(toolCall: HookToolCall): string | undefined {
+    const command = toolCall.input.command;
+    return toolCall.name === "bash" && typeof command === "string"
+        ? command
+        : undefined;
+}
+
 function applyPermissionSafetyNets(
     decision: PermissionActionDecision,
     preferences: readonly PermissionPreference[],
     grants: readonly PermissionGrant[],
 ): PermissionActionDecision {
+    if (decision.liftable === false) {
+        return decision;
+    }
     const afterPreference = applyPermissionPreference(decision, preferences);
     return afterPreference.outcome === "allow"
         ? afterPreference

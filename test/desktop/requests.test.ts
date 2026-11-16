@@ -66,6 +66,18 @@ describe("open requests", () => {
         });
     });
 
+    test("a restricted approval offers only Allow once and Deny", () => {
+        const message = line({
+            ...approval,
+            request: { ...approval.request, restrictedChoices: true },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") {
+            throw new Error("expected an approval");
+        }
+        expect(message.request.restrictedChoices).toBe(true);
+        expect(approvalChoices(message.request)).toEqual(["allow_once", "deny"]);
+    });
+
     test("a question keeps only choices with an id and a label", () => {
         const message = line(question);
         if (message.type !== "ui_request" || message.request.kind !== "question") throw new Error("expected a question");

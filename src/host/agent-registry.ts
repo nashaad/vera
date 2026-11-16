@@ -1178,6 +1178,9 @@ export class AgentRegistry {
             ...(this.options.permissionModes === undefined
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
+            ...(this.options.permissionRules === undefined
+                ? {}
+                : { permissionRules: this.options.permissionRules }),
         });
         entry.spawnSubagent = spawnSubagent;
         const applySubagentEffect = subagentEffectApplier(spawnSubagent);
@@ -1340,6 +1343,12 @@ export class AgentRegistry {
                             : {
                                 permissionModes:
                                     registry.options.permissionModes,
+                            }),
+                        ...(registry.options.permissionRules === undefined
+                            ? {}
+                            : {
+                                permissionRules:
+                                    registry.options.permissionRules,
                             }),
                         ...(reviewer === undefined ? {} : { reviewer }),
                         ...(registry.options.reviewers === undefined ? {} : {

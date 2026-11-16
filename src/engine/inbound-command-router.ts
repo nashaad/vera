@@ -128,6 +128,7 @@ export interface ToolApprovalOptions {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    readonly restrictedChoices?: true;
 }
 
 export interface ToolApprovalAllowed {
@@ -148,6 +149,7 @@ interface PendingApproval {
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    readonly restrictedChoices?: true;
 }
 
 export interface UserQuestionOptions {
@@ -1170,6 +1172,9 @@ export class InboundCommandRouter {
                             copyPermissionGrantProposal,
                         ),
                     }),
+                ...(options.restrictedChoices === true
+                    ? { restrictedChoices: true as const }
+                    : {}),
                 ...(options.signal === undefined
                     ? {}
                     : {
@@ -1206,6 +1211,9 @@ export class InboundCommandRouter {
                             copyPermissionGrantProposal,
                         ),
                     }),
+                ...(options.restrictedChoices === true
+                    ? { restrictedChoices: true as const }
+                    : {}),
             },
         });
         return result;
@@ -2401,6 +2409,12 @@ export class InboundCommandRouter {
         ) {
             const pending = this.pendingApprovals.get(command.requestId)!;
             const decision = command.response.decision;
+            if (
+                pending.restrictedChoices === true
+                && (decision === "allow_similar" || decision === "allow_always")
+            ) {
+                return;
+            }
             if (
                 (decision === "allow_similar" || decision === "allow_always")
                 && (

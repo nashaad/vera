@@ -36,6 +36,7 @@ import {
     isApprovalMode,
     type ApprovalMode,
     type PermissionMode,
+    type PermissionRule,
 } from "../../engine/permissions.ts";
 import type { ToolHooks } from "../../engine/hooks.ts";
 import {
@@ -357,6 +358,7 @@ export interface AgentRegistryOptions {
         reviewer: ToolReviewerSettings | null,
     ) => unknown;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly registeredAgents?: readonly AgentDefinition[];
     readonly sessionIdentity?: SessionIdentityProvider;
     readonly reserveSessionIdentity?: (

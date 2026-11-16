@@ -87,6 +87,24 @@ test("child approvals identify their agent and task", () => {
         .toBeUndefined();
 });
 
+test("a restricted approval offers only Allow once and Deny", () => {
+    const restricted: ToolApprovalUiRequestUpdate = {
+        ...request,
+        request: { ...request.request, restrictedChoices: true },
+    };
+
+    expect(selectableApprovalKeys(restricted)).toEqual(["1", "3"]);
+    expect(tuiApprovalHint(restricted)).toBe(
+        "approval required · 1 once · 3/esc deny · Ctrl+C stop",
+    );
+    expect(createTuiApprovalResponse(restricted, { name: "2" }))
+        .toBeUndefined();
+    expect(createTuiApprovalResponse(restricted, { name: "4" }))
+        .toBeUndefined();
+    expect(renderTuiApproval(restricted)).not.toContain("Session curl");
+    expect(renderTuiApproval(restricted)).not.toContain("4 Always");
+});
+
 test("TUI approval accepts numeric once, similar, and deny keys", () => {
     expect(tuiApprovalDecision({ name: "1" })).toBe("allow_once");
     expect(tuiApprovalDecision({ name: "2" })).toBe("allow_similar");

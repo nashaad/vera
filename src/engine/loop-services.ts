@@ -31,6 +31,7 @@ import type {
     PermissionMode,
     PermissionPredicate,
     PermissionPreference,
+    PermissionRule,
 } from "./permissions.ts";
 import type {
     ContextualContributionContext,
@@ -49,6 +50,7 @@ import type {
 export interface LoopPolicy {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly disabledPromptContributions?: readonly string[];

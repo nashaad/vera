@@ -41,7 +41,25 @@ describe("permissions", () => {
             modes: ["full_access", "ask", "auto", "readonly", "review_all"],
             grants: [{ id: "g1", description: "read git" }],
             preferences: [{ id: "pref1", description: "example.com web_fetch" }],
+            rules: [],
         });
+    });
+
+    test("home permission rules are carried into the approval state", () => {
+        const message = parseSessionLine(JSON.stringify({
+            ...reply,
+            inspection: {
+                ...reply.inspection,
+                userRules: [{
+                    name: "permission_rules.0",
+                    when: { verb: "read", path: "/Users/me/.aws" },
+                    then: "deny",
+                }],
+            },
+        }));
+        if (message === undefined) throw new Error("expected a message");
+        expect(reduceWatch(initialWatch("a1"), message).approval?.rules)
+            .toEqual([{ id: "rule-0", description: "deny read /Users/me/.aws" }]);
     });
 
     test("a reply without a mode or pending flag is ignored", () => {
