@@ -6,6 +6,7 @@ import { join, resolve, sep } from "node:path";
 import { releaseBuildId } from "../../src/release/build-id.ts";
 import { packedReleaseRoot, packedAnnexRoot } from "../../src/release/layout.ts";
 import { packWebAssets } from "../../scripts/pack-web.ts";
+import { expectDevTuiPacksBeforeLaunch } from "../support/dev-tui-pack.ts";
 
 const packer = resolve(import.meta.dir, "..", "..", "scripts", "pack-web.ts");
 const repoRoot = resolve(import.meta.dir, "..", "..");
@@ -58,8 +59,8 @@ test("dev scripts pack web assets first", () => {
     );
     expect(pkg.scripts.host?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
-    expect(pkg.scripts["dev:tui"]?.startsWith("bun run pack:release &&"))
-        .toBe(true);
+    expect(pkg.scripts["dev:tui"]).toBe("bun run scripts/dev-tui.ts");
+    expectDevTuiPacksBeforeLaunch();
 });
 
 test("pack-web skips when the output is newer than its inputs", async () => {
