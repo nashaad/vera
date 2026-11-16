@@ -207,7 +207,7 @@ export function diagnosticsSnapshot(rt: TuiRuntime): TuiDiagnosticsSnapshot {
         sessionIdentity: rt.diagnosticsSessionIdentity,
         sessionPath: rt.diagnosticsSessionPath,
         workspace: rt.client.workspace ?? process.cwd(),
-        runningBackgroundAgents: rt.runningBackgroundAgents,
+        runningBackgroundAgents: rt.hostRunningBackgroundAgents,
         processes: [
             { role: "client" as const, pid: process.pid },
             ...(build?.hostPid === undefined

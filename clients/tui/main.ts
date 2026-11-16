@@ -1182,6 +1182,7 @@ export async function startTui(
             || isHomeClient(rt.dependencies.client));
     rt.skillCommandsLoading = supportsSkillCommands(rt, rt.dependencies.client);
     rt.runningBackgroundAgents = 0;
+    rt.hostRunningBackgroundAgents = 0;
     rt.runningBackgroundAgentNames = [];
     rt.currentAgentHasParent = false;
     rt.pendingOneshots = new Map<string, {

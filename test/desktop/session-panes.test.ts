@@ -205,9 +205,11 @@ describe("subagents", () => {
         expect(childRows(rows, "p").map((child) => child.id)).toEqual(["b", "a"]);
     });
 
-    test("the running count takes the larger of the listing and the session's own count", () => {
+    test("the running count takes the larger of the listing and the session's own children", () => {
         expect(runningChildCount(rows, "p", undefined)).toBe(1);
-        expect(runningChildCount(rows, "p", { running: 3, children: [], hasParent: false })).toBe(3);
+        // Another conversation's running child does not raise this session's count.
+        expect(runningChildCount(rows, "p", { running: 3, children: [], hasParent: false })).toBe(1);
+        expect(runningChildCount(rows, "p", { running: 3, children: ["one", "two"], hasParent: false })).toBe(2);
     });
 
     test("titles the listing does not carry are reported once each", () => {

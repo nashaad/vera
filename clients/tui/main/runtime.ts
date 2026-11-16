@@ -394,6 +394,8 @@ export interface TuiRuntime {
     extensionCommandsLoading: boolean;
     skillCommandsLoading: boolean;
     runningBackgroundAgents: number;
+    // Host-wide, unlike runningBackgroundAgents, which counts this conversation's children.
+    hostRunningBackgroundAgents: number;
     runningBackgroundAgentNames: readonly string[];
     currentAgentHasParent: boolean;
     stopWatchingBackgroundAgents: (() => void) | undefined;
