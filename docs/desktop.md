@@ -280,10 +280,15 @@ Seven views ship with the app:
   full path. Chats, which are sessions with no folder of their own, share one
   group headed `Chats`; its heading opens no workspace page. Groups are in the
   order of their most recent session, and rows keep
-  the host's order inside a group. A child session in the same folder is listed
-  under its parent, indented. A child of a child is listed under the same top
-  parent. A group collapses and expands from its heading; the state is not kept
-  across launches. Each row has a dot, the session's title, and the time since its
+  the host's order inside a group. A subagent is listed indented under the
+  session that started it, in that session's group, including under a chat; a
+  subagent of a chat does not get a group named after the chat's folder. A
+  subagent of a subagent is listed under the same top parent. A pinned session's
+  subagents are listed under it in Pinned, and a pinned subagent is listed in
+  Pinned on its own. A session with subagents shows a chevron on hover that
+  collapses them; the collapsed row shows a count such as `2 nested`. A group
+  and a parent collapse and expand while the window stays open; neither state is
+  kept across launches. Each row has a dot, the session's title, and the time since its
   last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
