@@ -368,7 +368,7 @@ test("a menu is refused for an unknown place, an unknown or repeated command, a 
     const entry = { command: "acme.themes.import" };
 
     expect(refuse([])).toBe('"contributes.menus" must be an object keyed by place.');
-    expect(refuse({ toolbar: [entry] })).toBe('Unknown menu place "toolbar". The places are appearance and theme and browser.');
+    expect(refuse({ toolbar: [entry] })).toBe('Unknown menu place "toolbar". The places are appearance, theme and browser.');
     expect(refuse({ theme: entry })).toBe('"contributes.menus.theme" must be an array.');
     expect(refuse({ theme: [null] })).toBe('A menu entry in "theme" must be an object.');
     expect(refuse({ theme: [{ ...entry, icon: "x" }] })).toBe('A menu entry in "theme" has an unknown key "icon".');
