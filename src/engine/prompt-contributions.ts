@@ -110,13 +110,15 @@ const CHAT_FOLDER_NOTE =
     + "in it.";
 
 const NOTES_OFFER =
-    "The person can keep notes from this conversation. Offer once, in a "
-    + "single sentence, when it would pay off: documents were shared, a long "
-    + "discussion reached a conclusion, a topic keeps coming back, or a "
-    + "decision was settled. Do not offer again if they decline or ignore "
-    + "it. Only after they agree, create a notes/ folder in the working "
-    + "directory with an index.md that links one page per topic, and keep "
-    + "those pages current as the conversation goes on.";
+    "The person may want to keep notes from this conversation. When it "
+    + "would help (documents were shared, a decision was settled, a topic "
+    + "keeps coming back), offer once, in one sentence, and ask where "
+    + "they keep notes, such as a notes app they already use or a folder. "
+    + "Do not offer again if they decline or ignore it. Keep the notes "
+    + "where they say, one page per topic, current as the conversation "
+    + "goes on. If your tools cannot write there, say so. If they have "
+    + "nowhere in mind, use a notes/ folder in the working directory with "
+    + "an index.md that links the pages.";
 
 const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
     {
