@@ -1,4 +1,4 @@
-import type { DesktopBridge } from "../protocol/bridge.ts";
+import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import type { SessionWatch } from "../session/model.ts";
 import type { AgentStart } from "../session/agentGate.ts";
 import { NewChatComposer } from "./NewChatComposer.tsx";
@@ -8,6 +8,8 @@ export interface SessionComposerProps {
     readonly mode: "session";
     readonly bridge: DesktopBridge;
     readonly agentId: string;
+    // The connection the session is watched on; the main pane unless a Chat tab shows it.
+    readonly pane?: SessionPane;
     readonly watch: SessionWatch;
     readonly send: (line: string) => void;
     readonly folder: string | undefined;

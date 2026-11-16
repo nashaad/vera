@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { CORE_VIEWS } from "../registry/core.ts";
 import { BrowserView } from "./BrowserView.tsx";
+import { ChatView } from "./ChatView.tsx";
 import { FilesView } from "./FilesView.tsx";
 import { OutputView } from "./OutputView.tsx";
 import { PlanView } from "./PlanView.tsx";
@@ -16,6 +17,7 @@ const CORE_RENDERERS: Readonly<Record<string, (props: ViewProps) => ReactNode>> 
     [CORE_VIEWS.plan]: (props) => <PlanView {...props} />,
     [CORE_VIEWS.files]: (props) => <FilesView {...props} />,
     [CORE_VIEWS.browser]: (props) => <BrowserView {...props} />,
+    [CORE_VIEWS.chat]: (props) => <ChatView {...props} />,
 };
 
 // A registered view with no renderer in this client shows nothing.

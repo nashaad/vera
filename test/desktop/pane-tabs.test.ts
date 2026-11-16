@@ -138,11 +138,11 @@ test("@core a new kind is one entry: it registers, takes tabs, answers its short
     ]);
 });
 
-test("the core kinds declare no shortcut and Browser alone is limited and unsaved", () => {
+test("the core kinds declare no shortcut and Browser and Chat alone are limited and unsaved", () => {
     expect(PANE_SHORTCUTS).toEqual([]);
-    expect(PANE_KINDS.map((kind) => kind.id)).toEqual([CORE_CONTAINERS.review, CORE_CONTAINERS.plan, CORE_CONTAINERS.files, CORE_CONTAINERS.browser]);
+    expect(PANE_KINDS.map((kind) => kind.id)).toEqual([CORE_CONTAINERS.review, CORE_CONTAINERS.plan, CORE_CONTAINERS.files, CORE_CONTAINERS.browser, CORE_CONTAINERS.chat]);
     const limited = PANE_KINDS.filter((kind) => kind.maxTabs !== undefined || kind.transientTabs === true);
-    expect(limited.map((kind) => kind.id)).toEqual([CORE_CONTAINERS.browser]);
+    expect(limited.map((kind) => kind.id)).toEqual([CORE_CONTAINERS.browser, CORE_CONTAINERS.chat]);
 });
 
 test("@core Browser is disabled at its limit and every kind at the pane's, but the others stay open below it", () => {

@@ -40,10 +40,17 @@ conversation. `/btw <message>` opens it and sends the message. `/btw close`
 closes its pane, and so does plain `/close` or Ctrl+W while that pane is
 focused. Its pane is temporary.
 
+The [desktop app](desktop.md#chat-tabs) offers `/btw` in a session's composer
+while `vera.btw` is on. It opens the same readonly sidekick, branched from the
+session the same way, in a Chat tab of the right pane. There, closing the tab
+or hiding the right pane ends the sidekick, and the sidekick is brought up to
+date only when `/btw` sends a question.
+
 Use `/pair` for a fresh peer conversation with ask permissions.
 `/pair <message>` sends a message as it opens. `/pair close` closes its pane,
 and so does plain `/close` or Ctrl+W while that pane is focused. Pair
 attachments survive restart, and the conversation is available in `/resume`.
+`/pair` is available in the terminal only.
 
 ### Work with two panes
 

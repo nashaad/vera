@@ -2,12 +2,15 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { LayoutState } from "../../ui/src/layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "../../ui/src/protocol/assignments.ts";
+import type { IncludedExtensionsResult } from "../../ui/src/protocol/included-extensions.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { DesktopFlags, FlagPatch } from "../../ui/src/state/desktopFlags.ts";
 import type {
     AnnexPagesResult,
     BranchSessionResult,
+    OpenSidekickResult,
+    SyncSidekickResult,
     CloseSessionResult,
     CreateSessionResult,
     DesktopBridge,
@@ -86,6 +89,10 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionBranch, agentId, boundaryId)) as BranchSessionResult,
     cloneSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClone, agentId)) as BranchSessionResult,
+    openSidekick: async (primaryAgentId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sidekickOpen, primaryAgentId)) as OpenSidekickResult,
+    syncSidekick: async (sidekickAgentId: string) =>
+        (await ipcRenderer.invoke(CHANNELS.sidekickSync, sidekickAgentId)) as SyncSidekickResult,
     closeSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
     moveSession: async (agentId: string) =>
@@ -135,6 +142,7 @@ const bridge: DesktopBridge = {
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
     readAssignments: async () => (await ipcRenderer.invoke(CHANNELS.assignmentsRead)) as AssignmentsResult,
+    readIncludedExtensions: async () => (await ipcRenderer.invoke(CHANNELS.includedExtensionsRead)) as IncludedExtensionsResult,
     editAssignment: async (change: AssignmentChange) =>
         (await ipcRenderer.invoke(CHANNELS.assignmentsEdit, change)) as AssignmentWriteResult,
     assignToAll: async (provider: string, model: string) =>

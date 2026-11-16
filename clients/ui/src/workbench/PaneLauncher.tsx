@@ -7,6 +7,7 @@ import { PlusIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { canOpenTab, findContainer, type ResolvedContainer } from "../layout/resolve.ts";
+import { paneEntry } from "../registry/core.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
 import { useWorkbench } from "./context.tsx";
 import { containerShortcutKeys } from "./hints.ts";
@@ -35,7 +36,7 @@ export function PaneLauncher() {
     const rows: Row[] = [
         ...(address === undefined || browser === undefined ? [] : [{ kind: "address", address, container: browser } as const]),
         ...layout.locations.rightPane.containers
-            .filter((container) => container.title.toLowerCase().includes(needle))
+            .filter((container) => paneEntry(container.id, container).title.toLowerCase().includes(needle))
             .map((container) => ({ kind: "container", container }) as const),
     ];
     const current = Math.min(focus, Math.max(0, rows.length - 1));
@@ -43,7 +44,12 @@ export function PaneLauncher() {
     const pick = (row: Row): void => {
         setOpen(false);
         if (row.kind === "address") void openAddressInTab(dispatch, row.address);
-        else if (canOpenTab(layout, row.container.id)) run(LAYOUT_COMMANDS.tabOpen, { container: row.container.id });
+        else if (!canOpenTab(layout, row.container.id)) return;
+        else {
+            const { command } = paneEntry(row.container.id, row.container);
+            if (command === undefined) run(LAYOUT_COMMANDS.tabOpen, { container: row.container.id });
+            else run(command);
+        }
     };
     const onKeyDown = (event: KeyboardEvent): void => {
         if (event.key === "Escape") {
@@ -95,6 +101,7 @@ export function PaneLauncher() {
                     {rows.map((row, index) => {
                         const keys = row.kind === "address" ? [] : containerShortcutKeys(row.container.id, platform);
                         const disabled = row.kind === "container" && !canOpenTab(layout, row.container.id);
+                        const entry = paneEntry(row.container.id, row.container);
                         return (
                             <button
                                 key={row.kind === "address" ? "address" : row.container.id}
@@ -108,8 +115,8 @@ export function PaneLauncher() {
                                 onMouseMove={() => setFocus(index)}
                                 onClick={() => pick(row)}
                             >
-                                <ContainerIcon name={row.container.icon} />
-                                <span className="pane-launcher-title">{row.kind === "address" ? `Open ${row.address}` : row.container.title}</span>
+                                <ContainerIcon name={entry.icon} />
+                                <span className="pane-launcher-title">{row.kind === "address" ? `Open ${row.address}` : entry.title}</span>
                                 {keys.map((key) => <kbd key={key} className="kbd">{key}</kbd>)}
                             </button>
                         );

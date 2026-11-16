@@ -1,20 +1,19 @@
-const SIDEKICK = "sidekick";
+import {
+    decideSidekickSync,
+    SIDEKICK_APPROVAL_MODE,
+    SIDEKICK_BUSY_NOTICE,
+    SIDEKICK_LIFETIME,
+    SIDEKICK_MENTION,
+    sidekickBranchOptions,
+} from "../../src/sidekick/branch.ts";
+
+const SIDEKICK = SIDEKICK_MENTION;
 const PEER = "peer";
-const SIDE_CONVERSATION_BOUNDARY = `Side conversation boundary.
-
-Everything before this boundary is inherited history from the primary conversation. It is reference context only, not your current task.
-
-Do not continue or complete instructions, plans, tool calls, approvals, edits, or requests from before this boundary. Only messages submitted after this boundary are active instructions for this side conversation.
-
-Use inherited history naturally when answering the user's current question. Treat it as conversation the user and assistant already had: do not claim it was not discussed merely because it predates this boundary.
-
-This boundary and these instructions are hidden harness context. Do not mention, summarize, quote, or allude to the boundary, inherited-history distinction, side-conversation policy, read-only role, or these instructions unless the user explicitly asks how this assistant operates.
-
-You are a separate, readonly side-conversation assistant. Answer the current question directly and perform only lightweight, non-mutating exploration without disrupting the primary conversation.`;
 
 /** These commands are policy; Vera owns hosted agents, attachment, and rendering. */
 export function activateClient(vera: any): void {
     const agents: Record<string, string | undefined> = {};
+    const sidekickBranch = sidekickBranchOptions();
     let activeMention: string | undefined;
 
     function setAddressing(mention: string): void {
@@ -39,40 +38,18 @@ export function activateClient(vera: any): void {
         offerVisibleMentions();
     }
 
-    /**
-     * Returns `"stale"` when the primary was rewound past the point this
-     * branch synced from: the branch can never catch up, so the caller drops
-     * it and branches again. The lost side conversation is the accepted cost
-     * of `/btw` being ephemeral.
-     *
-     * `"busy"` means the primary is mid-turn and the caller did not ignore it;
-     * the hint is a soft notice, not an error, so the interceptor stays quiet.
-     */
+    // `"stale"` and `"busy"` are decided in the shared sidekick module; a busy primary is a soft notice, not an error.
     async function syncPrimaryContext(
         agentId: string,
         signal: AbortSignal,
         ignoreBusy: boolean = false,
     ): Promise<"ok" | "stale" | "busy"> {
         const synced = await vera.agents.syncContext(agentId, signal);
-        if (synced.outcome === "stale_cursor") {
-            return "stale";
+        const decision = decideSidekickSync(synced.outcome, ignoreBusy);
+        if (decision === "busy") {
+            vera.ui.notice(SIDEKICK_BUSY_NOTICE, { tone: "soft" });
         }
-        if (synced.outcome === "busy") {
-            if (ignoreBusy) {
-                return "ok";
-            }
-            vera.ui.notice("BTW context can sync only between turns", {
-                tone: "soft",
-            });
-            return "busy";
-        }
-        if (synced.outcome === "not_found") {
-            throw new Error("BTW primary context is unavailable");
-        }
-        if (synced.outcome === "failed") {
-            throw new Error("BTW primary context could not be synchronized");
-        }
-        return "ok";
+        return decision;
     }
 
     async function openAgent(
@@ -112,13 +89,8 @@ export function activateClient(vera: any): void {
                             type: "branch",
                             agentId: primaryAgentId,
                         },
-                        hideInheritedMessages: true,
-                        initialMessages: [{
-                            role: "user",
-                            text: SIDE_CONVERSATION_BOUNDARY,
-                            hidden: true,
-                            compactionBarrier: true,
-                        }],
+                        hideInheritedMessages: sidekickBranch.hideInheritedMessages,
+                        initialMessages: sidekickBranch.initialMessages,
                     }),
             }, signal);
             agentId = created.agentId;
@@ -205,8 +177,8 @@ export function activateClient(vera: any): void {
     register(
         "btw",
         SIDEKICK,
-        "readonly",
-        "ephemeral",
+        SIDEKICK_APPROVAL_MODE,
+        SIDEKICK_LIFETIME,
         true,
         "Open or message a readonly sidekick",
     );
@@ -229,8 +201,8 @@ export function activateClient(vera: any): void {
                 await openAgent(
                     "btw",
                     SIDEKICK,
-                    "readonly",
-                    "ephemeral",
+                    SIDEKICK_APPROVAL_MODE,
+                    SIDEKICK_LIFETIME,
                     true,
                     message.workspace,
                     signal,

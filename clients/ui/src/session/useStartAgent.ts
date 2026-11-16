@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { freshRequestId } from "../composer/requests.ts";
 import { parseCatalogLine, selectAgentCommand } from "../customize/wire.ts";
-import type { DesktopBridge } from "../protocol/bridge.ts";
+import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import { NO_AGENT_START, startAfterReply, type AgentStart } from "./agentGate.ts";
 import { takePendingAgent } from "./pendingAgent.ts";
 
@@ -13,6 +13,7 @@ export function useStartAgent(
     agentId: string,
     attached: boolean,
     send: (line: string) => void,
+    pane: SessionPane = "main",
 ): AgentStart {
     const [start, setStart] = useState<AgentStart>(NO_AGENT_START);
     const asked = useRef<string | undefined>(undefined);
@@ -21,12 +22,12 @@ export function useStartAgent(
         setStart(NO_AGENT_START);
     }, [agentId]);
     useEffect(() => bridge.onEvent((event) => {
-        if (event.type !== "session_frame" || event.pane !== "main" || event.agentId !== agentId) return;
+        if (event.type !== "session_frame" || event.pane !== pane || event.agentId !== agentId) return;
         const reply = parseCatalogLine(event.text);
         if (reply === undefined) return;
         const requestId = asked.current;
         setStart((current) => startAfterReply(current, reply, requestId));
-    }), [bridge, agentId]);
+    }), [bridge, agentId, pane]);
     useEffect(() => {
         if (!attached) return;
         const name = takePendingAgent(agentId);

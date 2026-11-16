@@ -72,6 +72,7 @@ test("command groups follow the id prefix and sort by group, then title", () => 
     expect(commandGroup("session.cycleLayout")).toBe("Session");
     expect(commandGroup("theme.dark")).toBe("Theme");
     expect(commandGroup("help.shortcuts")).toBe("Help");
+    expect(commandGroup("chat.help")).toBe("Help");
     expect(commandGroup("palette.sessions")).toBe("Help");
     expect(commandGroup("extension.run")).toBe("Other");
 
