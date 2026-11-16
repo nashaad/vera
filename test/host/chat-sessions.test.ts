@@ -287,7 +287,7 @@ test("a delegated child of a chat works in its parent's folder and is not a chat
     });
 });
 
-const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it. When the work is worth keeping, tell them where the files are and offer to move this conversation into a folder they choose.";
+const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it.";
 
 function textResponse(text: string): AssistantMessage {
     return {

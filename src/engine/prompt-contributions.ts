@@ -107,8 +107,7 @@ const CHAT_FOLDER_NOTE =
     "This conversation has no project folder. The working directory is its "
     + "own folder, created empty when the conversation started, and the "
     + "person sees its files only under Files. Keep anything they may want "
-    + "in it. When the work is worth keeping, tell them where the files are "
-    + "and offer to move this conversation into a folder they choose.";
+    + "in it.";
 
 const NOTES_OFFER =
     "The person can keep notes from this conversation. Offer once, in a "

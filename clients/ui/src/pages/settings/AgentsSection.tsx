@@ -64,7 +64,7 @@ export function AgentsSection() {
             <h1>Agents</h1>
             <SettingRow
                 name="Suggest keeping notes"
-                description="A new session offers to keep notes in its folder when a conversation produces something worth keeping. Sessions already started are not changed."
+                description="The next two sessions you start offer once to keep notes in their folder. Turn this off and on again to offer in two more."
             >
                 <button
                     type="button"
