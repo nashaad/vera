@@ -53,6 +53,7 @@ import type {
     RenameSessionOutcome,
 } from "./agent-registry.ts";
 import type { MoveSessionInput, MoveSessionOutcome } from "./agent-registry/move.ts";
+import type { NewSessionAgents } from "./agent-registry/select.ts";
 import type {
     ImportableSessionListing,
     SessionImportOutcome,
@@ -177,6 +178,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "refresh_catalogs":
         case "annex_url":
         case "extension_load_failures":
+        case "new_session_agents":
         case "checkpoint_stores":
         case "search_sessions":
         case "schedule_operation":
@@ -256,6 +258,7 @@ export interface StartHostServerOptions {
         | { readonly unavailable: string }
         | undefined;
     readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
+    readonly readNewSessionAgents?: (workspace: string | undefined) => Promise<NewSessionAgents>;
     readonly checkpointStores?: (
         destination: string,
     ) => Promise<{
@@ -613,6 +616,7 @@ async function startListener(
             options.selectProviderModel,
             options.readAnnex,
             options.readExtensionLoadFailures,
+            options.readNewSessionAgents,
             options.checkpointStores,
             options.handleExtensionRequest,
             options.stopWhenIdle,
@@ -849,6 +853,7 @@ function receiveConnection(
         | { readonly unavailable: string }
         | undefined) | undefined,
     readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
+    readNewSessionAgents: StartHostServerOptions["readNewSessionAgents"],
     checkpointStores: ((
         destination: string,
     ) => Promise<{
@@ -1744,6 +1749,26 @@ function receiveConnection(
                         type: "extension_load_failures",
                         failures: readExtensionLoadFailures(),
                     },
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "new_session_agents") {
+            clearDeadline();
+            finished = true;
+            if (readNewSessionAgents === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void readNewSessionAgents(request.workspace).then(
+                (listing) => send({
+                    type: "new_session_agents",
+                    starts_on: listing.startsOn,
+                    agents: listing.agents,
+                    notices: listing.notices,
+                }),
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

@@ -1,5 +1,6 @@
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import type { SessionWatch } from "../session/model.ts";
+import type { AgentStart } from "../session/agentGate.ts";
 import { NewChatComposer } from "./NewChatComposer.tsx";
 import { SessionComposer } from "./SessionComposer.tsx";
 
@@ -15,8 +16,8 @@ export interface SessionComposerProps {
     readonly chat: boolean;
     // Runs after the host moved the session to another folder.
     readonly onMoved: () => void;
-    // Why sending waits, shown in the box while the session switches agent.
-    readonly hold?: string;
+    // What the session has answered about the agent it was opened for; a held first prompt waits on it.
+    readonly agentStart: AgentStart;
 }
 
 export interface NewChatComposerProps {

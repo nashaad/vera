@@ -59,6 +59,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "readModelSettings"
     | "refreshCatalog"
     | "readExtensionLoadFailures"
+    | "readNewSessionAgents"
     | "listAgents"
     | "readSessionFacts"
     | "listBackgroundAgents"
@@ -260,6 +261,8 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             return registry.readHostModelSettings(workspace);
         },
         readExtensionLoadFailures: () => extensionLoadFailures,
+        readNewSessionAgents: (workspace) =>
+            registry.listNewSessionAgents(workspace),
         listAgents: async () => mergeStoredAndResidentAgents(
             await storedSessions,
             registry.list(),

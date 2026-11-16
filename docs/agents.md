@@ -76,6 +76,34 @@ included one.
 The model is told that a chat's folder is the chat's own, and it may offer to
 move the conversation into a folder you choose.
 
+## Choose the agent of a new chat
+
+On the desktop's New Chat page the composer bar has an agent pill beside the
+approval pill. It shows the agent the new session starts on, which is `default`
+until you pick another. Click it, or type `/agent` with no name, to open Choose
+Agent. It lists the agents a session started there would offer: the included
+ones, your own, and, when a folder is picked, that folder's project agents. With
+no folder picked it lists what a chat offers, which has no project agents.
+`/agent crow` picks the agent `crow` directly, and says `No agent named crow`
+when the list does not offer it. The host reads the list without starting a
+session.
+
+Picking a different folder reads the list again. If the agent you picked is not
+offered in the new folder, the pill goes back to `default` and a line under the
+composer says `The crow agent is not offered here. This chat starts on default.`
+
+When you send, the window creates the session as usual, switches it to the
+agent you picked, and sends your first message only after the session confirms
+the switch. If the host refuses the switch, the message is not sent: your text,
+images and files go back into that session's composer with the host's reason,
+such as `No agent named crow`. If the session does not answer within ten
+seconds, they come back with `The session did not answer in time`. Sending with
+the default picked starts the session on the default agent and switches nothing.
+
+The pill and the list need a host that has this request. After updating Vera,
+restart the host. A host that has not been restarted shows no agent pill on New
+Chat, and Choose Agent there says to open a session.
+
 ## Suggest keeping notes
 
 The first two sessions the desktop window creates after Settings > Agents >

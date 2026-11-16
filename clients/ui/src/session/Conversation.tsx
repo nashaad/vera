@@ -19,6 +19,7 @@ import { usePinnedScroll } from "./usePinnedScroll.ts";
 import { useSessionWatch } from "./useSessionWatch.ts";
 import { useSlowOpening } from "./useSlowOpening.ts";
 import { useStartAgent } from "./useStartAgent.ts";
+import { HELP_AGENT } from "../chat/help.ts";
 import { abortCommand, releaseQueuedCommand } from "./wire.ts";
 
 // What the page publishes about the session it shows.
@@ -56,7 +57,8 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
         showTarget(target, run);
     }, [run]);
     const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, agentId, connected, pane, onShow);
-    const { refused: startRefused, starting } = useStartAgent(bridge, agentId, watch.phase === "attached", send, pane);
+    const agentStart = useStartAgent(bridge, agentId, watch.phase === "attached", send, pane);
+    const helpRefused = agentStart.name === HELP_AGENT ? agentStart.refused : undefined;
     // The host ended this session's watch while it moved; open it again and read the row's new folder.
     const onMoved = useCallback(() => {
         reattach();
@@ -139,9 +141,9 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                             {startable ? <StartSessionButton onStart={start} /> : null}
                         </div>
                     ) : null}
-                    {startRefused === undefined ? null : (
+                    {helpRefused === undefined ? null : (
                         <div className="transcript-notice" data-tone="warning">
-                            <span>{`Help did not start. ${startRefused}`}</span>
+                            <span>{`Help did not start. ${helpRefused}`}</span>
                         </div>
                     )}
                     <RequestCards
@@ -179,7 +181,7 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                     folder={folder}
                     chat={chat}
                     onMoved={onMoved}
-                    {...(starting ? { hold: "Switching agent" } : {})}
+                    agentStart={agentStart}
                 />
             </div>
         </div>

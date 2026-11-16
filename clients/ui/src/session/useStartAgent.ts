@@ -3,48 +3,38 @@ import { useEffect, useRef, useState } from "react";
 import { freshRequestId } from "../composer/requests.ts";
 import { parseCatalogLine, selectAgentCommand } from "../customize/wire.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
+import { NO_AGENT_START, startAfterReply, type AgentStart } from "./agentGate.ts";
 import { takePendingAgent } from "./pendingAgent.ts";
 
-export interface StartAgent {
-    // The host's reason when it refused the switch, so the session can say it stayed on its first agent.
-    readonly refused: string | undefined;
-    // True from the switch being sent until the host answers; a prompt sent now would go to the first agent.
-    readonly starting: boolean;
-}
-
-// Switches a session that was opened for a named agent, once its watch attaches.
+// Switches a session that was opened for a named agent, once its watch attaches. Reports the host's
+// answer, so the session can say it stayed on its first agent and a held prompt knows when to go.
 export function useStartAgent(
     bridge: DesktopBridge,
     agentId: string,
     attached: boolean,
     send: (line: string) => void,
     pane: SessionPane = "main",
-): StartAgent {
-    const [refused, setRefused] = useState<string | undefined>(undefined);
-    const [starting, setStarting] = useState(false);
+): AgentStart {
+    const [start, setStart] = useState<AgentStart>(NO_AGENT_START);
     const asked = useRef<string | undefined>(undefined);
     useEffect(() => {
         asked.current = undefined;
-        setRefused(undefined);
-        setStarting(false);
+        setStart(NO_AGENT_START);
     }, [agentId]);
     useEffect(() => bridge.onEvent((event) => {
         if (event.type !== "session_frame" || event.pane !== pane || event.agentId !== agentId) return;
         const reply = parseCatalogLine(event.text);
-        if (reply === undefined || reply.requestId !== asked.current) return;
-        if (reply.type === "agent_rejected") setRefused(reply.reason);
-        if (reply.type === "agent_rejected" || reply.type === "agent_selected") setStarting(false);
+        if (reply === undefined) return;
+        const requestId = asked.current;
+        setStart((current) => startAfterReply(current, reply, requestId));
     }), [bridge, agentId, pane]);
     useEffect(() => {
-        if (!attached) {
-            setStarting(false);
-            return;
-        }
+        if (!attached) return;
         const name = takePendingAgent(agentId);
         if (name === undefined) return;
         asked.current = freshRequestId("start-agent");
-        setStarting(true);
+        setStart({ name, selected: false });
         send(selectAgentCommand(asked.current, name));
     }, [agentId, attached, send]);
-    return { refused, starting };
+    return start;
 }

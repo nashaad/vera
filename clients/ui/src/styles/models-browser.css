@@ -726,15 +726,18 @@
     overflow-y: auto;
 }
 
+/* The efforts of the highlighted row take a line of their own under the name. */
 .slot-picker .slot-pick {
     display: flex;
-    gap: calc(var(--vera-space) * 2);
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 0.75) calc(var(--vera-space) * 2);
     align-items: center;
     padding: calc(var(--vera-space) * 1.25) calc(var(--vera-space) * 2);
     white-space: normal;
 }
 
 .slot-picker .slot-pick .model-item-text {
+    flex: 1 1 0;
     flex-direction: row;
     gap: calc(var(--vera-space) * 1.5);
     align-items: baseline;
@@ -757,7 +760,9 @@
 
 .slot-pick-efforts {
     display: flex;
-    flex: none;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    order: 1;
     gap: calc(var(--vera-space) * 0.5);
 }
 
