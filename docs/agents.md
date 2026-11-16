@@ -105,10 +105,9 @@ Chat, and Choose Agent there says to open a session.
 
 ## Suggest keeping notes
 
-The first two sessions the desktop window creates after Settings > Agents >
-Suggest keeping notes is turned on, chats and folder sessions alike, carry a
-short instruction in their system prompt. The switch is on by default, so the
-first two sessions in a new home carry it. The instruction tells the model that
+Every session the desktop window creates while Settings > Agents > Suggest
+keeping notes is on, chats and folder sessions alike, carries a short
+instruction in its system prompt. The switch is on by default. The instruction tells the model that
 you may want to keep notes from the conversation, and to offer once, in one
 sentence, when documents were shared, a decision was settled or a topic keeps
 coming back, and to ask where you keep notes, such as a notes app you already
@@ -119,12 +118,9 @@ have nowhere in mind, it uses a `notes/` folder in the working directory with
 an `index.md` that links the pages.
 
 The choice is made when the session is created and does not change for that
-session, so the start of its system prompt stays the same. Sessions after the
-first two are created without it while the switch stays on. Turning the switch
-off affects new sessions only, and turning it off and on again counts from the
-first session again. The window counts a session only when the host started it
-with the instruction, and keeps the count in the desktop's browser storage next
-to the switch. Branches and clones keep the choice of the session they came
+session, so the start of its system prompt stays the same. Turning the switch
+off affects new sessions only. The window keeps the switch in the desktop's
+browser storage. Branches and clones keep the choice of the session they came
 from; subagents do not get the instruction. Sessions started from the terminal,
 `vera -p` or the web client never have it.
 
