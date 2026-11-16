@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type SessionSheet = "rewind" | "tasks" | "subagents" | "rename";
+export type SessionSheet = "rewind" | "tasks" | "rename";
 
 let open: SessionSheet | undefined;
 const listeners = new Set<() => void>();

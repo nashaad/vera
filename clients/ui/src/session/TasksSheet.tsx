@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { ClockIcon, XIcon } from "../components/Icons.tsx";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
-import { openCompanion } from "./paneLayout.ts";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
+import { openSubagents } from "../subagents/open.ts";
 import { useViewEnvironment } from "../views/env.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
 import type { ActiveSession } from "./activeSession.ts";
 import { childRows, isRunningRow, unlistedChildTitles } from "./subagents.ts";
+import { useStopSubagent } from "./useStopSubagent.ts";
 
 export interface SheetProps {
     readonly session: ActiveSession;
@@ -57,32 +59,15 @@ export function TasksSheet({ session, onClose }: SheetProps) {
     );
 }
 
-// Shared by the tasks sheet and the subagents sheet.
 export function SubagentList({ session, onClose }: SheetProps) {
     const { connection } = useViewEnvironment();
     const { navigate } = useRouter();
-    const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
-    const [failures, setFailures] = useState<Readonly<Record<string, string>>>({});
+    const workbench = useWorkbench();
+    const { stopping, failures, stop } = useStopSubagent(session.bridge);
     const rows = connection.sessionRows ?? [];
     const children = childRows(rows, session.agentId);
     const unlisted = unlistedChildTitles(session.watch.background, rows);
     const now = Date.now();
-
-    const stop = async (row: SessionRow): Promise<void> => {
-        setStopping((current) => new Set(current).add(row.id));
-        setFailures((current) => {
-            const next = { ...current };
-            delete next[row.id];
-            return next;
-        });
-        const result = await session.bridge.closeSession(row.id);
-        setStopping((current) => {
-            const next = new Set(current);
-            next.delete(row.id);
-            return next;
-        });
-        if (!result.ok) setFailures((current) => ({ ...current, [row.id]: result.reason }));
-    };
 
     if (children.length === 0 && unlisted.length === 0) {
         return <p className="view-empty">No subagents in this session.</p>;
@@ -104,7 +89,7 @@ export function SubagentList({ session, onClose }: SheetProps) {
                                 type="button"
                                 className="subagent-action"
                                 onClick={() => {
-                                    openCompanion(session.agentId, row.id);
+                                    openSubagents(workbench, session.agentId, row.id);
                                     onClose();
                                 }}
                             >
@@ -125,7 +110,7 @@ export function SubagentList({ session, onClose }: SheetProps) {
                                     type="button"
                                     className="subagent-action"
                                     disabled={stopping.has(row.id)}
-                                    onClick={() => void stop(row)}
+                                    onClick={() => void stop(row.id)}
                                 >
                                     Stop
                                 </button>

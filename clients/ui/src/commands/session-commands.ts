@@ -25,7 +25,6 @@ export const SESSION_COMMANDS = {
 
 const SHEETS: ReadonlyArray<readonly [string, string, SessionSheet]> = [
     [SESSION_COMMANDS.rewind, "Rewind or Fork", "rewind"],
-    [SESSION_COMMANDS.subagents, "Show Subagents", "subagents"],
     [SESSION_COMMANDS.tasks, "Show Background Tasks", "tasks"],
 ];
 

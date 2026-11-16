@@ -25,6 +25,7 @@ import "./styles/right-views.css";
 import "./styles/browser.css";
 import "./styles/session-panes.css";
 import "./styles/chat.css";
+import "./styles/subagents.css";
 import "./styles/search.css";
 import "./styles/workspace.css";
 import "./styles/devices.css";

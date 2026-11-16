@@ -3,7 +3,10 @@ import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, InboxIcon, RefreshIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
+import { openSubagents } from "../subagents/open.ts";
 import { useViewEnvironment } from "../views/env.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
+import { useActiveSession } from "./activeSession.ts";
 import type { DeliveryBlock, NoticeBlock, SubstitutionBlock } from "./model.ts";
 
 const PREVIEW_LINES = 3;
@@ -36,6 +39,8 @@ export function NoticeRow({ block }: { readonly block: NoticeBlock }) {
 export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
     const { connection } = useViewEnvironment();
     const router = useRouter();
+    const workbench = useWorkbench();
+    const openSession = useActiveSession()?.agentId;
     const [showAll, setShowAll] = useState(false);
     const row = connection.sessionRows?.find((candidate) => candidate.id === block.sourceAgentId);
     const lines = block.text.split("\n");
@@ -58,12 +63,14 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
                 <button
                     type="button"
                     className="inbox-open"
-                    onClick={() => router.navigate({
-                        kind: "session",
-                        agentId: row.id,
-                        title: row.name,
-                        ...sessionPlace(row.workspace, row.chat),
-                    })}
+                    onClick={() => {
+                        // The tab lists the open session's subagents, so a delivery to any other transcript still navigates.
+                        if (openSession !== undefined && row.parentId === openSession) {
+                            openSubagents(workbench, openSession, row.id);
+                            return;
+                        }
+                        router.navigate({ kind: "session", agentId: row.id, title: row.name, ...sessionPlace(row.workspace, row.chat) });
+                    }}
                 >
                     Open it
                 </button>

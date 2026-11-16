@@ -11,6 +11,7 @@ export const CORE_VIEWS = {
     files: "core.files",
     browser: "core.browser",
     chat: "core.chat",
+    subagents: "core.subagents",
 } as const;
 
 export const CORE_CONTAINERS = {
@@ -21,6 +22,7 @@ export const CORE_CONTAINERS = {
     files: "core.files",
     browser: "core.browser",
     chat: "core.chat",
+    subagents: "core.subagents",
 } as const;
 
 // A kind of tab the right pane opens. Its container and its one view share the id.
@@ -53,6 +55,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
         transientTabs: true,
         entry: { title: "Help", icon: "help", command: CHAT_COMMANDS.help },
     },
+    { id: CORE_CONTAINERS.subagents, title: "Subagents", icon: "subagents", maxTabs: 1, transientTabs: true },
 ];
 
 // What a container's tile and launcher row show and run: the kind's entry when it has one, else a new empty tab.

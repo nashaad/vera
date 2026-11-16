@@ -12,7 +12,7 @@ import { estimateTokens, LiveStatus, TaskCard } from "./LiveStatus.tsx";
 import { DeliveryRow, NoticeRow, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
 import type { AgentRunStatus, Block, CompactionState, RetryState, ThoughtBlock } from "./model.ts";
-import { RunLine } from "./ToolRuns.tsx";
+import { RunSegments } from "./SubagentCards.tsx";
 import { keepTurns, type Run, type Turn, type TurnRender } from "./turns.ts";
 
 function formatSeconds(total: number): string {
@@ -131,10 +131,10 @@ const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, li
             {showWork ? turn.work.map((block, index) => {
                 const changes = rollups.get(index);
                 const run = runs.get(index);
-                const showRun = run !== undefined && !run.quiet && run.end !== liveRunEnd;
+                const showRun = run !== undefined && !run.quiet;
                 return (
                     <Fragment key={block.key}>
-                        {block.kind === "tools" ? (showRun ? <RunLine calls={run.calls} /> : null) : (
+                        {block.kind === "tools" ? (showRun ? <RunSegments calls={run.calls} cardsOnly={run.end === liveRunEnd} /> : null) : (
                             <BlockView block={block} next={turn.work[index + 1] ?? turn.answer} />
                         )}
                         {changes === undefined ? null : <DiffRollup changes={changes} folder={folder} />}

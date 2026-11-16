@@ -117,6 +117,7 @@ test("@core only the main pane and Chat tabs ask to have screens opened for them
     expect(JSON.parse(ATTACH_AGENT_A).requested_capabilities).not.toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "chat:2")).requested_capabilities).toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "companion")).requested_capabilities).not.toContain("session.show-window.v1");
+    expect(JSON.parse(attachLine("agent-a", false, "subagent")).requested_capabilities).not.toContain("session.show-window.v1");
 });
 
 test("send writes a request line on the open watch", async () => {

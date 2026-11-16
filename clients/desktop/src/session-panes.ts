@@ -11,7 +11,7 @@ export class SessionPanes {
         private readonly emit: (event: DesktopEvent) => void,
         private readonly hidesReasoning: () => boolean,
     ) {
-        for (const pane of ["main", "companion"] as const) this.pipes.set(pane, new SessionPipe(emit, pane, hidesReasoning));
+        for (const pane of ["main", "companion", "subagent"] as const) this.pipes.set(pane, new SessionPipe(emit, pane, hidesReasoning));
     }
 
     // The pipe for a pane the window named, or undefined when the name is not one.
