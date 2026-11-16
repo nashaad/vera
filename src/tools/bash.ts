@@ -2,6 +2,7 @@ import {
     DEFAULT_BASH_YIELD_MS,
     ManagedProcessRegistry,
     MAX_BASH_YIELD_MS,
+    type ManagedProcessRunOptions,
     type ManagedProcessRunResult,
     type ManagedProcessScope,
 } from "./process-runtime.ts";
@@ -38,9 +39,11 @@ export const bashTool: RegisteredTool = {
             throw new Error("bash tool requires a string command");
         }
         const yieldAfterMs = parseYieldAfter(input.yield_after);
+        const sandbox = context.sandboxIdentity();
         return runBash(command, context.workspace, signal, context.env, {
             processes: context.processes,
             yieldAfterMs,
+            ...(sandbox === undefined ? {} : { sandbox }),
         });
     },
 };
@@ -48,6 +51,7 @@ export const bashTool: RegisteredTool = {
 export interface RunBashOptions {
     readonly processes?: ManagedProcessScope;
     readonly yieldAfterMs?: number;
+    readonly sandbox?: ManagedProcessRunOptions["sandbox"];
 }
 
 export async function runBash(
@@ -74,6 +78,7 @@ export async function runBash(
                 ? undefined
                 : options.yieldAfterMs ?? DEFAULT_BASH_YIELD_MS,
             interactive: false,
+            ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
         });
     } finally {
         await ownedRegistry?.close();

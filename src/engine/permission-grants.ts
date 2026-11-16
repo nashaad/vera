@@ -177,7 +177,16 @@ function grantProposalForAction(
         lifetime: "session" as const,
     };
     if (action.operation !== undefined) {
-        return { ...base, kind: "action", when: { operation: action.operation } };
+        return {
+            ...base,
+            kind: "action",
+            when: {
+                operation: action.operation,
+                ...(grantNamesHost(action)
+                    ? { host: action.host as string }
+                    : {}),
+            },
+        };
     }
     if (action.path !== undefined) {
         return {
@@ -209,6 +218,13 @@ function grantProposalForAction(
                 : { executable: action.executable }),
         },
     };
+}
+
+// Only the two web operations carry a host in their grant; a grant without one matches every host.
+function grantNamesHost(action: PermissionAction): boolean {
+    return (action.operation === "web.fetch"
+        || action.operation === "web.download")
+        && action.host !== undefined;
 }
 
 function operationMatches(

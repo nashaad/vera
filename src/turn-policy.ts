@@ -10,6 +10,7 @@ export type ConfiguredTurnPolicy = Pick<
     LoopPolicy,
     | "modelFallback"
     | "permissionModes"
+    | "permissionRules"
     | "disabledPromptContributions"
     | "promptContributionOrder"
 >;
@@ -23,6 +24,9 @@ export function configuredTurnPolicy(
         ...(config.permission_modes === undefined
             ? {}
             : { permissionModes: config.permission_modes }),
+        ...(config.permission_rules === undefined
+            ? {}
+            : { permissionRules: config.permission_rules }),
         ...(config.disabled_prompt_contributions === undefined ? {} : {
             disabledPromptContributions: config.disabled_prompt_contributions,
         }),

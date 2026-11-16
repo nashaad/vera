@@ -197,8 +197,6 @@ export interface TuiRuntime {
     keepRunningOnExit?: boolean;
     requestedModelChanges: Map<string, { readonly subject: string; readonly patch: ModelSettingsPatch; readonly target: TuiAgentClient; }>;
     requestedPermissionChanges: Map<string, string>;
-    // Sessions whose auto-approval suggestion this client has already shown.
-    autoNudgeShown: Set<string>;
     abortRequested: boolean;
     pendingUiRequest: UiRequestUpdate | undefined;
     queuedUiRequests: UiRequestUpdate[];

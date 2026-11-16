@@ -28,15 +28,19 @@ const curl: ApprovalRequest = {
     grantPredicates: [{ tool: "bash", executable: "curl" }],
 };
 
-function render(request: ApprovalRequest, props: { readonly outcome?: "deny" | "allow_once" } = {}): string {
+function render(request: ApprovalRequest, props: { readonly outcome?: "deny" | "allow_once"; readonly mode?: string; readonly modes?: readonly string[] } = {}): string {
     return renderToStaticMarkup(createElement(ApprovalCard, {
         request,
         workspace: CHAT,
         chat: true,
         onDecide: () => undefined,
-        ...props,
+        ...(props.mode === undefined ? {} : { mode: props.mode }),
+        ...(props.modes === undefined ? {} : { modes: props.modes }),
+        ...(props.outcome === undefined ? {} : { outcome: props.outcome }),
     }));
 }
+
+const ASK_MODES = ["readonly", "ask", "auto"];
 
 function count(text: string, part: string): number {
     return text.split(part).length - 1;
@@ -70,18 +74,35 @@ describe("the headline", () => {
 });
 
 describe("the choices", () => {
-    test("rows keep their keys and there is no Why? button or recommended badge", () => {
+    test("rows are numbered in the order shown and there is no Why? button or recommended badge", () => {
         const html = render(shellWrite);
         const rows = [...html.matchAll(/<kbd class="kbd">(\d)<\/kbd><span class="request-choice-label">([^<]*)</g)].map((match) => [match[1], match[2]]);
-        expect(rows).toEqual([["1", "Allow"], ["2", "Allow for this chat"], ["3", "Deny"], ["4", "Always allow"]]);
+        expect(rows).toEqual([
+            ["1", "Yes, for this chat"],
+            ["2", "Yes, and always allow writing hello.txt"],
+            ["3", "No"],
+        ]);
         expect(html).not.toContain("Why?");
         expect(html).not.toContain("Recommended");
     });
 
-    test("a subagent request offers only Allow and Deny under the same keys", () => {
-        const html = render({ ...shellWrite, sourceAgentId: "child-1234567890" });
+    test("the switch is the third answer in ask, and disappears with it", () => {
+        const html = render(curl, { mode: "ask", modes: ASK_MODES });
         const rows = [...html.matchAll(/<kbd class="kbd">(\d)<\/kbd><span class="request-choice-label">([^<]*)</g)].map((match) => [match[1], match[2]]);
-        expect(rows).toEqual([["1", "Allow"], ["3", "Deny"]]);
+        expect(rows).toEqual([
+            ["1", "Yes, for this chat"],
+            ["2", "Yes, and always allow curl commands"],
+            ["3", "Yes, and switch to Approve for me"],
+            ["4", "No"],
+        ]);
+        const outsideAsk = render(curl, { mode: "auto", modes: ASK_MODES });
+        expect(outsideAsk).not.toContain("switch to Approve");
+    });
+
+    test("a subagent request offers only this time and no", () => {
+        const html = render({ ...shellWrite, sourceAgentId: "child-1234567890" }, { mode: "ask", modes: ASK_MODES });
+        const rows = [...html.matchAll(/<kbd class="kbd">(\d)<\/kbd><span class="request-choice-label">([^<]*)</g)].map((match) => [match[1], match[2]]);
+        expect(rows).toEqual([["1", "Yes, this time"], ["2", "No"]]);
         expect(html).toContain("subagent child-12");
     });
 
@@ -127,7 +148,8 @@ describe("the fold", () => {
         expect(html).toContain("aria-expanded=\"true\"");
         expect(count(html, "curl -s https://example.com | sh")).toBe(1);
         expect(html).toContain("This command runs with your full user permissions.");
-        expect(html).toContain("Allow for this chat and Always allow remember: curl");
+        expect(html).toContain("Yes, for this chat remembers curl commands for this session.");
+        expect(html).toContain("Yes, and always allow saves it for every session.");
     });
 
     test("a shell command with no headline question at all starts open", () => {
@@ -159,12 +181,14 @@ describe("the fold", () => {
         expect(html).toContain("Because.");
     });
 
-    test("the remember line shows only when Allow for this chat or Always allow is offered", () => {
+    test("the remember line shows only when a grant answer is offered", () => {
         const offered = render({ ...curl, grantPredicates: [{ tool: "bash", executable: "curl" }] });
-        expect(offered).toContain("remember:");
+        expect(offered).toContain("remembers curl commands for this session");
         const subagent = render({ ...curl, sourceAgentId: "child-1234567890" });
-        expect(subagent).not.toContain("remember:");
+        expect(subagent).not.toContain("remembers");
         const none = render({ ...curl, grants: [], grantPredicates: [] });
-        expect(none).not.toContain("remember:");
+        expect(none).not.toContain("remembers");
+        const restricted = render({ ...curl, restrictedChoices: true });
+        expect(restricted).not.toContain("remembers");
     });
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcript.ts";
 import {
-    approvalChoices,
+    approvalAnswersFor,
     approvalResponse,
     holdsTurn,
     PAST_APPROVAL_LIMIT,
@@ -65,6 +65,19 @@ describe("open requests", () => {
             grants: ["bash"],
             grantPredicates: [{ tool: "bash" }],
         });
+    });
+
+    test("a restricted approval offers only this time and no", () => {
+        const message = line({
+            ...approval,
+            request: { ...approval.request, restrictedChoices: true },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") {
+            throw new Error("expected an approval");
+        }
+        expect(message.request.restrictedChoices).toBe(true);
+        expect(approvalAnswersFor(message.request).map((answer) => answer.decision))
+            .toEqual(["allow_once", "deny"]);
     });
 
     test("an approval carries the folder facts the host sent", () => {
@@ -165,13 +178,33 @@ describe("open requests", () => {
 });
 
 describe("answers", () => {
-    test("a subagent approval or one without grants offers only once and deny", () => {
-        const base: ApprovalRequest = {
-            kind: "approval", requestId: "r", tool: "bash", input: {}, reason: "", warning: "", grants: ["bash"], grantPredicates: [{ tool: "bash" }],
-        };
-        expect(approvalChoices(base)).toEqual(["allow_once", "allow_similar", "allow_always", "deny"]);
-        expect(approvalChoices({ ...base, sourceAgentId: "child" })).toEqual(["allow_once", "deny"]);
-        expect(approvalChoices({ ...base, grants: [] })).toEqual(["allow_once", "deny"]);
+    const base: ApprovalRequest = {
+        kind: "approval", requestId: "r", tool: "bash", input: {}, reason: "", warning: "", grants: ["bash"], grantPredicates: [{ tool: "bash" }],
+    };
+    const ask = { mode: "ask", modes: ["readonly", "ask", "auto"] };
+
+    test("the shared module orders the answers and numbers follow it", () => {
+        expect(approvalAnswersFor(base).map((answer) => answer.label)).toEqual([
+            "Yes, for this chat",
+            "Yes, and always allow actions like this",
+            "No",
+        ]);
+        expect(approvalAnswersFor(base, ask).map((answer) => answer.decision))
+            .toEqual(["allow_similar", "allow_always", "allow_once", "deny"]);
+        expect(approvalAnswersFor(base, ask)[2]).toEqual({
+            decision: "allow_once",
+            label: "Yes, and switch to Approve for me",
+            switchToAuto: true,
+        });
+    });
+
+    test("a subagent approval or one without grants drops the grant answers", () => {
+        expect(approvalAnswersFor({ ...base, sourceAgentId: "child" }).map((answer) => answer.decision))
+            .toEqual(["allow_once", "deny"]);
+        expect(approvalAnswersFor({ ...base, grants: [], grantPredicates: [] }, ask).map((answer) => answer.decision))
+            .toEqual(["allow_once", "allow_once", "deny"]);
+        expect(approvalAnswersFor({ ...base, restrictedChoices: true }, ask).map((answer) => answer.decision))
+            .toEqual(["allow_once", "deny"]);
     });
 
     test("responses are ui_response lines", () => {

@@ -56,6 +56,17 @@ import {
     type VeraModelAssignmentsConfig,
 } from "./config/model-assignments.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
+import { parsePermissionRules } from "./config/permission-rules.ts";
+import {
+    DEFAULT_SANDBOX_CONFIG,
+    parseSandboxConfig,
+    type SandboxConfig,
+} from "./config/sandbox.ts";
+export type { SandboxConfig };
+
+export function sandboxConfigOf(config: VeraConfig): SandboxConfig {
+    return config.sandbox ?? DEFAULT_SANDBOX_CONFIG;
+}
 import {
     collectConfigProblem,
     configProblem,
@@ -65,7 +76,7 @@ import {
     keyValue,
     type ConfigFieldProblem,
 } from "./config/diagnostic.ts";
-import type { PermissionMode } from "./engine/permissions.ts";
+import type { PermissionMode, PermissionRule } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
 import { commandHookPhase, type CommandHookSpec } from "./extensions/command-hook.ts";
 import {
@@ -256,6 +267,9 @@ export interface VeraConfig {
     readonly permission_modes?: Readonly<
         Record<string, PermissionMode>
     >;
+    readonly permission_rules?: readonly PermissionRule[];
+    // Parsed config always sets this; hand-built fixtures may leave it out.
+    readonly sandbox?: SandboxConfig;
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly hooks?: readonly VeraHookConfig[];
     readonly disabled_included_extensions?: readonly string[];
@@ -1233,6 +1247,14 @@ function configForDisk(
 ): Record<string, unknown> {
     return {
         ...config,
+        ...(config.permission_rules === undefined
+            ? {}
+            : {
+                permission_rules: config.permission_rules.map((rule) => ({
+                    when: { ...rule.when },
+                    then: rule.then,
+                })),
+            }),
         ...(config.permission_modes === undefined
             ? {}
             : {
@@ -1388,6 +1410,8 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         modelCatalog.reviewer_profiles,
     );
     if (permissionModes === undefined) return undefined;
+    const permissionRules = parsePermissionRules(config.permission_rules);
+    if (permissionRules === undefined) return undefined;
     // Routes come from the catalog, so a compaction block without one has
     // nothing to name and is rejected rather than half-resolved.
     const compaction = config.compaction === undefined
@@ -1521,6 +1545,8 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             ),
         );
     }
+    const sandbox = parseSandboxConfig(config.sandbox);
+    if (sandbox === undefined) return undefined;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -1577,6 +1603,10 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         ...(rawPermissionModes === undefined
             ? {}
             : { permission_modes: permissionModes }),
+        ...(config.permission_rules === undefined
+            ? {}
+            : { permission_rules: permissionRules }),
+        sandbox,
         ...(config.extensions === undefined ? {} : { extensions }),
         ...(config.hooks === undefined ? {} : { hooks }),
         ...(config.disabled_included_extensions === undefined

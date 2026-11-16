@@ -96,8 +96,6 @@ function appliedPermissionModeAfterError(
     return current === requested ? current : undefined;
 }
 
-const AUTO_SUGGESTION_ALLOWS = 5;
-
 const AUTHORITY_WARNINGS: Readonly<Record<string, string>> = {
     bash: "If allowed, this command and its child processes run with your"
         + " full user permissions.",
@@ -134,6 +132,7 @@ export interface ToolApprovalOptions {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    readonly restrictedChoices?: true;
     readonly workspace?: string;
     readonly chat?: boolean;
 }
@@ -158,6 +157,7 @@ interface PendingApproval {
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    readonly restrictedChoices?: true;
 }
 
 export interface UserQuestionOptions {
@@ -429,8 +429,6 @@ export class InboundCommandRouter {
     private readonly queuedTurns: QueuedTurn[] = [];
     private readonly turnAvailable = new AsyncQueue<true>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
-    private personAllows = 0;
-    private personDenied = false;
     private readonly pendingQuestions = new Map<string, PendingQuestion>();
     private readonly pendingConfigurations = new Map<
         string,
@@ -1182,6 +1180,9 @@ export class InboundCommandRouter {
                             copyPermissionGrantProposal,
                         ),
                     }),
+                ...(options.restrictedChoices === true
+                    ? { restrictedChoices: true as const }
+                    : {}),
                 ...(options.signal === undefined
                     ? {}
                     : {
@@ -1218,6 +1219,9 @@ export class InboundCommandRouter {
                             copyPermissionGrantProposal,
                         ),
                     }),
+                ...(options.restrictedChoices === true
+                    ? { restrictedChoices: true as const }
+                    : {}),
                 ...(options.workspace === undefined
                     ? {}
                     : { workspace: options.workspace }),
@@ -2287,40 +2291,7 @@ export class InboundCommandRouter {
             ...(inspection === undefined ? {} : { inspection }),
             ...(origin === undefined ? {} : { origin }),
             ...(warning === undefined ? {} : { warning }),
-            ...(this.suggestsAuto(mode, inspection)
-                ? { suggestAuto: true as const }
-                : {}),
         });
-    }
-
-    private suggestsAuto(
-        mode: ApprovalMode,
-        inspection: PermissionInspection | undefined,
-    ): boolean {
-        return mode === "ask"
-            && this.personAllows >= AUTO_SUGGESTION_ALLOWS
-            && !this.personDenied
-            && inspection?.availableModes.includes("auto") === true;
-    }
-
-    // Only answers a person gave in ask mode count; reviewer clearances never reach here.
-    private countPersonAnswer(decision: ToolApprovalUiResponse["decision"]): boolean {
-        if (this.options.readApprovalMode?.() !== "ask") {
-            return false;
-        }
-        const before = this.suggestsAuto(
-            "ask",
-            this.options.readPermissionInspection?.(),
-        );
-        if (decision === "deny") {
-            this.personDenied = true;
-        } else if (this.personAllows < AUTO_SUGGESTION_ALLOWS) {
-            this.personAllows += 1;
-        }
-        return before !== this.suggestsAuto(
-            "ask",
-            this.options.readPermissionInspection?.(),
-        );
     }
 
     private replyAppliedPermissionMode(
@@ -2451,6 +2422,12 @@ export class InboundCommandRouter {
             const pending = this.pendingApprovals.get(command.requestId)!;
             const decision = command.response.decision;
             if (
+                pending.restrictedChoices === true
+                && (decision === "allow_similar" || decision === "allow_always")
+            ) {
+                return;
+            }
+            if (
                 (decision === "allow_similar" || decision === "allow_always")
                 && (
                     pending.permissionGrants === undefined
@@ -2495,12 +2472,11 @@ export class InboundCommandRouter {
                 requestId: command.requestId,
                 response: command.response,
             });
-            const suggestionChanged = this.countPersonAnswer(decision);
             this.finishApproval(
                 command.requestId,
                 approvalResult(command.response),
             );
-            if (decision === "allow_always" || suggestionChanged) {
+            if (decision === "allow_always") {
                 this.sendPermissions(command.requestId);
             }
             return;

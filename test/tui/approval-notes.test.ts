@@ -3,12 +3,12 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     createTuiApprovalNotesResponse,
-    createTuiApprovalResponse,
     createTuiApprovalView,
     renderTuiApproval,
     selectableApprovalKeys,
     tuiApprovalHint,
     type TuiApprovalKey,
+    type TuiApprovalSession,
 } from "../../clients/tui/approval.ts";
 import { approvalLayout } from "../../clients/tui/approval-layout.ts";
 import { tuiApprovalQuestion } from "../../clients/tui/approval-title.ts";
@@ -17,6 +17,11 @@ import {
     TOOL_APPROVAL_NOTES_LIMIT,
     type ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+
+const ask: TuiApprovalSession = {
+    mode: "ask",
+    modes: ["readonly", "ask", "auto"],
+};
 
 const request: ToolApprovalUiRequestUpdate = {
     type: "ui_request",
@@ -192,16 +197,16 @@ test("the command appears exactly once", async () => {
     }
 });
 
-test("key 5 opens a line to type in and Enter denies with what was typed", async () => {
+test("Tab opens a line to type in and Enter denies with what was typed", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
-        expect(view.handleKey(request, { name: "5" })).toEqual({ handled: true });
+        expect(view.handleKey(request, { name: "tab" })).toEqual({ handled: true });
         await setup.flush();
         const frame = setup.captureCharFrame();
-        expect(frame).toContain("5");
         expect(frame).toContain("enter send");
+        expect(frame).toContain("esc back");
         for (const key of typed("use rg instead")) {
             expect(view.handleKey(request, key).response).toBeUndefined();
         }
@@ -221,40 +226,24 @@ test("key 5 opens a line to type in and Enter denies with what was typed", async
     }
 });
 
-test("Enter on the Tell Vera row opens the same line", async () => {
-    const { setup, view } = await openView();
-    try {
-        view.update(request);
-        view.focus();
-        for (let step = 0; step < 6; step += 1) view.handleKey(request, { name: "down" });
-        expect(view.handleKey(request, { name: "return" })).toEqual({ handled: true });
-        for (const key of typed("stop")) view.handleKey(request, key);
-        expect(view.handleKey(request, { name: "return" }).response?.response)
-            .toEqual({ type: "tool_approval", decision: "deny", notes: "stop" });
-    } finally {
-        setup.renderer.destroy();
-    }
-});
-
 test("Escape in the line goes back to the answers without answering", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
-        view.handleKey(request, { name: "5" });
+        view.handleKey(request, { name: "tab" });
         for (const key of typed("half a thought")) view.handleKey(request, key);
         const escaped = view.handleKey(request, { name: "escape" });
         expect(escaped).toEqual({ handled: true });
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).not.toContain("half a thought");
-        expect(frame).toContain("5 Tell Vera what to do instead");
-        expect(frame).toContain("esc deny");
+        expect(frame).toContain("Tab to tell Vera what to do instead · Esc to deny");
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
-        // Back on the answers, so Escape denies again and 1 allows.
+        // Back on the answers, so Escape denies again and 1 allows for this chat.
         expect(view.handleKey(request, { name: "1" }).response?.response)
-            .toEqual({ type: "tool_approval", decision: "allow_once" });
-        view.handleKey(request, { name: "5" });
+            .toEqual({ type: "tool_approval", decision: "allow_similar" });
+        view.handleKey(request, { name: "tab" });
         for (const key of typed("again")) view.handleKey(request, key);
         view.handleKey(request, { name: "escape" });
         expect(view.handleKey(request, { name: "escape" }).response?.response)
@@ -267,9 +256,9 @@ test("Escape in the line goes back to the answers without answering", async () =
 test("digits typed in the line are text and do not pick an answer", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
-        view.handleKey(request, { name: "5" });
+        view.handleKey(request, { name: "tab" });
         for (const digit of ["1", "2", "3", "4", "5"]) {
             expect(view.handleKey(request, { name: digit, sequence: digit }).response)
                 .toBeUndefined();
@@ -286,9 +275,9 @@ test("digits typed in the line are text and do not pick an answer", async () => 
 test("an empty or blank line sends nothing", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
-        view.handleKey(request, { name: "5" });
+        view.handleKey(request, { name: "tab" });
         expect(view.handleKey(request, { name: "return" }))
             .toEqual({ handled: true });
         for (const key of typed("   ")) view.handleKey(request, key);
@@ -303,9 +292,9 @@ test("an empty or blank line sends nothing", async () => {
 test("typed and pasted text stops at the notes limit", async () => {
     const { setup, view } = await openView(100, 20);
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
-        view.handleKey(request, { name: "5" });
+        view.handleKey(request, { name: "tab" });
         expect(view.handlePaste("a".repeat(TOOL_APPROVAL_NOTES_LIMIT - 1))).toBe(true);
         for (const key of typed("bcd")) view.handleKey(request, key);
         expect(view.handlePaste("efgh")).toBe(true);
@@ -323,7 +312,7 @@ test("typed and pasted text stops at the notes limit", async () => {
 test("a paste outside the line is left to the caller", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         expect(view.handlePaste("hello")).toBe(false);
     } finally {
         setup.renderer.destroy();
@@ -344,17 +333,10 @@ test("the notes are trimmed before they are sent", () => {
         });
 });
 
-test("only the Tell Vera row sends notes; every other answer leaves them off", async () => {
-    for (const name of ["1", "2", "3", "4", "escape"]) {
-        const response = createTuiApprovalResponse(request, { name });
-        expect(response?.response).toBeDefined();
-        expect(response?.response).not.toHaveProperty("notes");
-    }
-    expect(createTuiApprovalResponse(request, { name: "5" })).toBeUndefined();
-
+test("only the typed answer sends notes; every listed answer leaves them off", async () => {
     const { setup, view } = await openView();
     try {
-        view.update(request);
+        view.update(request, ask);
         view.focus();
         for (const name of ["1", "2", "3", "4", "escape"]) {
             const answered = view.handleKey(request, { name }).response?.response;
@@ -364,7 +346,7 @@ test("only the Tell Vera row sends notes; every other answer leaves them off", a
         // Enter on each of the four plain answers.
         for (const steps of [0, 1, 2, 3]) {
             const fresh = { ...request, requestId: `enter-${steps}` };
-            view.update(fresh);
+            view.update(fresh, ask);
             for (let step = 0; step < steps; step += 1) {
                 view.handleKey(fresh, { name: "down" });
             }
@@ -377,7 +359,7 @@ test("only the Tell Vera row sends notes; every other answer leaves them off", a
     }
 });
 
-test("a subagent's approval has no Tell Vera row and cannot send notes", async () => {
+test("a subagent's approval has no typed answer and cannot send notes", async () => {
     const child: ToolApprovalUiRequestUpdate = {
         ...request,
         requestId: "child-1",
@@ -387,19 +369,20 @@ test("a subagent's approval has no Tell Vera row and cannot send notes", async (
             sourceTask: "Run the focused tests",
         },
     };
-    expect(renderTuiApproval(child)).not.toContain("Tell Vera");
-    expect(selectableApprovalKeys(child)).toEqual(["1", "3"]);
+    expect(renderTuiApproval(child, ask)).not.toContain("to tell Vera");
+    expect(selectableApprovalKeys(child, ask)).toEqual(["1", "2"]);
     expect(tuiApprovalHint(child)).not.toContain("tell Vera");
     expect(createTuiApprovalNotesResponse(child, "use rg instead")).toBeUndefined();
 
     const { setup, view } = await openView();
     try {
-        view.update(child);
+        view.update(child, ask);
         view.focus();
         await setup.flush();
-        expect(setup.captureCharFrame()).not.toContain("Tell Vera");
-        expect(view.handleKey(child, { name: "5" })).toEqual({ handled: false });
-        // Down stops at Deny, the last answer a subagent offers, and Enter denies plainly.
+        expect(setup.captureCharFrame()).not.toContain("to tell Vera");
+        expect(view.handleKey(child, { name: "tab" })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+        // Down stops at No, the last answer a subagent offers, and Enter denies plainly.
         for (let step = 0; step < 6; step += 1) view.handleKey(child, { name: "down" });
         expect(view.handleKey(child, { name: "return" }).response?.response)
             .toEqual({ type: "tool_approval", decision: "deny" });
@@ -424,13 +407,13 @@ test("the card keeps every answer on screen down to 40 columns and short heights
     ] as const) {
         const { setup, view } = await openView(width, height);
         try {
-            view.update(update);
+            view.update(update, ask);
             await setup.flush();
             const frame = setup.captureCharFrame();
-            expect(frame).toContain("1 Allow");
-            expect(frame).toContain("3 Deny");
-            expect(frame).toContain("4 Always");
-            expect(frame).toContain("5 Tell Vera");
+            expect(frame).toContain("1 Yes, for this chat");
+            expect(frame).toContain("2 Yes, and always");
+            expect(frame).toContain("3 Yes, and switch");
+            expect(frame).toContain("4 No");
         } finally {
             setup.renderer.destroy();
         }
@@ -439,7 +422,7 @@ test("the card keeps every answer on screen down to 40 columns and short heights
 
 test("the layout drops the folder line, then the hints, then the gap before an answer", () => {
     const base = {
-        rows: 5,
+        rows: 4,
         title: "Write todo.md outside this chat's folder?",
         folderLine: "in /Users/someone/Desktop/notes",
     };
@@ -448,11 +431,10 @@ test("the layout drops the folder line, then the hints, then the gap before an a
     // Hints need 60 columns.
     expect(approvalLayout({ ...base, width: 50, height: 30 }))
         .toEqual({ folder: true, hints: false, gap: 1 });
-    expect(approvalLayout({ ...base, width: 80, height: 15 }))
-        .toEqual({ folder: true, hints: false, gap: 1 });
+    // The folder line goes before the gap or an answer.
     expect(approvalLayout({ ...base, width: 80, height: 13 }))
-        .toEqual({ folder: false, hints: false, gap: 1 });
-    expect(approvalLayout({ ...base, width: 80, height: 12 }))
+        .toEqual({ folder: true, hints: false, gap: 1 });
+    expect(approvalLayout({ ...base, width: 80, height: 11 }))
         .toEqual({ folder: false, hints: false, gap: 0 });
     // A short terminal never gets the folder line.
     expect(approvalLayout({ ...base, width: 80, height: 10 }).folder).toBe(false);

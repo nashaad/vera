@@ -153,7 +153,7 @@ function parsePermissionRule(
     };
 }
 
-function parsePredicate(
+export function parsePredicate(
     value: unknown,
     ruleField: string,
 ): PermissionPredicate | undefined {

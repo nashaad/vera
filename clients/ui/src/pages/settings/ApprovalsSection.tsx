@@ -62,7 +62,7 @@ export function ApprovalsSection() {
             />
             <SettingRow
                 name="Standing permissions"
-                description="What Always allow has allowed in every session, and what Allow for this chat has allowed in one. Each session's approval pill lists them with a button to remove each."
+                description="What Yes, and always allow has allowed in every session, and what Yes, for this chat has allowed in one. Each session's approval pill lists them with a button to remove each."
             />
             <p className="settings-note">This window cannot read the default mode or standing permissions without a session.</p>
         </>

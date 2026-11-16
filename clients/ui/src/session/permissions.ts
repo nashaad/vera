@@ -1,6 +1,11 @@
 // A session's approval mode and what it has already allowed, read from `permissions` updates,
 // and the commands that change them.
 
+import {
+    isSandboxInspection,
+    type SandboxInspection,
+} from "../../../../src/sdk/sandbox.ts";
+
 export interface StandingPermission {
     readonly id: string;
     readonly description: string;
@@ -15,13 +20,14 @@ export interface ApprovalState {
     // "user" when someone chose the mode for this session, "agent-default" when it came from the agent's definition.
     readonly origin?: "user" | "agent-default";
     readonly modes: readonly string[];
-    // Allowed for this session through Allow for this chat.
+    // Allowed for this session through Yes, for this chat.
     readonly grants: readonly StandingPermission[];
-    // Allowed in every session through Always allow.
+    // Allowed in every session through Yes, and always allow.
     readonly preferences: readonly StandingPermission[];
+    // The home's permission_rules list, in config order.
+    readonly rules?: readonly StandingPermission[];
+    readonly sandbox?: SandboxInspection;
     readonly warning?: string;
-    // The host's hint that a person in ask mode has allowed everything so far and could switch to auto.
-    readonly suggestAuto?: true;
 }
 
 export interface ModeOption {
@@ -77,8 +83,11 @@ export function parsePermissions(value: Fields): ApprovalState | undefined {
         modes,
         grants: standing(inspection.activeGrants),
         preferences: standing(inspection.activePreferences),
+        rules: permissionRules(inspection.userRules),
+        ...(isSandboxInspection(inspection.sandbox)
+            ? { sandbox: inspection.sandbox }
+            : {}),
         ...(warning === undefined ? {} : { warning }),
-        ...(value.suggestAuto === true ? { suggestAuto: true as const } : {}),
     };
 }
 
@@ -90,6 +99,21 @@ function standing(value: unknown): readonly StandingPermission[] {
         const id = str(raw.id);
         if (id === undefined) continue;
         entries.push({ id, description: describePredicate(isRecord(raw.when) ? raw.when : {}) });
+    }
+    return entries;
+}
+
+function permissionRules(value: unknown): readonly StandingPermission[] {
+    if (!Array.isArray(value)) return [];
+    const entries: StandingPermission[] = [];
+    for (const [index, raw] of value.entries()) {
+        if (!isRecord(raw)) continue;
+        const then = raw.then === "allow" || raw.then === "ask" || raw.then === "deny"
+            ? raw.then
+            : undefined;
+        if (then === undefined) continue;
+        const description = describePredicate(isRecord(raw.when) ? raw.when : {});
+        entries.push({ id: `rule-${index}`, description: `${then} ${description}` });
     }
     return entries;
 }

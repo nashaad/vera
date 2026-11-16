@@ -215,8 +215,6 @@ export interface TuiState {
     readonly queueDraining: boolean;
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
-    // The host's hint that a person in ask mode has allowed everything so far and could switch to auto.
-    readonly suggestAuto?: true;
     readonly permissionInspection?: PermissionInspection;
     readonly context?: ContextMeasurement;
     readonly modelActivity?: ModelActivityUpdate;
@@ -974,11 +972,9 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         return state;
     }
     if (update.type === "permissions") {
-        const { suggestAuto: _previous, ...kept } = state;
         const next = {
-            ...kept,
+            ...state,
             approvalMode: update.mode,
-            ...(update.suggestAuto === true ? { suggestAuto: true as const } : {}),
             ...(update.inspection === undefined
                 ? {}
                 : { permissionInspection: update.inspection }),

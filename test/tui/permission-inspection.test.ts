@@ -23,9 +23,34 @@ test("the mode is described, not itemized into rules the user cannot edit", () =
         }],
     })).toBe([
         "Permission mode: auto",
+        "Sandbox: off",
         "a classifier clears the safe ones, you decide the rest",
         "1 session grant · 0 preferences",
         "/settings to review or remove them",
+    ].join("\n"));
+});
+
+test("the home's rules are listed above the mode", () => {
+    expect(renderPermissionInspection({
+        selected: {
+            name: "ask",
+            rules: [],
+            defaultOutcome: "ask",
+        },
+        availableModes: ["ask", "auto", "full_access"],
+        activeGrants: [],
+        userRules: [{
+            name: "permission_rules.0",
+            when: { verb: "read", path: "/Users/me/.aws" },
+            then: "deny",
+        }],
+    })).toBe([
+        "Permission mode: ask",
+        "Sandbox: off",
+        "Your rules (permission_rules):",
+        "  deny verb read, path /Users/me/.aws (permission_rules.0)",
+        "ask before every bash command",
+        "0 session grants · 0 preferences",
     ].join("\n"));
 });
 
@@ -44,6 +69,7 @@ test("the pointer is omitted when there is nothing to review", () => {
         activeGrants: [],
     })).toBe([
         "Permission mode: ask",
+        "Sandbox: off",
         "ask before every bash command",
         "0 session grants · 0 preferences",
     ].join("\n"));
@@ -78,6 +104,7 @@ test("a custom mode with no written description falls back to its default", () =
         activeGrants: [],
     })).toBe([
         "Permission mode: house-style",
+        "Sandbox: off",
         "everything unmatched: deny",
         "0 session grants · 0 preferences",
     ].join("\n"));

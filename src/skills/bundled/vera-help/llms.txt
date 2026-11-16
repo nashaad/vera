@@ -141,7 +141,7 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Side panes from `/btw` and `/pair` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer; with a side pane focused, the same key closes that pane instead.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=31]
+## Tools, permissions, and agents [lines=34]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -150,9 +150,12 @@ Clicking a turn's auto-approved count, or pressing Ctrl+T, lists the actions the
 Defaults and the Classifier entry in `/settings` set the same classifier; the Classifier entry also sets a failsafe. A classifier that gives no usable decision asks you the way ask mode does. An action that cannot be described to the classifier still ends the turn with an error.
 A write or delete in a different git worktree of the session's repository counts as outside the workspace, and in auto it asks you instead of going to the classifier; a run with nobody to answer, such as `vera -p`, refuses it. Manual: `docs/permission-rules.md`.
 The permission modes are readonly, ask, auto, and full access. Full access runs everything without asking, except that Vera refuses a recursive `rm` aimed at the home directory, the workspace or anything above it, in every mode. Home config can add named custom modes with their own rules.
-In ask mode, once you have allowed five requests and denied none, the approval prompt offers to switch to auto: the terminal switches on `a` and the desktop with a Switch button, and the offer shows once per session in each window.
+`permission_rules` in Home config adds rules beside the selected mode: a deny applies in every mode, while an ask or allow applies only in ask and auto; an ask from the list offers only Yes, this time and No. Manual: `docs/permission-rules.md`.
+Shell commands can run inside a sandbox that limits what they may write and which hosts they reach. `/permissions` shows whether it is on. Manual: `docs/sandbox.md`.
+A command the sandbox blocks keeps its own output and exit code and ends with the lines it blocked.
+A folder that has neither `.git` nor `.vera` cannot gain either from a sandboxed command; create them from your terminal or in a full access session.
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
-Always allow on an approval prompt saves an allow rule for every conversation, and Tell Vera what to do instead (key 5 in the terminal) refuses the call and passes what you type to Vera. Review granted permissions in the command palette lists and removes them.
+An approval prompt offers Yes, for this chat, which allows calls like it for the session, and Yes, and always allow <words>, which saves an allow rule for every session; in ask mode it also offers Yes, and switch to Approve for me. A web fetch or download grant names the host, so another host still asks; a saved rule naming only the operation matches every host. Typing what Vera should do instead (Tab in the terminal, or the card's field on the desktop) refuses the call and passes the text to Vera. Review granted permissions in the command palette lists and removes them.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
 A TypeScript agent run's result lists the tools the agent ran and that run's own usage (`docs/embedded-sdk-reviewer.md`).
 A Python program can put its own functions in an agent's `tools`, and the model calls them without asking for approval (`docs/python-agents.md`).

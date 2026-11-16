@@ -4,12 +4,12 @@ import type { StandingPermission } from "../session/permissions.ts";
 export interface ApprovalStandingProps {
     readonly heading: string;
     readonly entries: readonly StandingPermission[];
-    readonly onRemove: (entry: StandingPermission) => void;
+    readonly onRemove?: (entry: StandingPermission) => void;
 }
 
 const SHOWN = 5;
 
-// The first few standing permissions, each with a button to remove it. Nothing renders when there are none.
+// The first few standing permissions, each with a button to remove it when removal is offered. Nothing renders when there are none.
 export function ApprovalStanding({ heading, entries, onRemove }: ApprovalStandingProps) {
     if (entries.length === 0) return null;
     const shown = entries.slice(0, SHOWN);
@@ -20,15 +20,17 @@ export function ApprovalStanding({ heading, entries, onRemove }: ApprovalStandin
             {shown.map((entry) => (
                 <div key={entry.id} className="approval-standing-row">
                     <span className="approval-standing-text">{entry.description}</span>
-                    <button
-                        type="button"
-                        className="approval-remove"
-                        title="Remove"
-                        aria-label={`Remove ${entry.description}`}
-                        onClick={() => onRemove(entry)}
-                    >
-                        <XIcon className="approval-remove-icon" />
-                    </button>
+                    {onRemove === undefined ? null : (
+                        <button
+                            type="button"
+                            className="approval-remove"
+                            title="Remove"
+                            aria-label={`Remove ${entry.description}`}
+                            onClick={() => onRemove(entry)}
+                        >
+                            <XIcon className="approval-remove-icon" />
+                        </button>
+                    )}
                 </div>
             ))}
             {more > 0 ? <p className="approval-more">and {more} more</p> : null}

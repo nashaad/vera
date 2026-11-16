@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import { projectRulesDirectory } from "../project-paths.ts";
 
 export const RULES_DIR_NAME = "rules";
 
@@ -40,7 +41,7 @@ export function userRulesDir(): string {
 }
 
 export function projectRulesDir(workspace: string): string {
-    return join(workspace, ".vera", RULES_DIR_NAME);
+    return projectRulesDirectory(workspace);
 }
 
 export function ruleDirectories(workspace?: string): RuleDirectories {

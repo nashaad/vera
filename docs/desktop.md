@@ -280,10 +280,15 @@ Seven views ship with the app:
   full path. Chats, which are sessions with no folder of their own, share one
   group headed `Chats`; its heading opens no workspace page. Groups are in the
   order of their most recent session, and rows keep
-  the host's order inside a group. A child session in the same folder is listed
-  under its parent, indented. A child of a child is listed under the same top
-  parent. A group collapses and expands from its heading; the state is not kept
-  across launches. Each row has a dot, the session's title, and the time since its
+  the host's order inside a group. A subagent is listed indented under the
+  session that started it, in that session's group, including under a chat; a
+  subagent of a chat does not get a group named after the chat's folder. A
+  subagent of a subagent is listed under the same top parent. A pinned session's
+  subagents are listed under it in Pinned, and a pinned subagent is listed in
+  Pinned on its own. A session with subagents shows a chevron on hover that
+  collapses them; the collapsed row shows a count such as `2 nested`. A group
+  and a parent collapse and expand while the window stays open; neither state is
+  kept across launches. Each row has a dot, the session's title, and the time since its
   last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
@@ -723,24 +728,31 @@ conversation. Its title asks what the call does, such as `Write plunder.md
 outside this chat's folder?`. When Vera cannot tell what a shell command does,
 the title names the program, as in `Run curl?`, or asks `Run this command?`.
 While a card is unanswered the status line at the end of the conversation says
-`Waiting on you`. The card's choices:
+`Waiting on you`. The card's choices, numbered from 1 in the order shown:
 
-- `Allow` (key 1) runs this call.
-- `Allow for this chat` (key 2) runs it and allows calls like it for the rest
-  of the session.
-- `Deny` (key 3, Escape or the `✕`) refuses it; the turn goes on without it.
-- `Always allow` (key 4) runs it and allows calls like it in every session.
-- `Or tell Vera what to do instead` takes a line of text. Enter refuses the
-  call and passes what you typed to Vera, so it can try another way.
+- `Yes, for this chat` runs this call and allows calls like it for the rest of
+  the session.
+- `Yes, and always allow <words>` runs it and allows calls like it in every
+  session; the words name what it remembers, such as `reading plunder.md` or
+  `curl commands`.
+- `Yes, and switch to Approve for me` runs it and switches the session to
+  Approve for me. It appears in ask only, when Approve for me is available, and
+  never on a subagent's call or an ask from `permission_rules`.
+- `No` (Escape or the `✕`) refuses it; the turn goes on without it.
+- The field below the answers takes a line of text. Enter refuses the call and
+  passes what you typed to Vera, so it can try another way.
+
+An answer that is left out leaves no gap in the numbers.
 
 `Show command` opens the folder the call lands in, the command, Vera's reason,
-any warning, and what Allow for this chat and Always allow would allow. It
-starts open when the title does not say what the command does. For a tool other
-than a shell the card shows its preview, such as a diff, and the same fold is
-called `Show details`.
+any warning, and what the grant answers remember. It starts open when the title
+does not say what the command does. For a tool other than a shell the card
+shows its preview, such as a diff, and the same fold is called `Show details`.
 
-Allow for this chat and Always allow appear only when Vera offers them for that
-call; a subagent's request offers only Allow and Deny.
+The grant answers appear only when Vera can propose one; a subagent's request
+offers only `Yes, this time` and `No`, and no field. An ask from
+`permission_rules` offers the same two answers and keeps the field, since no
+grant can lift it.
 
 In ask mode, once you have allowed five requests and denied none, the card
 adds one line under its choices: `You've allowed every request so far. Switch
@@ -755,9 +767,10 @@ note with the choice. The `✕` or Escape skips the question.
 
 Up and Down move between a card's choices and its typed answer.
 
-A provider setup request says what is needed and offers `Connect provider`.
-Complete the provider and model steps to answer it, or dismiss it. Other setup
-requests offer `Dismiss` and are completed in the terminal.
+A setup request says what is needed and has `Dismiss` (Escape), which tells
+Vera the setup cannot be done from this window. A provider setup request also
+offers `Connect provider`: complete the provider and model steps to answer it.
+Finish other setup requests from the terminal.
 
 The keys answer the first card without an answer. They work when the composer
 is empty or not focused, and not while you type in a field or hold Cmd, Ctrl or
@@ -784,9 +797,9 @@ and opens a menu:
 - `Make this the default for new sessions` saves the session's mode as the
   home's default. It is left out for a session in `Full access` while Full
   access is not offered.
-- `This session allows` lists what Allow for this chat has allowed, and
-  `Every session allows` lists what Always allow has allowed, each with an `x`
-  that removes it.
+- `This session allows` lists what `Yes, for this chat` has allowed, and
+  `Every session allows` lists what `Yes, and always allow` has allowed, each
+  with an `x` that removes it.
 
 When Vera refuses a change, the pill's menu says so. On New Chat the pill says
 `Default approvals` and starts the new session in the home's default mode until

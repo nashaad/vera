@@ -7,9 +7,11 @@ import {
     inspectPermissions,
     isPermissionInspection,
     type PermissionOutcome,
+    type PermissionPreference,
+    type PermissionRule,
 } from "../../src/engine/permissions.ts";
 import { collectReviewerPathFacts } from "../../src/engine/reviewer-path-facts.ts";
-import { workspaceScope } from "../../src/engine/workspace-scope.ts";
+import { linkedWorktreeSharedDirectory, workspaceScope } from "../../src/engine/workspace-scope.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
@@ -141,6 +143,20 @@ test("workspaceScope marks a nested checkout of the same repository outside and 
     expect(workspaceScope(join(repo, "..", "elsewhere.txt"), repo)).toBe("outside_workspace");
 });
 
+test("linkedWorktreeSharedDirectory finds the shared git folder only for a linked worktree", () => {
+    const repo = repository();
+    const worktree = addWorktree(repo, "a");
+    const submodule = addSubmodule(repo, "vendor");
+
+    expect(linkedWorktreeSharedDirectory(repo)).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(join(repo, "src"))).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(submodule)).toBeUndefined();
+    expect(linkedWorktreeSharedDirectory(worktree)).toBe(join(repo, ".git"));
+    expect(linkedWorktreeSharedDirectory(join(worktree, "src"))).toBe(
+        join(repo, ".git"),
+    );
+});
+
 test("a workspace subfolder keeps its own checkout inside and the others outside", () => {
     const repo = repository();
     const session = addWorktree(repo, "a");
@@ -187,6 +203,63 @@ test("the auto rule travels in the permission inspection", () => {
     expect(BUILT_IN_PERMISSION_MODES.ask.rules.map((rule) => rule.name))
         .not.toContain("routine.other_worktree_write");
 });
+
+test("a broad rule allow does not lift the other-worktree ask", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const sibling = addWorktree(repo, "b");
+    const target = join(sibling, "src", "new.ts");
+    const broad: readonly PermissionRule[] = [{
+        name: "permission_rules.0",
+        when: { verb: "write", path: join(repo, "..") },
+        then: "allow",
+    }];
+
+    for (const mode of ["ask", "auto"] as const) {
+        expect(decideWithRules(mode, session, target, broad)).toBe("ask");
+    }
+
+    // Always on that prompt still covers the path it named.
+    const always: readonly PermissionPreference[] = [{
+        id: "preference-1",
+        when: { verb: "write", path: join(sibling, "src") },
+        createdAt: "2026-11-14T00:00:00.000Z",
+    }];
+    expect(decideWithRules("auto", session, target, broad, always)).toBe("allow");
+});
+
+test("no rule allow lifts the other-worktree ask", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const sibling = addWorktree(repo, "b");
+    const target = join(sibling, "src", "new.ts");
+    const exact: readonly PermissionRule[] = [{
+        name: "permission_rules.0",
+        when: { verb: "write", path: target },
+        then: "allow",
+    }];
+
+    expect(write("auto", session, target)).toBe("ask");
+    for (const mode of ["ask", "auto"] as const) {
+        expect(decideWithRules(mode, session, target, exact)).toBe("ask");
+    }
+});
+
+function decideWithRules(
+    mode: Mode,
+    workspace: string,
+    path: string,
+    rules: readonly PermissionRule[],
+    preferences: readonly PermissionPreference[] = [],
+): PermissionOutcome {
+    return decideToolPermission(
+        mode,
+        toolCall("write", { path, content: "x" }),
+        workspace,
+        [],
+        { homeDirectory: workspace, permissionRules: rules, permissionPreferences: preferences },
+    ).behavior;
+}
 
 function write(
     mode: Mode,

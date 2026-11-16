@@ -935,31 +935,6 @@ test("host wire validates permission results", () => {
     });
     expect(parseAgentUpdate({
         type: "permissions",
-        requestId: "permissions-suggest",
-        mode: "ask",
-        pending: false,
-        suggestAuto: true,
-        seq: 16,
-    })).toEqual({
-        type: "permissions",
-        requestId: "permissions-suggest",
-        mode: "ask",
-        pending: false,
-        suggestAuto: true,
-        seq: 16,
-    });
-    for (const suggestAuto of [false, "yes", 1, null]) {
-        expect(parseAgentUpdate({
-            type: "permissions",
-            requestId: "permissions-bad-suggest",
-            mode: "ask",
-            pending: false,
-            suggestAuto,
-            seq: 17,
-        })).toBeUndefined();
-    }
-    expect(parseAgentUpdate({
-        type: "permissions",
         requestId: "permissions-empty-warning",
         mode: "readonly",
         pending: false,

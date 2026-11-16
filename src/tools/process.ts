@@ -35,7 +35,7 @@ export const processTool: RegisteredTool = {
                     processId,
                 };
         }
-        const snapshot = context.processes.read(processId);
+        const snapshot = await context.processes.readSettled(processId);
         return snapshot === undefined
             ? unknownProcess(processId)
             : {

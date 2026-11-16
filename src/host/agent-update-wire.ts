@@ -489,7 +489,6 @@ function parseKnownAgentUpdate(
                 && (update.warning === undefined
                     || (typeof update.warning === "string"
                         && update.warning.length > 0))
-                && (update.suggestAuto === undefined || update.suggestAuto === true)
                 ? withPermissionInspection(value, update)
                 : undefined;
     }
@@ -532,6 +531,8 @@ function parseKnownAgentUpdate(
         return request?.type === "tool_approval"
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
+                && (request.restrictedChoices === undefined
+                    || request.restrictedChoices === true)
                 && (request.sourceAgentId === undefined
                     || (typeof request.sourceAgentId === "string"
                         && request.sourceAgentId.length > 0))

@@ -283,10 +283,10 @@ export type ScreenStepsName =
     | 'standing-nudge';
 
 const APPROVAL: SketchRow[] = [
-    { label: 'Allow once', active: true },
-    { label: 'Session' },
-    { label: 'Deny' },
-    { label: 'Always' },
+    { label: 'Yes, for this chat', active: true },
+    { label: 'Yes, and always allow bun commands' },
+    { label: 'Yes, and switch to Approve for me' },
+    { label: 'No' },
 ];
 
 const BUDGET_TITLE = 'Budget exceeded: $3.04 / $3.00.';
@@ -840,7 +840,7 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
                 flow: { node: 'permission', trail: ['run-results', 'results-model', 'model-request', 'request-permission'], detail: 'bash? ask you', model: 'run the tests', context: 7 },
             },
             {
-                action: 'Press 1 to allow it once.',
+                action: 'Press 1 to allow it for this chat.',
                 keys: [],
                 held: ['1'],
                 composer: '',
@@ -852,7 +852,7 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
                     body: 'bun test',
                     rows: APPROVAL,
                 },
-                flow: { node: 'permission', trail: [], detail: 'you: allow once', model: 'run the tests', context: 7 },
+                flow: { node: 'permission', trail: [], detail: 'you: yes, for this chat', model: 'run the tests', context: 7 },
             },
             {
                 keys: [],

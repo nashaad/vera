@@ -8,7 +8,6 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
-import { AUTO_NUDGE_KEY, AUTO_NUDGE_LINE } from "./auto-nudge.ts";
 import { dialogHeaderNode } from "./dialog-header.ts";
 
 import type {
@@ -22,6 +21,12 @@ import {
     TOOL_APPROVAL_NOTES_LIMIT,
 } from "../../src/engine/protocol.ts";
 import {
+    approvalAnswers,
+    type ApprovalAnswer,
+    type ApprovalAnswersInput,
+    type ApprovalDecision,
+} from "../shared/approval-answers.ts";
+import {
     TUI_BACKGROUND,
     TUI_DIFF_ADDED,
     TUI_DIFF_REMOVED,
@@ -32,7 +37,6 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import {
-    describeGrantPredicate,
     tuiApprovalBody,
     tuiApprovalBodyText,
     type TuiApprovalTone,
@@ -56,22 +60,13 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
-const NOTES_KEY = "5";
-const NOTES_LABEL = "Tell Vera what to do instead";
+const NOTES_PLACEHOLDER = "Tell Vera what to do instead";
 
-const APPROVAL_ROWS = [
-    { key: "1", label: "Allow" },
-    { key: "2", label: "Allow for this chat" },
-    { key: "3", label: "Deny" },
-    { key: "4", label: "Always allow" },
-    { key: NOTES_KEY, label: NOTES_LABEL },
-] as const;
-
-export type TuiApprovalDecision =
-    | "allow_once"
-    | "allow_similar"
-    | "allow_always"
-    | "deny";
+// The session facts the answers need; an older host may not have reported them yet.
+export interface TuiApprovalSession {
+    readonly mode?: string;
+    readonly modes?: readonly string[];
+}
 
 export interface TuiApprovalKey {
     readonly name: string;
@@ -87,12 +82,9 @@ export interface TuiApprovalKey {
 export interface TuiApprovalKeyResult {
     readonly handled: boolean;
     readonly response?: UiResponseCommand;
+    // Answer 3 sends its allow first, then the session mode change to auto.
     readonly switchToAuto?: true;
 }
-
-// Below this height the card has no room for the suggestion without squeezing the request.
-const NUDGE_MIN_HEIGHT = 16;
-const NUDGE_ROWS = 2;
 
 export interface TuiApprovalView {
     readonly box: BoxRenderable;
@@ -102,11 +94,8 @@ export interface TuiApprovalView {
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
     readonly actions: BoxRenderable;
-    readonly nudgeText: TextRenderable;
     focus(): void;
-    // The second argument asks for the auto-approval suggestion; it shows only when the terminal has room.
-    update(update: ToolApprovalUiRequestUpdate, suggestAuto?: boolean): void;
-    autoNudgeVisible(): boolean;
+    update(update: ToolApprovalUiRequestUpdate, session?: TuiApprovalSession): void;
     handleKey(
         update: ToolApprovalUiRequestUpdate,
         key: TuiApprovalKey,
@@ -115,18 +104,22 @@ export interface TuiApprovalView {
     repaint(): void;
 }
 
+interface ApprovalRow {
+    readonly key: string;
+    readonly answer: ApprovalAnswer;
+}
+
 export function createTuiApprovalView(
     renderer: RenderContext,
 ): TuiApprovalView {
     let currentRequestId: string | undefined;
     let lastUpdate: ToolApprovalUiRequestUpdate | undefined;
-    let selectedKey: string = "1";
+    let lastSession: TuiApprovalSession = {};
+    let selectedIndex = 0;
     let expanded = false;
     let capped = false;
-    let scopeInline = true;
     let layoutKey = "";
     let editing = false;
-    let nudgeVisible = false;
 
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
@@ -186,16 +179,6 @@ export function createTuiApprovalView(
         overflow: "hidden",
         wrapMode: "none",
     });
-    const nudgeText = new TextRenderable(renderer, {
-        id: "approval-nudge",
-        content: "",
-        width: "100%",
-        height: "auto",
-        marginTop: 1,
-        flexShrink: 0,
-        wrapMode: "word",
-        visible: false,
-    });
     const actions = new BoxRenderable(renderer, {
         id: "approval-actions",
         width: "100%",
@@ -205,7 +188,6 @@ export function createTuiApprovalView(
         flexDirection: "column",
     });
     actions.add(buttons);
-    actions.add(nudgeText);
     actions.add(hints);
 
     const content = new BoxRenderable(renderer, {
@@ -244,16 +226,9 @@ export function createTuiApprovalView(
     box.add(bar);
     box.add(content);
 
-    const notesLabel = new TextRenderable(renderer, {
-        id: "approval-notes-label",
-        content: ` ${NOTES_KEY} `,
-        height: 1,
-        flexShrink: 0,
-        wrapMode: "none",
-    });
     const notesEditor = createTuiSingleLineTextarea(renderer, {
         id: "approval-notes",
-        placeholder: NOTES_LABEL,
+        placeholder: NOTES_PLACEHOLDER,
     });
     const notesEditorBox = new BoxRenderable(renderer, {
         id: "approval-notes-box",
@@ -272,7 +247,6 @@ export function createTuiApprovalView(
         flexShrink: 0,
         flexDirection: "row",
     });
-    notesLine.add(notesLabel);
     notesLine.add(notesEditorBox);
 
     let buttonNodes: TextRenderable[] = [];
@@ -284,8 +258,10 @@ export function createTuiApprovalView(
     }
 
     function startEditing(update: ToolApprovalUiRequestUpdate): void {
+        if (!typedAnswerAvailable(update)) {
+            return;
+        }
         editing = true;
-        selectedKey = NOTES_KEY;
         notesEditor.focus();
         renderChrome(update);
     }
@@ -305,40 +281,36 @@ export function createTuiApprovalView(
             node.destroyRecursively();
         }
         buttonNodes = [];
-        const available = selectableApprovalKeys(update);
-        for (const action of visibleApprovalRows(update)) {
-            if (editing && action.key === NOTES_KEY) {
-                buttons.add(notesLine);
-                continue;
-            }
-            const active = action.key === selectedKey;
-            const selectable = available.includes(action.key);
+        const rows = approvalRows(update, lastSession);
+        for (const [index, row] of rows.entries()) {
+            const active = index === selectedIndex;
             const node = new TextRenderable(renderer, {
                 content: new StyledText([
-                    fg(active ? TUI_BACKGROUND : TUI_MUTED)(
-                        approvalRowText(update, action, scopeInline),
-                    ),
+                    fg(active ? TUI_BACKGROUND : TUI_MUTED)(approvalRowText(row)),
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
                 attributes: active
                     ? TextAttributes.BOLD
-                    : selectable ? TextAttributes.NONE : TextAttributes.DIM,
+                    : TextAttributes.NONE,
                 width: "100%",
                 height: 1,
                 flexShrink: 0,
                 wrapMode: "none",
                 overflow: "hidden",
             });
-            if (selectable && !editing) {
-                attachDialogRowPointer(node, view.pointer, Number(action.key));
+            if (!editing) {
+                attachDialogRowPointer(node, view.pointer, index + 1);
             }
             buttons.add(node);
             buttonNodes.push(node);
         }
+        if (editing) {
+            buttons.add(notesLine);
+        }
     }
 
     function renderBody(update: ToolApprovalUiRequestUpdate): void {
-        const body = tuiApprovalBody(update, expanded, scopeInline);
+        const body = tuiApprovalBody(update, expanded);
         const reason = specificReason(update.request.reason);
         capped = expanded || body.hidden > 0;
         detailsText.content = new StyledText(
@@ -362,8 +334,7 @@ export function createTuiApprovalView(
         const layout = approvalLayout({
             width: renderer.width,
             height: renderer.height,
-            rows: visibleApprovalRows(update).length,
-            extraRows: nudgeVisible ? NUDGE_ROWS : 0,
+            rows: approvalRows(update, lastSession).length,
             title,
             ...(headline?.folder === undefined
                 ? {}
@@ -383,9 +354,6 @@ export function createTuiApprovalView(
                 ],
         );
         actions.marginTop = layout.gap;
-        notesLabel.fg = TUI_BACKGROUND;
-        notesLabel.bg = TUI_NOTICE;
-        notesLabel.attributes = TextAttributes.BOLD;
         notesEditorBox.backgroundColor = TUI_INPUT;
         notesEditor.textColor = TUI_TEXT;
         notesEditor.focusedTextColor = TUI_TEXT;
@@ -400,12 +368,14 @@ export function createTuiApprovalView(
                     fg(TUI_MUTED)(" back"),
                 ]
                 : [
-                    fg(TUI_TEXT)("up/down"),
-                    fg(TUI_MUTED)(" select  "),
-                    fg(TUI_TEXT)("enter"),
-                    fg(TUI_MUTED)(" confirm  "),
-                    fg(TUI_TEXT)("esc"),
-                    fg(TUI_MUTED)(" deny"),
+                    ...(typedAnswerAvailable(update)
+                        ? [
+                            fg(TUI_TEXT)("Tab"),
+                            fg(TUI_MUTED)(" to tell Vera what to do instead · "),
+                        ]
+                        : []),
+                    fg(TUI_TEXT)("Esc"),
+                    fg(TUI_MUTED)(" to deny"),
                 ]),
             ...(capped
                 ? [
@@ -415,12 +385,6 @@ export function createTuiApprovalView(
                 : []),
         ]);
         hints.visible = layout.hints;
-        nudgeText.content = new StyledText([
-            fg(TUI_MUTED)(`${AUTO_NUDGE_LINE}  `),
-            fg(TUI_TEXT)(AUTO_NUDGE_KEY),
-            fg(TUI_MUTED)(" switch"),
-        ]);
-        nudgeText.visible = nudgeVisible;
         renderButtons(update);
     }
 
@@ -428,7 +392,7 @@ export function createTuiApprovalView(
         update: ToolApprovalUiRequestUpdate,
         key: TuiApprovalKey,
     ): TuiApprovalKeyResult {
-        if (key.name === "escape") {
+        if (key.name === "escape" || key.name === "tab") {
             stopEditing();
             renderChrome(update);
             return { handled: true };
@@ -462,7 +426,6 @@ export function createTuiApprovalView(
         details,
         detailsText,
         actions,
-        nudgeText,
         focus(): void {
             if (editing) {
                 notesEditor.focus();
@@ -470,17 +433,12 @@ export function createTuiApprovalView(
             }
             details.focus();
         },
-        autoNudgeVisible(): boolean {
-            return nudgeVisible;
-        },
-        update(update, suggestAuto = false): void {
+        update(update, session = {}): void {
             lastUpdate = update;
-            nudgeVisible = suggestAuto && renderer.height >= NUDGE_MIN_HEIGHT;
-            nudgeText.visible = nudgeVisible;
+            lastSession = session;
             box.maxHeight = renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
                 ? "100%"
                 : "90%";
-            const inline = scopeFitsRow(renderer, update);
             bar.visible = approvalChromeVisible(renderer);
             header.visible = approvalHeaderVisible(renderer);
             content.paddingTop = 0;
@@ -489,13 +447,13 @@ export function createTuiApprovalView(
             const nextKey = [
                 renderer.width,
                 renderer.height,
-                inline,
-                nudgeVisible,
+                session.mode ?? "",
+                (session.modes ?? []).join(","),
             ].join(":");
             if (currentRequestId === update.requestId) {
                 if (nextKey !== layoutKey) {
                     layoutKey = nextKey;
-                    scopeInline = inline;
+                    clampSelection(update);
                     renderBody(update);
                     renderChrome(update);
                 }
@@ -503,8 +461,7 @@ export function createTuiApprovalView(
             }
             currentRequestId = update.requestId;
             layoutKey = nextKey;
-            scopeInline = inline;
-            selectedKey = "1";
+            selectedIndex = 0;
             expanded = false;
             if (editing) {
                 stopEditing();
@@ -526,49 +483,42 @@ export function createTuiApprovalView(
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
             }
-            if (nudgeVisible && key.name === AUTO_NUDGE_KEY) {
-                return { handled: true, switchToAuto: true };
-            }
+            const rows = approvalRows(update, lastSession);
             if (
                 key.name === "up"
                 || key.name === "down"
                 || key.name === "left"
                 || key.name === "right"
             ) {
-                const keys = selectableApprovalKeys(update);
-                const index = Math.max(0, keys.indexOf(selectedKey));
                 const next = key.name === "up" || key.name === "left"
-                    ? Math.max(0, index - 1)
-                    : Math.min(keys.length - 1, index + 1);
-                if (keys[next] !== undefined && keys[next] !== selectedKey) {
-                    selectedKey = keys[next];
+                    ? Math.max(0, selectedIndex - 1)
+                    : Math.min(rows.length - 1, selectedIndex + 1);
+                if (next !== selectedIndex) {
+                    selectedIndex = next;
                     renderButtons(update);
                 }
                 return { handled: true };
             }
-            if (key.name === "return" || key.name === "enter") {
-                if (selectedKey === NOTES_KEY) {
-                    startEditing(update);
-                    return { handled: true };
-                }
-                const response = createTuiApprovalResponse(update, {
-                    name: selectedKey,
-                });
-                return response === undefined
-                    ? { handled: true }
-                    : { handled: true, response };
-            }
-            if (
-                key.name === NOTES_KEY
-                && selectableApprovalKeys(update).includes(NOTES_KEY)
-            ) {
+            if (key.name === "tab") {
                 startEditing(update);
                 return { handled: true };
             }
-            const response = createTuiApprovalResponse(update, key);
-            return response === undefined
+            if (key.name === "return" || key.name === "enter") {
+                const row = rows[selectedIndex];
+                return row === undefined
+                    ? { handled: true }
+                    : answerResult(update, row.answer);
+            }
+            if (key.name === "escape") {
+                return {
+                    handled: true,
+                    response: approvalResponse(update, "deny"),
+                };
+            }
+            const row = rows.find((candidate) => candidate.key === key.name);
+            return row === undefined
                 ? { handled: false }
-                : { handled: true, response };
+                : answerResult(update, row.answer);
         },
         handlePaste(text): boolean {
             if (!editing) {
@@ -585,42 +535,75 @@ export function createTuiApprovalView(
             if (lastUpdate === undefined) {
                 return;
             }
+            clampSelection(lastUpdate);
             renderBody(lastUpdate);
             renderChrome(lastUpdate);
         },
     };
+
+    function clampSelection(update: ToolApprovalUiRequestUpdate): void {
+        const count = approvalRows(update, lastSession).length;
+        selectedIndex = Math.min(selectedIndex, Math.max(0, count - 1));
+    }
+
     return view;
 }
 
-function scopeFitsRow(
-    renderer: RenderContext,
+function answerResult(
     update: ToolApprovalUiRequestUpdate,
-): boolean {
-    if (grantScope(update) === undefined) {
-        return true;
-    }
-    const row = APPROVAL_ROWS.find((action) => action.key === "2");
-    if (row === undefined) {
-        return true;
-    }
-    const chrome = approvalChromeVisible(renderer) ? 1 : 0;
-    const padding = 4;
-    const available = renderer.width
-        - chrome
-        - padding;
-    return approvalRowText(update, row, true).length <= available;
+    answer: ApprovalAnswer,
+): TuiApprovalKeyResult {
+    const result: TuiApprovalKeyResult = {
+        handled: true,
+        response: approvalResponse(update, answer.decision),
+    };
+    return answer.switchToAuto === true
+        ? { ...result, switchToAuto: true }
+        : result;
 }
 
-function approvalRowText(
+function approvalRowText(row: ApprovalRow): string {
+    return ` ${row.key} ${row.answer.label} `;
+}
+
+export function approvalRows(
     update: ToolApprovalUiRequestUpdate,
-    action: (typeof APPROVAL_ROWS)[number],
-    inlineScope: boolean,
-): string {
-    return ` ${action.key} ${approvalRowLabel(update, action, inlineScope)} `;
+    session: TuiApprovalSession = {},
+): readonly ApprovalRow[] {
+    return approvalAnswers(answerInput(update, session)).map((answer, index) => ({
+        key: String(index + 1),
+        answer,
+    }));
+}
+
+export function answerInput(
+    update: ToolApprovalUiRequestUpdate,
+    session: TuiApprovalSession = {},
+): ApprovalAnswersInput {
+    return {
+        grants: (update.request.permissionGrants ?? []).map((grant) => grant.when),
+        subagent: isSubagentCall(update),
+        restricted: update.request.restrictedChoices === true,
+        mode: session.mode ?? "",
+        modes: session.modes ?? [],
+    };
+}
+
+export function typedAnswerAvailable(
+    update: ToolApprovalUiRequestUpdate,
+): boolean {
+    // What a subagent is told never reaches it, so its approvals take no typed answer.
+    return !isSubagentCall(update);
+}
+
+function isSubagentCall(update: ToolApprovalUiRequestUpdate): boolean {
+    return update.request.sourceAgentId !== undefined
+        || update.request.sourceTask !== undefined;
 }
 
 export function renderTuiApproval(
     update: ToolApprovalUiRequestUpdate,
+    session: TuiApprovalSession = {},
 ): string {
     const reason = specificReason(update.request.reason);
     const headline = tuiApprovalQuestion(update);
@@ -635,31 +618,9 @@ export function renderTuiApproval(
         "",
         renderTuiApprovalDetails(update),
         "",
-        ...visibleApprovalRows(update)
-            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`),
+        ...approvalRows(update, session)
+            .map((row) => `${row.key} ${row.answer.label}`),
     ].join("\n");
-}
-
-function approvalRowLabel(
-    update: ToolApprovalUiRequestUpdate,
-    action: (typeof APPROVAL_ROWS)[number],
-    inlineScope = true,
-): string {
-    if (action.key !== "2" || !inlineScope) {
-        return action.label;
-    }
-    const scope = grantScope(update);
-    return scope === undefined ? action.label : `${action.label} ${scope}`;
-}
-
-function grantScope(
-    update: ToolApprovalUiRequestUpdate,
-): string | undefined {
-    const grants = update.request.permissionGrants;
-    if (grants === undefined || grants.length !== 1) {
-        return undefined;
-    }
-    return describeGrantPredicate(grants[0]!.when);
 }
 
 export function renderTuiApprovalDetails(
@@ -669,40 +630,17 @@ export function renderTuiApprovalDetails(
     return tuiApprovalBodyText(update, expanded);
 }
 
-export function tuiApprovalDecision(
-    key: TuiApprovalKey,
-    grantsAvailable = true,
-): TuiApprovalDecision | undefined {
-    if (key.ctrl || key.meta || key.shift) {
-        return undefined;
-    }
-    if (key.name === "1") {
-        return "allow_once";
-    }
-    if (key.name === "2" && grantsAvailable) {
-        return "allow_similar";
-    }
-    if (key.name === "3" || key.name === "escape") {
-        return "deny";
-    }
-    if (key.name === "4" && grantsAvailable) {
-        return "allow_always";
-    }
-    return undefined;
+export function selectableApprovalKeys(
+    update: ToolApprovalUiRequestUpdate,
+    session: TuiApprovalSession = {},
+): readonly string[] {
+    return approvalRows(update, session).map((row) => row.key);
 }
 
-export function createTuiApprovalResponse(
+function approvalResponse(
     update: ToolApprovalUiRequestUpdate,
-    key: TuiApprovalKey,
-): UiResponseCommand | undefined {
-    const decision = tuiApprovalDecision(
-        key,
-        update.request.permissionGrants !== undefined
-            && update.request.sourceAgentId === undefined,
-    );
-    if (decision === undefined) {
-        return undefined;
-    }
+    decision: ApprovalDecision,
+): UiResponseCommand {
     return {
         type: "ui_response",
         requestId: update.requestId,
@@ -716,7 +654,7 @@ export function createTuiApprovalNotesResponse(
     text: string,
 ): UiResponseCommand | undefined {
     const notes = normalizeApprovalNotes(text);
-    if (notes === undefined || update.request.sourceAgentId !== undefined) {
+    if (notes === undefined || isSubagentCall(update)) {
         return undefined;
     }
     return {
@@ -758,37 +696,13 @@ function toneColor(tone: TuiApprovalTone): string {
     return TUI_TEXT;
 }
 
-function isDerivedRow(key: string): boolean {
-    return key === "2" || key === "4";
-}
-
-export function selectableApprovalKeys(
-    update: ToolApprovalUiRequestUpdate,
-): readonly string[] {
-    return visibleApprovalRows(update)
-        .filter((action) =>
-            !isDerivedRow(action.key)
-            || update.request.permissionGrants !== undefined
-        )
-        .map((action) => action.key);
-}
-
 export function tuiApprovalHint(
     update: ToolApprovalUiRequestUpdate,
 ): string {
-    return update.request.sourceAgentId === undefined
-        ? "approval required · 1 allow · 2 this chat · 3/esc deny · 5 tell Vera · Ctrl+C stop"
-        : "approval required · 1 allow · 3/esc deny · Ctrl+C stop";
-}
-
-function visibleApprovalRows(
-    update: ToolApprovalUiRequestUpdate,
-): readonly (typeof APPROVAL_ROWS)[number][] {
-    return update.request.sourceAgentId === undefined
-        ? APPROVAL_ROWS
-        : APPROVAL_ROWS.filter((action) =>
-            !isDerivedRow(action.key) && action.key !== NOTES_KEY
-        );
+    if (isSubagentCall(update)) {
+        return "approval required · Esc deny · Ctrl+C stop";
+    }
+    return "approval required · Tab tell Vera · Esc deny · Ctrl+C stop";
 }
 
 function specificReason(reason: string): string | undefined {
