@@ -1,4 +1,4 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
 import type { RegisteredTool } from "./types.ts";
@@ -188,12 +188,16 @@ export const writeTool: RegisteredTool = {
         const path = requiredString(input, "path", "write");
         const content = requiredString(input, "content", "write");
         return context.enqueueFileMutation(async () => {
-            const safePath = await resolveWritePath(context.workspace, path);
+            const target = await resolveWriteTarget(context.workspace, path);
+            const safePath = target.path;
             const previousFile = Bun.file(safePath);
             const existedBefore = await previousFile.exists();
             const previousContent = existedBefore ? await previousFile.text() : "";
             if (existedBefore) {
                 await context.stashPreimage(safePath, previousContent);
+            }
+            if (target.missingFolders.length > 0) {
+                await mkdir(dirname(safePath), { recursive: true });
             }
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
@@ -206,6 +210,7 @@ export const writeTool: RegisteredTool = {
                     bytesWritten,
                     existedBefore,
                     previousContent,
+                    target.missingFolders,
                 ),
                 isError: false,
                 presentation: fileChangePresentation(
@@ -226,12 +231,17 @@ export function writeResultSummary(
     bytesWritten: number,
     existedBefore: boolean,
     previousContent: string,
+    createdFolders: readonly string[],
 ): string {
     const written = `Wrote ${lineCount(content)} (${bytesWritten.toLocaleString()} bytes) to ${path}`;
-    if (!existedBefore) {
-        return `${written} (new file)`;
+    const summary = existedBefore
+        ? `${written}, fully replacing the previous content: ${lineCount(previousContent)} (${Buffer.byteLength(previousContent).toLocaleString()} bytes)`
+        : `${written} (new file)`;
+    if (createdFolders.length === 0) {
+        return summary;
     }
-    return `${written}, fully replacing the previous content: ${lineCount(previousContent)} (${Buffer.byteLength(previousContent).toLocaleString()} bytes)`;
+    const noun = createdFolders.length === 1 ? "folder" : "folders";
+    return `Created ${noun} ${createdFolders.join(", ")}.\n${summary}`;
 }
 
 function lineCount(content: string): string {
@@ -257,27 +267,73 @@ export async function resolveReadPath(
     }
 }
 
+export interface WriteTarget {
+    readonly path: string;
+    readonly missingFolders: readonly string[];
+}
+
 export async function resolveWritePath(
     workspace: string,
     requestedPath: string,
 ): Promise<string> {
+    return (await resolveWriteTarget(workspace, requestedPath)).path;
+}
+
+// Resolution creates nothing. The nearest existing ancestor is resolved so
+// links in the existing part are followed and checked, and the missing
+// segments are rejoined onto its real path.
+export async function resolveWriteTarget(
+    workspace: string,
+    requestedPath: string,
+): Promise<WriteTarget> {
     const root = await realpath(workspace);
     const candidate = resolve(root, requestedPath);
 
     try {
-        return await realpath(candidate);
+        return { path: await realpath(candidate), missingFolders: [] };
     } catch (error) {
-        if (!isMissingPathError(error)) {
+        if (!isMissingPathError(error) && !isNotDirectoryError(error)) {
             throw error;
+        }
+        if (isMissingPathError(error) && await pathEntryExists(candidate)) {
+            throw new Error(`Path is an unresolved symbolic link: ${requestedPath}`);
         }
     }
 
-    if (await pathEntryExists(candidate)) {
-        throw new Error(`Path is an unresolved symbolic link: ${requestedPath}`);
+    const missing: string[] = [basename(candidate)];
+    let current = dirname(candidate);
+    for (;;) {
+        let ancestor: string;
+        try {
+            ancestor = await realpath(current);
+        } catch (error) {
+            if (!isMissingPathError(error) && !isNotDirectoryError(error)) {
+                throw error;
+            }
+            if (isMissingPathError(error) && await pathEntryExists(current)) {
+                throw new Error(`Path is an unresolved symbolic link: ${requestedPath}`);
+            }
+            missing.push(basename(current));
+            const parent = dirname(current);
+            if (parent === current) {
+                throw error;
+            }
+            current = parent;
+            continue;
+        }
+        if (!(await stat(ancestor)).isDirectory()) {
+            throw new Error(
+                `Cannot write ${requestedPath}: ${basename(ancestor)} is a file, not a folder`,
+            );
+        }
+        const segments = [...missing].reverse();
+        const folders = segments.slice(0, -1);
+        return {
+            path: join(ancestor, ...segments),
+            missingFolders: folders.map((_, index) =>
+                join(...folders.slice(0, index + 1))),
+        };
     }
-
-    const parent = await realpath(dirname(candidate));
-    return join(parent, basename(candidate));
 }
 
 export async function resolveFileToolPermissionCall(
@@ -327,9 +383,17 @@ async function pathEntryExists(path: string): Promise<boolean> {
 }
 
 function isMissingPathError(value: unknown): boolean {
+    return isErrorCode(value, "ENOENT");
+}
+
+function isNotDirectoryError(value: unknown): boolean {
+    return isErrorCode(value, "ENOTDIR");
+}
+
+function isErrorCode(value: unknown, code: string): boolean {
     return value instanceof Error
         && "code" in value
-        && value.code === "ENOENT";
+        && value.code === code;
 }
 
 function requiredString(
