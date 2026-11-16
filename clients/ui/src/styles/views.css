@@ -291,6 +291,56 @@
     padding-left: calc(var(--vera-space) * 4.5);
 }
 
+/* The caret takes the dot's place on hover or focus; the button stays in the tab order while hidden. */
+.session-fold {
+    position: absolute;
+    top: 50%;
+    left: var(--vera-space);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 5);
+    padding: 0;
+    color: var(--vera-text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-50%);
+}
+
+.session-item:hover .session-fold,
+.session-fold:focus-visible {
+    opacity: 1;
+}
+
+.session-fold:hover {
+    color: var(--vera-text);
+}
+
+.session-fold:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.session-fold-icon {
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+    transition: transform var(--vera-motion);
+}
+
+.session-fold[aria-expanded="true"] .session-fold-icon {
+    transform: rotate(90deg);
+}
+
+.session-item[data-parent="true"]:hover .session-dot,
+.session-item[data-parent="true"]:has(.session-fold:focus-visible) .session-dot {
+    opacity: 0;
+}
+
 .session-dot {
     flex: 0 0 auto;
     width: calc(var(--vera-space) * 1.75);
@@ -310,6 +360,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.session-nested {
+    flex: 0 0 auto;
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
 }
 
 .session-time {
