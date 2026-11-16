@@ -109,12 +109,14 @@ The first two sessions the desktop window creates after Settings > Agents >
 Suggest keeping notes is turned on, chats and folder sessions alike, carry a
 short instruction in their system prompt. The switch is on by default, so the
 first two sessions in a new home carry it. The instruction tells the model that
-you can keep notes from the conversation, and to offer once, in one sentence,
-when documents were shared, a long discussion reached a conclusion, a topic
-keeps coming back or a decision was settled. If you decline or ignore the
-offer, the model does not offer again. If you agree, it creates a `notes/`
-folder in the working directory with an `index.md` that links one page per
-topic, and keeps the pages current.
+you may want to keep notes from the conversation, and to offer once, in one
+sentence, when documents were shared, a decision was settled or a topic keeps
+coming back, and to ask where you keep notes, such as a notes app you already
+use or a folder. If you decline or ignore the offer, the model does not offer
+again. If you agree, it keeps the notes where you say, one page per topic, and
+keeps the pages current; if its tools cannot write there, it says so. If you
+have nowhere in mind, it uses a `notes/` folder in the working directory with
+an `index.md` that links the pages.
 
 The choice is made when the session is created and does not change for that
 session, so the start of its system prompt stays the same. Sessions after the
