@@ -3,7 +3,7 @@ import type { AgentDefinition } from "../agents/definition.ts";
 import { withSubagentCatalog } from "../tools/subagent-catalog.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -164,12 +164,14 @@ import {
     stricterToolPermission,
     inspectPermissions,
     permissionGrantProposals,
+    permissionRulesDenial,
     reviewedGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
     type PermissionGrantProposal,
     type PermissionMode,
     type PermissionPreference,
+    type PermissionRule,
     type ToolPermissionDecision,
 } from "./permissions.ts";
 import {
@@ -330,6 +332,7 @@ export interface RunTurnState {
     ) => Promise<void>;
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly reviewToolCall?: ReviewToolCall;
     readonly reviewToolCallForProfile?: (
         profile: string,
@@ -544,6 +547,7 @@ export async function runHeadlessLoop(
             policy().permissionModes,
             readPermissionGrants(),
             readPermissionPreferences(),
+            policy().permissionRules ?? [],
         );
     const addPermissionGrants = async (
         grants: readonly PermissionGrantProposal[],
@@ -756,6 +760,7 @@ export async function runHeadlessLoop(
             get reviewer() { return policy().reviewer; },
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
+            get permissionRules() { return policy().permissionRules; },
             readPool: () => readModelSettings?.()?.pooled ?? [],
             readWindowSettings: () => readModelSettings?.() ?? {},
             bindCompaction: () => owned.compaction,
@@ -912,6 +917,7 @@ export async function runHeadlessLoop(
         addPermissionGrants,
         readPermissionPreferences,
         get permissionModes() { return policy().permissionModes; },
+        get permissionRules() { return policy().permissionRules; },
         reviewToolCall,
         reviewToolCallForProfile: createReviewerProfileRouter(
             reviewToolCall,
@@ -2821,7 +2827,9 @@ async function executePreparedTool(
     permissionCheck: while (true) {
         approvalMode = state.readApprovalMode?.() ?? state.approvalMode;
         const permissionOptions = {
+            homeDirectory: homedir(),
             permissionModes: state.permissionModes,
+            permissionRules: state.permissionRules,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
             extensionTools: state.extensionTools,
             realShellTargets,
@@ -2978,13 +2986,18 @@ async function executePreparedTool(
             }
         }
         if (permission.behavior === "ask" || askReason !== undefined) {
+            // A permission_rules ask cannot be lifted, so its prompt offers only the two choices that do not persist.
+            const ruleAsk = permission.actions.some((decision) =>
+                decision.outcome === "ask" && decision.liftable === false
+            );
             const approval = await state.inbound.requestToolApproval(
                 hookCall,
                 askReason ?? permission.reason ?? "This tool needs your approval.",
                 {
                     timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
                     signal,
-                    ...(grantProposals.length === 0
+                    ...(ruleAsk ? { restrictedChoices: true } : {}),
+                    ...(ruleAsk || grantProposals.length === 0
                         ? {}
                         : { permissionGrants: grantProposals }),
                 },
@@ -3009,6 +3022,25 @@ async function executePreparedTool(
             (state.readApprovalMode?.() ?? state.approvalMode) !== approvalMode
         ) {
             continue permissionCheck;
+        }
+        // Config can change while a review or the person is deciding, so the deny pass reads the current rules.
+        const lateDenial = permissionRulesDenial(
+            {
+                toolCall: permissionContext.toolCall,
+                workspace: permissionContext.workspace,
+                homeDirectory: homedir(),
+            },
+            state.permissionRules ?? [],
+            {
+                extensionTools: state.extensionTools,
+                ...(state.scratchDir === undefined
+                    ? {}
+                    : { scratchDir: state.scratchDir }),
+                realShellTargets,
+            },
+        );
+        if (lateDenial !== undefined) {
+            return autoDenial(lateDenial.reason, undefined, "permission-mode");
         }
         break permissionCheck;
     }

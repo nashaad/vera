@@ -470,7 +470,7 @@ export function createTuiApprovalResponse(
     const decision = tuiApprovalDecision(
         key,
         update.request.permissionGrants !== undefined
-            && update.request.sourceAgentId === undefined,
+            && !restrictedChoices(update),
     );
     if (decision === undefined) {
         return undefined;
@@ -518,7 +518,8 @@ export function selectableApprovalKeys(
     return visibleApprovalRows(update)
         .filter((action) =>
             !isDerivedRow(action.key)
-            || update.request.permissionGrants !== undefined
+            || (update.request.permissionGrants !== undefined
+                && !restrictedChoices(update))
         )
         .map((action) => action.key);
 }
@@ -526,17 +527,22 @@ export function selectableApprovalKeys(
 export function tuiApprovalHint(
     update: ToolApprovalUiRequestUpdate,
 ): string {
-    return update.request.sourceAgentId === undefined
-        ? "approval required · 1 once · 2 session prefix · 3/esc deny · Ctrl+C stop"
-        : "approval required · 1 once · 3/esc deny · Ctrl+C stop";
+    return restrictedChoices(update)
+        ? "approval required · 1 once · 3/esc deny · Ctrl+C stop"
+        : "approval required · 1 once · 2 session prefix · 3/esc deny · Ctrl+C stop";
+}
+
+function restrictedChoices(update: ToolApprovalUiRequestUpdate): boolean {
+    return update.request.sourceAgentId !== undefined
+        || update.request.restrictedChoices === true;
 }
 
 function visibleApprovalRows(
     update: ToolApprovalUiRequestUpdate,
 ): readonly (typeof APPROVAL_ROWS)[number][] {
-    return update.request.sourceAgentId === undefined
-        ? APPROVAL_ROWS
-        : APPROVAL_ROWS.filter((action) => !isDerivedRow(action.key));
+    return restrictedChoices(update)
+        ? APPROVAL_ROWS.filter((action) => !isDerivedRow(action.key))
+        : APPROVAL_ROWS;
 }
 
 function specificReason(reason: string): string | undefined {

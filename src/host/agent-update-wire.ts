@@ -531,6 +531,8 @@ function parseKnownAgentUpdate(
         return request?.type === "tool_approval"
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
+                && (request.restrictedChoices === undefined
+                    || request.restrictedChoices === true)
                 && (request.sourceAgentId === undefined
                     || (typeof request.sourceAgentId === "string"
                         && request.sourceAgentId.length > 0))

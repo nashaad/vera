@@ -123,6 +123,8 @@ export interface ToolApprovalUiRequest {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    // Only Allow once and Deny: an ask from permission_rules cannot be lifted.
+    readonly restrictedChoices?: true;
 }
 
 export interface ToolApprovalUiResponse {

@@ -128,6 +128,42 @@ wraps. It does not check code built from variables or command output, such as
 into a shell such as `curl ... | sh`; those follow the mode. Commands like
 `find . -name '*.tmp' -exec rm {} +` and `xargs rm < list` follow the mode too.
 
+## Write a home rule
+
+`permission_rules` in Home `config.json` holds rules that apply beside
+whichever mode is selected. Here a read of the cloud credentials is always
+refused, and reads under the logs folder are allowed:
+
+```json
+"permission_rules": [
+  { "when": { "verb": "read", "path": "~/.aws" }, "then": "deny" },
+  { "when": { "verb": "read", "path": "/Users/me/logs" }, "then": "allow" }
+]
+```
+
+A deny applies in every mode, including readonly, full access and your own
+custom modes. An ask or allow applies only in ask and auto; the other modes
+ignore those two and decide themselves.
+
+Within the list, deny beats allow and ask beats allow whatever the order of
+the entries. After the list, the selected mode's own rules and default decide.
+An ask from this list cannot be turned into Session or Always, and its prompt
+offers only Allow once and Deny.
+
+Paths are read as the filesystem sees them: `~`, `..`, and a symlinked folder
+such as `/tmp` on a Mac name the same place they really point at. A shell
+command that names a path a deny or ask rule covers is caught, so
+`cat ~/.aws/credentials` and `cp ~/.aws/credentials .` are both refused by the
+deny above. That check sees only a path written out in the command: one built
+from a variable, a command substitution, or a relative path after `cd` is not
+seen.
+
+An allow here does not override Vera's built-in deny for secret files such as
+`.env` and `id_rsa`, or its ask for a write or delete in another worktree.
+
+A mistake in any entry stops the whole config from loading. Each `then` must
+be `allow`, `ask` or `deny`, and a `path` must be absolute or start with `~/`.
+
 ## Answer a prompt
 
 | Key | Effect |

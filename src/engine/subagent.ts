@@ -36,6 +36,7 @@ import {
     BUILT_IN_PERMISSION_MODE_NAMES,
     type ApprovalMode,
     type PermissionMode,
+    type PermissionRule,
 } from "./permissions.ts";
 import { sessionAttachmentName } from "../attachments/service.ts";
 import {
@@ -124,6 +125,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly loadAgent?: (
         name: string,
     ) => Promise<AgentDefinition | undefined>;
@@ -421,6 +423,7 @@ export interface RunSubagentOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    readonly permissionRules?: readonly PermissionRule[];
     readonly selectedAgent?: AgentSnapshot;
     readonly clampPermissionMode?: ApprovalMode;
     readonly availableModels?: ModelTurnSettings["availableModels"];
@@ -628,6 +631,7 @@ export function createSubagentSpawner(
             reviewer,
             reviewers,
             permissionModes,
+            permissionRules,
         } = options;
         const parentSessionId = context.sessionId ?? options.parentSessionId;
         const parentWindow = options.readWindowSettings?.() ?? {};
@@ -711,6 +715,7 @@ export function createSubagentSpawner(
                     ? {}
                     : { readReviewer: options.readReviewer }),
                 ...(permissionModes === undefined ? {} : { permissionModes }),
+                ...(permissionRules === undefined ? {} : { permissionRules }),
                 ...(selected === undefined ? {} : { selectedAgent: selected }),
                 clampPermissionMode: context.approvalMode,
             });
@@ -897,6 +902,9 @@ export async function runSubagent(
             ...(options.permissionModes === undefined
                 ? {}
                 : { permissionModes: options.permissionModes }),
+            ...(options.permissionRules === undefined
+                ? {}
+                : { permissionRules: options.permissionRules }),
             promptPrefixTracker: new PromptPrefixTracker(),
             promptHistoryTracker: new PromptHistoryTracker(),
             ...(options.scratchDir === undefined

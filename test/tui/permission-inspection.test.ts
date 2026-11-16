@@ -29,6 +29,29 @@ test("the mode is described, not itemized into rules the user cannot edit", () =
     ].join("\n"));
 });
 
+test("the home's rules are listed above the mode", () => {
+    expect(renderPermissionInspection({
+        selected: {
+            name: "ask",
+            rules: [],
+            defaultOutcome: "ask",
+        },
+        availableModes: ["ask", "auto", "full_access"],
+        activeGrants: [],
+        userRules: [{
+            name: "permission_rules.0",
+            when: { verb: "read", path: "/Users/me/.aws" },
+            then: "deny",
+        }],
+    })).toBe([
+        "Permission mode: ask",
+        "Your rules (permission_rules):",
+        "  deny verb read, path /Users/me/.aws (permission_rules.0)",
+        "ask before every bash command",
+        "0 session grants · 0 preferences",
+    ].join("\n"));
+});
+
 test("the pointer is omitted when there is nothing to review", () => {
     // The zero counts stay: they say the two tiers exist and are yours. Only the
     // pointer goes, because it would open on an empty list.

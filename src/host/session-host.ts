@@ -212,6 +212,9 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         get permissionModes() {
             return currentConfig().permission_modes;
         },
+        get permissionRules() {
+            return currentConfig().permission_rules;
+        },
         permissionPreferences,
         extensionTools: [...extensionTools, skillScriptTool],
         ...(extensionConfigWatch === undefined

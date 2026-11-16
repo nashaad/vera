@@ -13,6 +13,8 @@ export interface ApprovalRequest {
     // Set when a subagent asked; the session-wide choices are then not offered.
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
+    // Only Allow once and Deny: an ask from permission_rules cannot be lifted.
+    readonly restrictedChoices?: boolean;
     // What Allow similar and Always would remember, in words; empty means neither is offered.
     readonly grants: readonly string[];
 }
@@ -123,6 +125,7 @@ function parseApproval(requestId: string, request: Fields): ApprovalRequest | un
         warning: str(request.warning) ?? "",
         ...(sourceAgentId === undefined ? {} : { sourceAgentId }),
         ...(sourceTask === undefined ? {} : { sourceTask }),
+        ...(request.restrictedChoices === true ? { restrictedChoices: true } : {}),
         grants: Array.isArray(request.permissionGrants)
             ? request.permissionGrants.map((grant) => describePredicate(isRecord(grant) && isRecord(grant.when) ? grant.when : {}))
             : [],
@@ -169,7 +172,9 @@ function parseSetup(requestId: string, request: Fields): SetupRequest | undefine
 
 // Subagent approvals offer only Allow once and Deny, as in the terminal.
 export function approvalChoices(request: ApprovalRequest): readonly ApprovalDecision[] {
-    if (request.sourceAgentId !== undefined || request.grants.length === 0) return ["allow_once", "deny"];
+    if (request.restrictedChoices || request.sourceAgentId !== undefined || request.grants.length === 0) {
+        return ["allow_once", "deny"];
+    }
     return ["allow_once", "allow_similar", "allow_always", "deny"];
 }
 

@@ -113,6 +113,10 @@ export function ApprovalPill({ approval, refused, send, enabled, running }: Appr
                         </>
                     )}
                     <ApprovalStanding
+                        heading="Your rules (permission_rules)"
+                        entries={approval.rules ?? []}
+                    />
+                    <ApprovalStanding
                         heading="This session allows"
                         entries={approval.grants}
                         onRemove={(entry: StandingPermission) => dispatch("permission", (id) => removeGrantCommand(id, entry.id), false)}

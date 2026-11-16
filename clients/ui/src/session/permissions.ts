@@ -19,6 +19,8 @@ export interface ApprovalState {
     readonly grants: readonly StandingPermission[];
     // Allowed in every session through Always.
     readonly preferences: readonly StandingPermission[];
+    // The home's permission_rules list, in config order.
+    readonly rules?: readonly StandingPermission[];
     readonly warning?: string;
 }
 
@@ -75,6 +77,7 @@ export function parsePermissions(value: Fields): ApprovalState | undefined {
         modes,
         grants: standing(inspection.activeGrants),
         preferences: standing(inspection.activePreferences),
+        rules: permissionRules(inspection.userRules),
         ...(warning === undefined ? {} : { warning }),
     };
 }
@@ -87,6 +90,21 @@ function standing(value: unknown): readonly StandingPermission[] {
         const id = str(raw.id);
         if (id === undefined) continue;
         entries.push({ id, description: describePredicate(isRecord(raw.when) ? raw.when : {}) });
+    }
+    return entries;
+}
+
+function permissionRules(value: unknown): readonly StandingPermission[] {
+    if (!Array.isArray(value)) return [];
+    const entries: StandingPermission[] = [];
+    for (const [index, raw] of value.entries()) {
+        if (!isRecord(raw)) continue;
+        const then = raw.then === "allow" || raw.then === "ask" || raw.then === "deny"
+            ? raw.then
+            : undefined;
+        if (then === undefined) continue;
+        const description = describePredicate(isRecord(raw.when) ? raw.when : {});
+        entries.push({ id: `rule-${index}`, description: `${then} ${description}` });
     }
     return entries;
 }
