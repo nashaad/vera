@@ -1,4 +1,5 @@
 import { workedDividerText } from "./worked-divider.ts";
+import { droppedCompactionNotice, failedDropNotice } from "../shared/compaction-notice.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
 
@@ -1158,11 +1159,12 @@ function applyCompaction(
         compactionProvider: undefined,
         compactionModel: undefined,
     };
+    const droppedNotice = droppedCompactionNotice(update.strategy);
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
-            "Earlier messages were summarized. They are still shown here, but "
-                + "the model now sees the summary instead.",
+            droppedNotice ?? ("Earlier messages were summarized. They are still shown here, but "
+                + "the model now sees the summary instead."),
         );
     }
     if (update.outcome === "not_needed") {
@@ -1177,7 +1179,7 @@ function applyCompaction(
     if (update.outcome === "no_boundary") {
         return appendTuiNotice(
             state,
-            `Could not summarize${
+            failedDropNotice(update.strategy, update.reason) ?? `Could not summarize${
                 update.reason === undefined ? "" : `: ${update.reason}`
             }`,
         );
@@ -1191,7 +1193,7 @@ function applyCompaction(
     if (update.outcome === "rejected" || update.outcome === "unavailable") {
         return appendTuiNotice(
             state,
-            `Could not summarize the earlier messages${
+            failedDropNotice(update.strategy, update.reason) ?? `Could not summarize the earlier messages${
                 update.reason === undefined ? "" : `: ${update.reason}`
             }`,
         );

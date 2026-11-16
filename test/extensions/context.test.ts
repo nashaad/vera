@@ -428,6 +428,33 @@ test("the instruction budget is the INSTRUCTIONS section total, skills included"
     );
 });
 
+test("budget notices and the report distinguish totals that round to the same value", () => {
+    for (const [tokens, budget, displayedTokens, displayedBudget] of [
+        [8_000, 8_000, "8,000", "8,000"],
+        [8_001, 8_000, "8,001", "8,000"],
+        [8_007, 8_000, "8,007", "8,000"],
+        [8_049, 8_000, "8,049", "8,000"],
+        [8_100, 8_000, "8.1k", "8.0k"],
+        [12_346, 12_345, "12,346", "12,345"],
+    ] as const) {
+        const snapshot = budgetSnapshot([
+            instruction("core.user-rules", "Rules", tokens),
+        ]);
+        expect(instructionBudgetNotice(snapshot, budget)).toBe(
+            `Starting instructions are ${displayedTokens} tokens, over the ${displayedBudget} budget. See /context to trim.`,
+        );
+        expect(contextReportMarkdown(snapshot, false, 72, budget)).toContain(
+            `!  ${displayedTokens}, over the ${displayedBudget} budget.`,
+        );
+    }
+
+    const below = budgetSnapshot([instruction("core.user-rules", "Rules", 8_006)]);
+    expect(instructionBudgetNotice(below, 8_007)).toBeUndefined();
+    expect(contextReportMarkdown(below, false, 72, 8_007)).not.toContain("budget");
+    expect(instructionBudgetNotice(below, 0)).toBeUndefined();
+    expect(contextReportMarkdown(below, false, 72, 0)).not.toContain("budget");
+});
+
 test("instruction_budget_tokens in the extension config sets the budget, and 0 turns it off", () => {
     expect(configuredInstructionBudget(null)).toBe(8_000);
     expect(configuredInstructionBudget({})).toBe(8_000);
