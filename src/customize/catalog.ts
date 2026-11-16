@@ -16,7 +16,7 @@ function skillScopeLabel(skill: CatalogSkill): string {
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
 }
 
-// Without a workspace only the skills, agents and extensions of the home and the extensions are listed.
+// Without a workspace only the home's skills, agents and extensions are listed.
 export async function loadCustomizationCatalog(options: {
     readonly workspace?: string;
     readonly instructionRoot?: InstructionRoot;
