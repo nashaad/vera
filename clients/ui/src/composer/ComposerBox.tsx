@@ -16,11 +16,12 @@ export interface ComposerBoxProps {
     readonly buttonMode: SendButtonMode;
     readonly buttonEnabled: boolean;
     readonly onPress: () => void;
-    // Files dropped on the box or pasted into it, and image paths pasted as text.
-    readonly onFiles: (files: readonly File[]) => void;
-    readonly onPaths: (paths: readonly string[]) => void;
-    readonly onAttach: () => void;
+    // Files dropped on the box or pasted into it, and image paths pasted as text. Without onAttach there is no attach button.
+    readonly onFiles?: (files: readonly File[]) => void;
+    readonly onPaths?: (paths: readonly string[]) => void;
+    readonly onAttach?: () => void;
     readonly attachEnabled: boolean;
+    readonly autoFocus?: boolean;
     // Controls drawn after the attach button, such as the approval pill.
     readonly barStart?: ReactNode;
     // Controls drawn just before the send button, such as the model and effort pills.
@@ -49,6 +50,7 @@ export function ComposerBox({
     slash,
     onBlur,
     inputRef,
+    autoFocus = true,
 }: ComposerBoxProps) {
     const [dropping, setDropping] = useState(false);
     const box = useRef<HTMLDivElement>(null);
@@ -64,12 +66,12 @@ export function ComposerBox({
     };
     const onDrop = (event: DragEvent<HTMLDivElement>): void => {
         setDropping(false);
-        if (!attachEnabled || event.dataTransfer.files.length === 0) return;
+        if (!attachEnabled || onFiles === undefined || event.dataTransfer.files.length === 0) return;
         event.preventDefault();
         onFiles([...event.dataTransfer.files]);
     };
     const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
-        if (!attachEnabled) return;
+        if (!attachEnabled || onFiles === undefined || onPaths === undefined) return;
         if (event.clipboardData.files.length > 0) {
             event.preventDefault();
             onFiles([...event.clipboardData.files]);
@@ -94,7 +96,7 @@ export function ComposerBox({
                 ref={inputRef}
                 className="composer-input"
                 rows={2}
-                autoFocus
+                autoFocus={autoFocus}
                 value={text}
                 placeholder={placeholder}
                 disabled={disabled}
@@ -108,16 +110,18 @@ export function ComposerBox({
             />
             {slash === undefined ? null : <SlashMenu view={slash} anchor={box} />}
             <div className="composer-bar" ref={bar}>
-                <button
-                    type="button"
-                    className="round-button"
-                    title="Attach files"
-                    aria-label="Attach files"
-                    disabled={!attachEnabled}
-                    onClick={onAttach}
-                >
-                    <PlusIcon className="round-icon" />
-                </button>
+                {onAttach === undefined ? null : (
+                    <button
+                        type="button"
+                        className="round-button"
+                        title="Attach files"
+                        aria-label="Attach files"
+                        disabled={!attachEnabled}
+                        onClick={onAttach}
+                    >
+                        <PlusIcon className="round-icon" />
+                    </button>
+                )}
                 {barStart}
                 <span className="grow" />
                 {barEnd}

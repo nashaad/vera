@@ -1032,9 +1032,17 @@ a tab first and nothing changes. The tab shows the list for the open session, or
 A row opens that subagent in the same tab. The page has a back arrow (`Back to
 subagents`) that returns to the list, then the subagent's icon, its title and its
 status word, `Go to`, which opens the subagent's own page, and `Stop` while it
-runs. Below is its conversation, which updates live and is read only: it has no
-composer and no `Start session`. Opening another session shows that session's
-list in the tab, and closing the tab and opening it again shows the list.
+runs. Below is its conversation, which updates live, and a message box with
+no attach button, slash commands or pickers. Enter sends the text to the
+subagent and Shift+Enter starts a new line. While the subagent runs, a message
+waits in the queue strip above the box; Enter on an empty box releases every
+queued message into the running turn, and Escape releases the oldest. Enter on
+an empty box never stops the subagent; `Stop` does. Approvals the subagent asks
+for in a turn you started show above the box. A message to a subagent that has
+finished runs a turn of its own, and its answer shows here; it is not sent back
+to the session that started the subagent. There is no `Start session`.
+Opening another session shows that session's list in the tab, and closing the
+tab and opening it again shows the list.
 
 When a turn edits files, its end shows a card with the number of files edited
 and the lines added and removed. Each file row opens to its patch, cut at 400
@@ -1056,7 +1064,7 @@ session's conversation, so when the session is not running and nothing of it
 has loaded, each says `This session is not running. Start it to see its plan.`
 or `This session is not running. Start it to see its changes.` with
 `Start session`. Files, Output and Browser do not need the session. The
-Subagents tab is read only and has no `Start session`. While the right
+Subagents tab has no `Start session`. While the right
 pane is closed, a rail at the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
@@ -1659,8 +1667,10 @@ The subagents test runs a local provider whose first reply to the session is an
 reply to the subagent is plain text, and whose other replies are plain text. It
 checks the call shows as one card titled by the description and that the right pane
 has no Subagents tab until something opens it. It clicks the card and checks the
-Subagents tab opens on that subagent with its reply and without a composer, then
-clicks the back arrow and checks the list shows `No active subagents` and the
+Subagents tab opens on that subagent with its reply and a message box without an
+attach button. It sends `Recount the starboard chest` from the box, checks the
+subagent's answer shows in the tab, the box is empty again, the subagent was
+asked once and the session was not asked again, then clicks the back arrow and checks the list shows `No active subagents` and the
 subagent under `Done · 1`. It opens the subagent from its row, closes the tab,
 opens the list again from the session menu's `Subagents`, and checks that the card
 opens the same single tab on the subagent.

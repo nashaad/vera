@@ -136,3 +136,8 @@ button.subagents-row:focus-visible {
     background: var(--vera-danger);
     border-color: var(--vera-danger);
 }
+
+.subagent-detail .subagent-message {
+    padding-right: calc(var(--vera-space) * 2);
+    padding-left: calc(var(--vera-space) * 2);
+}
