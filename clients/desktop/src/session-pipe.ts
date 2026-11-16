@@ -9,6 +9,7 @@ import {
 } from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
 import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
+import { isChatPane } from "../../ui/src/protocol/panes.ts";
 import { describeFailure } from "./host-pipe.ts";
 
 const MAX_REDIRECTS = 1;
@@ -158,11 +159,11 @@ export class SessionPipe {
     }
 }
 
-// Only the main pane is asked to open screens; the companion is a read-only view.
+// The main pane and the Chat tabs are asked to open screens, which a Help chat does; the companion is a read-only view.
 export function attachLine(agentId: string, hidesReasoning: boolean, pane: SessionPane = "main"): string {
     const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE];
     if (hidesReasoning) capabilities.push(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
-    if (pane === "main") capabilities.push(HOST_CAPABILITY_SESSION_SHOW_WINDOW);
+    if (pane === "main" || isChatPane(pane)) capabilities.push(HOST_CAPABILITY_SESSION_SHOW_WINDOW);
     return `${JSON.stringify({ type: "attach", agent_id: agentId, requested_capabilities: capabilities })}\n`;
 }
 

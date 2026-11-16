@@ -66,3 +66,10 @@ test("@core the extension that offers /btw has the id the desktop gates on, and 
     expect(source).toContain("../../src/sidekick/branch.ts");
     expect(source).not.toContain("Side conversation boundary");
 });
+
+test("@core the desktop opens the sidekick through the same module", () => {
+    const source = readFileSync(join(ROOT, "clients/desktop/src/sidekick-requests.ts"), "utf8");
+    expect(source).toContain("../../../src/sidekick/branch.ts");
+    expect(source).toContain("sidekickHostBranchOptions()");
+    expect(source).not.toContain("Side conversation boundary");
+});

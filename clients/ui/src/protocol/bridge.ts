@@ -1,6 +1,8 @@
 import type { LayoutState } from "../layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
+import type { IncludedExtensionsResult } from "./included-extensions.ts";
 import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
+import type { SessionPane } from "./panes.ts";
 import type { SavedPins } from "./pins.ts";
 import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
@@ -13,9 +15,7 @@ import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 // "installing" is the packaged app putting its bundled release in place before it connects.
 export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
 
-// The session page shows one session and, beside it, at most one of its subagents.
-// The probe pane is a short attach that reads a folder's catalogs for Customize.
-export type SessionPane = "main" | "companion" | "probe";
+export type { ChatPane, SessionPane } from "./panes.ts";
 
 export type DesktopEvent =
     | { readonly type: "phase"; readonly phase: DesktopPhase }
@@ -132,6 +132,22 @@ export interface ClosedSession {
 
 export type CloseSessionResult = ClosedSession | HostRequestFailure;
 
+export interface OpenedSidekick {
+    readonly ok: true;
+    readonly agentId: string;
+}
+
+export type OpenSidekickResult = OpenedSidekick | HostRequestFailure;
+
+export interface SyncedSidekick {
+    readonly ok: true;
+    // "stale": the primary was rewound past what the sidekick holds, so a new sidekick is needed.
+    // "busy": the primary is mid-turn, so the sidekick was not caught up.
+    readonly decision: "ok" | "stale" | "busy";
+}
+
+export type SyncSidekickResult = SyncedSidekick | HostRequestFailure;
+
 export type SessionSearchKind = "user_message" | "agent_message" | "tool_command" | "file_edit";
 
 export interface SessionSearchHit {
@@ -246,6 +262,10 @@ export interface DesktopBridge {
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
     // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.
     cloneSession(agentId: string): Promise<BranchSessionResult>;
+    // Opens the readonly sidekick the terminal's /btw opens: a hidden-boundary branch of the whole conversation that lasts only while attached.
+    openSidekick(primaryAgentId: string): Promise<OpenSidekickResult>;
+    // Catches a sidekick up with its primary's finished turns.
+    syncSidekick(sidekickAgentId: string): Promise<SyncSidekickResult>;
     // Stops a session and parks it, as closing its last window would.
     closeSession(agentId: string): Promise<CloseSessionResult>;
     // Opens the native folder picker and asks the host to move the session to the folder chosen; a chat's files go with it.
@@ -270,6 +290,8 @@ export interface DesktopBridge {
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // The home's model assignments, read from its config.json by the shell rather than the host.
     readAssignments(): Promise<AssignmentsResult>;
+    // Which included extensions config.json turns off. Each call runs one short task process.
+    readIncludedExtensions(): Promise<IncludedExtensionsResult>;
     // Writes one assignment change to the home's config.json; the host picks it up on its next read.
     editAssignment(change: AssignmentChange): Promise<AssignmentWriteResult>;
     // Writes one model to every assignment. Subagents keep the rest of their list, the classifier its failsafe.

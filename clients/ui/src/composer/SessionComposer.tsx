@@ -34,7 +34,7 @@ interface ModelGate {
     readonly prompt: PendingPrompt;
 }
 
-export function SessionComposer({ bridge, agentId, watch, send, folder, chat, onMoved }: SessionComposerProps) {
+export function SessionComposer({ bridge, agentId, pane = "main", watch, send, folder, chat, onMoved, hold }: SessionComposerProps) {
     const [text, setText] = useState("");
     const [notice, setNotice] = useState<string | undefined>(undefined);
     // Set when a New Chat prompt waits for its images before it goes out.
@@ -66,7 +66,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
     const slash = useSlashMenu({
         text,
         setText,
-        session: { bridge, agentId, send, attached, running },
+        session: { bridge, agentId, pane, send, attached, running, folder, chat },
         notify: setNotice,
     });
 
@@ -155,7 +155,7 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
 
     const submit = async (): Promise<void> => {
         const content = text.trim();
-        if (!attached || content.length === 0 || preparing || selected.busy) return;
+        if (!attached || hold !== undefined || content.length === 0 || preparing || selected.busy) return;
         if (slash.runLine(content)) return;
         if (ready.kind === "waiting") {
             setNotice(IMAGES_WAITING);
@@ -238,7 +238,9 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
     });
 
     const stopping = running && empty;
-    const placeholder = slowOpening
+    const placeholder = hold !== undefined
+        ? hold
+        : slowOpening
         ? "Opening the session"
         : !attached && watch.phase !== "attaching"
             ? "Not connected to this session"
@@ -278,13 +280,13 @@ export function SessionComposer({ bridge, agentId, watch, send, folder, chat, on
                 text={text}
                 onText={setText}
                 placeholder={placeholder}
-                disabled={!attached || preparing}
+                disabled={!attached || preparing || hold !== undefined}
                 onKeyDown={onKeyDown}
                 slash={slash.view}
                 onBlur={slash.onBlur}
                 inputRef={input}
                 buttonMode={stopping ? "stop" : "send"}
-                buttonEnabled={!preparing && !selected.busy && (stopping ? attached : attached && !empty && ready.kind === "ready")}
+                buttonEnabled={hold === undefined && !preparing && !selected.busy && (stopping ? attached : attached && !empty && ready.kind === "ready")}
                 onPress={() => (stopping ? send(abortCommand()) : void submit())}
                 onFiles={addFiles}
                 onPaths={(paths) => void selected.add(paths)}

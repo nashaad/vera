@@ -79,8 +79,9 @@ test("the View menu opens the palette and the Help menu lists the keys", () => {
     expect(ids.slice(0, 2)).toEqual(["palette.commands", "palette.sessions"]);
     const help = template.find((entry) => entry.role === "help");
     const helpItems = Array.isArray(help?.submenu) ? help.submenu.filter((entry) => entry.type !== "separator") : [];
-    expect(helpItems[0]?.accelerator).toBe("CmdOrCtrl+/");
+    expect(helpItems[1]?.accelerator).toBe("CmdOrCtrl+/");
     expect(helpItems.map((entry) => entry.id)).toEqual([
+        "chat.help",
         "help.shortcuts",
         "help.diagnostics",
         "help.doctor",

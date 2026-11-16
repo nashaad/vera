@@ -14,6 +14,8 @@ export interface SlashRunContext {
     readonly notify: (text: string) => void;
     // Puts the typed line back when the box is empty again, after a command did not go through.
     readonly restore: () => void;
+    // Runs /btw for the open session; absent where the window does not offer it.
+    readonly btw?: (args: string) => Promise<void>;
 }
 
 export const EXTENSION_BUSY = "Extension commands are available when the agent is idle";
@@ -40,6 +42,10 @@ export async function runSlashEntry(entry: SlashEntry, args: string, context: Sl
         }
         case "agent":
             await runAgent(args, context);
+            return;
+        case "btw":
+            if (context.btw === undefined) context.notify("/btw needs an open session");
+            else await context.btw(args);
             return;
         case "extension":
             await runExtension(entry, args, context);

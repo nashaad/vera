@@ -1,29 +1,14 @@
-import { useCallback, useEffect, useMemo, type KeyboardEvent } from "react";
+import { useCallback, useEffect } from "react";
 
-import { showTarget } from "../commands/show-target.ts";
-import { Composer } from "../composer/Composer.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { clearActiveSession, publishActiveSession } from "../session/activeSession.ts";
 import { CompanionPane } from "../session/CompanionPane.tsx";
-import { CompactionStatus } from "../session/LiveStatus.tsx";
-import { canStart, watchEnded } from "../session/liveSession.ts";
-import { MAX_HISTORY_BLOCKS } from "../session/model.ts";
+import { Conversation, SessionMessage, type ConversationState } from "../session/Conversation.tsx";
 import { usePaneLayout } from "../session/paneLayout.ts";
-import { QueueStrip } from "../session/QueueStrip.tsx";
-import { RequestCards } from "../session/RequestCards.tsx";
-import { holdsTurn } from "../session/requests.ts";
 import { SessionRail } from "../session/SessionRail.tsx";
-import { StartSessionButton } from "../session/StartSession.tsx";
 import { companionFor } from "../session/subagents.ts";
-import { Transcript } from "../session/Transcript.tsx";
-import { watchOpening } from "../session/transcript.ts";
-import { usePinnedScroll } from "../session/usePinnedScroll.ts";
-import { useSessionWatch } from "../session/useSessionWatch.ts";
-import { useSlowOpening } from "../session/useSlowOpening.ts";
-import { useStartAgent } from "../session/useStartAgent.ts";
-import { abortCommand, releaseQueuedCommand } from "../session/wire.ts";
 import { useViewEnvironment } from "../views/env.tsx";
-import { useIsShown, useWorkbench } from "../workbench/context.tsx";
+import { useIsShown } from "../workbench/context.tsx";
 import type { SessionRoute } from "./routes.ts";
 
 export interface SessionPageProps {
@@ -39,171 +24,32 @@ export function SessionPage({ route }: SessionPageProps) {
 }
 
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
-    const { connection, refreshSessions } = useViewEnvironment();
+    const { connection } = useViewEnvironment();
     const connected = connection.phase === "attached";
-    const { run } = useWorkbench();
-    // The host asks the window to open a screen; an id it does not know is ignored.
-    const onShow = useCallback((target: string) => {
-        showTarget(target, run);
-    }, [run]);
-    const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, route.agentId, connected, "main", onShow);
-    const startRefused = useStartAgent(bridge, route.agentId, watch.phase === "attached", send);
-    // The host ended this session's watch while it moved; open it again and read the row's new folder.
-    const onMoved = useCallback(() => {
-        reattach();
-        refreshSessions();
-    }, [reattach, refreshSessions]);
     const panes = usePaneLayout();
     const rightPaneShown = useIsShown("rightPane");
-    const row = connection.sessionRows?.find((candidate) => candidate.id === route.agentId);
-    const folder = row === undefined || row.workspace.length === 0 ? route.workspace : row.workspace;
-    const chat = row?.chat ?? route.chat === true;
-    const scroller = usePinnedScroll();
-    const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const companion = panes.layout === "single" ? undefined : companionFor(route.agentId, panes.companion, connection.sessionRows);
-    const running = watch.status !== "idle";
-    const compacting = watch.compaction?.phase === "started" ? watch.compaction : undefined;
-    // A running turn shows the compaction on its own status line; otherwise the line stands alone at the end.
-    const liveTurn = running && blocks.length > 0;
-    const title = watch.title ?? row?.name ?? route.title;
-    const slowOpening = useSlowOpening(watch);
-
-    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (event.defaultPrevented || event.key !== "Escape" || event.ctrlKey || event.metaKey
-            || event.altKey || event.shiftKey || event.nativeEvent.isComposing || !running
-            || watch.requests.length > 0) return;
-        const target = event.target;
-        if (!(target instanceof HTMLElement)
-            || !target.matches(".composer-input, .transcript-scroll")) return;
-        if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-popover]') !== null) return;
-        event.preventDefault();
-        const input = event.currentTarget.querySelector<HTMLTextAreaElement>(".composer-input");
-        const hasDraft = (input?.value.trim().length ?? 0) > 0
-            || event.currentTarget.querySelector(".chip-file") !== null;
-        send(!hasDraft && watch.queue.length > 0 ? releaseQueuedCommand("one") : abortCommand());
-    };
-
-    useEffect(() => {
-        publishActiveSession({ bridge, agentId: route.agentId, title, folder, chat, watch, send, start });
-    }, [bridge, route.agentId, title, folder, chat, watch, send, start]);
+    const publish = useCallback((state: ConversationState) => {
+        publishActiveSession({ bridge, agentId: route.agentId, ...state });
+    }, [bridge, route.agentId]);
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
-
-    const ended = watchEnded(watch);
-    const startable = canStart(watch);
-    const showMessage = blocks.length === 0 && (ended || slowOpening);
-    const body = showMessage ? (
-        <SessionMessage
-            title={title}
-            text={ended ? watch.error ?? "The session closed." : "Opening the session."}
-            {...(startable ? { onStart: start } : {})}
+    return (
+        <Conversation
+            bridge={bridge}
+            agentId={route.agentId}
+            pane="main"
+            title={route.title}
+            workspace={route.workspace}
+            chat={route.chat === true}
+            onState={publish}
+            rail={rightPaneShown ? null : <SessionRail />}
+            {...(companion === undefined ? {} : {
+                companion: {
+                    layout: panes.layout,
+                    node: <CompanionPane key={companion} bridge={bridge} agentId={companion} connected={connected} />,
+                },
+            })}
         />
-    ) : (
-        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll} data-session={route.agentId} data-phase={watch.phase} tabIndex={0}
-            onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
-            onDrop={(event) => {
-                if (event.dataTransfer.files.length === 0) return;
-                event.preventDefault();
-                window.dispatchEvent(new CustomEvent("vera-composer-drop", { detail: { agentId: route.agentId, files: [...event.dataTransfer.files] } }));
-            }}>
-            <div className="transcript">
-                <div className="transcript-inner">
-                    {watch.hasOlder && watch.history.length >= MAX_HISTORY_BLOCKS ? (
-                        <p className="trim-strip" data-limit="true">Earlier messages are past what this view keeps loaded.</p>
-                    ) : watch.hasOlder ? (
-                        <button type="button" className="trim-strip" disabled={watch.loadingOlder} onClick={loadOlder}>
-                            {watch.loadingOlder ? "Loading earlier messages" : "Show earlier messages"}
-                        </button>
-                    ) : null}
-                    {blocks.length === 0 ? (
-                        watchOpening(watch) ? null : <p className="transcript-empty">Nothing has been said in this session yet.</p>
-                    ) : (
-                        <Transcript
-                            blocks={blocks}
-                            running={running}
-                            status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}
-                            {...(watch.retry === undefined ? {} : { retry: watch.retry })}
-                            {...(folder === undefined ? {} : { folder })}
-                            {...(compacting === undefined || !liveTurn ? {} : { compaction: compacting })}
-                            replyMenu
-                        />
-                    )}
-                    {compacting === undefined || liveTurn ? null : <CompactionStatus compaction={compacting} />}
-                    {ended ? (
-                        <div className="transcript-notice" data-tone="warning" data-start={startable}>
-                            <span>{watch.error ?? "The session closed."}</span>
-                            {startable ? <StartSessionButton onStart={start} /> : null}
-                        </div>
-                    ) : null}
-                    {startRefused === undefined ? null : (
-                        <div className="transcript-notice" data-tone="warning">
-                            <span>{`Help did not start. ${startRefused}`}</span>
-                        </div>
-                    )}
-                    <RequestCards
-                        key={route.agentId}
-                        agentId={route.agentId}
-                        requests={watch.requests}
-                        suggestAuto={watch.approval?.suggestAuto === true}
-                        send={send}
-                        running={running}
-                    />
-                    <QueueStrip queue={watch.queue} onRelease={() => send(releaseQueuedCommand("one"))} />
-                </div>
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="session-page" onKeyDown={onKeyDown}>
-            <div className="session-body">
-                <div className="agent-panes" data-layout={companion === undefined ? "single" : panes.layout}>
-                    {body}
-                    {companion === undefined ? null : (
-                        <CompanionPane key={companion} bridge={bridge} agentId={companion} connected={connected} />
-                    )}
-                </div>
-                {rightPaneShown ? null : <SessionRail />}
-            </div>
-            <div className="composer-wrap">
-                <Composer
-                    key={route.agentId}
-                    mode="session"
-                    bridge={bridge}
-                    agentId={route.agentId}
-                    watch={watch}
-                    send={send}
-                    folder={folder}
-                    chat={chat}
-                    onMoved={onMoved}
-                />
-            </div>
-        </div>
-    );
-}
-
-interface SessionMessageProps {
-    readonly title: string;
-    readonly text: string;
-    readonly onStart?: () => void;
-}
-
-function SessionMessage({ title, text, onStart }: SessionMessageProps) {
-    return (
-        <div className="transcript-scroll">
-            <div className="transcript">
-                <div className="transcript-inner">
-                    <div className="session-message">
-                        <h2 className="empty-state-title">{title}</h2>
-                        <p className="empty-state-text">{text}</p>
-                        {onStart === undefined ? null : (
-                            <div className="session-message-action">
-                                <StartSessionButton onStart={onStart} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
     );
 }
