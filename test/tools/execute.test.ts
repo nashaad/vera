@@ -562,6 +562,39 @@ test("edit rejects empty old_string and unsupported fields", async () => {
     }
 });
 
+test("edit points a top-level old_string and new_string at the edits array", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-edit-"));
+    const runtime = new ToolRuntime(workspace);
+    const placement = "edit tool takes old_string and new_string inside edits:"
+        + ` { "path": ..., "edits": [{ "old_string": ..., "new_string": ... }] }`;
+
+    try {
+        const topLevel = await executeToolCall(toolCall("call_top_level", "edit", {
+            path: "notes.txt",
+            old_string: "before",
+            new_string: "after",
+        }), runtime);
+        const replaceAll = await executeToolCall(toolCall("call_top_level_replace_all", "edit", {
+            path: "notes.txt",
+            replace_all: true,
+        }), runtime);
+        // Other unexpected fields keep the plain refusal.
+        const offset = await executeToolCall(toolCall("call_offset", "edit", {
+            path: "notes.txt",
+            offset: 1,
+        }), runtime);
+
+        expect(topLevel.isError).toBe(true);
+        expect(topLevel.content[0]?.text).toBe(placement);
+        expect(replaceAll.isError).toBe(true);
+        expect(replaceAll.content[0]?.text).toBe(placement);
+        expect(offset.isError).toBe(true);
+        expect(offset.content[0]?.text).toBe("edit tool does not allow offset");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("bash reports a working folder that no longer exists", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-gone-"));
     const runtime = new ToolRuntime(workspace);
