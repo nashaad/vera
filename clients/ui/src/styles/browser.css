@@ -16,6 +16,31 @@
     font-size: var(--vera-font-size-label);
 }
 
+.browser-controls button {
+    height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+    transition: background var(--vera-motion), border-color var(--vera-motion);
+}
+
+.browser-controls button:hover:not(:disabled) {
+    background: var(--vera-surface-hover);
+}
+
+.browser-controls button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.browser-controls button:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
+}
+
 .browser-bar {
     display: flex;
     flex: 0 0 auto;
