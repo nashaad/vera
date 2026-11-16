@@ -5,6 +5,7 @@ import {
     approvalAnswersFor,
     approvalResponse,
     holdsTurn,
+    paneAnswerContext,
     PAST_APPROVAL_LIMIT,
     pastApprovalView,
     questionResponse,
@@ -182,6 +183,15 @@ describe("answers", () => {
         kind: "approval", requestId: "r", tool: "bash", input: {}, reason: "", warning: "", grants: ["bash"], grantPredicates: [{ tool: "bash" }],
     };
     const ask = { mode: "ask", modes: ["readonly", "ask", "auto"] };
+
+    test("only the main pane offers the switch to Approve for me", () => {
+        const approval = { mode: "ask", pending: false, modes: ["readonly", "ask", "auto"], grants: [], preferences: [] };
+        const labels = (pane: Parameters<typeof paneAnswerContext>[0]) =>
+            approvalAnswersFor(base, paneAnswerContext(pane, approval)).map((answer) => answer.label);
+        expect(labels("main")).toContain("Yes, and switch to Approve for me");
+        expect(labels("chat:0")).not.toContain("Yes, and switch to Approve for me");
+        expect(paneAnswerContext("main", undefined)).toEqual({});
+    });
 
     test("the shared module orders the answers and numbers follow it", () => {
         expect(approvalAnswersFor(base).map((answer) => answer.label)).toEqual([

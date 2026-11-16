@@ -737,7 +737,8 @@ While a card is unanswered the status line at the end of the conversation says
   `curl commands`.
 - `Yes, and switch to Approve for me` runs it and switches the session to
   Approve for me. It appears in ask only, when Approve for me is available, and
-  never on a subagent's call or an ask from `permission_rules`.
+  never on a subagent's call, an ask from `permission_rules` or a card in a Chat
+  tab.
 - `No` (Escape or the `✕`) refuses it; the turn goes on without it.
 - The field below the answers takes a line of text. Enter refuses the call and
   passes what you typed to Vera, so it can try another way.
@@ -753,12 +754,6 @@ The grant answers appear only when Vera can propose one; a subagent's request
 offers only `Yes, this time` and `No`, and no field. An ask from
 `permission_rules` offers the same two answers and keeps the field, since no
 grant can lift it.
-
-In ask mode, once you have allowed five requests and denied none, the card
-adds one line under its choices: `You've allowed every request so far. Switch
-to Approve for me?` `Switch` does what picking `Approve for me` in the approval
-pill does, and `Not now` dismisses the line. It shows once per conversation in
-this window, and answering the card counts as dismissing it.
 
 A question from Vera shows its choices, numbered, in the same card. A number
 key or a click picks one. When the question takes a typed answer, a box under
@@ -817,7 +812,8 @@ through a session's pill.
 
 A Chat tab shows one session's conversation in the right pane: the transcript,
 the approval and question cards and a composer of its own, the same ones the
-main area uses. It needs no session open in the main area and works on New Chat.
+main area uses, except that its approval cards do not offer `Yes, and switch to
+Approve for me`. It needs no session open in the main area and works on New Chat.
 Each tab holds one chat. A Help tab is titled with the chat's name, and `Help` until it has one.
 
 Help opens a new Chat tab on a new chat that runs as the help agent. The sidebar's
