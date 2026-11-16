@@ -174,7 +174,7 @@ test("catalog lists home and project rules as instructions keyed by their loaded
     expect(project?.description).toBe("Project rule for clients/tui/**");
 });
 
-test("@core without a workspace only the home's skills and agents are listed", async () => {
+test("@core without a workspace only what the home holds is listed", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-chat-")); roots.push(root);
     const home = join(root, "home");
     process.env.VERA_HOME = home;
@@ -182,11 +182,17 @@ test("@core without a workspace only the home's skills and agents are listed", a
     await mkdir(join(home, "skills/mast-watch"), { recursive: true });
     await writeFile(join(home, "agents/reader.md"), "---\ndescription: User reader\n---\nUser instructions\n");
     await writeFile(join(home, "skills/mast-watch/SKILL.md"), "---\nname: mast-watch\ndescription: Looks from the mast.\n---\nBody.\n");
+    await mkdir(join(home, "rules"), { recursive: true });
+    await writeFile(join(home, "rules/global.md"), "Keep the parrot off the rigging.\n");
+    await mkdir(join(home, "memory/user"), { recursive: true });
+    await writeFile(join(home, "memory/user/MEMORY.md"), "- [Biscuits](biscuits.md): where the crow hides them\n");
+    await writeFile(join(home, "memory/user/biscuits.md"), "Under the third plank of the crow's nest.\n");
     const agents = await loadAgentCatalog({ permissionModes: ["readonly"], interactive: true });
     const catalog = await loadCustomizationCatalog({ agents });
     expect(catalog.sources.find((source) => source.name === "reader")?.scope).toBe("user");
     expect(catalog.sources.find((source) => source.name === "mast-watch")?.scope).toBe("user");
+    expect(catalog.sources.find((source) => source.name === "<home>/rules/global.md")).toMatchObject({ category: "instructions", scope: "user" });
+    expect(catalog.sources.find((source) => source.category === "memory")).toMatchObject({ name: "MEMORY.md", scope: "user" });
     expect(catalog.sources.some((source) => source.scope === "project")).toBe(false);
-    expect(catalog.sources.some((source) => source.category === "instructions" || source.category === "memory")).toBe(false);
     expect(catalog.warnings).toEqual([]);
 });

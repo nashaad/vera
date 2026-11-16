@@ -16,7 +16,7 @@ function skillScopeLabel(skill: CatalogSkill): string {
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
 }
 
-// Without a workspace only the home's skills, agents and extensions are listed.
+// Without a workspace only what the home holds is listed: its skills, agents, extensions, rules and memory.
 export async function loadCustomizationCatalog(options: {
     readonly workspace?: string;
     readonly instructionRoot?: InstructionRoot;
@@ -87,10 +87,7 @@ export async function loadCustomizationCatalog(options: {
             content: file.content, contextIds: [file.path],
         });
     }
-    // The rule and memory loaders take a project folder, so a read without one lists neither.
-    const rules = options.workspace === undefined
-        ? { rules: [], warnings: [] }
-        : await loadRules(ruleDirectories(options.workspace));
+    const rules = await loadRules(ruleDirectories(options.workspace));
     warnings.push(...rules.warnings.map((warning) => warning.message));
     for (const rule of rules.rules) {
         await add({
@@ -103,9 +100,7 @@ export async function loadCustomizationCatalog(options: {
             content: rule.body, contextIds: [rule.path],
         });
     }
-    const memory = options.instructionRoot === undefined
-        ? { files: [], warnings: [] }
-        : await loadMemory(options.instructionRoot);
+    const memory = await loadMemory(options.instructionRoot);
     warnings.push(...memory.warnings);
     for (const file of memory.files) {
         for (const item of [

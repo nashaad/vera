@@ -9,8 +9,8 @@ import { FLAG_KEYS, type DesktopFlags, type FlagKey } from "./desktopFlags.ts";
 export interface SurfaceEvidence {
     // The most sessions the host has listed.
     readonly sessions: number;
-    // A top-level folder session has been listed, so Customize has a folder to offer.
-    readonly folderSession: boolean;
+    // The host has attached, so Customize can read what a new chat loads.
+    readonly hostReady: boolean;
     // The open session has made changes, shown a checklist, reported context use, or has a files folder.
     readonly review: boolean;
     readonly plan: boolean;
@@ -24,7 +24,7 @@ export interface SurfaceEvidence {
 
 export const NO_EVIDENCE: SurfaceEvidence = {
     sessions: 0,
-    folderSession: false,
+    hostReady: false,
     review: false,
     plan: false,
     files: false,
@@ -41,7 +41,7 @@ export const ALL_VISIBLE: Visibility = Object.fromEntries(FLAG_KEYS.map((key) =>
 const AUTO_CONDITIONS: Readonly<Partial<Record<FlagKey, (evidence: SurfaceEvidence) => boolean>>> = {
     search: (evidence) => evidence.sessions >= 1,
     work: (evidence) => evidence.sessions >= 2,
-    customize: (evidence) => evidence.folderSession,
+    customize: (evidence) => evidence.hostReady,
     review: (evidence) => evidence.review,
     plan: (evidence) => evidence.plan,
     files: (evidence) => evidence.files,

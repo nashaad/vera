@@ -91,8 +91,9 @@ window.
   extensions, instruction files and memory files. A menu picks the folder; it
   starts on the folder of the session last open, and lists no chats. The page
   asks the host to read the folder, so it needs no session: a stopped session is
-  not started and no message is sent. With no folder picked it lists the skills,
-  agents and extensions a new chat loads from the home, and no project items.
+  not started and no message is sent. With no folder picked it lists what a new
+  chat loads from the home: skills, agents, extensions, rules and memory files,
+  and no project items.
   If the host was started before this request existed, the page says `Vera needs
   a restart to read what this folder loads.` with Retry. Pills filter by kind
   with a count on each, a search box matches names and
@@ -432,7 +433,7 @@ Auto shows a part once it has something to show:
 
 - Search, once the host lists a session.
 - Work, once the host lists two sessions.
-- Customize, once the host lists a session in a folder; a chat does not count.
+- Customize, once the window has connected to the host.
 - Review, once the open session has changed files.
 - Plan, once the open session has a checklist.
 - Files, in a session that has a folder.

@@ -97,19 +97,21 @@ export interface LoadMemoryOptions {
 
 export const MEMORY_ENABLED: boolean = false;
 
+// Without an instruction root only the user's memory loads.
 export async function loadMemory(
-    instructionRoot: InstructionRoot,
+    instructionRoot: InstructionRoot | undefined,
     directories: MemoryDirectories = {
         user: userMemoryDir(),
-        project: projectMemoryDir(instructionRoot.path),
+        project: projectMemoryDir(instructionRoot?.path ?? ""),
     },
     options: LoadMemoryOptions = {},
 ): Promise<MemorySnapshot> {
     const files: MemoryIndexFile[] = [];
     const warnings: string[] = [];
 
-    const rootMissing = !await isDirectory(instructionRoot.path);
-    if (rootMissing) {
+    const rootMissing = instructionRoot !== undefined
+        && !await isDirectory(instructionRoot.path);
+    if (instructionRoot !== undefined && rootMissing) {
         warnings.push(
             `the instruction root ${instructionRoot.path} does not exist, `
                 + "so no project memory was loaded",
@@ -118,7 +120,7 @@ export async function loadMemory(
 
     const scopes: readonly { scope: MemoryScope; dir: string }[] = [
         { scope: "user", dir: directories.user },
-        ...(rootMissing
+        ...(instructionRoot === undefined || rootMissing
             ? []
             : [{ scope: "project" as const, dir: directories.project }]),
     ];
@@ -131,7 +133,7 @@ export async function loadMemory(
     }
 
     if (
-        instructionRoot.source === "workspace"
+        instructionRoot?.source === "workspace"
         && files.some((file) => file.scope === "project")
     ) {
         warnings.push(

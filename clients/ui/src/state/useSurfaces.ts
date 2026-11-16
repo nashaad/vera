@@ -1,6 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-import { hasFolderSession } from "../customize/catalog.ts";
 import type { UiState } from "./connection.ts";
 import { FLAG_KEYS, type DesktopFlags, type FlagKey } from "./desktopFlags.ts";
 import { useOutputLog, type OutputLog } from "./outputLog.ts";
@@ -25,14 +24,14 @@ export function reportEvidence(patch: Partial<SurfaceEvidence>): void {
     publish({ ...evidence, ...patch });
 }
 
-export type WindowEvidence = Pick<SurfaceEvidence, "sessions" | "folderSession" | "output" | "hostFailed">;
+export type WindowEvidence = Pick<SurfaceEvidence, "sessions" | "hostReady" | "output" | "hostFailed">;
 
 // Turns on what the window has seen; nothing here turns back off until the window closes.
 export function raiseEvidence(seen: WindowEvidence): void {
     publish({
         ...evidence,
         sessions: Math.max(evidence.sessions, seen.sessions),
-        folderSession: evidence.folderSession || seen.folderSession,
+        hostReady: evidence.hostReady || seen.hostReady,
         output: evidence.output || seen.output,
         hostFailed: evidence.hostFailed || seen.hostFailed,
     });
@@ -78,9 +77,9 @@ export function useWindowEvidence(connection: UiState, log: OutputLog): void {
     const entries = useOutputLog(log);
     const failed = connection.phase === "disconnected" || connection.phase === "failed" || connection.phase === "missing";
     const sessions = connection.sessions ?? 0;
-    const folderSession = connection.sessionRows !== undefined && hasFolderSession(connection.sessionRows);
+    const ready = connection.phase === "attached";
     const noisy = entries.some((entry) => entry.kind !== "info");
     useEffect(() => {
-        raiseEvidence({ sessions, folderSession, hostFailed: failed, output: noisy });
-    }, [sessions, folderSession, failed, noisy]);
+        raiseEvidence({ sessions, hostReady: ready, hostFailed: failed, output: noisy });
+    }, [sessions, ready, failed, noisy]);
 }

@@ -37,7 +37,7 @@ test("@core on shows a part with no evidence and off hides it with all of it", (
     const all = Object.fromEntries(FLAG_KEYS.map((key) => [key, "on"])) as DesktopFlags;
     expect(resolveVisibility(all, NO_EVIDENCE)).toEqual(ALL_VISIBLE);
     const none = Object.fromEntries(FLAG_KEYS.map((key) => [key, "off"])) as DesktopFlags;
-    const everything = seen({ sessions: 9, folderSession: true, review: true, plan: true, files: true, context: true, output: true, hostFailed: true });
+    const everything = seen({ sessions: 9, hostReady: true, review: true, plan: true, files: true, context: true, output: true, hostFailed: true });
     expect(FLAG_KEYS.filter((key) => resolveVisibility(none, everything)[key])).toEqual([]);
 });
 
@@ -45,7 +45,7 @@ test("@core auto waits for each part's own evidence", () => {
     const cases: ReadonlyArray<readonly [FlagKey, Partial<SurfaceEvidence>, Partial<SurfaceEvidence>]> = [
         ["search", { sessions: 1 }, { sessions: 0 }],
         ["work", { sessions: 2 }, { sessions: 1 }],
-        ["customize", { folderSession: true }, { sessions: 5 }],
+        ["customize", { hostReady: true }, { sessions: 5 }],
         ["review", { review: true }, { plan: true }],
         ["plan", { plan: true }, { review: true }],
         ["files", { files: true }, { sessions: 5 }],
@@ -60,7 +60,7 @@ test("@core auto waits for each part's own evidence", () => {
 });
 
 test("@core every part that offers auto has a condition, and no other part follows evidence", () => {
-    const everything = seen({ sessions: 9, folderSession: true, review: true, plan: true, files: true, context: true, output: true, hostFailed: true });
+    const everything = seen({ sessions: 9, hostReady: true, review: true, plan: true, files: true, context: true, output: true, hostFailed: true });
     for (const spec of FLAG_SPECS) {
         const asAuto = resolveVisibility({ ...flags(), [spec.key]: "auto" }, everything)[spec.key];
         expect(asAuto).toBe(spec.auto);
