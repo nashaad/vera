@@ -201,7 +201,10 @@ Escape, its close button or a click outside it.
 
 - Choose Agent, in the View menu, lists the agents the open session can run as,
   with the current one checked. A click or its number key switches the session
-  to that agent. With no session open it says to open one.
+  to that agent. On New Chat it lists the agents a new session in the picked
+  folder would offer, and a pick becomes the agent the first message runs as;
+  see [Choose the agent of a new chat](agents.md#choose-the-agent-of-a-new-chat).
+  With no session open and no New Chat page it says to open one.
 - Choose Theme lists the three built-in themes and the themes of the enabled
   desktop extensions with a swatch; a click or a number key (for the first nine)
   applies one.
@@ -606,9 +609,10 @@ here on a folder page or a workspace row starts with that folder picked.
 Sending with no folder starts a chat: a session with no outside working
 folder, whose files the host keeps in a folder of its own under the home.
 Sending with a folder creates a session in that folder. Either way the session
-starts with the host's default settings and the model and effort chosen on the
-bar's pills, opens its page, and sends the message as soon as the page is
-attached. The page title is the first line of the message until the session is
+starts with the host's default settings, the approval mode, agent, model and
+effort chosen on the bar's pills, opens its page, and sends the message as soon
+as the page is attached and, when another agent was picked, the session has
+switched to it. The page title is the first line of the message until the session is
 named. When the host cannot start the session, a line in the error colour above
 the box says so, and the text you typed stays in the box.
 
@@ -674,7 +678,7 @@ Slash commands:
   an unknown mode lists them. Inside a session it changes the default mode, as in
   the terminal; on New Chat it sets the mode for the session about to start.
   `/agent` opens Choose Agent, and `/agent crow` switches the session to the
-  agent `crow`.
+  agent `crow`; on New Chat it picks `crow` for the session about to start.
 - `/rename`, `/clone`, `/close` and `/parent` are also in the command palette as
   Rename Session, Clone Session, Close Session and Go to Parent Session.
   `/rename Crow's nest audit` renames the open session and shows a notice in the

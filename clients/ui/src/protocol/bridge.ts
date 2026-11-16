@@ -9,6 +9,7 @@ import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalo
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
+import type { AgentInfo } from "../customize/wire.ts";
 
 // "installing" is the packaged app putting its bundled release in place before it connects.
 export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
@@ -177,6 +178,16 @@ export interface ExtensionFailuresAnswer {
 
 export type ExtensionFailuresResult = ExtensionFailuresAnswer | HostRequestFailure;
 
+export interface NewSessionAgentsAnswer {
+    readonly ok: true;
+    // The agent a session created there starts on.
+    readonly startsOn: string;
+    readonly agents: readonly AgentInfo[];
+    readonly notices: readonly string[];
+}
+
+export type NewSessionAgentsResult = NewSessionAgentsAnswer | HostRequestFailure;
+
 export interface AnnexPage {
     readonly label: string;
     // A path on the annex, such as /usage or /x/<extension>/<page>.
@@ -278,6 +289,9 @@ export interface DesktopBridge {
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
     // Extensions the host tried to load at start and could not.
     readExtensionFailures(): Promise<ExtensionFailuresResult>;
+    // The agents a session created in a folder would offer, or in a chat when there is no folder.
+    // A host that predates the request answers with a failure.
+    readNewSessionAgents(workspace: string | undefined): Promise<NewSessionAgentsResult>;
     // The host's annex address and the pages it serves.
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.

@@ -97,7 +97,7 @@ export function parseCatalogLine(text: string): CatalogReply | undefined {
         }
         case "agent_catalog": {
             if (!Array.isArray(value.agents) || typeof value.selected !== "string") return undefined;
-            const agents = value.agents.slice(0, CATALOG_LIMIT).flatMap((entry) => parseAgent(entry));
+            const agents = parseAgents(value.agents);
             return { type: "agents", requestId, selected: value.selected, agents, notices: strings(value.notices) };
         }
         case "customization_sources": {
@@ -116,6 +116,11 @@ export function parseCatalogLine(text: string): CatalogReply | undefined {
         default:
             return undefined;
     }
+}
+
+// The agents of a host reply, each read as the session's own catalog reads them; entries this window cannot read are dropped.
+export function parseAgents(value: unknown): readonly AgentInfo[] {
+    return Array.isArray(value) ? value.slice(0, CATALOG_LIMIT).flatMap((entry) => parseAgent(entry)) : [];
 }
 
 function parseSkill(value: unknown): SkillInfo[] {

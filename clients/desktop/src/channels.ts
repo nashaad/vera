@@ -60,6 +60,7 @@ export const CHANNELS = {
     sessionsSearch: "vera:sessions-search",
     folderReveal: "vera:folder-reveal",
     extensionFailures: "vera:extension-failures",
+    newSessionAgents: "vera:new-session-agents",
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
     browser: "vera:browser",
