@@ -1,5 +1,6 @@
 import { baseColor } from "../../clients/ui/src/theme/imported.ts";
-import type { ColorToken, ThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import type { BaseThemeName } from "../../clients/ui/src/theme/base.ts";
+import type { ColorToken } from "../../clients/ui/src/theme/tokens.ts";
 
 // Tokens Vera draws as grays between the surface and the text. Hues, and badge-text, which pairs with a hue, keep the built-in value.
 export const NEUTRAL_TOKENS: readonly ColorToken[] = [
@@ -45,7 +46,7 @@ function hexOf(rgb: Rgb): string {
 
 // Where the built-in value of a token sits on the line from its surface (0) to its text (1), fitted across RGB.
 // A value past the surface gets a negative factor, such as the white cards of Light.
-function mixFactor(type: ThemeName, token: ColorToken): number {
+function mixFactor(type: BaseThemeName, token: ColorToken): number {
     const surface = channels(baseColor(type, "surface"));
     const text = channels(baseColor(type, "text"));
     const value = channels(baseColor(type, token));
@@ -80,7 +81,7 @@ function contrast(first: Rgb, second: Rgb): number {
 
 // The token's color for a theme that does not set it: the same distance from the theme's surface toward its text
 // as the built-in theme puts it, so the contrast Vera designed holds on any background. Alpha on the anchors is ignored.
-export function deriveNeutral(type: ThemeName, token: ColorToken, anchors: NeutralAnchors): string {
+export function deriveNeutral(type: BaseThemeName, token: ColorToken, anchors: NeutralAnchors): string {
     const surface = channels(anchors.surface);
     const text = channels(anchors.text);
     let factor = mixFactor(type, token);

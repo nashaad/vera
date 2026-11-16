@@ -1,11 +1,10 @@
-import { BUILTIN_COLOR_SCHEME, BUILTIN_THEMES } from "./builtin.ts";
+import { BASE_THEMES, isBaseThemeName, type BaseThemeName } from "./base.ts";
+import { builtinRecord } from "./registry.ts";
 import {
     COLOR_TOKENS,
     isThemeKey,
-    isThemeName,
     type ColorToken,
     type ThemeFile,
-    type ThemeName,
 } from "./tokens.ts";
 
 const MAX_NAME_CHARS = 120;
@@ -18,7 +17,7 @@ export interface ImportedThemeSummary {
     readonly slug: string;
     readonly name: string;
     // The built-in theme this one falls back to, and the base for every value that is not a color.
-    readonly type: ThemeName;
+    readonly type: BaseThemeName;
     // Where the theme came from, for the person to read.
     readonly source: string;
     readonly colors: Readonly<Record<ColorToken, string>>;
@@ -36,8 +35,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function baseColor(type: ThemeName, token: ColorToken): string {
-    const base = BUILTIN_THEMES[type];
+export function baseColor(type: BaseThemeName, token: ColorToken): string {
+    const base: ThemeFile = BASE_THEMES[type];
     return base.palette[base.colors[token]] ?? "";
 }
 
@@ -47,7 +46,7 @@ export function parseImportedSummary(value: unknown): ImportedThemeSummary | und
     const { slug, name, type, source } = value;
     if (typeof slug !== "string" || !isThemeKey(slug)) return undefined;
     if (typeof name !== "string" || name.length === 0 || name.length > MAX_NAME_CHARS) return undefined;
-    if (typeof type !== "string" || !isThemeName(type)) return undefined;
+    if (typeof type !== "string" || !isBaseThemeName(type)) return undefined;
     const given = isRecord(value.colors) ? value.colors : {};
     const colors = {} as Record<ColorToken, string>;
     for (const token of COLOR_TOKENS) {
@@ -94,7 +93,7 @@ export function summaryOf(theme: ImportedThemeSummary): ImportedThemeSummary {
 
 // The same shape the built-in themes have, so applying and previewing one reads every theme alike.
 export function importedThemeFile(theme: ImportedThemeSummary): ThemeFile {
-    const base = BUILTIN_THEMES[theme.type];
+    const base = BASE_THEMES[theme.type];
     const palette: Record<string, string> = {};
     const colors = {} as Record<ColorToken, string>;
     for (const token of COLOR_TOKENS) {
@@ -109,11 +108,13 @@ export function importedThemeFile(theme: ImportedThemeSummary): ThemeFile {
     };
 }
 
+const BUILTIN_COLOR_SCHEME = builtinRecord((theme) => theme.colorScheme);
+
 const FIRST_COLOR_FUNCTION = /rgba?\([^)]*\)/;
 
 // The built-in drop shadow with its first layer drawn in the theme's shadow color.
-export function shadowFor(type: ThemeName, color: string): string {
-    const base = BUILTIN_THEMES[type].values.shadow;
+export function shadowFor(type: BaseThemeName, color: string): string {
+    const base = BASE_THEMES[type].values.shadow;
     return base.replace(FIRST_COLOR_FUNCTION, color);
 }
 

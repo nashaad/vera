@@ -2,12 +2,16 @@
 // The file picker and the installed VS Code extensions are fixtures. The importer is an included desktop extension
 // that runs as a process named "Vera Theme Import", one per request.
 
+import { createServer } from "node:http";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 
+import { configureFauxHome, streamChunk } from "./faux-home.mjs";
 import { COUNT_PROCESSES, MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
+const builtinTrial = startTrial();
 const files = join(trial.trialRoot, "files");
 const fakeHome = join(trial.trialRoot, "fake-home");
 const desktopFolder = join(trial.home, "machine", "desktop");
@@ -150,7 +154,221 @@ function expectEqual(actual, expected, label) {
     if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}.`);
 }
 
+const BUILTIN_THEMES = [
+    "dark", "light", "high-contrast", "default", "vera-purple", "muted-blue", "onyx", "palenight",
+    "synthwave", "nightowl", "github", "midnight-blue", "midnight-blue-ii", "norton-commander",
+    "nc-navy", "windows-31", "vera-orange",
+];
+const CONTACT_SHEET = process.env.VERA_DESKTOP_THEME_CONTACT_SHEET ?? join(builtinTrial.trialRoot, "desktop-themes.png");
+
+async function builtinJourney() {
+    const provider = createServer((request, response) => {
+        if (request.method === "GET" && request.url.endsWith("/models")) {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ data: [{ id: "crow-0" }] }));
+            return;
+        }
+        let raw = "";
+        request.on("data", (part) => { raw += part; });
+        request.on("end", () => {
+            const body = JSON.parse(raw);
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.end(`${streamChunk(body.model, { role: "assistant", content: "The crow settles on the branch." })}${streamChunk(body.model, {}, "stop")}data: [DONE]\n\n`);
+        });
+    });
+    const shots = [];
+    let app;
+    try {
+        await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
+        configureFauxHome(builtinTrial.home, provider.address().port, "auto");
+        const extension = join(builtinTrial.home, "machine", "desktop", "extensions", "crow");
+        write(join(extension, "vera.desktop.json"), {
+            id: "crow",
+            version: "1.0.0",
+            engine: "vera-gui@^1",
+            contributes: { themes: [{ label: "Onyx", path: "./themes/onyx.json" }] },
+        });
+        write(join(extension, "themes", "onyx.json"), {
+            version: 1,
+            slug: "onyx",
+            name: "Onyx",
+            type: "dark",
+            source: "Extension Crow Onyx",
+            colors: { surface: "#101820", "surface-sidebar": "#0b1118", text: "#e0e5eb" },
+            values: {},
+            tokenColors: [],
+            semanticTokenColors: {},
+        });
+        app = await builtinTrial.launch();
+        const page = await app.firstWindow();
+        await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
+        await builtinTrial.waitForHost();
+        await page.locator(".composer-input").fill("Say hello to the crow");
+        await page.locator(".composer-input").press("Enter");
+        await page.getByText("The crow settles on the branch.").waitFor({ timeout: 45_000 });
+        await page.locator(".session-row").first().click();
+
+        async function colorState() {
+            return page.evaluate(() => {
+                const style = getComputedStyle(document.documentElement);
+                const colors = ["surface", "surface-sidebar", "surface-panel", "accent", "text", "border"]
+                    .map((token) => style.getPropertyValue(`--vera-${token}`).trim());
+                return { theme: document.documentElement.getAttribute("data-theme"), colors };
+            });
+        }
+
+        async function selectTheme(name, action) {
+            const before = await colorState();
+            await action();
+            await until(`theme ${name}`, async () => (await colorState()).theme === name);
+            const after = await colorState();
+            if (JSON.stringify(after.colors) === JSON.stringify(before.colors)) throw new Error(`Theme ${name} did not change the resolved window colors.`);
+        }
+
+        async function capture(name) {
+            const themeSheet = page.locator('[data-overlay="themes"]');
+            if (await themeSheet.count() > 0) {
+                await page.keyboard.press("Escape");
+                await themeSheet.waitFor({ state: "detached", timeout: 5_000 });
+            }
+            await page.locator(".session-row").first().click();
+            const transcript = page.locator(".transcript-scroll").first();
+            await transcript.waitFor({ timeout: 10_000 });
+            await until(`the real conversation for ${name}`, async () => (await transcript.innerText()).includes("The crow settles on the branch."));
+            const labels = JSON.parse(readFileSync(join(builtinTrial.root, "config", "tui-themes.json"), "utf8")).themes;
+            const label = ({ dark: "Dark", light: "Light", "high-contrast": "High contrast" })[name] ?? labels[name]?.label ?? name;
+            const path = join(builtinTrial.trialRoot, `${name}.png`);
+            await page.screenshot({ path });
+            shots.push({ name, label, path });
+        }
+
+        const menuChoice = "vera-purple";
+        await selectTheme(menuChoice, () => app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById("theme.vera-purple").click()));
+        await capture(menuChoice);
+
+        await press(app, "K", [MODIFIER]);
+        const palette = page.locator('input[aria-label="Command palette"]');
+        await palette.waitFor({ timeout: 10_000 });
+        await palette.fill("Theme: Muted Blue");
+        await page.locator('.palette-row[data-command="theme.muted-blue"]').waitFor({ timeout: 10_000 });
+        await selectTheme("muted-blue", () => palette.press("Enter"));
+        await capture("muted-blue");
+
+        await openAppearance(app, page, false);
+        await page.locator('[data-theme-card="onyx"]').waitFor({ timeout: 10_000 });
+        await selectTheme("onyx", () => page.locator('[data-theme-card="onyx"]').click());
+        await capture("onyx");
+
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById("theme.choose").click());
+        const extensionState = await page.evaluate(() => window.veraDesktop.listDesktopExtensions());
+        if (!extensionState.ok || !extensionState.themes.some((theme) => theme.slug === "crow.onyx")) {
+            throw new Error(`The Onyx extension fixture was not loaded: ${JSON.stringify(extensionState)}`);
+        }
+        const onyxRows = page.locator('[data-overlay="themes"] [data-theme-name="onyx"]');
+        await onyxRows.waitFor({ timeout: 10_000 });
+        await page.locator('[data-overlay="themes"] [data-theme-name="imported:crow.onyx"]').waitFor({ timeout: 10_000 });
+        const onyxText = await page.locator('[data-overlay="themes"]').innerText();
+        if (!onyxText.includes("Onyx") || !onyxText.includes("Extension Crow Onyx")) throw new Error("The builtin and imported Onyx choices with extension source are not both visible in the theme sheet.");
+        await page.locator('[data-overlay="themes"] [data-theme-name="imported:crow.onyx"]').click();
+        await until("the imported Onyx collision choice", async () => (await colorState()).theme === "imported:crow.onyx");
+        await page.locator('[data-overlay="themes"] [data-theme-name="onyx"]').click();
+        await until("the builtin Onyx collision choice", async () => (await colorState()).theme === "onyx");
+        await page.keyboard.press("Escape");
+        const onyxMenuLabels = await app.evaluate(({ Menu }) => [
+            Menu.getApplicationMenu().getMenuItemById("theme.onyx")?.label,
+            Menu.getApplicationMenu().getMenuItemById("theme.imported.crow.onyx")?.label,
+        ]);
+        expectEqual(JSON.stringify(onyxMenuLabels), JSON.stringify(["Onyx", "Onyx"]), "the colliding Onyx menu labels");
+        await press(app, "K", [MODIFIER]);
+        const onyxPalette = page.locator('input[aria-label="Command palette"]');
+        await onyxPalette.waitFor({ timeout: 10_000 });
+        await onyxPalette.fill("Theme: Onyx");
+        const builtinOnyxCommand = page.locator('.palette-row[data-command="theme.onyx"]');
+        const importedOnyxCommand = page.locator('.palette-row[data-command="theme.imported.crow.onyx"]');
+        await builtinOnyxCommand.waitFor({ timeout: 10_000 });
+        await importedOnyxCommand.waitFor({ timeout: 10_000 });
+        expectEqual(await builtinOnyxCommand.innerText(), "Theme: Onyx", "the builtin Onyx palette title");
+        expectEqual(await importedOnyxCommand.innerText(), "Theme: Onyx", "the imported Onyx palette title");
+        await onyxPalette.press("Escape");
+        await openAppearance(app, page, false);
+        const importedOnyxCard = page.locator('[data-theme-card="imported:crow.onyx"]');
+        await importedOnyxCard.waitFor({ timeout: 10_000 });
+        const builtinOnyxCard = page.locator('[data-theme-card="onyx"]');
+        expectEqual(await builtinOnyxCard.count(), 1, "the builtin Onyx Appearance card");
+        expectEqual(await importedOnyxCard.count(), 1, "the imported Onyx Appearance card");
+        expectEqual(await builtinOnyxCard.innerText(), "Onyx", "the builtin Onyx Appearance label");
+        expectEqual(await importedOnyxCard.innerText(), "Onyx", "the imported Onyx Appearance label");
+        expectEqual(await importedOnyxCard.getAttribute("title"), "Extension Crow Onyx", "the imported Onyx Appearance source");
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById("theme.choose").click());
+        await page.locator('[data-overlay="themes"] [data-theme-name="palenight"]').waitFor({ timeout: 10_000 });
+        await selectTheme("palenight", () => page.locator('[data-overlay="themes"] [data-theme-name="palenight"]').click());
+        await capture("palenight");
+
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById("go.tour").click());
+        await page.waitForSelector('main[data-page="tour"]', { timeout: 10_000 });
+        await selectTheme("synthwave", () => page.locator(".tour-select").selectOption("synthwave"));
+        await capture("synthwave");
+
+        for (const name of BUILTIN_THEMES) {
+            if (shots.some((shot) => shot.name === name)) continue;
+            await selectTheme(name, () => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu().getMenuItemById(id).click(), name === "high-contrast" ? "theme.highContrast" : `theme.${name}`));
+            await capture(name);
+        }
+
+        await press(app, "K", [MODIFIER]);
+        await palette.waitFor({ timeout: 10_000 });
+        await palette.fill("Theme: High Contrast");
+        const highContrast = page.locator('.palette-row[data-command="theme.highContrast"]');
+        await highContrast.waitFor({ timeout: 10_000 });
+        expectEqual(await highContrast.innerText(), "Theme: High Contrast", "the high contrast palette title");
+        await palette.press("Escape");
+        const require = createRequire(join(builtinTrial.root, "package.json"));
+        const sharp = require("sharp");
+        const width = 480;
+        const height = 310;
+        const columns = 3;
+        const rows = Math.ceil(shots.length / columns);
+        const composites = [];
+        for (let index = 0; index < shots.length; index += 1) {
+            const shot = shots[index];
+            if (shot === undefined) continue;
+            const left = (index % columns) * width;
+            const top = Math.floor(index / columns) * height;
+            const svg = `<svg width="${width}" height="36"><rect width="100%" height="100%" fill="#20242b"/><text x="12" y="24" fill="white" font-size="18" font-family="sans-serif">${shot.label}</text></svg>`;
+            composites.push({ input: await sharp(shot.path).resize(width, height - 36, { fit: "contain", background: "#111" }).png().toBuffer(), left, top: top + 36 });
+            composites.push({ input: Buffer.from(svg), left, top });
+        }
+        mkdirSync(join(CONTACT_SHEET, ".."), { recursive: true });
+        await sharp({ create: { width: columns * width, height: rows * height, channels: 4, background: "#111" } }).composite(composites).png().toFile(CONTACT_SHEET);
+        expectEqual(shots.length, BUILTIN_THEMES.length, "the captured builtin themes");
+
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById("theme.vera-orange").click());
+        await until("the stored vera-orange theme", async () => (await page.evaluate(() => localStorage.getItem("vera.theme"))) === "vera-orange");
+        await app.close();
+        app = await builtinTrial.launch();
+        const relaunched = await app.firstWindow();
+        await relaunched.waitForSelector(".app", { timeout: 45_000 });
+        await until("the persisted builtin theme", async () => (await relaunched.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "vera-orange");
+        await app.close();
+        app = await builtinTrial.launch();
+        const invalid = await app.firstWindow();
+        await invalid.waitForSelector(".app", { timeout: 45_000 });
+        await invalid.evaluate(() => localStorage.setItem("vera.theme", "not-a-theme"));
+        await app.close();
+        app = await builtinTrial.launch();
+        const fallback = await app.firstWindow();
+        await fallback.waitForSelector(".app", { timeout: 45_000 });
+        await until("invalid theme fallback", async () => (await fallback.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "dark");
+        console.log(`desktop builtin theme sheet: ${CONTACT_SHEET}`);
+    } finally {
+        await builtinTrial.cleanup();
+        provider.closeAllConnections();
+        await new Promise((resolve) => provider.close(resolve));
+    }
+}
+
 try {
+    await builtinJourney();
     prepare();
     const first = await boot();
     const { app, page } = first;

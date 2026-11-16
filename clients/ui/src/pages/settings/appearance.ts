@@ -1,13 +1,9 @@
 import type { Density, Scale } from "../../theme/preferences.ts";
 import { resolveThemeChoice, themeFile } from "../../theme/apply.ts";
 import { importedThemeById } from "../../theme/imported-registry.ts";
-import { DEFAULT_THEME, isThemeChoice, isThemeName, type ThemeChoice, type ThemeName } from "../../theme/tokens.ts";
-
-export const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
-    dark: "Dark",
-    light: "Light",
-    "high-contrast": "High contrast",
-};
+import { DEFAULT_THEME, isThemeChoice, isThemeName, type ThemeChoice } from "../../theme/tokens.ts";
+import { THEME_LABELS } from "../../theme/registry.ts";
+export { THEME_LABELS } from "../../theme/registry.ts";
 
 export const SCALE_LABELS: Readonly<Record<Scale, string>> = { small: "Small", default: "Default", large: "Large" };
 
