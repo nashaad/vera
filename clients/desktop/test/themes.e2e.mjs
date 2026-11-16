@@ -177,6 +177,14 @@ async function builtinJourney() {
         });
     });
     const shots = [];
+    const hostPids = new Set();
+    async function ready(app) {
+        const page = await app.firstWindow();
+        // First-paint colors precede boot; closing here can leave a detached host still starting.
+        await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
+        hostPids.add(await builtinTrial.waitForHost());
+        return page;
+    }
     let app;
     try {
         await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
@@ -200,9 +208,8 @@ async function builtinJourney() {
             semanticTokenColors: {},
         });
         app = await builtinTrial.launch();
-        const page = await app.firstWindow();
+        const page = await ready(app);
         await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
-        await builtinTrial.waitForHost();
         await page.locator(".composer-input").fill("Say hello to the crow");
         await page.locator(".composer-input").press("Enter");
         await page.getByText("The crow settles on the branch.").waitFor({ timeout: 45_000 });
@@ -346,24 +353,32 @@ async function builtinJourney() {
         await until("the stored vera-orange theme", async () => (await page.evaluate(() => localStorage.getItem("vera.theme"))) === "vera-orange");
         await app.close();
         app = await builtinTrial.launch();
-        const relaunched = await app.firstWindow();
-        await relaunched.waitForSelector(".app", { timeout: 45_000 });
+        const relaunched = await ready(app);
         await until("the persisted builtin theme", async () => (await relaunched.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "vera-orange");
         await app.close();
         app = await builtinTrial.launch();
-        const invalid = await app.firstWindow();
-        await invalid.waitForSelector(".app", { timeout: 45_000 });
+        const invalid = await ready(app);
         await invalid.evaluate(() => localStorage.setItem("vera.theme", "not-a-theme"));
         await app.close();
         app = await builtinTrial.launch();
-        const fallback = await app.firstWindow();
-        await fallback.waitForSelector(".app", { timeout: 45_000 });
+        const fallback = await ready(app);
         await until("invalid theme fallback", async () => (await fallback.evaluate(() => document.documentElement.getAttribute("data-theme"))) === "dark");
         console.log(`desktop builtin theme sheet: ${CONTACT_SHEET}`);
     } finally {
         await builtinTrial.cleanup();
         provider.closeAllConnections();
         await new Promise((resolve) => provider.close(resolve));
+        await until("the builtin trial hosts to exit", () => [...hostPids].every((pid) => {
+            try {
+                process.kill(pid, 0);
+                return false;
+            } catch (error) {
+                if (error.code === "ESRCH") return true;
+                throw error;
+            }
+        }));
+        if (existsSync(builtinTrial.trialRoot)) throw new Error("The builtin trial home was not removed.");
+        console.log(`builtin trial cleanup verified: hosts ${[...hostPids].join(", ")} exited; trial home removed`);
     }
 }
 
