@@ -6,8 +6,8 @@ description: "Use side conversations, workspace diffs, artifacts, context inspec
 # Included extensions
 
 Vera includes extensions for side conversations, workspace diffs,
-context inspection, commentable artifacts, and command hooks. They appear in `/extensions` and
-`/customize`; no separate installation is needed.
+context inspection, commentable artifacts, and command hooks. They appear in `/extensions`,
+not in `/customize`; no separate installation is needed.
 
 Extension code lives in four places in the repository. Vera loads the first
 two on its own:
@@ -97,7 +97,7 @@ host, not by this extension, and disabling it does not stop them. See
 
 To configure this extension's list, add an `extensions` entry
 whose path is the absolute directory shown for `vera.command-hooks` in
-`/customize`. That entry replaces the included copy. Its `argv` is an absolute
+`/extensions`. That entry replaces the included copy. Its `argv` is an absolute
 path. Malformed supplied configuration prevents activation.
 
 ## Title new conversations

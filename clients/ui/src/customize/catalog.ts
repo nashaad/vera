@@ -5,7 +5,7 @@ import type { AgentInfo, SkillInfo, SourceCategory, SourceInfo } from "./wire.ts
 
 export type CustomizeKind = SourceCategory;
 export type KindFilter = "all" | CustomizeKind;
-export type ScopeGroup = "This folder" | "Your home" | "Extensions" | "Included with Vera" | "Built in" | "Other";
+export type ScopeGroup = "This folder" | "Your home" | "Extensions" | "Built in" | "Other";
 
 export interface CustomizeItem {
     // Unique within one build; React keys and test lookups use it.
@@ -29,14 +29,13 @@ export interface ScopeSection {
 export const FOLDER_LIMIT = 50;
 
 export const KIND_ORDER: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory"];
-const SCOPE_ORDER: readonly ScopeGroup[] = ["This folder", "Your home", "Extensions", "Included with Vera", "Built in", "Other"];
+const SCOPE_ORDER: readonly ScopeGroup[] = ["This folder", "Your home", "Extensions", "Built in", "Other"];
 
-// Maps the scope strings the host sends (project, user, extension, extension <id>, core, included, system).
+// Maps the scope strings the host sends (project, user, extension, extension <id>, system).
 export function scopeGroup(scope: string | undefined): ScopeGroup {
     if (scope === "project") return "This folder";
     if (scope === "user") return "Your home";
     if (scope === "extension" || scope?.startsWith("extension ") === true) return "Extensions";
-    if (scope === "included" || scope === "core") return "Included with Vera";
     if (scope === "system") return "Built in";
     return "Other";
 }

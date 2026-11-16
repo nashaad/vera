@@ -8,7 +8,7 @@ export interface DesktopExtensionEntry {
     readonly themes: readonly string[];
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
-    // Included extensions can be turned off but not removed.
+    // Included extensions are always on and cannot be removed.
     readonly included: boolean;
     readonly enabled: boolean;
 }

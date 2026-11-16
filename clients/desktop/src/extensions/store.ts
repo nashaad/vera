@@ -90,6 +90,11 @@ export class ExtensionStore {
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 
+    // An extension included with Vera is always on, whatever the state file lists.
+    private off(entry: Found, disabled: ReadonlySet<string>): boolean {
+        return !entry.included && disabled.has(entry.id);
+    }
+
     entries(): readonly DesktopExtensionEntry[] {
         const disabled = this.state.disabled();
         return this.all().map((entry) => ({
@@ -99,7 +104,7 @@ export class ExtensionStore {
             hasMain: entry.hasMain,
             hasCommands: entry.hasCommands,
             included: entry.included,
-            enabled: !disabled.has(entry.id),
+            enabled: !this.off(entry, disabled),
         }));
     }
 
@@ -112,7 +117,7 @@ export class ExtensionStore {
         const disabled = this.state.disabled();
         const themes = new Map<string, ImportedThemeSummary>();
         for (const entry of this.all()) {
-            if (disabled.has(entry.id)) continue;
+            if (this.off(entry, disabled)) continue;
             const read = readExtension(entry.folder);
             if (!read.ok) continue;
             for (const theme of read.themes) {
@@ -124,18 +129,18 @@ export class ExtensionStore {
         return [...themes.values()].slice(0, MAX_LISTED_THEMES).sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // The worker file of a task, only for an extension included with Vera that is turned on. An installed
-    // extension never runs a task, and neither does one that is turned off. Undefined means it must not run.
+    // The worker file of a task, only for an extension included with Vera. An installed extension never runs a
+    // task. Undefined means it must not run.
     taskFile(extensionId: string, taskId: string): string | undefined {
-        if (this.state.disabled().has(extensionId)) return undefined;
         const entry = this.scan(this.included, true).find((candidate) => candidate.id === extensionId);
         const task = entry?.tasks.find((candidate) => candidate.id === taskId);
         return entry === undefined || task === undefined ? undefined : taskWorkerFile(entry.folder, task.main);
     }
 
-    // False when the id is not an extension, or the state file could not be written.
+    // False when the id is not an installed extension, or the state file could not be written. An included
+    // extension is always on, so it cannot be turned off.
     setEnabled(id: string, enabled: boolean): boolean {
-        return this.all().some((entry) => entry.id === id) && this.state.setEnabled(id, enabled);
+        return this.all().some((entry) => entry.id === id && !entry.included) && this.state.setEnabled(id, enabled);
     }
 
     remove(id: string): RemoveResult {

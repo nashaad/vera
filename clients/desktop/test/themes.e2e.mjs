@@ -42,6 +42,8 @@ function write(path, value) {
 }
 
 function prepare() {
+    // A disabled entry for the included importer is ignored, so every check below runs with one in the state file.
+    write(join(desktopFolder, "extensions.json"), { version: 1, disabled: [IMPORTER] });
     write(join(files, "pirate-crow.json"), PIRATE_CROW);
     write(join(files, "broken.json"), "{ \"colors\": { ");
     write(join(files, "bare.json"), { name: "Bare Crow", colors: { "editor.findMatchBackground": "#ff0000" } });
@@ -239,47 +241,27 @@ try {
     expectEqual(source, "Extension Crow Hold", "the installed theme's source");
     await importProcessGone(app, 7);
 
-    // Each imported theme is an installed extension of its own, listed beside the included importer.
+    // Each imported theme is an installed extension of its own. The included importer is not listed, so it has no
+    // switch, and a request to turn it off is refused. The command, its menu and palette entries stay.
     await openCustomize(page);
     await page.locator("[data-desktop-extension=\"imported.pirate-crow\"]").waitFor({ timeout: 10_000 });
     await page.locator("[data-desktop-extension=\"imported.crow-hold-night\"]").waitFor({ timeout: 10_000 });
-    await page.locator(`[data-desktop-extension="${IMPORTER}"]`).waitFor({ timeout: 10_000 });
-    expectEqual(await page.locator(`[data-desktop-extension-remove="${IMPORTER}"]`).count(), 0, "the remove button of the importer");
+    expectEqual(await page.locator("[data-desktop-extension]").count(), 2, "the extensions listed");
+    expectEqual(await page.locator(`[data-desktop-extension="${IMPORTER}"]`).count(), 0, "the rows of the importer");
+    expectEqual(await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).count(), 0, "the switches of the importer");
     expectEqual(await page.locator("[data-desktop-extension-remove=\"imported.pirate-crow\"]").count(), 1, "the remove button of an imported theme");
-
-    // Turning the importer off takes away the command, its menu and palette entries and the import controls, and
-    // a request that still reaches the shell is refused without starting a process. The imported themes stay.
-    await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).click();
-    await page.locator(`[data-desktop-extension="${IMPORTER}"][data-enabled="false"]`).waitFor({ timeout: 5_000 });
-    await until("the import item to leave the Theme menu", async () => !(await menuItem(app, IMPORT_COMMAND)));
-    await openAppearance(app, page, false);
-    await page.locator("[data-theme-card=\"imported:crow-hold-night\"]").waitFor({ timeout: 10_000 });
-    expectEqual(await page.locator("[data-theme-import]").count(), 0, "the import controls while the importer is off");
-    await press(app, "K", [MODIFIER]);
-    await palette.waitFor({ timeout: 10_000 });
-    await palette.fill("import vs code");
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expectEqual(await page.locator(`.palette-row[data-command="${IMPORT_COMMAND}"]`).count(), 0, "the palette entry while the importer is off");
-    await palette.press("Escape");
+    const refused = await page.evaluate((id) => window.veraDesktop.setDesktopExtensionEnabled(id, false), IMPORTER);
     expectEqual(
-        JSON.stringify(await page.evaluate(() => window.veraDesktop.importTheme())),
-        JSON.stringify({ ok: false, reason: "Vera could not import that theme." }),
-        "a file import while the importer is off",
+        JSON.stringify(refused),
+        JSON.stringify({ ok: false, reason: `Vera could not turn "${IMPORTER}" off.` }),
+        "turning the importer off",
     );
-    expectEqual(
-        JSON.stringify(await page.evaluate(() => window.veraDesktop.listInstalledThemes())),
-        JSON.stringify({ ok: false, reason: "Vera could not list the themes installed in VS Code." }),
-        "the installed list while the importer is off",
-    );
-    await importProcessGone(app, 7);
-
-    // Turning it on brings them all back.
-    await openCustomize(page);
-    await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).click();
-    await page.locator(`[data-desktop-extension="${IMPORTER}"][data-enabled="true"]`).waitFor({ timeout: 5_000 });
-    await until("the import item to return to the Theme menu", () => menuItem(app, IMPORT_COMMAND));
+    const listed = await page.evaluate(() => window.veraDesktop.listDesktopExtensions());
+    const importer = listed.ok ? listed.extensions.find((entry) => entry.id === IMPORTER) : undefined;
+    expectEqual(importer === undefined ? "missing" : `${importer.included}/${importer.enabled}`, "true/true", "the importer in the list the window reads");
+    expectEqual(await menuItem(app, IMPORT_COMMAND), true, "the import item of the Theme menu");
     await openAppearance(app, page);
-    expectEqual(await page.locator("[data-theme-import]").count() > 0, true, "the import controls once the importer is on again");
+    expectEqual(await page.locator("[data-theme-import]").count() > 0, true, "the import controls");
     await press(app, "K", [MODIFIER]);
     await palette.waitFor({ timeout: 10_000 });
     await palette.fill("import vs code");

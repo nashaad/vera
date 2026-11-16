@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAgentCatalog } from "../../src/agents/catalog.ts";
 import { loadCustomizationCatalog } from "../../src/customize/catalog.ts";
+import { includedExtensionIds } from "../../src/extensions/included.ts";
 
 const originalHome = process.env.VERA_HOME;
 const roots: string[] = [];
@@ -37,67 +38,68 @@ test("catalog uses winning definitions, keeps source bodies, and reports invalid
     expect(catalog.sources.find((source) => source.name === "vera-help")?.editable).toBe(false);
 });
 
-test("included extension status respects explicit copies and disabled IDs", async () => {
+async function writeExtension(directory: string, id: string): Promise<void> {
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "vera.extension.json"), JSON.stringify({
+        id, version: "1.0.0", sdk: "1", entrypoint: "./extension.ts", capabilities: [],
+    }));
+    await writeFile(join(directory, "extension.ts"), "export default {};\n");
+}
+
+test("@core included and core extensions are not listed, installed and configured ones are", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-batteries-")); roots.push(root);
     const home = join(root, "home");
     const workspace = join(root, "project");
     process.env.VERA_HOME = home;
-    await mkdir(home, { recursive: true });
     await mkdir(workspace, { recursive: true });
-    await cp(join(import.meta.dir, "../../extensions/btw"), join(home, "btw"), { recursive: true });
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    const load = () => loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    const extensionRows = (catalog: Awaited<ReturnType<typeof load>>) => catalog.sources.filter((source) => source.category === "extensions");
+
+    await mkdir(home, { recursive: true });
+    expect(extensionRows(await load())).toEqual([]);
+
+    await writeExtension(join(home, "extensions", "acme.crow"), "acme.crow");
     await writeFile(join(home, "config.json"), JSON.stringify({
         schema_version: 1,
         provider: "openrouter",
         model: "faux/test",
-        disabled_included_extensions: ["vera.btw", "vera.command-hooks"],
+        disabled_included_extensions: ["vera.command-hooks"],
+        extensions: [{ path: join(import.meta.dir, "../../extensions/diff"), enabled: false }],
+    }));
+    const rows = extensionRows(await load());
+    expect(rows.map((source) => [source.name, source.scope, source.status, source.editable]).sort())
+        .toEqual([["acme.crow", "user", "enabled", true], ["vera.diff", "user", "disabled", true]]);
+    expect(rows.some((source) => source.scope === "included" || source.scope === "core")).toBe(false);
+    for (const id of includedExtensionIds().filter((id) => id !== "vera.diff")) {
+        expect(rows.some((source) => source.name === id)).toBe(false);
+    }
+});
+
+test("a copy of an included extension in the home is listed once, as the user's own", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-copy-")); roots.push(root);
+    const home = join(root, "home");
+    const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(workspace, { recursive: true });
+    await cp(join(import.meta.dir, "../../extensions/btw"), join(home, "btw"), { recursive: true });
+    await cp(join(import.meta.dir, "../../src/core-extensions/context"), join(home, "context"), { recursive: true });
+    await writeFile(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "faux/test",
+        disabled_included_extensions: ["vera.btw", "vera.context"],
         extensions: [
-            { path: join(import.meta.dir, "../../extensions/diff"), enabled: false },
             { path: join(home, "btw"), enabled: true },
+            { path: join(home, "context"), enabled: false },
         ],
     }));
     const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
     const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
     const extensions = catalog.sources.filter((source) => source.category === "extensions");
-    expect(extensions.filter((source) => source.name === "vera.diff"))
-        .toMatchObject([{ scope: "user", status: "disabled" }]);
-    expect(extensions.find((source) => source.name === "vera.command-hooks"))
-        .toMatchObject({ scope: "core", status: "disabled" });
-    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "user"))
-        .toMatchObject({ status: "enabled" });
-    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "included"))
-        .toMatchObject({ status: "shadowed" });
+    expect(extensions.map((source) => [source.name, source.scope, source.status]).sort())
+        .toEqual([["vera.btw", "user", "enabled"], ["vera.context", "user", "disabled"]]);
 });
-
-
-for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"] as const) {
-    test(`Context catalog reports ${mode}`, async () => {
-        const root = await mkdtemp(join(tmpdir(), "customize-context-")); roots.push(root);
-        const home = join(root, "home");
-        const workspace = join(root, "project");
-        process.env.VERA_HOME = home;
-        await mkdir(home, { recursive: true });
-        await mkdir(workspace, { recursive: true });
-        await cp(join(import.meta.dir, "../../src/core-extensions/context"), join(home, "context"), { recursive: true });
-        const explicit = mode === "override" || mode === "disabled-copy";
-        await writeFile(join(home, "config.json"), JSON.stringify({
-            schema_version: 1,
-            provider: "openrouter",
-            model: "faux/test",
-            disabled_included_extensions: mode === "disabled-builtin" ? ["vera.context"] : [],
-            extensions: explicit ? [{
-                path: join(home, "context"),
-                enabled: mode === "override",
-            }] : [],
-        }));
-        const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
-        const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
-        const entries = catalog.sources.filter((source) => source.name === "vera.context");
-        expect(entries.find((source) => source.scope === "core"))
-            .toMatchObject({ status: explicit ? "shadowed" : mode === "included" ? "enabled" : "disabled" });
-        if (explicit) expect(entries.find((source) => source.scope === "user"))
-            .toMatchObject({ status: mode === "override" ? "enabled" : "disabled" });
-    });
-}
 
 test("skills turned off by disabled_skills still appear, marked disabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-skills-")); roots.push(root);
@@ -121,7 +123,7 @@ test("skills turned off by disabled_skills still appear, marked disabled", async
     expect(skills.find((source) => source.name === "create-agent")?.status).not.toBe("disabled");
 });
 
-test("a broken config.json keeps skills and extensions on their last settings with one warning", async () => {
+test("a broken config.json keeps skills and configured extensions on their last settings with one warning", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-broken-")); roots.push(root);
     const home = join(root, "home");
     const workspace = join(root, "project");
@@ -129,12 +131,13 @@ test("a broken config.json keeps skills and extensions on their last settings wi
     await mkdir(workspace, { recursive: true });
     await mkdir(join(home, "skills/plunder"), { recursive: true });
     await writeFile(join(home, "skills/plunder/SKILL.md"), "---\nname: plunder\ndescription: Take the loot\n---\nBody\n");
+    await writeExtension(join(home, "crow"), "acme.crow");
     await writeFile(join(home, "config.json"), JSON.stringify({
         schema_version: 1,
         provider: "openrouter",
         model: "faux/test",
         disabled_skills: ["plunder"],
-        disabled_included_extensions: ["vera.btw"],
+        extensions: [{ path: join(home, "crow"), enabled: false }],
     }));
     const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
     await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
@@ -143,7 +146,7 @@ test("a broken config.json keeps skills and extensions on their last settings wi
     const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
 
     expect(catalog.sources.find((source) => source.name === "plunder")?.status).toBe("disabled");
-    expect(catalog.sources.find((source) => source.name === "vera.btw")?.status).toBe("disabled");
+    expect(catalog.sources.find((source) => source.name === "acme.crow")?.status).toBe("disabled");
     const notices = catalog.warnings.filter((warning) => warning.startsWith("config.json could not be read:"));
     expect(notices).toHaveLength(1);
     expect(notices[0]).toEndWith(". Skills use the last settings that loaded.");
