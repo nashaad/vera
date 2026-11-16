@@ -312,7 +312,7 @@ function readMenus(value: unknown, commands: readonly DesktopCommand[]): Desktop
     if (!isPlainObject(value)) throw new ManifestProblem('"contributes.menus" must be an object keyed by place.');
     for (const place of Object.keys(value)) {
         if (!isMenuPlace(place)) {
-            throw new ManifestProblem(`Unknown menu place "${place}". The places are ${DESKTOP_MENU_PLACES.join(" and ")}.`);
+            throw new ManifestProblem(`Unknown menu place "${place}". The places are ${new Intl.ListFormat("en-GB").format(DESKTOP_MENU_PLACES)}.`);
         }
         menus[place] = readMenuEntries(value[place], place, commands);
     }
