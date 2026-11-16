@@ -1,6 +1,5 @@
-import type { ExtensionFailure } from "../protocol/bridge.ts";
+import type { ExtensionFailure, FolderCustomizationsAnswer } from "../protocol/bridge.ts";
 import type { SessionRow } from "../protocol/sessions.ts";
-import type { ProbeState } from "./probe.ts";
 import type { AgentInfo, SkillInfo, SourceCategory, SourceInfo } from "./wire.ts";
 
 export type CustomizeKind = SourceCategory;
@@ -41,8 +40,11 @@ export function scopeGroup(scope: string | undefined): ScopeGroup {
 }
 
 // Skill and agent sources are matched to their cards by name only, so two same-named entries pair in list order.
-export function buildItems(probe: ProbeState, failures: readonly ExtensionFailure[]): CustomizeItem[] {
-    const sources = probe.sources ?? [];
+export function buildItems(
+    reading: Pick<FolderCustomizationsAnswer, "skills" | "startsOn" | "agents" | "sources">,
+    failures: readonly ExtensionFailure[],
+): CustomizeItem[] {
+    const sources = reading.sources;
     const skillSources = sourcesByName(sources, "skills");
     const agentSources = sourcesByName(sources, "agents");
     const items: CustomizeItem[] = [];
@@ -50,7 +52,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
         items.push({ ...entry, key: `${entry.kind}:${items.length}` });
     };
 
-    for (const skill of probe.skills ?? []) {
+    for (const skill of reading.skills) {
         const source = claim(skillSources, skill.name);
         add({
             kind: "skills",
@@ -63,8 +65,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
             ...(source === undefined ? {} : { source }),
         });
     }
-    const selected = probe.agents?.selected;
-    for (const agent of probe.agents?.agents ?? []) {
+    for (const agent of reading.agents) {
         const source = claim(agentSources, agent.name);
         add({
             kind: "agents",
@@ -72,7 +73,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
             description: agent.description ?? source?.description ?? "",
             group: scopeGroup(agent.scope),
             failed: false,
-            current: agent.name === selected,
+            current: agent.name === reading.startsOn,
             agent,
             ...(source === undefined ? {} : { source }),
         });
@@ -175,6 +176,11 @@ export function folderChoices(rows: readonly SessionRow[], limit: number = FOLDE
         return left[1] > right[1] ? -1 : 1;
     });
     return ordered.slice(0, limit).map(([folder]) => folder);
+}
+
+// Whether any listed session is a top-level one in a folder; subagents and chats do not count.
+export function hasFolderSession(rows: readonly SessionRow[]): boolean {
+    return rows.some((row) => row.parentId === undefined && !row.chat && row.workspace.length > 0);
 }
 
 // The parent directory of a path, accepting both slash styles.

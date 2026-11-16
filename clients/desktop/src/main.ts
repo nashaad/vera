@@ -66,6 +66,7 @@ import { PinStore, pinsPath } from "./pin-store.ts";
 import { BUNDLED_RELEASE_DIRECTORY } from "./release-install.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { readNewSessionAgents } from "./agent-requests.ts";
+import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { moveSessionToFolder } from "./session-move.ts";
 import { SessionPanes } from "./session-panes.ts";
@@ -603,6 +604,11 @@ ipcMain.handle(CHANNELS.newSessionAgents, (event, workspace: unknown) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
     if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };
     return readNewSessionAgents(hostSocketPath, workspace);
+});
+ipcMain.handle(CHANNELS.folderCustomizations, (event, workspace: unknown) => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };
+    return readFolderCustomizations(hostSocketPath, workspace);
 });
 ipcMain.handle(CHANNELS.annexPages, async (event) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };

@@ -154,7 +154,10 @@ export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<Age
 
 // A new session, folder or chat, starts on the default agent. A chat has no project folder to read.
 export async function listNewSessionAgents(reg: AgentRegistry, workspace: string | undefined): Promise<NewSessionAgents> {
-        const catalog = await loadAgentCatalogFor(reg, workspace);
+        return newSessionAgentsOf(await loadAgentCatalogFor(reg, workspace));
+    }
+
+export function newSessionAgentsOf(catalog: AgentCatalog): NewSessionAgents {
         return {
             startsOn: DEFAULT_AGENT.name,
             agents: listedAgents(catalog),

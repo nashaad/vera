@@ -80,6 +80,7 @@ import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskRe
 import { investigateSession, type SessionInvestigateCall } from "./agent-registry/investigate.ts";
 import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
+import { listFolderCustomizations, type FolderCustomizations } from "./agent-registry/folder-customizations.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "./agent-registry/peer-services.ts";
 import type { SubagentAdmission, SubagentSessionServices } from "./agent-registry/subagent-services.ts";
@@ -544,6 +545,12 @@ export class AgentRegistry {
         workspace: string | undefined,
     ): Promise<registrySelect.NewSessionAgents> {
         return registrySelect.listNewSessionAgents(this, workspace);
+    }
+
+    async listFolderCustomizations(
+        workspace: string | undefined,
+    ): Promise<FolderCustomizations> {
+        return listFolderCustomizations(this, workspace);
     }
 
     async listSkillsFor(id: string): Promise<SkillCommandCatalog> {

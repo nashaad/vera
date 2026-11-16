@@ -16,9 +16,10 @@ function skillScopeLabel(skill: CatalogSkill): string {
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
 }
 
+// Without a workspace only the home's skills, agents and extensions are listed.
 export async function loadCustomizationCatalog(options: {
-    readonly workspace: string;
-    readonly instructionRoot: InstructionRoot;
+    readonly workspace?: string;
+    readonly instructionRoot?: InstructionRoot;
     readonly agents: AgentCatalog;
 }): Promise<CustomizationCatalog> {
     const sources: CustomizationSource[] = [];
@@ -52,7 +53,9 @@ export async function loadCustomizationCatalog(options: {
             contextIds: [`agent:${row.definition.name}`],
         });
     }
-    const skills = await loadSkillCatalog({ projectRoot: options.workspace });
+    const skills = await loadSkillCatalog(options.workspace === undefined
+        ? {}
+        : { projectRoot: options.workspace });
     warnings.push(...skills.warnings);
     for (const row of skills.skills) {
         await add({
@@ -72,7 +75,9 @@ export async function loadCustomizationCatalog(options: {
             status: "disabled",
         });
     }
-    const instructions = await loadProjectInstructions(options.workspace);
+    const instructions = options.workspace === undefined
+        ? { files: [], warnings: [] }
+        : await loadProjectInstructions(options.workspace);
     warnings.push(...instructions.warnings);
     for (const file of instructions.files) {
         await add({
@@ -82,7 +87,10 @@ export async function loadCustomizationCatalog(options: {
             content: file.content, contextIds: [file.path],
         });
     }
-    const rules = await loadRules(ruleDirectories(options.workspace));
+    // The rule and memory loaders take a project folder, so a read without one lists neither.
+    const rules = options.workspace === undefined
+        ? { rules: [], warnings: [] }
+        : await loadRules(ruleDirectories(options.workspace));
     warnings.push(...rules.warnings.map((warning) => warning.message));
     for (const rule of rules.rules) {
         await add({
@@ -95,7 +103,9 @@ export async function loadCustomizationCatalog(options: {
             content: rule.body, contextIds: [rule.path],
         });
     }
-    const memory = await loadMemory(options.instructionRoot);
+    const memory = options.instructionRoot === undefined
+        ? { files: [], warnings: [] }
+        : await loadMemory(options.instructionRoot);
     warnings.push(...memory.warnings);
     for (const file of memory.files) {
         for (const item of [

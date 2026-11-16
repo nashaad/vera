@@ -11,7 +11,7 @@ import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalo
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
 import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
-import type { AgentInfo } from "../customize/wire.ts";
+import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 
 // "installing" is the packaged app putting its bundled release in place before it connects.
 export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
@@ -204,6 +204,19 @@ export interface NewSessionAgentsAnswer {
 
 export type NewSessionAgentsResult = NewSessionAgentsAnswer | HostRequestFailure;
 
+export interface FolderCustomizationsAnswer {
+    readonly ok: true;
+    readonly skills: readonly SkillInfo[];
+    // The agent a session created there starts on.
+    readonly startsOn: string;
+    readonly agents: readonly AgentInfo[];
+    readonly sources: readonly SourceInfo[];
+    // What the skills, agents and sources each warned about, without repeats.
+    readonly warnings: readonly string[];
+}
+
+export type FolderCustomizationsResult = FolderCustomizationsAnswer | HostRequestFailure;
+
 export interface AnnexPage {
     readonly label: string;
     // A path on the annex, such as /usage or /x/<extension>/<page>.
@@ -314,6 +327,9 @@ export interface DesktopBridge {
     // The agents a session created in a folder would offer, or in a chat when there is no folder.
     // A host that predates the request answers with a failure.
     readNewSessionAgents(workspace: string | undefined): Promise<NewSessionAgentsResult>;
+    // What a session created in a folder would load, or in a chat when there is no folder, read without a session.
+    // A host that predates the request answers with a failure.
+    readFolderCustomizations(workspace: string | undefined): Promise<FolderCustomizationsResult>;
     // The host's annex address and the pages it serves.
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.

@@ -54,6 +54,7 @@ import type {
 } from "./agent-registry.ts";
 import type { MoveSessionInput, MoveSessionOutcome } from "./agent-registry/move.ts";
 import type { NewSessionAgents } from "./agent-registry/select.ts";
+import type { FolderCustomizations } from "./agent-registry/folder-customizations.ts";
 import type {
     ImportableSessionListing,
     SessionImportOutcome,
@@ -179,6 +180,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "annex_url":
         case "extension_load_failures":
         case "new_session_agents":
+        case "folder_customizations":
         case "checkpoint_stores":
         case "search_sessions":
         case "schedule_operation":
@@ -259,6 +261,7 @@ export interface StartHostServerOptions {
         | undefined;
     readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
     readonly readNewSessionAgents?: (workspace: string | undefined) => Promise<NewSessionAgents>;
+    readonly readFolderCustomizations?: (workspace: string | undefined) => Promise<FolderCustomizations>;
     readonly checkpointStores?: (
         destination: string,
     ) => Promise<{
@@ -617,6 +620,7 @@ async function startListener(
             options.readAnnex,
             options.readExtensionLoadFailures,
             options.readNewSessionAgents,
+            options.readFolderCustomizations,
             options.checkpointStores,
             options.handleExtensionRequest,
             options.stopWhenIdle,
@@ -854,6 +858,7 @@ function receiveConnection(
         | undefined) | undefined,
     readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
     readNewSessionAgents: StartHostServerOptions["readNewSessionAgents"],
+    readFolderCustomizations: StartHostServerOptions["readFolderCustomizations"],
     checkpointStores: ((
         destination: string,
     ) => Promise<{
@@ -1768,6 +1773,30 @@ function receiveConnection(
                     starts_on: listing.startsOn,
                     agents: listing.agents,
                     notices: listing.notices,
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "folder_customizations") {
+            clearDeadline();
+            finished = true;
+            if (readFolderCustomizations === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void readFolderCustomizations(request.workspace).then(
+                (read) => send({
+                    type: "folder_customizations",
+                    skills: read.skills,
+                    agents: {
+                        starts_on: read.agents.startsOn,
+                        agents: read.agents.agents,
+                        notices: read.agents.notices,
+                    },
+                    sources: read.sources,
                 }),
             ).then(() => socket.end(), () => socket.destroy());
             return;

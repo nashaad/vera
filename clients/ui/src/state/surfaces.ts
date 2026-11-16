@@ -9,7 +9,7 @@ import { FLAG_KEYS, type DesktopFlags, type FlagKey } from "./desktopFlags.ts";
 export interface SurfaceEvidence {
     // The most sessions the host has listed.
     readonly sessions: number;
-    // A top-level folder session has been listed; Customize reads its catalogs through one.
+    // A top-level folder session has been listed, so Customize has a folder to offer.
     readonly folderSession: boolean;
     // The open session has made changes, shown a checklist, reported context use, or has a files folder.
     readonly review: boolean;

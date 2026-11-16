@@ -4,9 +4,9 @@ export const CHAT_PANE_LIMIT = 16;
 
 export type ChatPane = `chat:${number}`;
 
-export type SessionPane = "main" | "companion" | "probe" | ChatPane;
+export type SessionPane = "main" | "companion" | ChatPane;
 
-const FIXED_PANES: readonly SessionPane[] = ["main", "companion", "probe"];
+const FIXED_PANES: readonly SessionPane[] = ["main", "companion"];
 const CHAT_PANE = /^chat:(0|[1-9]\d{0,2})$/;
 
 export function chatPane(slot: number): ChatPane {

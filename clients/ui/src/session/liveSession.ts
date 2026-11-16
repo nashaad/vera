@@ -1,4 +1,3 @@
-import type { SessionRow } from "../protocol/sessions.ts";
 import { CORE_VIEWS } from "../registry/core.ts";
 import type { SessionWatch } from "./model.ts";
 
@@ -28,9 +27,4 @@ export function gateView(viewId: string, watch: SessionWatch): ViewGate {
     if (!NEEDS_TRANSCRIPT.has(viewId) || watch.loaded || !watchEnded(watch)) return { kind: "open" };
     if (canStart(watch)) return { kind: "start" };
     return { kind: "unavailable", reason: watch.error ?? "The session closed." };
-}
-
-// Customize reads through a session's own watch, which resumes a stopped one, so it asks first.
-export function needsStartToRead(row: SessionRow, startedId: string | undefined): boolean {
-    return !row.live && startedId !== row.id;
 }

@@ -92,7 +92,7 @@ export function parseCatalogLine(text: string): CatalogReply | undefined {
     switch (value.type) {
         case "skill_catalog": {
             if (!Array.isArray(value.skills)) return undefined;
-            const skills = value.skills.slice(0, CATALOG_LIMIT).flatMap((entry) => parseSkill(entry));
+            const skills = parseSkills(value.skills);
             return { type: "skills", requestId, skills, warnings: strings(value.warnings) };
         }
         case "agent_catalog": {
@@ -103,7 +103,7 @@ export function parseCatalogLine(text: string): CatalogReply | undefined {
         case "customization_sources": {
             const catalog = value.catalog;
             if (!isFields(catalog) || !Array.isArray(catalog.sources)) return undefined;
-            const sources = catalog.sources.slice(0, CATALOG_LIMIT).flatMap((entry) => parseSource(entry));
+            const sources = parseSources(catalog.sources);
             return { type: "sources", requestId, sources, warnings: strings(catalog.warnings) };
         }
         case "agent_selected": {
@@ -121,6 +121,16 @@ export function parseCatalogLine(text: string): CatalogReply | undefined {
 // The agents of a host reply, each read as the session's own catalog reads them; entries this window cannot read are dropped.
 export function parseAgents(value: unknown): readonly AgentInfo[] {
     return Array.isArray(value) ? value.slice(0, CATALOG_LIMIT).flatMap((entry) => parseAgent(entry)) : [];
+}
+
+// The skills of a host reply; entries this window cannot read are dropped and the list is cut at the catalog limit.
+export function parseSkills(value: unknown): readonly SkillInfo[] {
+    return Array.isArray(value) ? value.slice(0, CATALOG_LIMIT).flatMap((entry) => parseSkill(entry)) : [];
+}
+
+// The sources of a host reply, read the same way.
+export function parseSources(value: unknown): readonly SourceInfo[] {
+    return Array.isArray(value) ? value.slice(0, CATALOG_LIMIT).flatMap((entry) => parseSource(entry)) : [];
 }
 
 function parseSkill(value: unknown): SkillInfo[] {

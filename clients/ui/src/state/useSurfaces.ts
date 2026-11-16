@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-import { probeTarget } from "../customize/probe.ts";
+import { hasFolderSession } from "../customize/catalog.ts";
 import type { UiState } from "./connection.ts";
 import { FLAG_KEYS, type DesktopFlags, type FlagKey } from "./desktopFlags.ts";
 import { useOutputLog, type OutputLog } from "./outputLog.ts";
@@ -78,7 +78,7 @@ export function useWindowEvidence(connection: UiState, log: OutputLog): void {
     const entries = useOutputLog(log);
     const failed = connection.phase === "disconnected" || connection.phase === "failed" || connection.phase === "missing";
     const sessions = connection.sessions ?? 0;
-    const folderSession = connection.sessionRows !== undefined && probeTarget(connection.sessionRows) !== undefined;
+    const folderSession = connection.sessionRows !== undefined && hasFolderSession(connection.sessionRows);
     const noisy = entries.some((entry) => entry.kind !== "info");
     useEffect(() => {
         raiseEvidence({ sessions, folderSession, hostFailed: failed, output: noisy });
