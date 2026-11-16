@@ -3675,6 +3675,63 @@ test("a refused compaction says why it could not summarize", () => {
     });
 });
 
+test("a drop after a failed summary says that messages were dropped", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "unavailable",
+        reason: "Summary timed out.",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/drop-oldest",
+        outcome: "compacted",
+        before: 100,
+        after: 50,
+        seq: 2,
+    });
+    expect(state.entries.slice(-2)).toMatchObject([
+        { kind: "notice", text: "Could not summarize the earlier messages: Summary timed out." },
+        { kind: "notice", text: "Earlier messages were dropped from the model's context. They are still shown in the conversation." },
+    ]);
+});
+
+test("an unsuccessful drop names the action and preserves its reason", () => {
+    for (const outcome of ["no_boundary", "rejected", "unavailable"] as const) {
+        for (const reason of [undefined, "The newest step does not fit."]) {
+            const state = applyAgentUpdate(createTuiState(), {
+                type: "compaction",
+                phase: "finished",
+                strategy: "vera/drop-oldest",
+                outcome,
+                ...(reason === undefined ? {} : { reason }),
+                seq: 1,
+            });
+            expect(state.entries.at(-1)).toMatchObject({
+                kind: "notice",
+                text: reason === undefined
+                    ? "Could not drop earlier messages"
+                    : `Could not drop earlier messages: ${reason}`,
+            });
+        }
+    }
+});
+
+test("a summary still uses its existing notice", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "compacted",
+        seq: 1,
+    });
+    expect(state.entries.at(-1)?.text).toContain("Earlier messages were summarized.");
+    expect(state.entries.at(-1)?.text).not.toContain("dropped");
+});
+
 test("dropping an admission takes its checklist entry with it", () => {
     let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
     state = applyAgentUpdate(state, {

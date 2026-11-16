@@ -5,9 +5,10 @@ description: "Control how much conversation Vera retains and when it summarizes 
 
 # Context limits and compaction
 
-As a conversation grows, Vera summarizes older material to make room for new
-work. This is compaction. The default settings control when it happens, how
-large the summary is, and how tool results use the remaining space.
+As a conversation grows, Vera can summarize older material or drop it from the
+context sent with requests. This is compaction. The default settings control
+when it happens, how large a summary is, and how tool results use the remaining
+space.
 
 Use `/context` to inspect usage before changing these settings. If the
 conversation is working well, leave the defaults in place.
@@ -28,15 +29,19 @@ step intact. Full output remains in the session and spill files when available.
 Another pass waits until context has fallen to 35% of the window or less.
 Each trim changes the part of the conversation the provider has cached, so the
 provider re-reads everything after it at the full input price. If the context
-still passes 82%, older messages become one summary in one go. Your last two
-messages stay as they were. When the current turn alone is too big to keep,
-its work is summarized too, but your latest message stays word for word next
-to the summary. Images in it are not kept.
+still passes 82%, the summary rung replaces older messages with one summary
+when it can. Your last two messages stay as they were when they fit. When the
+current turn alone is too big to keep, its work is summarized too, but your
+latest message stays word for word next to the summary. Images in it are not
+kept.
 
 Compaction follows a ladder. The first rung writes a summary with the summary
 model. If that cannot make room, the next rung drops the oldest messages and
 calls no model. Dropping keeps each tool call next to its result. Set your own
 ladder with `compaction.ladder` in `config.json`.
+When the drop rung lands, the conversation says that older messages were
+dropped from the context sent with requests. They remain visible in the
+transcript.
 
 Before every model request, Vera checks the request against the model's window.
 A request that does not fit runs the ladder first and is not sent. If the
@@ -119,9 +124,11 @@ Vera retries retryable summary model failures before reporting that the summary
 could not be made. An idle timeout moves to the next model without retrying the
 same model. Stopping the turn also stops any retry wait.
 
-If a summary cannot be made, the transcript shows a notice starting
-`Could not summarize`, and the conversation carries on unchanged. The reason
-says what to do:
+If a summary cannot be made, the TUI starts its notice with `Could not summarize`.
+The desktop says `Nothing older to summarize yet` when no cut is available and
+`Compaction did not run` when the summary is rejected or unavailable. The next
+rung can still drop older messages from the context sent with requests. The
+reason says what to do:
 
 - `There is not enough finished history to compact yet.` Keep working; there
   is nothing older to summarize.

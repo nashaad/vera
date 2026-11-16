@@ -132,6 +132,7 @@ export function parseCompaction(value: Fields): CompactionState | undefined {
         value.trigger === "manual" || value.trigger === "automatic" ? value.trigger : undefined;
     return {
         phase,
+        ...optional("strategy", str(value.strategy)),
         ...optional("trigger", trigger),
         ...optional("outcome", outcome),
         ...optional("reason", str(value.reason)),
