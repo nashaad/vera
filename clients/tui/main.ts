@@ -654,6 +654,7 @@ export interface TuiDependencies {
     readonly loginProvider?: (
         providerId: string,
         onBrowserUnavailable: (url: string) => void,
+        onAuthorizationUrl?: (url: string) => void,
     ) => Promise<void>;
     readonly flightRecorder?: TuiFlightRecorder;
     readonly createRenderer?: () => Promise<CliRenderer>;

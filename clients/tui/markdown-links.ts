@@ -10,6 +10,7 @@ import { Parser } from "htmlparser2";
 import { Lexer } from "marked";
 
 import { isSupportedLink } from "../shared/link-policy.ts";
+import { spawnUrl } from "../../src/url-opener.ts";
 
 export type TuiLinkOpener = (url: string) => void | Promise<void>;
 
@@ -94,20 +95,7 @@ export function activateTuiLink(
 export function openTuiLink(url: string): void {
     if (!isSupportedTuiLink(url)) return;
 
-    const command = process.platform === "darwin"
-        ? ["open", url]
-        : process.platform === "win32"
-            ? ["explorer.exe", url]
-            : ["xdg-open", url];
-
-    try {
-        Bun.spawn(command, {
-            detached: true,
-            stdout: "ignore",
-            stderr: "ignore",
-        });
-    } catch {
-    }
+    spawnUrl(url);
 }
 
 export function installTuiMarkdownLinkHandlers(

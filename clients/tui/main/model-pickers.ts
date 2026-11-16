@@ -819,16 +819,21 @@ export function connectProvider(rt: TuiRuntime,
         refreshProviderPicker(rt);
     }
     showModeToast(rt, `Signing in to ${provider.label} in your browser…`);
-    void (rt.dependencies.loginProvider ?? ((providerId: string, onBrowserUnavailable: (url: string) => void) => defaultLoginProvider(rt, providerId, onBrowserUnavailable)))(
+    let linkShown = false;
+    const showSignInLink = (url: string): void => {
+        if (linkShown) return;
+        linkShown = true;
+        rt.state = appendTuiNotice(
+            rt.state,
+            `Sign in to ${provider.label} here: ${url}`,
+            "soft",
+        );
+        renderState(rt);
+    };
+    void (rt.dependencies.loginProvider ?? ((providerId: string, onBrowserUnavailable: (url: string) => void, onAuthorizationUrl: (url: string) => void) => defaultLoginProvider(rt, providerId, onBrowserUnavailable, onAuthorizationUrl)))(
         provider.id,
-        (url) => {
-            rt.state = appendTuiNotice(
-                rt.state,
-                `Could not open a browser. Sign in to ${provider.label} here: ${url}`,
-                "soft",
-            );
-            renderState(rt);
-        },
+        showSignInLink,
+        showSignInLink,
     ).then(() => {
         rt.connectingProviders.delete(provider.id);
         refreshProviderPicker(rt);
