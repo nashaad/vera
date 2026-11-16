@@ -149,6 +149,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.admissionDialog = undefined;
     rt.admissionReturnPicker = undefined;
     rt.extensionCommandsGeneration += 1;
+    rt.extensionCommandsLoaded = false;
     rt.disposeHostExtensionCommands();
     rt.disposeHostExtensionCommands = () => {};
     rt.hostExtensionCommands = [];
@@ -158,7 +159,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.pendingSkillInvocations.clear();
     rt.extensionCommandsLoading = next.listExtensionCommands !== undefined
         && next.failed !== true
-        && next.viewOnly !== true;
+        && (next.viewOnly !== true || isHomeClient(next));
     rt.skillCommandsLoading = supportsSkillCommands(rt, next);
     watchBackgroundAgents(rt, next);
     watchWorkIndex(rt, next);
@@ -185,8 +186,10 @@ export function switchToClient(rt: TuiRuntime,
     renderCommandSuggestions(rt);
     renderState(rt);
     void receiveAgentUpdates(rt);
-    if (next.failed !== true && next.viewOnly !== true) {
+    if (next.failed !== true && (next.viewOnly !== true || isHomeClient(next))) {
         void loadExtensionCommands(rt);
+    }
+    if (next.failed !== true && next.viewOnly !== true) {
         requestSkillCommands(rt);
         requestSessionSettings(rt);
     }

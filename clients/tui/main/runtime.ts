@@ -305,6 +305,9 @@ export interface TuiRuntime {
     hostExtensionCommands: readonly ExtensionCommandDescriptor[];
     disposeHostExtensionCommands: () => void;
     extensionCommandsGeneration: number;
+    extensionCommandsLoaded: boolean;
+    extensionCommandsLoadClient: TuiAgentClient | undefined;
+    extensionCommandsLoadPromise: Promise<boolean> | undefined;
     disposeSkillCommands: () => void;
     skillCatalogRequestId: string | undefined;
     announcedSkillCommandNotices: Set<string>;

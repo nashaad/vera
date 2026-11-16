@@ -164,6 +164,11 @@ describe("pending prompts", () => {
         expect(takePendingPrompt("agent-1")).toBeUndefined();
     });
 
+    test("keeps a New Chat slash command marked for session-side execution", () => {
+        setPendingPrompt("agent-command", { text: "/budget 5", images: [], slashCommand: true });
+        expect(takePendingPrompt("agent-command")).toEqual({ text: "/budget 5", images: [], slashCommand: true });
+    });
+
     test("an unknown agent has no pending prompt", () => {
         expect(takePendingPrompt("never-set")).toBeUndefined();
     });

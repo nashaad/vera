@@ -106,6 +106,7 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import { importSessionThroughHost, listImportableSessionsThroughHost } from "../../src/host/session-import-client.ts";
+import { listExtensionCommandsThroughHost } from "../../src/host/extension-command-list-client.ts";
 import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
 import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -211,6 +212,7 @@ import { wheelCursor } from "./list-window.ts";
 import { workTabAction } from "./work-tab.ts";
 import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
+import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import { refreshHomeRestarts } from "./main/home-restarts.ts";
 import {
     readModelSettingsThroughHost,
@@ -570,6 +572,8 @@ export interface TuiDependencies {
         provider: string,
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly listHostExtensionCommands?: () =>
+        Promise<readonly ExtensionCommandDescriptor[]>;
     readonly homeHasSessions?: boolean;
     readonly listSessionPage?: (
         options: ListAgentsOptions,
@@ -786,12 +790,15 @@ export async function startConfiguredTui(
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
         : await hostHasSessions(await pairedSocket());
+    const listExtensionCommands = async () =>
+        listExtensionCommandsThroughHost(await pairedSocket());
     const client = agentId === undefined
         ? createHomeClient(process.cwd(), {
             readModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
             refreshCatalog: async (provider, workspace) =>
                 refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            listExtensionCommands,
         })
         : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
@@ -833,6 +840,7 @@ export async function startConfiguredTui(
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
             refreshHostCatalog: async (provider, workspace) =>
                 refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            listHostExtensionCommands: listExtensionCommands,
             requestExtension: async (extensionId, name, payload, signal) =>
                 requestExtensionThroughHost(await pairedSocket(), extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
@@ -956,6 +964,9 @@ export async function startTui(
         ...(rt.dependencies.refreshHostCatalog === undefined
             ? {}
             : { refreshCatalog: rt.dependencies.refreshHostCatalog }),
+        ...(rt.dependencies.listHostExtensionCommands === undefined
+            ? {}
+            : { listExtensionCommands: rt.dependencies.listHostExtensionCommands }),
     };
     rt.flightRecorder = rt.dependencies.flightRecorder;
     rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
@@ -1118,6 +1129,9 @@ export async function startTui(
     rt.hostExtensionCommands = [];
     rt.disposeHostExtensionCommands = (): void => {};
     rt.extensionCommandsGeneration = 0;
+    rt.extensionCommandsLoaded = false;
+    rt.extensionCommandsLoadClient = undefined;
+    rt.extensionCommandsLoadPromise = undefined;
     rt.disposeSkillCommands = (): void => {};
     rt.announcedSkillCommandNotices = new Set<string>();
     rt.confirmingFullAccess = false;
@@ -1164,7 +1178,8 @@ export async function startTui(
     rt.extensionCommandsLoading =
         rt.dependencies.client.listExtensionCommands !== undefined
         && rt.dependencies.client.failed !== true
-        && rt.dependencies.client.viewOnly !== true;
+        && (rt.dependencies.client.viewOnly !== true
+            || isHomeClient(rt.dependencies.client));
     rt.skillCommandsLoading = supportsSkillCommands(rt, rt.dependencies.client);
     rt.runningBackgroundAgents = 0;
     rt.runningBackgroundAgentNames = [];
@@ -2969,8 +2984,10 @@ export async function startTui(
     rt.MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     void receiveAgentUpdates(rt);
-    if (rt.client.failed !== true && rt.client.viewOnly !== true) {
+    if (rt.client.failed !== true && (rt.client.viewOnly !== true || isHomeClient(rt.client))) {
         void loadExtensionCommands(rt);
+    }
+    if (rt.client.failed !== true && rt.client.viewOnly !== true) {
         requestSkillCommands(rt);
         requestSessionSettings(rt);
     } else if (isHomeClient(rt.client)) {

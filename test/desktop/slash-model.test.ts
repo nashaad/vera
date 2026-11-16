@@ -11,6 +11,8 @@ import {
     BUILTIN_SLASH_ENTRIES,
     buildSlashEntries,
     defaultSlashIndex,
+    extensionListAction,
+    pendingExtensionListFailureNotice,
     notImplementedMessage,
     resolveSlashLine,
     suggestSlash,
@@ -136,6 +138,24 @@ describe("suggestSlash", () => {
 function order(group: SlashEntry["group"]): number {
     return ["built-in", "extension", "skill"].indexOf(group);
 }
+
+describe("extensionListAction", () => {
+    test("waits for a slash catalog, and retries after a failed request", () => {
+        expect(extensionListAction("/budget 5", false, true)).toBe("wait");
+        expect(extensionListAction("/budegt", false, false)).toBe("retry");
+        expect(extensionListAction("/budget 5", true, false)).toBe("none");
+        expect(extensionListAction("/tmp/report.txt", false, false)).toBe("none");
+        expect(extensionListAction("hello", false, false)).toBe("none");
+    });
+
+    test("a failed request reports retry only while a line is pending", () => {
+        expect(pendingExtensionListFailureNotice(true, false, true))
+            .toBe("Extension commands could not be loaded. Press Enter to retry.");
+        expect(pendingExtensionListFailureNotice(false, false, true)).toBeUndefined();
+        expect(pendingExtensionListFailureNotice(true, true, false)).toBeUndefined();
+        expect(extensionListAction("/budget 5", false, false)).toBe("retry");
+    });
+});
 
 describe("resolveSlashLine", () => {
     test("@core an exact name runs with its arguments", () => {

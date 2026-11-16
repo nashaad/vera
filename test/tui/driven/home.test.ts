@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { configuredProviders } from "../../../src/providers/registry.ts";
 import type { TuiDependencies } from "../../../clients/tui/main.ts";
+import type { ExtensionCommandDescriptor, ExtensionCommandResult } from "../../../src/extensions/commands.ts";
 import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import {
     createSettingsAnsweringClient,
@@ -27,7 +28,33 @@ afterAll(() => {
     }
 });
 
-/** Home plus the listing, search, and creation hooks its rows reach for. */
+interface DeferredExtensionCommandList {
+    readonly requested: Promise<void>;
+    readonly resolve: (commands: readonly ExtensionCommandDescriptor[]) => void;
+    readonly list: () => Promise<readonly ExtensionCommandDescriptor[]>;
+}
+
+function deferredExtensionCommandList(): DeferredExtensionCommandList {
+    let signalRequested!: () => void;
+    let resolve!: (commands: readonly ExtensionCommandDescriptor[]) => void;
+    const requested = new Promise<void>((complete) => {
+        signalRequested = complete;
+    });
+    const pending = new Promise<readonly ExtensionCommandDescriptor[]>(
+        (complete) => {
+            resolve = complete;
+        },
+    );
+    return {
+        requested,
+        resolve,
+        list: async () => {
+            signalRequested();
+            return pending;
+        },
+    };
+}
+
 function homeDependencies(
     home: string,
     hasSessions: boolean,
@@ -256,7 +283,7 @@ test("Ctrl+R opens the session picker from home", async () => {
     }
 }, 15_000);
 
-test("the home palette offers only what needs no worker", async () => {
+test("the home palette omits commands that need an existing conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-palette-"));
     const session = await startTuiTestSession({
         home,
@@ -296,6 +323,306 @@ test("typing carries the first character into the new conversation", async () =>
         const typed = await session.waitForVisiblePane("hello");
         expect(typed).toContain("hello");
     } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("@core home lists extension commands and runs one in the created conversation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-extension-command-"));
+    const listed: readonly ExtensionCommandDescriptor[] = [{
+        name: "budget",
+        description: "Set a conversation budget",
+        usage: "/budget [amount]",
+        source: "vera.budget",
+    }];
+    const calls: Array<{ command: string; argumentsText: string }> = [];
+    let created = 0;
+    let attachedListCalls = 0;
+    let markAttachedListStarted!: () => void;
+    let releaseAttachedList!: (
+        commands: readonly ExtensionCommandDescriptor[],
+    ) => void;
+    const attachedListStarted = new Promise<void>((resolve) => {
+        markAttachedListStarted = resolve;
+    });
+    const attachedList = new Promise<readonly ExtensionCommandDescriptor[]>(
+        (resolve) => {
+            releaseAttachedList = resolve;
+        },
+    );
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: async () => listed,
+            }),
+            createSession: async () => {
+                created += 1;
+                return Object.assign(createSettingsAnsweringClient({
+                    agentId: "extension-command-session",
+                    model: "new-model",
+                    mode: "review",
+                }), {
+                    listExtensionCommands: async () => {
+                        attachedListCalls += 1;
+                        markAttachedListStarted();
+                        return attachedList;
+                    },
+                    runExtensionCommand: async (command: string, argumentsText: string): Promise<ExtensionCommandResult> => {
+                        calls.push({ command, argumentsText });
+                        return {
+                            version: 1,
+                            source: "vera.budget",
+                            body: { kind: "text", text: "Budget changed to $5.00" },
+                        };
+                    },
+                });
+            },
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/bud");
+        const suggestions = await session.waitForVisiblePane("/budget");
+        expect(suggestions).toContain("Set a conversation budget");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendKey("C-p");
+        session.sendText("budget");
+        const palette = await session.waitForVisiblePane("/budget");
+        expect(palette).toContain("Set a conversation budget");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("V  E  R  A");
+
+        session.sendText("/budget 5");
+        session.sendKey("Enter");
+        await attachedListStarted;
+        session.sendText(" keep this draft");
+        await session.settle();
+        expect(attachedListCalls).toBe(1);
+        expect(calls).toEqual([]);
+        releaseAttachedList(listed);
+        const result = await session.waitForVisiblePane("Budget changed to $5.00");
+        expect(result).toContain("keep this draft");
+        expect(created).toBe(1);
+        expect(calls).toEqual([{ command: "budget", argumentsText: "5" }]);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("@core an unknown extension-command typo on home does not create a conversation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-unknown-extension-command-"));
+    let created = 0;
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: async () => [{
+                    name: "budget",
+                    description: "Set a conversation budget",
+                    usage: "/budget [amount]",
+                    source: "vera.budget",
+                }],
+            }),
+            createSession: async () => {
+                created += 1;
+                return createSettingsAnsweringClient({
+                    agentId: "unexpected-session",
+                    model: "new-model",
+                });
+            },
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/budegt");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("Unknown command: /budegt");
+        expect(pane).toContain("Did you mean /budget?");
+        expect(created).toBe(0);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("@core home holds a slash command until the initial host list succeeds", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-pending-command-list-"));
+    const budget: ExtensionCommandDescriptor = {
+        name: "budget",
+        description: "Set a conversation budget",
+        usage: "/budget [amount]",
+        source: "vera.budget",
+    };
+    const deferred = deferredExtensionCommandList();
+    let created = 0;
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: deferred.list,
+            }),
+            createSession: async () => {
+                created += 1;
+                return Object.assign(createSettingsAnsweringClient({
+                    agentId: "pending-home-command-session",
+                    model: "new-model",
+                }), {
+                    listExtensionCommands: async () => [budget],
+                    runExtensionCommand: async (): Promise<ExtensionCommandResult> => ({
+                        version: 1,
+                        source: budget.source,
+                        body: { kind: "text", text: "Budget changed to $5.00" },
+                    }),
+                });
+            },
+        }),
+    });
+
+    try {
+        await deferred.requested;
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/budget 5");
+        session.sendKey("Enter");
+        await session.settle();
+        expect(created).toBe(0);
+        const waitingPane = await session.waitForVisiblePane("/budget 5");
+        expect(waitingPane).not.toContain("Unknown command: /budget");
+        deferred.resolve([budget]);
+        const pane = await session.waitForVisiblePane("Budget changed to $5.00");
+        expect(pane).toContain("Budget changed to $5.00");
+        expect(created).toBe(1);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("home resolves a pending typo only after host commands load", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-pending-typo-"));
+    const deferred = deferredExtensionCommandList();
+    let created = 0;
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: deferred.list,
+            }),
+            createSession: async () => {
+                created += 1;
+                return createSettingsAnsweringClient({
+                    agentId: "unexpected-pending-typo-session",
+                    model: "new-model",
+                });
+            },
+        }),
+    });
+
+    try {
+        await deferred.requested;
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/budegt");
+        session.sendKey("Enter");
+        await session.settle();
+        expect(created).toBe(0);
+        deferred.resolve([{
+            name: "budget",
+            description: "Set a conversation budget",
+            usage: "/budget [amount]",
+            source: "vera.budget",
+        }]);
+        const pane = await session.waitForVisiblePane("Unknown command: /budegt");
+        expect(pane).toContain("Did you mean /budget?");
+        expect(created).toBe(0);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a failed Home list is reported and retried on slash submission", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-list-retry-"));
+    const budget: ExtensionCommandDescriptor = {
+        name: "budget",
+        description: "Set a conversation budget",
+        usage: "/budget [amount]",
+        source: "vera.budget",
+    };
+    let listCalls = 0;
+    let created = 0;
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: async () => {
+                    listCalls += 1;
+                    if (listCalls === 1) {
+                        throw new Error("catalog unavailable");
+                    }
+                    return [budget];
+                },
+            }),
+            createSession: async () => {
+                created += 1;
+                return Object.assign(createSettingsAnsweringClient({
+                    agentId: "retried-home-command-session",
+                    model: "new-model",
+                }), {
+                    listExtensionCommands: async () => [budget],
+                    runExtensionCommand: async (): Promise<ExtensionCommandResult> => ({
+                        version: 1,
+                        source: budget.source,
+                        body: { kind: "text", text: "Budget changed to $5.00" },
+                    }),
+                });
+            },
+        }),
+    });
+
+    try {
+        const failed = await session.waitForVisiblePane(
+            "Could not load extension commands: catalog unavailable",
+        );
+        expect(failed).toContain("Could not load extension commands: catalog unavailable");
+        session.sendText("/budget 5");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("Budget changed to $5.00");
+        expect(pane).not.toContain("Unknown command: /budget");
+        expect(listCalls).toBe(2);
+        expect(created).toBe(1);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a path submitted on home bypasses pending command discovery", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-pending-path-"));
+    const deferred = deferredExtensionCommandList();
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...homeDependencies(home, true),
+            client: createHomeClient("/work/vera", {
+                listExtensionCommands: deferred.list,
+            }),
+        }),
+    });
+
+    try {
+        await deferred.requested;
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/tmp/report.txt");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("SENT /tmp/report.txt");
+        expect(pane).not.toContain("Unknown command: /tmp");
+        deferred.resolve([]);
+    } finally {
+        deferred.resolve([]);
         await session.close();
     }
 }, 15_000);

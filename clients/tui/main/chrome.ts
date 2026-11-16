@@ -180,9 +180,17 @@ export function registeredPaletteEntries(rt: TuiRuntime): readonly TuiPaletteEnt
     const viewingFile = isJsonlViewClient(rt.client);
     return [
         ...(viewingFile ? [RESUME_VIEWED_PALETTE_ENTRY] : []),
-        ...entries.filter((entry) =>
-            workerFreeAction(rt, entry.action, viewingFile)
-        ),
+        ...entries.filter((entry) => {
+            const action = entry.action;
+            return workerFreeAction(rt, action, viewingFile)
+                || (isHomeClient(rt.client)
+                    && action.type === "run_extension"
+                    && action.origin === "host"
+                    && rt.hostExtensionCommands.some((command) =>
+                        command.name === action.command
+                        && command.source === action.source
+                    ));
+        }),
     ];
 }
 

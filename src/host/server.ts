@@ -166,6 +166,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "refresh_catalogs":
         case "annex_url":
         case "extension_load_failures":
+        case "list_extension_commands":
         case "checkpoint_stores":
         case "search_sessions":
         case "schedule_operation":
@@ -1154,31 +1155,7 @@ function receiveConnection(
                 return;
             }
             extensionRequestIds.add(message.request_id);
-            let commands: readonly ExtensionCommandDescriptor[];
-            try {
-                commands = listExtensionCommands();
-            } catch {
-                void send({
-                    type: "extension_command_failed",
-                    request_id: message.request_id,
-                    failure: {
-                        source: "vera.extensions",
-                        reason: "unavailable",
-                        message: "Extension commands are unavailable",
-                    },
-                }, () =>
-                    !finished
-                    && extensionRequestIds.has(message.request_id)
-                ).catch(() => socket.destroy()).finally(() => {
-                    extensionRequestIds.delete(message.request_id);
-                });
-                return;
-            }
-            void send({
-                type: "extension_command_list",
-                request_id: message.request_id,
-                commands,
-            }, () =>
+            void send(extensionCommandListResponse(listExtensionCommands, message.request_id), () =>
                 !finished
                 && extensionRequestIds.has(message.request_id)
             ).catch(() => socket.destroy()).finally(() => {
@@ -1560,6 +1537,13 @@ function receiveConnection(
                     await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
                 } finally { operationClosed(); socket.end(); }
             })();
+            return;
+        }
+        if (request?.type === "list_extension_commands") {
+            clearDeadline();
+            finished = true;
+            void send(extensionCommandListResponse(listExtensionCommands, request.request_id))
+                .then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "model_settings") {
@@ -2498,6 +2482,25 @@ function writeSocketMessage(socket: Socket, message: object): Promise<void> {
         socket.once("error", onError);
         socket.once("close", onClose);
     });
+}
+
+function extensionCommandListResponse(
+    list: () => readonly ExtensionCommandDescriptor[],
+    requestId: string,
+): import("./protocol.ts").ExtensionCommandListResponse | import("./protocol.ts").ExtensionCommandFailedResponse {
+    try {
+        return { type: "extension_command_list", request_id: requestId, commands: list() };
+    } catch {
+        return {
+            type: "extension_command_failed",
+            request_id: requestId,
+            failure: {
+                source: "vera.extensions",
+                reason: "unavailable",
+                message: "Extension commands are unavailable",
+            },
+        };
+    }
 }
 
 function extensionCommandFailure(
