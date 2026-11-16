@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readNewSessionAgents } from "../../clients/desktop/src/agent-requests.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { parseHostRequest } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -111,6 +112,47 @@ socketTest("a malformed new_session_agents request gets no listing", async () =>
         await expect(ask(host.server.socketPath, { type: "new_session_agents", workspace: "relative/folder" })).rejects.toThrow();
     } finally {
         await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+socketTest("@core a real host answers for a folder and for a chat, and the window reads both", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-desktop-new-agents-"));
+    const home = join(root, "home");
+    const folder = join(root, "crow-nest");
+    await mkdir(join(home, "agents"), { recursive: true });
+    await mkdir(join(folder, ".vera", "agents"), { recursive: true });
+    await writeFile(join(home, "agents", "scout.md"), "---\ndescription: Looks ahead\n---\nScout.");
+    await writeFile(join(folder, ".vera", "agents", "plan.md"), "---\ndescription: Plans before it edits\n---\nPlan only.");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const host = await startResidentHost({
+        config: { schema_version: 1, provider: "openrouter", model: "faux/test", approval_mode: "auto" },
+        createAdapter: () => new FauxAdapter([]),
+        home,
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        const inFolder = await readNewSessionAgents(host.server.socketPath, folder);
+        if (!inFolder.ok) throw new Error(inFolder.reason);
+        expect(inFolder.startsOn).toBe("default");
+        expect(inFolder.agents.find((entry) => entry.name === "plan")).toMatchObject({
+            scope: "project",
+            description: "Plans before it edits",
+        });
+        expect(inFolder.agents.map((entry) => entry.name)).toContain("scout");
+
+        const chat = await readNewSessionAgents(host.server.socketPath, undefined);
+        if (!chat.ok) throw new Error(chat.reason);
+        expect(chat.agents.map((entry) => entry.name)).toContain("scout");
+        expect(chat.agents.map((entry) => entry.name)).not.toContain("plan");
+    } finally {
+        await host.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
 });
