@@ -7,6 +7,7 @@ export const LAYOUT_COMMANDS = {
     toggleSidebar: "layout.toggleSidebar",
     toggleRightPane: "layout.toggleRightPane",
     togglePanel: "layout.togglePanel",
+    closeTab: "layout.closeTab",
     reset: "layout.reset",
     viewMoveTo: "view.moveTo",
     viewHide: "view.hide",
@@ -61,6 +62,11 @@ export function registerLayoutCommands(
             title,
             run: () => dispatch({ type: "toggleLocation", location }),
         })),
+        registry.register({
+            id: LAYOUT_COMMANDS.closeTab,
+            title: "Close Tab",
+            run: () => dispatch({ type: "closeActiveTab" }),
+        }),
         registry.register({
             id: LAYOUT_COMMANDS.reset,
             title: "Reset Layout",

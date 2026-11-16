@@ -52,6 +52,7 @@ test("@core every layout action has a command that dispatches the matching actio
     registry.execute(LAYOUT_COMMANDS.toggleSidebar);
     registry.execute(LAYOUT_COMMANDS.togglePanel);
     registry.execute(LAYOUT_COMMANDS.toggleRightPane);
+    registry.execute(LAYOUT_COMMANDS.closeTab);
     registry.execute(LAYOUT_COMMANDS.reset);
     registry.execute(LAYOUT_COMMANDS.viewMoveTo, { view: "v.host", location: "panel" });
     registry.execute(LAYOUT_COMMANDS.viewMoveTo, { view: "v.host", container: "c.output", index: 1 });
@@ -72,6 +73,7 @@ test("@core every layout action has a command that dispatches the matching actio
         { type: "toggleLocation", location: "sidebar" },
         { type: "toggleLocation", location: "panel" },
         { type: "toggleLocation", location: "rightPane" },
+        { type: "closeActiveTab" },
         { type: "resetLayout" },
         { type: "moveView", view: "v.host", to: { location: "panel" } },
         { type: "moveView", view: "v.host", to: { container: "c.output", index: 1 } },

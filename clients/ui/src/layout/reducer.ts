@@ -26,6 +26,8 @@ export type LayoutAction =
     | { readonly type: "openTab"; readonly container: string; readonly tab?: string }
     | { readonly type: "activateTab"; readonly tab: string }
     | { readonly type: "closeTab"; readonly tab: string }
+    // Closes the right pane's shown tab; a hidden pane or one with no tab is left alone.
+    | { readonly type: "closeActiveTab" }
     // `index` counts the pane's other shown tabs.
     | { readonly type: "moveTab"; readonly tab: string; readonly index: number }
     | { readonly type: "moveView"; readonly view: string; readonly to: ViewDestination }
@@ -64,6 +66,10 @@ export function reduceLayout(
             return activateTab(state, registry, action.tab);
         case "closeTab":
             return dropTabs(state, (tab) => tab.id === action.tab);
+        case "closeActiveTab": {
+            const { visible, active } = state.locations.rightPane;
+            return visible && active !== undefined ? dropTabs(state, (tab) => tab.id === active) : state;
+        }
         case "moveTab":
             return moveTab(state, registry, action.tab, action.index);
         case "moveView":
