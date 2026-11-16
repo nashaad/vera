@@ -434,6 +434,13 @@ The page appears in the annex sidebar under its label, at
 The address stays the same across host restarts, so a link you send out
 keeps working.
 
+Add `"pane": true` to a page's entry to give it a place of its own in the
+desktop. The window then lists the page by its label as a sidebar entry that
+opens it in the main area, and as a kind of right pane tab, up to three at a
+time, beside Review and Files. The page stays in the Browser too. A link to the
+page in the transcript, whether in a reply or in a tool notice, opens in that
+pane.
+
 The `server` module runs in the annex and exports `activatePage(page)`:
 
 ```ts
@@ -473,6 +480,35 @@ the server module needs the host restarted.
 
 The included Artifacts extension in `extensions/artifacts` is a full page:
 markdown artifacts an agent writes, with comments you leave in the margin.
+
+### Link a tool run to a page
+
+A tool can return a notice that the transcript shows under its run, even when
+the run is collapsed. Give the notice a `link` and the desktop draws a card
+with the page's icon and your title, which opens the page in its pane or in a
+Browser tab when you click it. The text of the notice is still what the
+terminal shows. The `link` and the notice never reach the model.
+
+```ts
+return {
+    output: "Buried 3 buttons.",
+    presentation: {
+        kind: "tool_notice",
+        text: `Loot page: ${vera.annex.pageUrl("loot")}?spot=north`,
+        link: { title: "North spot", page: "loot", query: { spot: "north" } },
+    },
+};
+```
+
+- `title` is at most 120 characters and says what the card opens.
+- `page` is the id of one of your own pages. The host rewrites it to the page's
+  annex path, `/x/acme.hoard/loot`, and drops a `link` that names another page
+  or has other keys than `title`, `page` and `query`.
+- `query` holds up to 8 text values, each at most 200 characters. The window
+  resolves the path against the annex it is connected to, so a card keeps
+  working across host restarts.
+- Leave `link` out while `vera.annex.pageUrl` is `undefined`. The notice then
+  shows as text.
 
 ## Contribute skills
 

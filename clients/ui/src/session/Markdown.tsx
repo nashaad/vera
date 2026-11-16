@@ -1,11 +1,14 @@
 import { memo, type ReactNode } from "react";
 
+import { PageLink } from "../pagepane/PageLinks.tsx";
+import { ANNEX_ADDRESS, splitAddresses } from "../pagepane/links.ts";
 import { CodeCard } from "./CodeCard.tsx";
 
 // A small subset: headings, paragraphs, lists, fenced code, and inline
-// bold, italic, code and links. Raw HTML is never rendered.
+// bold, italic, code and links. Raw HTML is never rendered. A link is inert unless it names a page
+// of the host's annex, which opens inside the window.
 
-const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\s][^*]*\*)/g;
+const INLINE = new RegExp(String.raw`(\*\*[^*]+\*\*|\x60[^\x60]+\x60|\[[^\]]+\]\([^)\s]+\)|\*[^*\s][^*]*\*|${ANNEX_ADDRESS})`, "g");
 
 // Wraps each word in a span that fades in when it mounts. A word keeps its key while the text grows, so only new words animate.
 function words(text: string, key: string, counter: { next: number }): ReactNode[] {
@@ -34,7 +37,12 @@ function inline(text: string, key: string, fade = false): ReactNode[] {
         else if (token.startsWith("[")) {
             const label = token.slice(1, token.indexOf("]"));
             const href = token.slice(token.indexOf("(") + 1, -1);
-            out.push(<a key={k} href={href} title={href} onClick={(event) => event.preventDefault()}>{label}</a>);
+            out.push(<PageLink key={k} href={href}>{label}</PageLink>);
+        } else if (token.startsWith("http")) {
+            const [address] = splitAddresses(token);
+            const url = address?.kind === "url" ? address.url : token;
+            out.push(<PageLink key={k} href={url} bare>{url}</PageLink>);
+            if (url.length < token.length) plain(token.slice(url.length));
         } else out.push(<em key={k}>{token.slice(1, -1)}</em>);
         last = at + token.length;
     }

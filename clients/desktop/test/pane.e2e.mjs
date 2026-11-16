@@ -36,6 +36,9 @@ const containers = async () => (await tabs().evaluateAll((nodes) => nodes.map((n
 const tiles = () => page.locator("[data-pane-tile]");
 const options = () => page.locator("[data-pane-option]");
 const launcherInput = () => page.locator('[role="listbox"] input');
+// Extension pages that ask for a pane add kinds once the host's annex is read; this test is about Vera's own.
+const coreOnly = (ids) => ids.filter((id) => id.startsWith("core."));
+const optionIds = async () => coreOnly(await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption)));
 
 async function boot() {
     app = await trial.launch();
@@ -83,8 +86,8 @@ try {
     // With no tab, the pane shows one tile per kind and nothing else.
     await press(app, "B", [MODIFIER, "alt"]);
     await page.waitForSelector("[data-pane-tiles]", { timeout: 10_000 });
-    const tileKinds = await tiles().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneTile));
-    if (tileKinds.join() !== "core.review,core.plan,core.files,core.browser,core.chat") throw new Error(`The tiles are ${tileKinds.join()}.`);
+    const tileKinds = coreOnly(await tiles().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneTile)));
+    if (tileKinds.join() !== "core.review,core.plan,core.files,core.browser,core.chat,core.subagents") throw new Error(`The tiles are ${tileKinds.join()}.`);
     if (await tabs().count() !== 0) throw new Error("The pane has a tab before one was opened.");
     if ((await page.locator('[data-pane-tile="core.chat"]').innerText()).trim() !== "Help") throw new Error("The Chat tile is not labelled Help.");
     await shoot("pane-tiles.png");
@@ -96,13 +99,13 @@ try {
 
     // The "+" lists the kinds, filters them, and opens a new tab for each pick, so a kind can be open twice.
     await openLauncher();
-    if ((await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption))).join() !== "core.review,core.plan,core.files,core.browser,core.chat") {
+    if ((await optionIds()).join() !== "core.review,core.plan,core.files,core.browser,core.chat,core.subagents") {
         throw new Error("The launcher does not list every kind.");
     }
     if ((await page.locator('[data-pane-option="core.chat"] .pane-launcher-title').innerText()).trim() !== "Help") throw new Error("The Chat entry is not labelled Help.");
     await shoot("pane-launcher.png");
     await launcherInput().fill("fi");
-    await until("the filter to narrow to Files", async () => (await options().evaluateAll((nodes) => nodes.map((node) => node.dataset.paneOption))).join() === "core.files");
+    await until("the filter to narrow to Files", async () => (await optionIds()).join() === "core.files");
     await launcherInput().fill("zzz");
     await page.getByText("No pane matches").waitFor({ timeout: 5_000 });
     await launcherInput().fill("");

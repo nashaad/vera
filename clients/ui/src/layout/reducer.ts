@@ -23,7 +23,8 @@ export type LayoutAction =
     // In the right pane, activates the most recently active tab of the container, or opens one when it has none.
     | { readonly type: "activateContainer"; readonly container: string }
     // Always opens a new tab, even when the container already has one. `tab` names it when the caller must know the id.
-    | { readonly type: "openTab"; readonly container: string; readonly tab?: string }
+    // `background` adds the tab behind the shown one and leaves a hidden pane hidden; a pane showing no tab shows it.
+    | { readonly type: "openTab"; readonly container: string; readonly tab?: string; readonly background?: boolean }
     | { readonly type: "activateTab"; readonly tab: string }
     | { readonly type: "closeTab"; readonly tab: string }
     // Closes the right pane's shown tab; a hidden pane or one with no tab is left alone.
@@ -61,7 +62,7 @@ export function reduceLayout(
         case "activateContainer":
             return reveal(state, resolveLayout(state, registry), action.container);
         case "openTab":
-            return openTab(state, registry, action.container, action.tab);
+            return openTab(state, registry, action.container, action.tab, action.background === true);
         case "activateTab":
             return activateTab(state, registry, action.tab);
         case "closeTab":
@@ -140,7 +141,13 @@ function markActive(state: LayoutState, tabId: string): LayoutState {
     };
 }
 
-function addTab(state: LayoutState, layout: ResolvedLayout, containerId: string, requested: string | undefined): LayoutState {
+function addTab(
+    state: LayoutState,
+    layout: ResolvedLayout,
+    containerId: string,
+    requested: string | undefined,
+    background = false,
+): LayoutState {
     if (!canOpenTab(layout, containerId)) return state;
     if (requested !== undefined && state.tabs.some((tab) => tab.id === requested)) return state;
     const fresh = nextTabId(state);
@@ -150,11 +157,19 @@ function addTab(state: LayoutState, layout: ResolvedLayout, containerId: string,
         tabs: [...state.tabs, tab],
         tabSeq: requested === undefined ? fresh.seq : state.tabSeq,
     };
-    return markActive(added, tab.id);
+    const rightPane = layout.locations.rightPane;
+    const showsNothing = rightPane.visible && rightPane.activeTab === undefined;
+    return background && !showsNothing ? added : markActive(added, tab.id);
 }
 
-function openTab(state: LayoutState, registry: RegistrySnapshot, containerId: string, requested: string | undefined): LayoutState {
-    return addTab(state, resolveLayout(state, registry), containerId, requested);
+function openTab(
+    state: LayoutState,
+    registry: RegistrySnapshot,
+    containerId: string,
+    requested: string | undefined,
+    background: boolean,
+): LayoutState {
+    return addTab(state, resolveLayout(state, registry), containerId, requested, background);
 }
 
 function activateTab(state: LayoutState, registry: RegistrySnapshot, tabId: string): LayoutState {

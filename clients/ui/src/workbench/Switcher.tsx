@@ -9,6 +9,7 @@ import { ContainerIcon } from "./ContainerIcon.tsx";
 import { draggedContainer, dropIndex, useDrag, useDropTarget } from "./drag.tsx";
 import { useWorkbench } from "./context.tsx";
 import { useTabTitle } from "./tab-context.tsx";
+import { useTabDot } from "./tabDots.ts";
 
 export interface SwitcherProps {
     readonly location: LocationId;
@@ -171,9 +172,10 @@ function PaneTabItem({ tab, active, marker: side }: ItemProps & { readonly tab: 
     const { layout, run, openMenu } = useWorkbench();
     const { start } = useDrag();
     const title = useTabTitle(tab.id) ?? tab.container.title;
+    const changed = useTabDot(tab.container.id) && !active;
     // The close button is a sibling of the tab, laid over its right edge, so the tab holds no button.
     return (
-        <span className="switcher-pill" role="presentation" data-active={active}>
+        <span className="switcher-pill" role="presentation" data-active={active} data-changed={changed}>
             <button
                 type="button"
                 className="switcher-item"
@@ -197,6 +199,7 @@ function PaneTabItem({ tab, active, marker: side }: ItemProps & { readonly tab: 
                 <ContainerIcon name={tab.container.icon} />
                 <span className="switcher-title">{title}</span>
             </button>
+            {changed ? <span className="change-dot" role="img" aria-label="Updated" /> : null}
             <button
                 type="button"
                 className="icon-button switcher-close"

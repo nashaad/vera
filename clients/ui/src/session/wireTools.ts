@@ -6,6 +6,7 @@ import type {
     ContextComponent,
     ContextState,
     DeliveryKind,
+    NoticeLink,
     Presentation,
     RetryState,
     TimelineBoundary,
@@ -244,11 +245,27 @@ export function parsePresentation(value: unknown): Presentation | undefined {
         }
         case "tool_notice": {
             const text = str(value.text);
-            return text === undefined ? undefined : { kind: "tool_notice", text };
+            const link = noticeLink(value.link);
+            return text === undefined ? undefined : { kind: "tool_notice", text, ...(link === undefined ? {} : { link }) };
         }
         default:
             return undefined;
     }
+}
+
+// A link that does not read is dropped and its notice still shows.
+function noticeLink(value: unknown): NoticeLink | undefined {
+    if (!isRecord(value)) return undefined;
+    const title = str(value.title);
+    const page = str(value.page);
+    if (title === undefined || page === undefined) return undefined;
+    const query: Record<string, string> = {};
+    if (isRecord(value.query)) {
+        for (const [name, text] of Object.entries(value.query)) {
+            if (typeof text === "string") query[name] = text;
+        }
+    }
+    return { title, page, ...(Object.keys(query).length === 0 ? {} : { query }) };
 }
 
 function checklistOf(value: Fields): Checklist | undefined {

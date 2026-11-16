@@ -7,6 +7,9 @@ import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
+import { PageLinksProvider } from "./pagepane/PageLinks.tsx";
+import { PagePaneSync } from "./pagepane/PagePaneSync.tsx";
+import { useAnnexPanes } from "./pagepane/useAnnexPanes.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
@@ -33,7 +36,8 @@ export function App() {
     useWindowEvidence(state, log);
     const visible = useVisibility();
     const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
-    const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout(unavailable);
+    const { annex, kinds: pageKinds } = useAnnexPanes(state.ready?.pid);
+    const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout(unavailable, pageKinds);
     const rightPaneEmpty = layout.locations.rightPane.all.length === 0;
     const panelEmpty = layout.locations.panel.all.length === 0;
     const hidden = useMemo(
@@ -63,6 +67,7 @@ export function App() {
     const banner = bannerFor(state);
     return (
         <WorkbenchProvider layout={layout} dispatch={dispatch} run={run} hidden={hidden}>
+            <PageLinksProvider annex={annex}>
             <RouterProvider commands={commands}>
             <ViewEnvContext.Provider value={environment}>
                 <div className="app" data-platform={platform} data-sessions={state.sessions}>
@@ -84,10 +89,12 @@ export function App() {
                     {loaded ? <BrowserSync /> : null}
                     {loaded ? <ChatSync /> : null}
                     {loaded ? <SubagentsSync /> : null}
+                    {loaded ? <PagePaneSync /> : null}
                     <SessionEvidenceReporter />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>
+            </PageLinksProvider>
         </WorkbenchProvider>
     );
 }

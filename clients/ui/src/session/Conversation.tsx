@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, type KeyboardEvent, type ReactNode } f
 
 import { showTarget } from "../commands/show-target.ts";
 import { Composer } from "../composer/Composer.tsx";
+import { useNoticePage } from "../pagepane/useNoticePage.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
@@ -54,7 +55,9 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
     const onShow = useCallback((target: string) => {
         showTarget(target, run);
     }, [run]);
-    const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, agentId, connected, pane, onShow);
+    // Only the session the main area shows opens page tabs; a Chat tab's or a subagent's notices stay in their own view.
+    const noticePage = useNoticePage();
+    const { watch, loadOlder, send, reattach, start } = useSessionWatch(bridge, agentId, connected, pane, onShow, pane === "main" ? noticePage : undefined);
     const agentStart = useStartAgent(bridge, agentId, watch.phase === "attached", send, pane);
     const helpRefused = agentStart.name === HELP_AGENT ? agentStart.refused : undefined;
     // The host ended this session's watch while it moved; open it again and read the row's new folder.

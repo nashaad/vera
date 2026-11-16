@@ -491,6 +491,27 @@ test("host wire accepts checklists and scratch diffs and rejects malformed ones"
     })).toBeUndefined();
 });
 
+test("@core host wire carries a tool notice's page link, live and in history, and refuses a malformed one", () => {
+    const presentation = {
+        kind: "tool_notice" as const,
+        text: "Artifact page",
+        link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } },
+    };
+    const live = { type: "tool_presentation" as const, tool: "artifact_write", presentation, seq: 1 };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    const history = { type: "history" as const, entries: [{ kind: "presentation" as const, presentation }], seq: 1 };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    for (const link of [
+        { ...presentation.link, title: "" },
+        { ...presentation.link, page: "not a path!" },
+        { ...presentation.link, query: { session: 1 } },
+        { ...presentation.link, query: { "a b": "1" } },
+        "page",
+    ]) {
+        expect(parseAgentUpdate({ ...live, presentation: { ...presentation, link } })).toBeUndefined();
+    }
+});
+
 test("host wire carries managed process identity on Bash completion", () => {
     const update = {
         type: "tool_finished" as const,

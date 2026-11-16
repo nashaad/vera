@@ -9,7 +9,7 @@ import { registerExtensionCommands } from "../extensions/commands.ts";
 import { runExtensionCommand } from "../extensions/run-command.ts";
 import { useDesktopExtensions } from "../extensions/useExtensionOn.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
-import { registerCoreContributions } from "../registry/core.ts";
+import { registerCoreContributions, registerPaneKind, type PaneKind } from "../registry/core.ts";
 import { switchTheme } from "../theme/activate.ts";
 import { showToast } from "../overlays/toasts.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
@@ -20,6 +20,7 @@ import { reduceLayout, type LayoutAction } from "./reducer.ts";
 import { resolveLayout, type ResolvedLayout } from "./resolve.ts";
 
 const SAVE_DELAY_MS = 400;
+const NO_KINDS: readonly PaneKind[] = [];
 
 function runFromCommand(command: string): void {
     void runExtensionCommand(command, (report) => showToast(report.message, report.ok ? "success" : "danger"));
@@ -47,9 +48,16 @@ function createServices(): Services {
 }
 
 // `unavailable` names the containers the show flags turn off; they are left out of the layout, not removed from it.
-export function useLayout(unavailable: ReadonlySet<string>): LayoutController {
+// `extraKinds` are pane kinds known only at run time; the array must keep its identity while the kinds do.
+export function useLayout(unavailable: ReadonlySet<string>, extraKinds: readonly PaneKind[] = NO_KINDS): LayoutController {
     const [services] = useState(createServices);
     const { contributions, commands } = services;
+    useLayoutEffect(() => {
+        const removers = extraKinds.map((kind) => registerPaneKind(contributions, kind));
+        return () => {
+            for (const remove of removers) remove();
+        };
+    }, [contributions, extraKinds]);
     // Set before paint so a pane that just turned off never draws once more.
     useLayoutEffect(() => contributions.setUnavailable(unavailable), [contributions, unavailable]);
     const [state, setState] = useState<LayoutState>(defaultLayout);

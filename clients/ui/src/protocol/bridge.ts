@@ -224,6 +224,8 @@ export interface AnnexPage {
     // The extension that adds the page; Vera's own pages have none.
     readonly extensionId?: string;
     readonly about?: string;
+    // True when the extension gave the page its own pane.
+    readonly pane?: true;
 }
 
 export interface AnnexPagesAnswer {

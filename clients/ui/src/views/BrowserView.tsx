@@ -9,6 +9,7 @@ import { useNativeSurface } from "../browser/useNativeSurface.ts";
 import { ArrowLeftIcon, ArrowRightIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { AnnexPage, AnnexPagesAnswer, DesktopBridge } from "../protocol/bridge.ts";
 import { usePaneTab, usePublishTabTitle } from "../workbench/tab-context.tsx";
+import { AnnexFrame } from "./AnnexFrame.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
 
 const PLACEHOLDER = "Search Vera's pages or enter an address";
@@ -175,13 +176,7 @@ function BrowserBody({ annex, entry, frameRound, browse }: BrowserBodyProps) {
                     <p>The annex serves nothing at {entry}. Pick a page above.</p>
                 </div>
             ) : (
-                <iframe
-                    key={`${annex.url}${entry}:${frameRound}`}
-                    className="browser-frame"
-                    title={page.label}
-                    src={`${annex.url}${entry.slice(1)}`}
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                />
+                <AnnexFrame annex={annex} entry={entry} title={page.label} round={frameRound} />
             )}
         </>
     );

@@ -39,10 +39,18 @@ export interface ChecklistPresentation {
     readonly checklist: Checklist;
 }
 
-// Sent in place of a diff too large to show.
+// Where a notice sends the reader: an annex page and the query it opens on, never an address.
+export interface NoticeLink {
+    readonly title: string;
+    readonly page: string;
+    readonly query?: Readonly<Record<string, string>>;
+}
+
+// Sent in place of a diff too large to show, or to point at a page an extension serves.
 export interface ToolNoticePresentation {
     readonly kind: "tool_notice";
     readonly text: string;
+    readonly link?: NoticeLink;
 }
 
 export type Presentation = DiffPresentation | ChecklistPresentation | ToolNoticePresentation;

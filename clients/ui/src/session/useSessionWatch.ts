@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import { STREAM_BACKGROUND_FLUSH_MS, STREAM_FLUSH_MS } from "../state/frameBudget.ts";
-import type { SessionWatch } from "./model.ts";
+import type { NoticeLink, SessionWatch } from "./model.ts";
 import { getPermissionsCommand } from "./permissions.ts";
 import { createStreamBatcher } from "./streamBatch.ts";
 import { beginOlder, canLoadOlder, initialWatch, reduceWatch, watchClosed } from "./transcript.ts";
@@ -54,10 +54,14 @@ export function useSessionWatch(
     pane: SessionPane = "main",
     // Called when the host asks this pane's window to open a screen. Never batched with the transcript.
     onShow?: (target: string) => void,
+    // Called for each tool notice with a link that arrives live; the history a watch opens with never calls it.
+    onNoticeLink?: (link: NoticeLink) => void,
 ): SessionWatchHandle {
     const [watch, dispatch] = useReducer(reduce, agentId, initialWatch);
     const showRef = useRef(onShow);
     showRef.current = onShow;
+    const noticeRef = useRef(onNoticeLink);
+    noticeRef.current = onNoticeLink;
     const [attempt, setAttempt] = useState(0);
     useEffect(() => {
         dispatch({ type: "reset", agentId });
@@ -72,7 +76,12 @@ export function useSessionWatch(
             if (event.type === "session_frame" && event.pane === pane && event.agentId === agentId) {
                 const message = parseSessionLine(event.text);
                 if (message?.type === "session_show") showRef.current?.(message.target);
-                else if (message !== undefined) batcher.push(message);
+                else if (message !== undefined) {
+                    if (message.type === "tool_presentation" && message.presentation.kind === "tool_notice" && message.presentation.link !== undefined) {
+                        noticeRef.current?.(message.presentation.link);
+                    }
+                    batcher.push(message);
+                }
             } else if (event.type === "session_closed" && event.pane === pane && event.agentId === agentId) {
                 batcher.flush();
                 dispatch({ type: "closed", reason: event.reason });
