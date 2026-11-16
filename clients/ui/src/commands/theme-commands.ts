@@ -1,19 +1,10 @@
 import type { ImportedThemeSummary } from "../theme/imported.ts";
-import { IMPORTED_THEME_PREFIX, importedThemeId, isThemeName, type ThemeChoice, type ThemeName } from "../theme/tokens.ts";
+import { IMPORTED_THEME_PREFIX, importedThemeId, isThemeName, type ThemeChoice } from "../theme/tokens.ts";
+import { builtinRecord, THEME_LABELS, THEME_NAMES } from "../theme/registry.ts";
 import type { CommandRegistry } from "./registry.ts";
 
 // One command per theme: a native menu item can only name a command, not pass arguments.
-export const THEME_COMMANDS: Readonly<Record<ThemeName, string>> = {
-    dark: "theme.dark",
-    light: "theme.light",
-    "high-contrast": "theme.highContrast",
-};
-
-const THEME_TITLES: Readonly<Record<ThemeName, string>> = {
-    dark: "Theme: Dark",
-    light: "Theme: Light",
-    "high-contrast": "Theme: High Contrast",
-};
+export const THEME_COMMANDS = builtinRecord((theme) => theme.name === "high-contrast" ? "theme.highContrast" : `theme.${theme.name}`);
 
 export function importedThemeCommand(slug: string): string {
     return `theme.imported.${slug}`;
@@ -30,9 +21,9 @@ export function registerThemeCommands(
     apply: (choice: ThemeChoice) => void,
     imported: readonly ImportedThemeSummary[] = [],
 ): () => void {
-    const disposers = (Object.keys(THEME_COMMANDS) as ThemeName[]).map((name) => registry.register({
+    const disposers = THEME_NAMES.map((name) => registry.register({
         id: THEME_COMMANDS[name],
-        title: THEME_TITLES[name],
+        title: `Theme: ${name === "high-contrast" ? "High Contrast" : THEME_LABELS[name]}`,
         run: () => apply(name),
     }));
     for (const theme of imported) {

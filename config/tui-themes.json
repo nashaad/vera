@@ -349,6 +349,32 @@
         "notice": "#FFFF55",
         "success": "#55FF55"
       }
+    },
+    "vera-orange": {
+      "label": "Vera Orange",
+      "description": "near-black, warm white and orange",
+      "accent": "#e8582a",
+      "text": "#ecebe6",
+      "muted": "#a6a59f",
+      "notice": "#F2C94C",
+      "danger": "#c4453a",
+      "success": "#6FE3D4",
+      "critical": "#ff3b30",
+      "secondary": "#8B79F6",
+      "focus": "#6FE3D4",
+      "inactive": "#3A3D48",
+      "activityTrail": "#8B79F6",
+      "dangerSurface": "#1A0906",
+      "diffAdded": "#2E8C74",
+      "diffRemoved": "#C24A34",
+      "code": "#F2A6D6",
+      "background": "#0b0c10",
+      "panel": "#111318",
+      "element": "#1b1e26",
+      "input": "#0b0c10",
+      "menu": "#111318",
+      "chrome": "plain",
+      "selectionText": "#0b0c10"
     }
   }
 }

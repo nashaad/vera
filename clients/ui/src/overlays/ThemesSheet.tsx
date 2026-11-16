@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { CheckIcon, EyeIcon } from "../components/Icons.tsx";
 import { switchTheme } from "../theme/activate.ts";
 import { themeFile } from "../theme/apply.ts";
-import { importedThemeId, isThemeChoice, THEME_NAMES, isThemeName, type ColorToken, type ThemeChoice, type ThemeName } from "../theme/tokens.ts";
+import { importedThemeId, isThemeChoice, THEME_NAMES, isThemeName, type ColorToken, type ThemeChoice } from "../theme/tokens.ts";
 import { resolveThemeChoice } from "../theme/apply.ts";
+import { THEME_LABELS, THEME_DESCRIPTIONS } from "../theme/registry.ts";
 import { readStoredTheme } from "../theme/storage.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
@@ -13,12 +14,6 @@ import { OverlaySheet } from "./OverlaySheet.tsx";
 export interface ThemesSheetProps {
     readonly onClose: () => void;
 }
-
-const THEME_TEXT: Readonly<Record<ThemeName, { readonly label: string; readonly description: string }>> = {
-    dark: { label: "Dark", description: "Dark surfaces with light text." },
-    light: { label: "Light", description: "Light surfaces with dark text." },
-    "high-contrast": { label: "High contrast", description: "Stronger contrast between surfaces, borders and text." },
-};
 
 const SWATCH_TOKENS: readonly ColorToken[] = ["surface", "surface-panel", "accent", "text", "border"];
 
@@ -89,7 +84,7 @@ function activeThemeChoice(): ThemeChoice {
 }
 
 function themeText(choice: ThemeChoice, imported: readonly ImportedThemeSummary[]): { readonly label: string; readonly description: string } {
-    if (isThemeName(choice)) return THEME_TEXT[choice];
+    if (isThemeName(choice)) return { label: THEME_LABELS[choice], description: THEME_DESCRIPTIONS[choice] };
     const theme = imported.find((entry) => importedThemeId(entry.slug) === choice);
     return { label: theme?.name ?? choice, description: theme === undefined ? "" : `Imported. ${theme.source}.` };
 }

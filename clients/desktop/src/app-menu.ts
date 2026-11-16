@@ -2,18 +2,13 @@ import type { MenuItemConstructorOptions } from "electron";
 
 import { importedThemeCommand, THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
 import type { DesktopMenuItem } from "../../ui/src/protocol/extensions.ts";
-import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice, type ThemeName } from "../../ui/src/theme/tokens.ts";
+import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
 import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
 import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
-
-const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
-    dark: "Dark",
-    light: "Light",
-    "high-contrast": "High contrast",
-};
+import { THEME_LABELS } from "../../ui/src/theme/registry.ts";
 
 export interface ImportedMenuTheme {
     readonly slug: string;

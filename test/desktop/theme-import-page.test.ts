@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
+import { THEME_LABELS, THEME_NAMES } from "../../clients/ui/src/theme/registry.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import {
     importedThemeCommand,
@@ -297,11 +298,9 @@ test("@core each imported theme has a palette command, and the theme commands ho
     const applied: string[] = [];
     const dispose = registerThemeCommands(registry, (choice) => applied.push(choice), [PIRATE, NEST]);
     expect(registry.list().map((command) => [command.id, command.title]).sort()).toEqual([
-        ["theme.dark", "Theme: Dark"],
-        ["theme.highContrast", "Theme: High Contrast"],
+        ...THEME_NAMES.map((name) => [THEME_COMMANDS[name], `Theme: ${name === "high-contrast" ? "High Contrast" : THEME_LABELS[name]}`]),
         ["theme.imported.crow-nest", "Theme: Crow Nest"],
         ["theme.imported.pirate-crow", "Theme: Pirate Crow"],
-        ["theme.light", "Theme: Light"],
     ].sort());
     registry.execute(importedThemeCommand("crow-nest"));
     expect(applied).toEqual(["imported:crow-nest"]);

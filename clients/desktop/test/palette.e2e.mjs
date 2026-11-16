@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 
+import { BUILTIN_THEME_REGISTRY } from "../../ui/src/theme/registry.ts";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
@@ -30,13 +31,13 @@ try {
     const selectedId = async (id) => {
         await page.waitForFunction((expected) => document.querySelector('.palette[data-overlay="palette"] [aria-selected="true"]')?.getAttribute("data-command") === expected, id);
     };
-    await selectedId("theme.dark");
+    await rows.first().waitFor();
     const ids = await rows.evaluateAll((entries) => entries.map((entry) => entry.getAttribute("data-command")));
+    await selectedId(ids[0]);
+    const builtinIds = BUILTIN_THEME_REGISTRY.map(({ name }) => name === "high-contrast" ? "theme.highContrast" : `theme.${name}`);
+    assert.deepEqual(new Set(ids.slice(0, builtinIds.length)), new Set(builtinIds));
     console.log(`theme screen order: ${ids.join(", ")}`);
-    assert.deepEqual(ids, [
-        "theme.dark",
-        "theme.light",
-        "theme.highContrast",
+    assert.deepEqual(ids.slice(builtinIds.length), [
         "theme.choose",
         "vera.vscode-theme-import.import",
         "vera.vscode-theme-import.installed",
@@ -45,14 +46,14 @@ try {
         await input.press("ArrowDown");
         await selectedId(id);
     }
-    console.log("Down follows Dark, Light, High Contrast, Choose Theme, both import rows, then wraps to Dark");
+    console.log(`Down follows all ${builtinIds.length} built-ins, Choose Theme, both import rows, then wraps to the first row`);
     for (const id of [...ids.slice(1).reverse(), ids[0]]) {
         await input.press("ArrowUp");
         await selectedId(id);
     }
-    console.log("Up mirrors the visible order and wraps from Dark to the last row");
+    console.log("Up mirrors the visible order and wraps from the first row to the last row");
     await input.press("ArrowDown");
-    await selectedId("theme.light");
+    await selectedId(ids[1]);
     await input.fill("them");
     await selectedId(ids[0]);
     await input.fill("theme");

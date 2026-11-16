@@ -1,5 +1,6 @@
 import { baseColor, shadowFor } from "../../clients/ui/src/theme/imported.ts";
-import type { ColorToken, SyntaxToken, ThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import type { BaseThemeName } from "../../clients/ui/src/theme/base.ts";
+import type { ColorToken, SyntaxToken } from "../../clients/ui/src/theme/tokens.ts";
 import { COLOR_TOKENS } from "../../clients/ui/src/theme/tokens.ts";
 import { deriveNeutral, NEUTRAL_TOKENS, type NeutralAnchors } from "./neutral-colors.ts";
 import { brightness, parseColor } from "./vscode-color.ts";
@@ -56,7 +57,7 @@ export function classifyType(
     declared: unknown,
     uiTheme: unknown,
     colors: Readonly<Record<string, unknown>>,
-): ThemeName {
+): BaseThemeName {
     const fromDeclared = typeFromName(declared);
     if (fromDeclared !== undefined) return fromDeclared;
     const fromUi = typeFromName(uiTheme);
@@ -66,7 +67,7 @@ export function classifyType(
     return brightness(background) >= 0.5 ? "light" : "dark";
 }
 
-function typeFromName(value: unknown): ThemeName | undefined {
+function typeFromName(value: unknown): BaseThemeName | undefined {
     if (typeof value !== "string") return undefined;
     switch (value.trim().toLowerCase()) {
         case "dark":
@@ -87,7 +88,7 @@ function typeFromName(value: unknown): ThemeName | undefined {
     }
 }
 
-export function mapColors(colors: Readonly<Record<string, unknown>>, type: ThemeName): MappedColors {
+export function mapColors(colors: Readonly<Record<string, unknown>>, type: BaseThemeName): MappedColors {
     const mapped = {} as Record<ColorToken, string>;
     const anchors = neutralAnchors(colors);
     let used = 0;

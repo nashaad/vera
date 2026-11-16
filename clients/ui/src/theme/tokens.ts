@@ -1,3 +1,6 @@
+import { THEME_NAMES, type ThemeName } from "./registry.ts";
+export { THEME_NAMES, type ThemeName } from "./registry.ts";
+
 export const COLOR_TOKENS = [
     "surface",
     "surface-sidebar",
@@ -85,8 +88,6 @@ export type TokenName = ColorToken | ValueToken;
 
 export const ALL_TOKENS: readonly TokenName[] = [...COLOR_TOKENS, ...VALUE_TOKENS];
 
-export const THEME_NAMES = ["dark", "light", "high-contrast"] as const;
-export type ThemeName = (typeof THEME_NAMES)[number];
 export const DEFAULT_THEME: ThemeName = "dark";
 
 export const IMPORTED_THEME_PREFIX = "imported:";

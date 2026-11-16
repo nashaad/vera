@@ -1,3 +1,4 @@
+import { THEME_COMMANDS } from "../commands/theme-commands.ts";
 import type { Command } from "../commands/registry.ts";
 import { acceleratorKeys, NATIVE_SHORTCUTS } from "../commands/keys.ts";
 import { rowFolderName } from "../protocol/sessionGroups.ts";
@@ -6,6 +7,8 @@ import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 export const PALETTE_LIMIT = 50;
 
 export type CommandGroup = "Go" | "Pages" | "Window" | "Session" | "Theme" | "Help" | "Other";
+
+const BUILTIN_THEME_COMMANDS = new Set(Object.values(THEME_COMMANDS));
 
 const GROUP_ORDER: readonly CommandGroup[] = ["Go", "Pages", "Window", "Session", "Theme", "Help", "Other"];
 
@@ -63,7 +66,12 @@ export function buildCommandItems(commands: readonly Command[], platform: string
         }));
     return items.sort((left, right) => {
         const byGroup = GROUP_ORDER.indexOf(left.group as CommandGroup) - GROUP_ORDER.indexOf(right.group as CommandGroup);
-        return byGroup !== 0 ? byGroup : left.label.localeCompare(right.label);
+        if (byGroup !== 0) return byGroup;
+        if (left.group === "Theme") {
+            const byBuiltin = Number(BUILTIN_THEME_COMMANDS.has(right.id)) - Number(BUILTIN_THEME_COMMANDS.has(left.id));
+            if (byBuiltin !== 0) return byBuiltin;
+        }
+        return left.label.localeCompare(right.label);
     });
 }
 

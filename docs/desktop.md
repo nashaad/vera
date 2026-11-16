@@ -215,7 +215,7 @@ Escape, its close button or a click outside it.
   folder would offer, and a pick becomes the agent the first message runs as;
   see [Choose the agent of a new chat](agents.md#choose-the-agent-of-a-new-chat).
   With no session open and no New Chat page it says to open one.
-- Choose Theme lists the three built-in themes and the themes of the enabled
+- Choose Theme lists the built-in themes and the themes of the enabled
   desktop extensions with a swatch; a click or a number key (for the first nine)
   applies one.
 - Rename Session, in the palette, opens a sheet with the open session's name to
@@ -393,7 +393,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `layout.toggleRightPane`, `layout.togglePanel`, `layout.closeTab`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
-`container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.dark`, `theme.light`, `theme.highContrast`,
+`container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.<name>` (one per built-in theme, with `theme.highContrast` for High contrast),
 `theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`,
 `vera.vscode-theme-import.installed`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
@@ -1195,23 +1195,30 @@ child before closing its stdin.
 ## Themes
 
 The interface uses semantic tokens for color, type, spacing, shadow, and motion.
-Three themes ship as data files:
+The built-in themes are Dark, Light, High contrast, Vera Blue, Vera Purple,
+Muted Blue, Onyx, Palenight, Synthwave, Night Owl, GitHub, Midnight Blue,
+Midnight Blue II, NC, NC Navy, retro31 and Vera Orange.
+They are available without installing anything from the catalog.
+Dark remains the default.
 
-- `clients/ui/src/theme/themes/dark.json`
-- `clients/ui/src/theme/themes/light.json`
-- `clients/ui/src/theme/themes/high-contrast.json`
+View > Theme, View > Choose Theme…, Settings > Appearance and the command
+palette's `Theme: <label>` commands list built-in themes before the themes of
+enabled desktop extensions.
+Tour's Theme menu offers the same choices.
+Choose Theme and Appearance show each theme's colors as swatches.
+Switching applies at once and remembers the choice for the next launch.
+A saved built-in name that no longer exists falls back to Dark.
+The saved theme is applied before the stylesheet loads, so the first paint
+already uses it.
 
-View > Theme lists Dark, Light and High contrast, then the themes of the enabled
-desktop extensions, with the current theme checked; the same choices are the
-commands `theme.dark`, `theme.light` and `theme.highContrast`, and
-`theme.imported.<name>` for each theme a desktop extension adds. Themes come
-only from desktop extensions; see Desktop extensions below. View > Choose
-Theme… opens a sheet with all of them, and
-Settings > Appearance lists them with a swatch. Switching applies the token values and a `data-theme`
-attribute to the root element at once and remembers the choice for the next
-launch. The saved theme is applied by a script in the page head that runs before
-the stylesheet loads, so the first paint already uses it. An imported theme's
-`data-theme` is `imported:<name>`.
+Built-in theme data files live in `clients/ui/src/theme/themes/`, and
+`clients/ui/src/theme/registry.ts` lists their names, labels, descriptions and
+color schemes.
+The root element's `data-theme` is the built-in name or `imported:<name>` for
+an extension theme.
+Each theme has a command `theme.<name>`, except High contrast, whose command
+remains `theme.highContrast`.
+Each extension theme has a command `theme.imported.<name>`.
 
 ### Importing a VS Code theme
 
@@ -1240,7 +1247,7 @@ View > Theme > Import VS Code Theme…, or from the command palette's
 `Theme: Import VS Code Theme…`. Each opens a file picker for `.json`, `.jsonc`
 and `.vsix` files. After a
 successful import the window switches to the theme at once, the theme sits in
-the lists beside Dark, Light and High contrast, and Settings shows
+the lists after the built-in themes, and Settings shows
 `Imported "<name>" and switched to it.` Each imported theme is installed as its
 own desktop extension named `imported.<name>`, so it appears under Desktop
 extensions and can be turned off or removed there. Importing the same name
