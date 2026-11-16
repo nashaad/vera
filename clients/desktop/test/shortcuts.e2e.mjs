@@ -16,13 +16,9 @@ const LONG_TIMEOUT = 45_000;
 
 const KEY_NAMES = { BracketLeft: "[", BracketRight: "]", Comma: ",", Slash: "/" };
 
-const PANE_ONE = "One Pane";
-const PANE_BESIDE = "Subagent Beside";
-
 const commandsOverlay = ".palette[data-overlay=\"palette\"]";
 const sessionsOverlay = ".palette[data-overlay=\"sessions\"]";
 const shortcutsOverlay = ".overlay-sheet[data-overlay=\"shortcuts\"]";
-const paneItems = "[role=\"menuitemcheckbox\"]";
 
 function locationOf(name) {
     return `[data-location="${name}"]`;
@@ -90,41 +86,6 @@ async function checkForward(ctx, tap) {
     await showMain(ctx.page, "work");
 }
 
-// The palette's session rows carry the session id that the session page is keyed by.
-async function openSession(ctx) {
-    await press(ctx.app, "P", [MODIFIER]);
-    await ctx.page.waitForSelector(sessionsOverlay, { timeout: TIMEOUT });
-    await ctx.page.click(`${sessionsOverlay} [data-session="${ctx.agentId}"]`);
-    await showMain(ctx.page, "session");
-}
-
-// The session menu closes on Escape only while it holds focus.
-async function paneLabel(ctx) {
-    await ctx.page.click("[data-session-menu=\"true\"]");
-    await ctx.page.waitForSelector(paneItems, { timeout: TIMEOUT });
-    const checked = ctx.page.locator(`${paneItems}[aria-checked="true"]`);
-    if (await checked.count() !== 1) throw new Error("The session menu does not check exactly one pane layout.");
-    const label = (await checked.textContent()).trim();
-    await press(ctx.app, "Escape");
-    await settle(ctx.page, paneItems, false);
-    return label;
-}
-
-async function expectPane(ctx, expected) {
-    const label = await paneLabel(ctx);
-    if (label !== expected) throw new Error(`The pane layout is "${label}", expected "${expected}".`);
-}
-
-async function checkCycle(ctx, tap) {
-    await openSession(ctx);
-    await expectPane(ctx, PANE_ONE);
-    await tap();
-    await expectPane(ctx, PANE_BESIDE);
-    await tap();
-    await tap();
-    await expectPane(ctx, PANE_ONE);
-}
-
 const CHECKS = {
     "CmdOrCtrl+B": (ctx, tap) => flip(ctx.page, locationOf("sidebar"), tap),
     "CmdOrCtrl+Alt+B": (ctx, tap) => flip(ctx.page, locationOf("rightPane"), tap),
@@ -140,7 +101,6 @@ const CHECKS = {
         await tap();
         await showMain(ctx.page, "settings");
     },
-    "CmdOrCtrl+Alt+A": checkCycle,
     "CmdOrCtrl+K": (ctx, tap) => overlay(ctx, tap, commandsOverlay),
     "CmdOrCtrl+P": (ctx, tap) => overlay(ctx, tap, sessionsOverlay),
     "CmdOrCtrl+/": (ctx, tap) => overlay(ctx, tap, shortcutsOverlay),
@@ -222,7 +182,6 @@ try {
     await input.press("Enter");
     await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: LONG_TIMEOUT });
     await page.waitForSelector(`text=${REPLY}`, { timeout: 30_000 });
-    ctx.agentId = await page.locator(".transcript-scroll[data-session]").first().getAttribute("data-session");
 
     for (const item of plan) {
         const check = CHECKS[item.shortcut.accelerator];

@@ -47,10 +47,6 @@ export const GO_SHORTCUTS = [
     { command: "go.settings", label: "Settings", accelerator: "CmdOrCtrl+,", code: "Comma", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
-export const SESSION_SHORTCUTS = [
-    { command: "session.cycleLayout", label: "Cycle Agent Panes", accelerator: "CmdOrCtrl+Alt+A", code: "KeyA", alt: true, shift: false },
-] as const satisfies readonly NativeShortcut[];
-
 export const HELP_SHORTCUTS = [
     { command: "palette.commands", label: "Command Palette…", accelerator: "CmdOrCtrl+K", code: "KeyK", alt: false, shift: false },
     { command: "palette.sessions", label: "Go to Session…", accelerator: "CmdOrCtrl+P", code: "KeyP", alt: false, shift: false },
@@ -66,7 +62,6 @@ export const NATIVE_SHORTCUTS: readonly NativeShortcut[] = [
     ...LAYOUT_SHORTCUTS,
     ...PANE_SHORTCUTS,
     ...GO_SHORTCUTS,
-    ...SESSION_SHORTCUTS,
     ...HELP_SHORTCUTS,
     ...EXTRA_SHORTCUTS,
 ];
@@ -157,7 +152,6 @@ export function shortcutGroups(platform: string): readonly ShortcutGroup[] {
     return [
         { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, ...PANE_SHORTCUTS], platform) },
         { title: "Go", rows: nativeRows(GO_SHORTCUTS, platform) },
-        { title: "Session", rows: nativeRows(SESSION_SHORTCUTS, platform) },
         { title: "Help", rows: nativeRows(HELP_SHORTCUTS, platform) },
         ...[...pageRows].map(([title, rows]) => ({ title, rows })),
     ];

@@ -103,7 +103,7 @@ try {
     const detail = page.locator(`${pane} .subagent-detail`);
     await detail.waitFor({ timeout: 15_000 });
     await detail.getByText(CHILD_REPLY).waitFor({ timeout: 45_000 });
-    await until("the detail titled by the child", async () => (await detail.locator(".companion-title").innerText()).includes(DESCRIPTION));
+    await until("the detail titled by the child", async () => (await detail.locator(".subagent-title").innerText()).includes(DESCRIPTION));
     if ((await detail.locator(".composer-input").count()) !== 0) throw new Error("The child's detail has a composer.");
     if ((await tabs().count()) !== 1) throw new Error("Opening the child made a second Subagents tab.");
     const childRequests = requests.filter((entry) => entry.child);

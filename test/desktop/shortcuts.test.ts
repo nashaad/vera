@@ -166,7 +166,7 @@ test("shortcut groups merge a command's accelerators and list page keys by where
     expect(palette?.chords).toEqual([["⌘", "K"], ["⇧", "⌘", "P"]]);
     const composer = groups.find((group) => group.title === "Composer");
     expect(composer?.rows.map((row) => row.chords[0]?.[0])).toContain("↑");
-    expect(groups.map((group) => group.title).slice(0, 4)).toEqual(["Window", "Go", "Session", "Help"]);
+    expect(groups.map((group) => group.title).slice(0, 3)).toEqual(["Window", "Go", "Help"]);
 });
 
 test("@core the menu leaves out the commands the window hides and tidies the separators around them", () => {

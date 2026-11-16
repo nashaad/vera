@@ -7,8 +7,37 @@
     min-height: 0;
 }
 
-.subagent-detail .companion-head {
-    padding-left: calc(var(--vera-space) * 1);
+.subagent-head {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2) calc(var(--vera-space) * 1) calc(var(--vera-space) * 1);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.subagent-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.subagent-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subagent-state {
+    flex: 0 0 auto;
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-accent);
+    border: thin solid color-mix(in srgb, var(--vera-accent) 40%, transparent);
+    border-radius: var(--vera-radius-xl);
 }
 
 .subagent-detail .subagent-error {

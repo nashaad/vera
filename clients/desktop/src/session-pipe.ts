@@ -159,7 +159,7 @@ export class SessionPipe {
     }
 }
 
-// The main pane and the Chat tabs are asked to open screens, which a Help chat does; the companion and subagent panes are read-only views.
+// The main pane and the Chat tabs are asked to open screens, which a Help chat does; the subagent pane is a read-only view.
 export function attachLine(agentId: string, hidesReasoning: boolean, pane: SessionPane = "main"): string {
     const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE];
     if (hidesReasoning) capabilities.push(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);

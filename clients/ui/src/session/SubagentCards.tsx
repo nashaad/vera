@@ -26,7 +26,7 @@ function sameMatches(left: ReadonlyMap<ToolCall, SessionRow>, right: ReadonlyMap
     return true;
 }
 
-// Matches the open session's subagent calls to its children. Without it, as in a companion or a Chat tab, a run of
+// Matches the open session's subagent calls to its children. Without it, as in a Chat tab, a run of
 // calls stays one line, because a card opens the Subagents tab of the session on the page.
 export function SubagentCardsProvider({ parentId, blocks, enabled, children }: {
     readonly parentId: string;

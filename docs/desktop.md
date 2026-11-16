@@ -378,8 +378,7 @@ Each of these is a command. The commands are `layout.toggleSidebar`,
 `theme.imported.<name>` (one per theme a desktop extension adds), `vera.vscode-theme-import.import`, `go.newChat`,
 `go.search`, `go.work`, `go.customize`, `go.settings`, `go.back`, `go.forward`,
 `session.rewind`, `session.compact`, `session.subagents` (shows the Subagents tab), `session.tasks`,
-`session.copyConversation`, `session.quote`, `session.cycleLayout` and
-`session.setLayout`. `container.activate` and the shortcuts of a kind show the most
+`session.copyConversation` and `session.quote`. `container.activate` and the shortcuts of a kind show the most
 recently active tab of that kind, and open one when there is none; `tab.open`
 always opens a new tab of the kind, and `tab.activate` and `tab.close` take a
 tab's id.
@@ -519,8 +518,8 @@ right. Under each message:
   last step (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact
   date and time. The `…` menu has `Quote in Reply`, which puts the reply in the
   composer as a Markdown quote with the caret under it, and `Rewind or Fork…`,
-  which opens the same sheet as the session menu. A subagent's pane has no `…`
-  button.
+  which opens the same sheet as the session menu. A subagent's conversation in
+  the Subagents tab has no `…` button.
 
 The page stays at the bottom as new steps arrive unless you have scrolled up.
 It opens with the newest page of history; `Show earlier messages` at the top
@@ -997,10 +996,6 @@ The session menu (the `…` button) has:
   `Compact` while one runs does nothing.
 - `Subagents`, which shows the Subagents tab in the right pane and opens the
   pane if it is closed. The tab is described below.
-- `One Pane`, `Subagent Beside` and `Subagent Below`, which choose how the
-  second pane sits. Cmd+Alt+A cycles them. The second pane shows the subagent
-  you opened, or else the running one, or else the newest. It updates live and
-  has no composer.
 
 The background tasks pill shows how many subagents and background agents are
 running. It opens the tasks sheet, which lists the subagents with their status.
@@ -1017,7 +1012,7 @@ subagent, the word is that of the call: `Working`, `Done` or `Failed`. Once it i
 listed, the word is the subagent's own: `Working`, `Waiting`, `Idle`, `Done` or
 `Ended`. The other calls of the run keep their run line, and while a run is still
 being made only its cards show, with the status line naming the current call.
-Cards show in the open session's conversation, not in a Chat tab or a second pane.
+Cards show in the open session's conversation, not in a Chat tab.
 A card opens the Subagents tab on that subagent.
 
 The Subagents tab is also opened by the session menu's `Subagents`, by a
@@ -1061,8 +1056,8 @@ file is read again when a turn ends. Plan and Review are built from the
 session's conversation, so when the session is not running and nothing of it
 has loaded, each says `This session is not running. Start it to see its plan.`
 or `This session is not running. Start it to see its changes.` with
-`Start session`. Files, Output and Browser do not need the session. The second
-pane for a subagent and the Subagents tab are read only and have no `Start session`. While the right
+`Start session`. Files, Output and Browser do not need the session. The
+Subagents tab is read only and has no `Start session`. While the right
 pane is closed, a rail at the right of the session page opens these views.
 
 When the host runs a turn on a different model than the one picked, a line in
