@@ -348,6 +348,19 @@ test("@core activating a container shows its most recently active tab, and opens
     expect(onPanes(none, activate("c.c"))).toBe(none);
 });
 
+test("@core closing the shown tab closes only the active tab of a visible right pane", () => {
+    const closeShown: LayoutAction = { type: "closeActiveTab" };
+    const two = onPanes(defaultLayout(), open("c.a"), open("c.b"));
+    const closed = onPanes(two, closeShown);
+    expect(strip(closed)).toEqual(["tab.1:c.a"]);
+    expect(activeTab(closed)).toBe("tab.1");
+    const empty = onPanes(closed, closeShown);
+    expect(strip(empty)).toEqual([]);
+    expect(onPanes(empty, closeShown)).toBe(empty);
+    const hidden = onPanes(two, { type: "setLocationVisible", location: "rightPane", visible: false });
+    expect(onPanes(hidden, closeShown)).toBe(hidden);
+});
+
 test("activating a tab switches to it and changes nothing for an unknown or shown tab", () => {
     const state = onPanes(defaultLayout(), open("c.a"), open("c.b"));
     const back = onPanes(state, { type: "activateTab", tab: "tab.1" });

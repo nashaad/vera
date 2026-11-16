@@ -27,6 +27,14 @@ test("@core the three toggles are bound directly on the platform modifier", () =
     expect(shortcutCommand(key("KeyB", { control: true, alt: true }), "win32")).toBe("layout.toggleRightPane");
 });
 
+test("@core Cmd+W closes the shown tab and never reaches the window", () => {
+    expect(shortcutCommand(key("KeyW", { meta: true }), "darwin")).toBe("layout.closeTab");
+    expect(shortcutCommand(key("KeyW", { control: true }), "linux")).toBe("layout.closeTab");
+    const view = buildMenuTemplate("darwin", () => undefined).find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    expect(items.find((entry) => entry.id === "layout.closeTab")?.accelerator).toBe("CmdOrCtrl+W");
+});
+
 test("@core page shortcuts open New Chat and Settings and walk back and forward", () => {
     expect(shortcutCommand(key("KeyN", { meta: true }), "darwin")).toBe("go.newChat");
     expect(shortcutCommand(key("BracketLeft", { meta: true }), "darwin")).toBe("go.back");

@@ -86,10 +86,38 @@ async function checkForward(ctx, tap) {
     await showMain(ctx.page, "work");
 }
 
+// Closes the tab a tile opened, then presses again with no tab to show the window stays.
+async function checkCloseTab(ctx, tap) {
+    const pane = locationOf("rightPane");
+    const tabCount = () => ctx.page.locator(`${pane} [data-switcher="rightPane"] [data-tab]`).count();
+    const wasOpen = await ctx.page.locator(pane).count() > 0;
+    if (!wasOpen) {
+        await press(ctx.app, "B", [MODIFIER, "alt"]);
+        await settle(ctx.page, pane, true);
+    }
+    const before = await tabCount();
+    await ctx.page.locator(`${pane} .pane-tile`).first().click();
+    await ctx.page.waitForFunction(([selector, count]) => document.querySelectorAll(selector).length === count,
+        [`${pane} [data-switcher="rightPane"] [data-tab]`, before + 1], { timeout: TIMEOUT });
+    await tap();
+    await ctx.page.waitForFunction(([selector, count]) => document.querySelectorAll(selector).length === count,
+        [`${pane} [data-switcher="rightPane"] [data-tab]`, before], { timeout: TIMEOUT });
+    if (before === 0) {
+        await tap();
+        await ctx.page.waitForSelector(`${pane} [data-pane-tiles]`, { timeout: TIMEOUT });
+        if (await tabCount() !== 0) throw new Error("Cmd+W with no tab changed the right pane.");
+    }
+    if (!wasOpen) {
+        await press(ctx.app, "B", [MODIFIER, "alt"]);
+        await settle(ctx.page, pane, false);
+    }
+}
+
 const CHECKS = {
     "CmdOrCtrl+B": (ctx, tap) => flip(ctx.page, locationOf("sidebar"), tap),
     "CmdOrCtrl+Alt+B": (ctx, tap) => flip(ctx.page, locationOf("rightPane"), tap),
     "CmdOrCtrl+J": (ctx, tap) => flip(ctx.page, locationOf("panel"), tap),
+    "CmdOrCtrl+W": checkCloseTab,
     "CmdOrCtrl+N": async (ctx, tap) => {
         await goTo(ctx.page, "work");
         await tap();

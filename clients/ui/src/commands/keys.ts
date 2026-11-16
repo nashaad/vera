@@ -18,6 +18,7 @@ export const LAYOUT_SHORTCUTS = [
     { command: "layout.toggleSidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+B", code: "KeyB", alt: false, shift: false },
     { command: "layout.toggleRightPane", label: "Toggle Right Pane", accelerator: "CmdOrCtrl+Alt+B", code: "KeyB", alt: true, shift: false },
     { command: "layout.togglePanel", label: "Toggle Panel", accelerator: "CmdOrCtrl+J", code: "KeyJ", alt: false, shift: false },
+    { command: "layout.closeTab", label: "Close Tab", accelerator: "CmdOrCtrl+W", code: "KeyW", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
 // The shortcuts the right pane's kinds declare, each showing that kind's most recent tab.

@@ -267,7 +267,9 @@ address, such as `example.com/docs`, `localhost:3000` or one that starts with
 `https://`, the first row opens it in a new Browser tab; a bare word such as `files`
 only filters. Up/Down move through the rows, Enter opens the focused row and Escape
 closes the launcher. A view's own empty state shows inside its tab as before.
-Closing the last tab brings the tiles back.
+Cmd+W (Ctrl+W on other platforms), or View > Close Tab, closes the shown tab;
+with the right pane hidden or no tab open it does nothing, so it never closes the
+window. Closing the last tab brings the tiles back.
 
 Seven views ship with the app:
 
@@ -368,7 +370,7 @@ You can:
   visibility back to its default.
 
 Each of these is a command. The commands are `layout.toggleSidebar`,
-`layout.toggleRightPane`, `layout.togglePanel`, `layout.reset`, `view.moveTo`,
+`layout.toggleRightPane`, `layout.togglePanel`, `layout.closeTab`, `layout.reset`, `view.moveTo`,
 `view.hide`, `view.show`, `view.collapse`, `view.expand`, `view.reset`,
 `container.moveTo`, `container.hide`, `container.show`, `container.activate`,
 `container.reset`, `tab.open`, `tab.activate`, `tab.close`, `chat.help`, `theme.dark`, `theme.light`, `theme.highContrast`,
