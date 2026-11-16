@@ -170,7 +170,7 @@ test("a scratch directory adds the scratchpad contribution after the workspace",
     );
 });
 
-const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it. When the work is worth keeping, tell them where the files are and offer to move this conversation into a folder they choose.";
+const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it.";
 
 test("the workspace contribution adds the chat folder paragraph only when flagged", () => {
     const base = {

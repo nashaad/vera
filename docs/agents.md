@@ -73,8 +73,7 @@ it, and starts the conversation on the default agent with all of its tools.
 it back. A `chat` agent in your own or a project's agents folder replaces the
 included one.
 
-The model is told that a chat's folder is the chat's own, and it may offer to
-move the conversation into a folder you choose.
+The model is told that a chat's folder is the chat's own.
 
 ## Choose the agent of a new chat
 
