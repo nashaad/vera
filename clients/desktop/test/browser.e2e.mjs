@@ -13,12 +13,23 @@ const provider = createServer((request, response) => {
     response.end(JSON.stringify({ data: [{ id: "crow-0" }] }));
 });
 
+let siteLoads = 0;
+const site = createServer((request, response) => {
+    if (request.url !== "/") { response.writeHead(204); response.end(); return; }
+    siteLoads += 1;
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<title>Reload fixture</title><p>Load ${siteLoads}</p>`);
+});
+
 const trial = startTrial();
 let failed = false;
 let page;
 
 try {
-    await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
+    await Promise.all([
+        new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve)),
+        new Promise((resolve) => site.listen(0, "127.0.0.1", resolve)),
+    ]);
     configureFauxHome(trial.home, provider.address().port);
 
     const app = await trial.launch();
@@ -32,6 +43,15 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
     await trial.waitForHost();
+    await app.evaluate(({ BrowserWindow }) => {
+        globalThis.shellNavigations = 0;
+        BrowserWindow.getAllWindows()[0].webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => { if (main) globalThis.shellNavigations += 1; });
+    });
+    const composer = page.locator(".composer-input");
+    await composer.fill("draft survives reload");
+    await press(app, "R", [MODIFIER]);
+    await press(app, "R", [MODIFIER, "shift"]);
+    if (await composer.inputValue() !== "draft survives reload") throw new Error("No-page shortcut lost the draft.");
 
     const pane = page.locator("[data-location=\"rightPane\"]");
     const frame = pane.locator("iframe.browser-frame");
@@ -58,6 +78,14 @@ try {
 
     // The annex page renders inside the frame without its own menu.
     await inFrame.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });
+    await inFrame.locator("body").evaluate(() => { window.reloadSentinel = true; });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send("vera:event", { type: "command", id: "page.reload.native" }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!await inFrame.locator("body").evaluate(() => window.reloadSentinel === true)) throw new Error("Stale native reload targeted the annex.");
+    await composer.focus();
+    await press(app, "R", [MODIFIER]);
+    await until("annex shortcut reload", async () => await inFrame.locator("body").evaluate(() => window.reloadSentinel !== true).catch(() => false));
+    if (await composer.inputValue() !== "draft survives reload") throw new Error("Annex shortcut lost the draft.");
     if (await inFrame.locator(".nav-toggle").count() !== 0) throw new Error("The framed annex page still shows its menu.");
     const tabs = await pane.locator("nav[aria-label=\"Vera's pages\"] .browser-tab").allInnerTexts();
     // The included artifacts extension adds a page after the built-in ones.
@@ -133,6 +161,24 @@ try {
     await showing("Usage");
     if ((await input.inputValue()) !== "") throw new Error("/usage left its text in the box.");
 
+    await address.fill(`http://127.0.0.1:${site.address().port}/`);
+    await address.press("Enter");
+    await until("native page", () => siteLoads === 1);
+    const targetId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((view) => view.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+    if (targetId === undefined) throw new Error("Native page not found.");
+    await composer.fill("native reload draft");
+    await press(app, "R", [MODIFIER]);
+    await until("native reload from composer", () => siteLoads === 2);
+    await app.evaluate(({ webContents }, { id, modifier }) => {
+        const contents = webContents.fromId(id);
+        contents.sendInputEvent({ type: "keyDown", keyCode: "R", modifiers: [modifier] });
+        contents.sendInputEvent({ type: "keyUp", keyCode: "R", modifiers: [modifier] });
+    }, { id: targetId, modifier: MODIFIER });
+    await until("native reload from site", () => siteLoads === 3);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (siteLoads !== 3) throw new Error(`Native shortcut fired more than once: ${siteLoads}`);
+    if (await composer.inputValue() !== "native reload draft") throw new Error("Native shortcut lost the draft.");
+    if (await app.evaluate(() => globalThis.shellNavigations) !== 0) throw new Error("Shortcut navigated the shell.");
     console.log("browser e2e passed");
 } catch (error) {
     failed = true;
@@ -141,6 +187,7 @@ try {
 } finally {
     await trial.cleanup();
     provider.closeAllConnections();
-    await new Promise((resolve) => provider.close(resolve));
+    site.closeAllConnections();
+    await Promise.all([new Promise((resolve) => provider.close(resolve)), new Promise((resolve) => site.close(resolve))]);
 }
 process.exit(failed ? 1 : 0);

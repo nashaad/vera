@@ -733,6 +733,7 @@ app.whenReady().then(() => {
     browserPane = new BrowserPane(window,
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
         () => sendEvent({ type: "browser_cleared" }),
+        () => sendEvent({ type: "command", id: "page.reload.native" }),
     );
     browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));
 });

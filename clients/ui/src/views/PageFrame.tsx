@@ -21,7 +21,7 @@ export function PageFrame({ path, shown = path }: PageFrameProps) {
     return (
         <div className="browser">
             <div className="browser-bar">
-                <button type="button" className="icon-button" aria-label="Reload" title="Reload" onClick={() => setRound((current) => current + 1)}>
+                <button type="button" className="icon-button" aria-label="Reload" title="Reload" data-page-reload={page?.path === path ? "" : undefined} onClick={() => setRound((current) => current + 1)}>
                     <RefreshIcon />
                 </button>
                 <button

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { CommandRegistry } from "../commands/registry.ts";
+import { registerReloadPage } from "../commands/reload-page.ts";
 import { registerLayoutCommands } from "../commands/layout-commands.ts";
 import { registerOverlayCommands } from "../commands/overlay-commands.ts";
 import { registerSessionCommands } from "../commands/session-commands.ts";
@@ -131,13 +132,16 @@ export function useLayout(unavailable: ReadonlySet<string>, extraKinds: readonly
         () => (extensions === undefined ? undefined : registerExtensionCommands(commands, extensions, runFromCommand)),
         [commands, extensions],
     );
+    useEffect(() => registerReloadPage(commands), [commands]);
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);
 
     // Native menu items and shortcuts arrive as command events. A hidden command has no menu item,
     // so one that arrives is a shortcut for a part that is off.
     useEffect(() => window.veraDesktop?.onEvent((event) => {
-        if (event.type === "command" && !commands.isHidden(event.id)) commands.execute(event.id);
+        if (event.type !== "command") return;
+        if (event.id === "page.reload.native") commands.execute("page.reload", "native");
+        else if (!commands.isHidden(event.id)) commands.execute(event.id);
     }), [commands]);
 
     const run = useCallback((command: string, args?: unknown): void => {

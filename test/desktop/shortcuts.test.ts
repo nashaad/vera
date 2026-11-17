@@ -29,6 +29,23 @@ test("@core the three toggles are bound directly on the platform modifier", () =
     expect(shortcutCommand(key("KeyB", { control: true, alt: true }), "win32")).toBe("layout.toggleRightPane");
 });
 
+test("@core reload shortcuts dispatch only the page command", () => {
+    for (const platform of ["darwin", "linux"]) {
+        for (const shift of [false, true]) {
+            const modifier = platform === "darwin" ? { meta: true } : { control: true };
+            expect(shortcutCommand(key("KeyR", { ...modifier, shift }), platform)).toBe("page.reload");
+        }
+    }
+    const commands: string[] = [];
+    const view = buildMenuTemplate("darwin", (id) => commands.push(id)).find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    expect(items.some((entry) => entry.role === "reload" || entry.role === "forceReload")).toBe(false);
+    const reload = items.find((entry) => entry.id === "page.reload");
+    expect(reload?.accelerator).toBe("CmdOrCtrl+R");
+    (reload?.click as () => void)();
+    expect(commands).toEqual(["page.reload"]);
+});
+
 test("@core Cmd+W closes the shown tab and never reaches the window", () => {
     expect(shortcutCommand(key("KeyW", { meta: true }), "darwin")).toBe("layout.closeTab");
     expect(shortcutCommand(key("KeyW", { control: true }), "linux")).toBe("layout.closeTab");

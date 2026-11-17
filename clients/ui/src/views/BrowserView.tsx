@@ -101,6 +101,8 @@ export function BrowserView({ visible }: ViewProps) {
                     className="icon-button"
                     aria-label="Reload"
                     title="Reload"
+                    data-page-reload={visible && (page !== undefined || (annex !== undefined && pageAt(entry, annex.pages) !== undefined)) ? "" : undefined}
+                    data-page-native={page !== undefined ? "" : undefined}
                     onClick={() => {
                         if (page === undefined) {
                             reload();

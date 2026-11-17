@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } fro
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
-import { startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const html = '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script><main><img src="pixel.svg"><p class="eyebrow">THE CROW’S LOG</p><h1 id="target">Initial crow</h1><p>Notes from the northern watch.</p><a href="second.html">Read the next entry</a></main>';
 const requests = [];
@@ -66,6 +66,11 @@ try {
     await page.locator('[data-pane-option="core.files"]').click();
     await page.locator('.file-entry', { hasText: 'index.html' }).click();
     await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+    await composer.fill("source draft");
+    await press(app, "R", [MODIFIER]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (await composer.inputValue() !== "source draft" || await page.locator('iframe[title="File preview"]').count() !== 0) throw new Error("Source shortcut changed the window.");
+    await composer.fill("");
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-source.png` });
     await page.getByRole("button", { name: "Preview", exact: true }).click();
     const frame = page.frameLocator('iframe[title="File preview"]');
@@ -90,14 +95,21 @@ try {
     await target.click({ force: true });
     await frame.locator('[data-vera-annotation]').evaluate((element) => element.shadowRoot.querySelector('button[title="Add to chat"]').click());
     await page.locator('iframe[name="browser-decoy"]').evaluate((element) => element.remove());
-    await page.locator('.page-capture-chip').waitFor({ timeout: 15_000 });
+    await page.locator('.page-capture-chip[data-attaching="false"]').waitFor({ timeout: 15_000 });
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-annotated.png` });
     await composer.fill("CHANGE PREVIEW");
     await composer.press("Enter");
     await until("provider source identity and screenshot", () => requests.some((body) => { const text = JSON.stringify(body.messages); return text.includes(`Local source file: ${join(realFolder, "index.html")}`) && text.includes("#target") && text.includes("Initial crow") && text.includes("data:image/"); }));
     await until("the edit", () => readFileSync(join(folder, "index.html"), "utf8").includes("Changed crow"));
-    await page.getByRole("button", { name: "Reload", exact: true }).click();
+    await composer.fill("preview reload draft");
+    await press(app, "R", [MODIFIER]);
     await frame.locator("#target", { hasText: "Changed crow" }).waitFor();
+    await frame.locator("body").evaluate(() => { window.reloadSentinel = true; });
+    await page.locator('iframe[title="File preview"]').evaluate((element) => element.focus());
+    await press(app, "R", [MODIFIER, "shift"]);
+    await until("focused preview reload", async () => await frame.locator("body").evaluate(() => window.reloadSentinel !== true).catch(() => false));
+    if (await composer.inputValue() !== "preview reload draft") throw new Error("Preview shortcut lost the draft.");
+    await composer.fill("");
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-reload.png` });
     const firstUrl = await page.locator('iframe[title="File preview"]').getAttribute("src");
     await page.getByRole("button", { name: "Source", exact: true }).click();
@@ -111,7 +123,7 @@ try {
     await until("second annotation", async () => await frame.locator('[data-vera-annotation]').count() === 1);
     await frame.locator("#second").click({ force: true });
     await frame.locator('[data-vera-annotation]').evaluate((element) => element.shadowRoot.querySelector('button[title="Add to chat"]').click());
-    await page.locator('.page-capture-chip').waitFor();
+    await page.locator('.page-capture-chip[data-attaching="false"]').waitFor();
     await composer.fill("SECOND CAPTURE");
     await composer.press("Enter");
     await until("current source identity", () => requests.some((body) => JSON.stringify(body.messages).includes(`Local source file: ${join(realFolder, "second.html")}`)));

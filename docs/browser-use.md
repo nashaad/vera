@@ -10,7 +10,9 @@ page. Enter a site address to open it, or leave a tab empty to see the pages
 served on this machine. The bar has Back, Forward, Reload and Open in your
 browser. Use `+` and pick Browser, or type an address in its field, to open
 another site. Links that open a new window open a tab in the pane, up to 12
-Browser tabs.
+Browser tabs. Cmd+R (Ctrl+R on other platforms) reloads the visible Browser page
+or Files HTML Preview without reloading the desktop window. When no page is
+visible, the shortcut does nothing.
 
 Sign in to sites yourself in the pane. Sign-ins made there are stored in the
 Vera home like provider keys, in an owner-only directory. The cookie store is

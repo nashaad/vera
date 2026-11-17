@@ -4,6 +4,7 @@ import { app, session, WebContentsView, type BrowserWindow } from "electron";
 
 import { BROWSER_TAB_LIMIT, type BrowserBounds, type BrowserState } from "../../../ui/src/browser/native-types.ts";
 import { browserUrl, URL_LIMIT } from "../../../ui/src/browser/url.ts";
+import { shortcutCommand } from "../shortcuts.ts";
 
 function isWebUrl(value: string): boolean {
     try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; }
@@ -21,6 +22,7 @@ export class BrowserPane {
         private readonly window: BrowserWindow,
         private readonly loaded: (url: string, title: string) => void = () => {},
         private readonly cleared: () => void = () => {},
+        private readonly reloadShortcut: () => void = () => {},
     ) {}
 
     private session(): Electron.Session {
@@ -68,6 +70,11 @@ export class BrowserPane {
             : new WebContentsView({ webContents: guest });
         const id = this.nextId++;
         this.tabs.set(id, view);
+        view.webContents.on("before-input-event", (event, input) => {
+            if (shortcutCommand(input, process.platform) !== "page.reload") return;
+            event.preventDefault();
+            if (this.active === id && this.bounds !== undefined && this.bounds.width > 0 && this.bounds.height > 0) this.reloadShortcut();
+        });
         const record = (): void => {
             const url = view.webContents.getURL();
             if (isWebUrl(url) && url.length <= URL_LIMIT) this.loaded(url, (view.webContents.getTitle() || url).slice(0, 200));

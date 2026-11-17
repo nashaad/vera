@@ -77,7 +77,7 @@ export function FilePreview({ bridge, folder, path, visible, running }: FilePrev
                     <button type="button" className="right-seg-option" data-on={mode === "preview"} aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>Preview</button>
                 </div>
                 {mode === "preview" ? <>
-                    <button type="button" className="icon-button" aria-label="Reload" title="Reload" disabled={scope === undefined} onClick={() => setRound((value) => value + 1)}><RefreshIcon /></button>
+                    <button type="button" className="icon-button" aria-label="Reload" title="Reload" data-page-reload="" disabled={scope === undefined} onClick={() => setRound((value) => value + 1)}><RefreshIcon /></button>
                     <BrowserCommands hasPage={visible && scope !== undefined} onError={setError} frameName={frameName} />
                 </> : null}
             </div> : null}

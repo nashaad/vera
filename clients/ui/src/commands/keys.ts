@@ -54,13 +54,17 @@ export const HELP_SHORTCUTS = [
     { command: "help.shortcuts", label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", code: "Slash", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
+export const RELOAD_SHORTCUT = { command: "page.reload", label: "Reload Page", accelerator: "CmdOrCtrl+R", code: "KeyR", alt: false, shift: false } as const satisfies NativeShortcut;
+
 // Bound in the shell with no menu item of their own.
 export const EXTRA_SHORTCUTS = [
+    { ...RELOAD_SHORTCUT, accelerator: "CmdOrCtrl+Shift+R", shift: true },
     { command: "palette.commands", label: "Command Palette…", accelerator: "CmdOrCtrl+Shift+P", code: "KeyP", alt: false, shift: true },
 ] as const satisfies readonly NativeShortcut[];
 
 export const NATIVE_SHORTCUTS: readonly NativeShortcut[] = [
     ...LAYOUT_SHORTCUTS,
+    RELOAD_SHORTCUT,
     ...PANE_SHORTCUTS,
     ...GO_SHORTCUTS,
     ...HELP_SHORTCUTS,
@@ -151,7 +155,7 @@ export function shortcutGroups(platform: string): readonly ShortcutGroup[] {
         pageRows.set(key.where, rows);
     }
     return [
-        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, ...PANE_SHORTCUTS], platform) },
+        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, RELOAD_SHORTCUT, ...PANE_SHORTCUTS], platform) },
         { title: "Go", rows: nativeRows(GO_SHORTCUTS, platform) },
         { title: "Help", rows: nativeRows(HELP_SHORTCUTS, platform) },
         ...[...pageRows].map(([title, rows]) => ({ title, rows })),
