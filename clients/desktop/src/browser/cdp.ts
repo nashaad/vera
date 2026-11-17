@@ -18,13 +18,6 @@ export class BrowserCdp {
 
     constructor(private readonly pane: BrowserPane) {}
 
-    async forget(): Promise<void> {
-        this.refs.clear();
-        this.contextId = undefined;
-        this.generation += 1;
-        await this.pane.forget();
-    }
-
     async run(request: BrowserRequest): Promise<Record<string, unknown>> {
         if (request.action === "open") {
             if (request.url === undefined) throw new Error("A URL is required.");

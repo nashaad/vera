@@ -76,10 +76,6 @@ export function recordRecent(item: RecentPage): void {
     publish(addRecent(snapshot(), item));
 }
 
-export function clearBrowserRecents(): void {
-    publish(snapshot().filter((item) => item.kind !== "browser"));
-}
-
 export function useRecents(): readonly RecentPage[] {
     return useSyncExternalStore((listener) => {
         listeners.add(listener);

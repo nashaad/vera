@@ -48,7 +48,6 @@ export type DesktopEvent =
     | { readonly type: "failed"; readonly message: string }
     // A native menu item or shortcut asking the page to run one of its commands.
     | { readonly type: "command"; readonly id: string }
-    | { readonly type: "browser_cleared" }
     | { readonly type: "browser_loaded"; readonly url: string; readonly title: string }
     | {
         readonly type: "missing_cli";

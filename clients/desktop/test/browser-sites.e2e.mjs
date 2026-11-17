@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
@@ -103,10 +103,8 @@ try {
     await pane.getByRole("button", { name: "Forward", exact: true }).click();
     await until("forward", async () => (await readSite("location.search").catch(() => "")) === "?next=1");
     await readSite("(() => { for (let i = 0; i < 160; i++) { const b = document.createElement('button'); b.textContent = 'Extra ' + i; document.body.append(b); } return true; })()");
-    if ((statSync(join(trial.home, "machine", "desktop", "chromium", "browser")).mode & 0o777) !== 0o700) throw new Error("Browser directory is not private");
-    if ((statSync(join(trial.home, "machine", "desktop", "chromium", "browser", "Cookies")).mode & 0o777) !== 0o600) throw new Error("Cookie file is not private");
-    await app.evaluate(({ app: electronApp, session }, home) => {
-        const browser = session.fromPath(`${home}/machine/desktop/chromium/browser`);
+    await app.evaluate(({ app: electronApp, session }) => {
+        const browser = session.fromPartition("vera-browser");
         browser.once("will-download", (event, item) => {
             event.preventDefault();
             globalThis.downloadDefaults = item.getSaveDialogOptions().defaultPath === `${electronApp.getPath("downloads")}/crow.txt`;
@@ -154,7 +152,8 @@ try {
     if (!seen.some((result) => result.includes("Screenshot captured."))) throw new Error("Screenshot result did not reach the model");
     if (!imageReachedModel) throw new Error("Screenshot image did not reach the model");
     const captures = join(trial.home, "extension-data", "vera.desktop-browser", "captures");
-    if (readdirSync(captures).length === 0) throw new Error("Screenshot capture was not stored");
+    const captureFiles = readdirSync(captures);
+    if (captureFiles.length === 0) throw new Error("Screenshot capture was not stored");
     if ((await readSite("document.querySelector('#out').textContent")) !== "Button worked") throw new Error("The page button was not clicked");
     if ((await readSite("document.querySelector('input').value")) !== "Crow") throw new Error("The page input was not filled");
     await page.locator('.pill-button[data-mode="ask"]').click();
@@ -177,6 +176,7 @@ try {
     await pagePills.last().locator(".switcher-close").click();
     await until("popup closed", async () => (await pagePills.count()) === 1);
     await until("popup page closed", async () => (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.filter((child) => child.webContents?.getURL().includes('/site')).length)) === 1);
+    if ((await readSite("localStorage.getItem('trial')")) !== "fake") throw new Error("Sign-in data was not set before restart");
     await app.close();
     app = await trial.launch();
     app.process().stderr?.on("data", (chunk) => process.stderr.write(chunk));
@@ -189,29 +189,33 @@ try {
     address = pane.getByRole("textbox", { name: "Address" });
     await address.waitFor();
     await until("switch persists", async () => await pane.getByRole("switch", { name: "Browser tools" }).isChecked());
+    await until("site in recents after restart", async () => {
+        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
+        return saved.some((item) => item.kind === "browser" && item.target.includes("/site?") && item.target.includes("set=1"));
+    });
+    if (captureFiles.some((name) => !readdirSync(captures).includes(name))) throw new Error("Screenshot capture did not survive restart");
     await address.fill(`http://127.0.0.1:${server.address().port}/site`);
     await address.press("Enter");
     await until("site after restart", async () => (await view()) !== undefined);
     await until("page after restart", async () => (await readSite("document.title")) === "Crow page");
-    if (!(await readSite("document.cookie")).includes("trial=fake") || (await readSite("localStorage.getItem('trial')")) !== "fake") throw new Error("Sign-in data did not survive restart");
-    await until("site in recents", async () => {
-        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return saved.some((item) => item.kind === "browser" && item.target.includes("/site"));
-    });
-    await pane.getByRole("button", { name: "Forget browsing data" }).click();
-    await until("button clears browser recents", async () => {
-        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return saved.every((item) => item.kind !== "browser");
-    });
-    await until("captures cleared", async () => readdirSync(captures).length === 0);
-    await until("site closed", async () => (await view()) === undefined);
-    await until("the tab of the closed page gone", async () => (await pagePills.count()) === 0);
-    await page.locator("[data-pane-launcher]").click();
-    await page.locator('[role="listbox"] input').fill(`http://127.0.0.1:${server.address().port}/site`);
-    await page.locator('[data-pane-option="address"]').click();
-    await until("site reopened", async () => (await view()) !== undefined);
-    await until("site reloaded", async () => (await readSite("document.title")) === "Crow page");
-    if ((await readSite("document.cookie")) !== "" || (await readSite("localStorage.getItem('trial')")) !== null) throw new Error("Browsing data survived forget");
+    if ((await readSite("document.cookie")) !== "" || (await readSite("localStorage.getItem('trial')")) !== null) throw new Error("Sign-in data survived restart");
+    await app.close();
+    const inspectHome = (directory) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory()) inspectHome(path);
+            else if (entry.isFile()) {
+                let contents;
+                try {
+                    contents = readFileSync(path);
+                } catch {
+                    continue;
+                }
+                if (contents.includes(Buffer.from("trial=fake"))) throw new Error(`Sign-in data found in ${path}`);
+            }
+        }
+    };
+    inspectHome(trial.home);
     console.log("browser sites e2e passed");
 } catch (error) {
     failed = true;

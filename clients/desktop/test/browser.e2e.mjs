@@ -164,8 +164,11 @@ try {
     await address.fill(`http://127.0.0.1:${site.address().port}/`);
     await address.press("Enter");
     await until("native page", () => siteLoads === 1);
-    const targetId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((view) => view.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
-    if (targetId === undefined) throw new Error("Native page not found.");
+    let targetId;
+    await until("native page navigation", async () => {
+        targetId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((view) => view.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+        return targetId !== undefined;
+    });
     await composer.fill("native reload draft");
     await press(app, "R", [MODIFIER]);
     await until("native reload from composer", () => siteLoads === 2);

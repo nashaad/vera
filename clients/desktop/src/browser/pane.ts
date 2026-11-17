@@ -1,4 +1,3 @@
-import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { app, session, WebContentsView, type BrowserWindow } from "electron";
 
@@ -15,24 +14,17 @@ export class BrowserPane {
     private active: number | null = null;
     private nextId = 1;
     private bounds: BrowserBounds | undefined;
-    private clearing = false;
     private browsingSession: Electron.Session | undefined;
 
     constructor(
         private readonly window: BrowserWindow,
         private readonly loaded: (url: string, title: string) => void = () => {},
-        private readonly cleared: () => void = () => {},
         private readonly reloadShortcut: () => void = () => {},
     ) {}
 
     private session(): Electron.Session {
         if (this.browsingSession !== undefined) return this.browsingSession;
-        // Chromium's network sandbox writes only inside userData, which main.ts keeps in the home.
-        const directory = join(app.getPath("userData"), "browser");
-        mkdirSync(directory, { recursive: true, mode: 0o700 });
-        chmodSync(directory, 0o700);
-        process.umask(0o077);
-        const browserSession = session.fromPath(directory);
+        const browserSession = session.fromPartition("vera-browser");
         browserSession.setPermissionCheckHandler(() => false);
         browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
         browserSession.on("will-download", (_event, item) => {
@@ -56,7 +48,7 @@ export class BrowserPane {
     }
 
     open(value?: string): number | undefined {
-        if (this.clearing || this.tabs.size >= BROWSER_TAB_LIMIT) return undefined;
+        if (this.tabs.size >= BROWSER_TAB_LIMIT) return undefined;
         const url = value === undefined ? undefined : browserUrl(value);
         if (value !== undefined && url === undefined) return undefined;
         const { id, view } = this.createTab();
@@ -150,22 +142,10 @@ export class BrowserPane {
     }
 
     async navigate(value: string): Promise<void> {
-        if (this.clearing) throw new Error("Browsing data is being cleared.");
         const url = browserUrl(value);
         const contents = this.current();
         if (url === undefined || contents === undefined) throw new Error("That address cannot be opened.");
         await contents.loadURL(url);
-    }
-
-    async forget(): Promise<void> {
-        this.clearing = true;
-        try {
-            this.select(null);
-            for (const id of [...this.tabs.keys()]) this.close(id);
-            await this.session().clearData();
-            await this.session().clearAuthCache();
-            this.cleared();
-        } finally { this.clearing = false; }
     }
 
     dispose(): void {

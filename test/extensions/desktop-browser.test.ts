@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -50,17 +50,6 @@ describe("desktop browser requests", () => {
             expect(await handlers.get("reply")!({ id: job.id, output: "A crow" }, { signal })).toBe(true);
             expect(await running).toEqual({ output: "A crow" });
             await handlers.get("settings")!({ enabled: false }, { signal });
-            const captures = join(root, "captures");
-            mkdirSync(captures);
-            const capture = join(captures, "capture-1-abc.jpg");
-            writeFileSync(capture, "fake");
-            const nextPoll = handlers.get("poll")!({}, { signal });
-            const forgetting = handlers.get("forget")!({}, { signal });
-            const clearJob = await nextPoll as { id: string; request: { action: string } };
-            expect(clearJob.request.action).toBe("forget");
-            expect(await handlers.get("reply")!({ id: clearJob.id, output: "done" }, { signal })).toBe(true);
-            expect(await forgetting).toBe(true);
-            expect(existsSync(capture)).toBe(false);
             await handlers.get("settings")!({ enabled: true }, { signal });
             const waiting = handlers.get("poll")!({}, { signal });
             const pending = new AbortController();

@@ -12,7 +12,7 @@ const MAX_PENDING = 8;
 
 interface Job {
     readonly id: string;
-    readonly request: BrowserRequest | { readonly action: "forget" };
+    readonly request: BrowserRequest;
     readonly finish: (reply: Record<string, unknown>) => void;
 }
 
@@ -37,7 +37,7 @@ export function activate(vera: VeraExtensionApi): void {
         if (isRecord(payload) && typeof payload.enabled === "boolean") {
             setEnabled(payload.enabled);
             if (!payload.enabled) for (const job of jobs.values()) {
-                if (job.request.action !== "forget") job.finish({ error: "Browser tools are off in the desktop window." });
+                job.finish({ error: "Browser tools are off in the desktop window." });
             }
         }
         return { enabled: enabled() };
@@ -95,19 +95,6 @@ export function activate(vera: VeraExtensionApi): void {
             waiting?.(job);
         });
     };
-    vera.requests.handle("forget", async (_payload, { signal }): Promise<JsonValue> => {
-        const result = await dispatch({ action: "forget" }, signal);
-        if (typeof result.error === "string") throw new Error(result.error);
-        const directory = join(root(), "captures");
-        try {
-            for (const name of readdirSync(directory)) {
-                if (/^capture-[0-9]+-[a-f0-9-]+\.jpg$/.test(name)) unlinkSync(join(directory, name));
-            }
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
-        return true;
-    });
 
     vera.tools.register({
         name: "desktop_browser",

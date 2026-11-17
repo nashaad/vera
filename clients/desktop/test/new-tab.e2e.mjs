@@ -1,8 +1,4 @@
-import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { join } from "node:path";
-import { promisify } from "node:util";
 import { configureFauxHome, until } from "./faux-home.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
@@ -82,13 +78,6 @@ try {
     await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
     const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
     if (!persisted.some((item) => item.target === `${base}/first`) || !persisted.some((item) => item.target === "/x/vera.artifacts/artifacts")) throw new Error("Recent pages did not survive restart.");
-    const socket = JSON.parse(readFileSync(join(trial.home, "runtime", "host.json"), "utf8")).socket_path;
-    const source = `import { requestExtensionThroughHost } from './src/host/extension-request-client.ts'; await requestExtensionThroughHost(process.argv[1], 'vera.desktop-browser', 'forget', {}, AbortSignal.timeout(30000));`;
-    await promisify(execFile)("bun", ["-e", source, socket], { cwd: trial.root, timeout: 35_000 });
-    await until("host forget clears recents", async () => {
-        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return saved.every((item) => item.kind !== "browser") && saved.some((item) => item.target === "/x/vera.artifacts/artifacts");
-    });
     console.log("new-tab e2e passed");
 } catch (error) {
     failed = true;

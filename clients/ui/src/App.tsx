@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { BrowserSync } from "./browser/BrowserSync.tsx";
-import { clearBrowserRecents, recordRecent } from "./browser/recents.ts";
+import { recordRecent } from "./browser/recents.ts";
 import { ChatCommands } from "./chat/ChatCommands.tsx";
 import { ChatSync } from "./chat/ChatSync.tsx";
 import { PageCommands } from "./commands/PageCommands.tsx";
@@ -33,7 +33,6 @@ function reportTitleBarHeight(height: number): void {
 
 export function App() {
     useEffect(() => window.veraDesktop?.onEvent((event) => {
-        if (event.type === "browser_cleared") clearBrowserRecents();
         if (event.type === "browser_loaded") recordRecent({ kind: "browser", target: event.url, title: event.title });
     }), []);
     const [log] = useState(() => new OutputLog());
