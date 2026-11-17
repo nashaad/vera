@@ -269,8 +269,13 @@ button that shows while the pointer is over the tab and on the active tab. The
 same kind can be open any number of times, up to 16 tabs in the pane; Browser and
 Chat each have a limit of their own, Chat tabs are limited to 6, Subagents has one tab, and an extension page has up to 3. A page's kind is titled with the page's label and has the page icon, and its tile and launcher row open the page's list. The Chat kind's
 tile and launcher row are titled Help and start a new Help chat. With no tabs the
-pane shows one tile for each kind that can be opened, and a tile is disabled while
-its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
+pane shows a search field, recent pages and a New section with one tile for each
+kind that can be opened. The field filters tiles and recent pages; it also opens a
+web address. Focus the field to see recent pages, use the arrow keys to select one
+and Enter to open it, or Escape to close the list. Other text filters without
+opening a web search. Recent pages stay in the desktop home between launches.
+Forget browsing data removes site recents, but keeps Vera page recents. A tile is
+disabled while its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
 opens a new tab of that kind and shows it. `+` opens the launcher, which has a
 filter field and a row for each kind with its shortcut. If the typed text is a web
 address, such as `example.com/docs`, `localhost:3000` or one that starts with

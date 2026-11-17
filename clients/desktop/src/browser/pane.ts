@@ -17,7 +17,11 @@ export class BrowserPane {
     private clearing = false;
     private browsingSession: Electron.Session | undefined;
 
-    constructor(private readonly window: BrowserWindow) {}
+    constructor(
+        private readonly window: BrowserWindow,
+        private readonly loaded: (url: string, title: string) => void = () => {},
+        private readonly cleared: () => void = () => {},
+    ) {}
 
     private session(): Electron.Session {
         if (this.browsingSession !== undefined) return this.browsingSession;
@@ -64,6 +68,12 @@ export class BrowserPane {
             : new WebContentsView({ webContents: guest });
         const id = this.nextId++;
         this.tabs.set(id, view);
+        const record = (): void => {
+            const url = view.webContents.getURL();
+            if (isWebUrl(url) && url.length <= URL_LIMIT) this.loaded(url, (view.webContents.getTitle() || url).slice(0, 200));
+        };
+        view.webContents.on("did-finish-load", record);
+        view.webContents.on("did-navigate-in-page", (_event, _url, mainFrame) => { if (mainFrame) record(); });
         view.webContents.once("destroyed", () => {
             if (this.tabs.get(id) !== view) return;
             const wasActive = this.active === id;
@@ -147,6 +157,7 @@ export class BrowserPane {
             for (const id of [...this.tabs.keys()]) this.close(id);
             await this.session().clearData();
             await this.session().clearAuthCache();
+            this.cleared();
         } finally { this.clearing = false; }
     }
 
