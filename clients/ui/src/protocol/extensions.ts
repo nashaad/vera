@@ -35,6 +35,7 @@ export interface DesktopExtensionEntry {
     // Only the commands this window can run, which are those of included extensions that name a task.
     readonly commands: readonly DesktopCommandEntry[];
     readonly menus: DesktopExtensionMenus;
+    readonly filePreviews?: readonly string[];
     // Included extensions are always on and cannot be removed.
     readonly included: boolean;
     readonly enabled: boolean;

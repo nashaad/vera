@@ -1,7 +1,7 @@
 import { listProvidersThroughHost, loginProviderThroughHost, saveProviderThroughHost, selectProviderModelThroughHost } from "../../../src/host/provider-sign-in-client.ts";
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { extname, isAbsolute, join } from "node:path";
 
 import { requestExtensionThroughHost } from "../../../src/host/extension-request-client.ts";
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
@@ -47,6 +47,7 @@ import { ExtensionStateStore } from "./extensions/state.ts";
 import { ExtensionStore } from "./extensions/store.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readFilePreview } from "./file-preview.ts";
+import { LOCAL_PREVIEW_SCHEME, LocalPreviewScopes } from "./local-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
@@ -81,6 +82,9 @@ import { parseCommandReply, type CommandReply, type CommandTask } from "./extens
 import { ThemeService } from "./theme-service.ts";
 import { themesDirectory } from "./theme-store.ts";
 import { parseWindowBackground } from "./window-background.ts";
+
+protocol.registerSchemesAsPrivileged([{ scheme: LOCAL_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+const localPreviews = new LocalPreviewScopes();
 
 const MAX_SEND_BYTES = 1_048_576;
 const MAX_AGENT_ID_CHARS = 256;
@@ -210,6 +214,7 @@ function shutdown(): void {
     stopping = true;
     browserGateway?.stop();
     pageCommands.stop();
+    localPreviews.clear();
     browserPane?.dispose();
     browserPane = undefined;
     boot?.cancel();
@@ -272,11 +277,15 @@ function createWindow(): BrowserWindow {
     created.on("restore", sendShown);
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    created.webContents.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => {
+        if (mainFrame) { pageCommands.stop(); localPreviews.clear(); }
+    });
+    created.webContents.on("render-process-gone", () => { pageCommands.stop(); localPreviews.clear(); });
     created.webContents.on("will-navigate", (event) => event.preventDefault());
     // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
     created.webContents.on("will-frame-navigate", (event) => {
         if (event.isMainFrame) return;
-        if (!onAnnex(event.url)) event.preventDefault();
+        if (!onAnnex(event.url) && !localPreviews.owns(event.url)) event.preventDefault();
     });
     // A shortcut handled here never reaches the page or the menu, so it runs once.
     created.webContents.on("before-input-event", (event, input) => {
@@ -436,18 +445,23 @@ ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
     installMenu();
 });
 ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
-ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown, token: unknown): Promise<ExtensionCommandResult> => {
+ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown, token: unknown, frameName: unknown): Promise<ExtensionCommandResult> => {
     if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
     if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string") || (token !== undefined && (typeof token !== "string" || token.length > 64))) return { ok: false, reason: "Vera could not import that theme." };
+    if (frameName !== undefined && (typeof frameName !== "string" || frameName.length === 0 || frameName.length > 256)) return { ok: true, kind: "closed" };
     const script = extensionStore.pageScript(command);
     if (script !== undefined && pick === undefined) {
-        const native = browserPane?.current();
+        const native = frameName === undefined ? browserPane?.current() : undefined;
         const contents = native ?? window.webContents;
-        const frame = native === undefined ? await browserFrame(contents, onAnnex) : undefined;
+        const frame = native === undefined ? await browserFrame(contents, (url) => onAnnex(url) || localPreviews.owns(url), frameName as string | undefined) : undefined;
         if (native === undefined && frame === undefined) return { ok: true, kind: "closed" };
+        if (frame !== undefined && localPreviews.owns(frame.url) && frame.name !== `preview-${new URL(frame.url).hostname}`) return { ok: true, kind: "closed" };
         return pageCommands.run(script, contents, pastedImageDirectory(selectedVeraHome()), frame, token === undefined ? undefined : (result) => {
             if (!event.sender.isDestroyed()) event.sender.send(CHANNELS.extensionCommandProgress, token, result);
-        });
+        }, frame !== undefined && localPreviews.owns(frame.url) ? (url) => {
+            try { return new URL(url).hostname === new URL(frame.url).hostname ? localPreviews.source(url) : Promise.resolve(undefined); }
+            catch { return Promise.resolve(undefined); }
+        } : undefined);
     }
     return extensionCommands.run(command, pick);
 });
@@ -524,6 +538,21 @@ ipcMain.handle(CHANNELS.folderList, async (event, folder: unknown): Promise<Fold
     const path = pathArgument(folder);
     if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a folder path." };
     return listFolder(path);
+});
+ipcMain.handle(CHANNELS.previewOpen, async (event, folder: unknown, file: unknown) => {
+    const root = typeof folder === "string" ? pathArgument(folder) : undefined;
+    const path = typeof file === "string" ? pathArgument(file) : undefined;
+    if (!fromWindow(event) || root === undefined || path === undefined) return { ok: false, reason: "That file cannot be previewed." };
+    const extension = extname(path).slice(1).toLowerCase();
+    if (!extensionStore.entries().some((entry) => entry.enabled && entry.filePreviews?.includes(extension))) return { ok: false, reason: "That file cannot be previewed." };
+    try { return { ok: true, ...await localPreviews.create(root, path) }; }
+    catch (error) { return { ok: false, reason: error instanceof Error && (error.message === "Too many previews are open." || error.message === "This file is too large to preview.") ? error.message : "That file cannot be previewed." }; }
+});
+ipcMain.on(CHANNELS.previewClose, (event, token: unknown) => {
+    if (fromWindow(event) && typeof token === "string" && /^[0-9a-f]{48}$/.test(token)) {
+        pageCommands.stopFrame(`preview-${token}`);
+        localPreviews.release(token);
+    }
 });
 ipcMain.handle(CHANNELS.fileRead, async (event, file: unknown): Promise<FilePreview> => {
     const path = pathArgument(file);
@@ -696,6 +725,7 @@ ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
 app.on("before-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(() => {
+    protocol.handle(LOCAL_PREVIEW_SCHEME, (request) => localPreviews.serve(request));
     startExtensions();
     themeService.load();
     installMenu();

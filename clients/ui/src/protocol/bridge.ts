@@ -16,6 +16,14 @@ import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 // "installing" is the packaged app putting its bundled release in place before it connects.
 export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
 
+export interface LocalPreviewScope {
+    readonly ok: true;
+    readonly token: string;
+    readonly url: string;
+}
+
+export type LocalPreviewResult = LocalPreviewScope | HostRequestFailure;
+
 export type { ChatPane, SessionPane } from "./panes.ts";
 
 export type DesktopEvent =
@@ -360,6 +368,8 @@ export interface DesktopBridge {
     listFolder(folder: string): Promise<FolderListing>;
     // The start of a text file on this machine, read by the window rather than the host.
     readFilePreview(path: string): Promise<FilePreview>;
+    openLocalPreview(root: string, path: string): Promise<LocalPreviewResult>;
+    closeLocalPreview(token: string): void;
     // Tells the shell how tall the drawn title bar is so native window controls can center in it.
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.
@@ -370,7 +380,7 @@ export interface DesktopBridge {
     loadImportedThemes(): Promise<readonly ImportedThemeSummary[]>;
     // Runs a command of an enabled extension included with Vera in a task process. A command with a file filter
     // opens the native picker first. `pick` is a key from the command's last `pick` answer.
-    runExtensionCommand(command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void): Promise<ExtensionCommandResult>;
+    runExtensionCommand(command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void, frameName?: string): Promise<ExtensionCommandResult>;
     // The desktop extensions, installed and included, and the themes of the enabled ones, read again from disk.
     listDesktopExtensions(): Promise<ExtensionChangeResult>;
     // Opens the native picker for a package, unpacks it in a task process and returns what it holds; nothing is installed yet.

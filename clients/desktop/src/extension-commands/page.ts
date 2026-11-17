@@ -29,6 +29,10 @@ interface PageWorld {
     readonly offset: PageRectangle;
 }
 
+function sameOrigin(left: string, right: string): boolean {
+    try { const a = new URL(left); const b = new URL(right); return a.protocol === b.protocol && a.host === b.host; } catch { return false; }
+}
+
 async function isolatedWorld(contents: WebContents, frame?: FrameSurface, onDetach?: () => void): Promise<PageWorld> {
     if (frame === undefined) {
         return {
@@ -43,14 +47,14 @@ async function isolatedWorld(contents: WebContents, frame?: FrameSurface, onDeta
     let detached: ((_event: Electron.Event, method: string, params: { frameId?: string; sessionId?: string }) => void) | undefined;
     try {
         const tree = await api.sendCommand("Page.getFrameTree") as { frameTree: FrameTree };
-        let target = tree.frameTree.childFrames?.find((child) => child.frame.url === frame.url && child.frame.name === frame.name);
+        let target = tree.frameTree.childFrames?.find((child) => sameOrigin(child.frame.url, frame.url) && child.frame.name === frame.name);
         let sessionId: string | undefined;
         if (target === undefined) {
             const targets = await api.sendCommand("Target.getTargets") as { targetInfos: readonly { type: string; url: string; targetId: string }[] };
-            for (const candidate of targets.targetInfos.filter((entry) => entry.type === "iframe" && entry.url === frame.url).slice(0, 32)) {
+            for (const candidate of targets.targetInfos.filter((entry) => entry.type === "iframe" && sameOrigin(entry.url, frame.url)).slice(0, 32)) {
                 const attached = await api.sendCommand("Target.attachToTarget", { targetId: candidate.targetId, flatten: true }) as { sessionId: string };
                 const child = await api.sendCommand("Page.getFrameTree", {}, attached.sessionId) as { frameTree: FrameTree };
-                if (child.frameTree.frame.url === frame.url && child.frameTree.frame.name === frame.name) {
+                if (sameOrigin(child.frameTree.frame.url, frame.url) && child.frameTree.frame.name === frame.name) {
                     target = child.frameTree;
                     sessionId = attached.sessionId;
                     break;
@@ -85,12 +89,17 @@ async function isolatedWorld(contents: WebContents, frame?: FrameSurface, onDeta
 
 export class PageCommandService {
     private cancel: (() => void) | undefined;
+    private frameName: string | undefined;
+
+    stopFrame(name: string): void {
+        if (this.frameName === name) this.stop();
+    }
 
     stop(): void {
         this.cancel?.();
     }
 
-    async run(script: string, contents: WebContents, directory: string, frame?: FrameSurface, emit?: (result: ExtensionCommandResult) => void): Promise<ExtensionCommandResult> {
+    async run(script: string, contents: WebContents, directory: string, frame?: FrameSurface, emit?: (result: ExtensionCommandResult) => void, source?: (url: string) => Promise<string | undefined>): Promise<ExtensionCommandResult> {
         if (this.cancel !== undefined) return { ok: true, kind: "closed" };
         let wasCanceled = false;
         let frameDetached = false;
@@ -105,6 +114,7 @@ export class PageCommandService {
             pending.then((value) => { if (wake === stop) wake = undefined; resolve(value); }, (error) => { if (wake === stop) wake = undefined; reject(error); });
         });
         this.cancel = cancel;
+        this.frameName = frame?.name;
         let world: PageWorld | undefined;
         const navigation = (): void => cancel();
         contents.on("did-start-navigation", navigation);
@@ -119,6 +129,13 @@ export class PageCommandService {
                 try {
                     const result = parsePageResult(value);
                     if (result === undefined || contents.isDestroyed()) throw new Error("The page could not be read.");
+                    let text = result.text;
+                    if (source !== undefined) {
+                        const location = await world.run("location.href");
+                        const path = typeof location === "string" ? await source(location) : undefined;
+                        if (path === undefined) throw new Error("The page could not be read.");
+                        text = `Local source file: ${path.slice(0, 4096)}\n${text}`.slice(0, 16384);
+                    }
                     const { x, y, width, height } = result.rect;
                     if (x + width > world.offset.width || y + height > world.offset.height) throw new Error("The page could not be read.");
                     const rect = { x: Math.ceil(x + world.offset.x), y: Math.ceil(y + world.offset.y), width: Math.floor(width), height: Math.floor(height) };
@@ -127,7 +144,7 @@ export class PageCommandService {
                     const path = await savePastedImage(directory, image.toPNG(), "image/png");
                     if (path === undefined) throw new Error("Could not attach this file.");
                     if (wasCanceled || (persistent && !(await world.run("typeof globalThis.__veraPageNext === 'function'")))) return { ok: true, kind: "closed" };
-                    const answer: ExtensionCommandResult = { ok: true, kind: "capture", capture: { path, preview: image.resize({ width: Math.min(640, image.getSize().width) }).toDataURL(), text: result.text, ...(result.details === undefined ? {} : { details: result.details }) } };
+                    const answer: ExtensionCommandResult = { ok: true, kind: "capture", capture: { path, preview: image.resize({ width: Math.min(640, image.getSize().width) }).toDataURL(), text, ...(result.details === undefined ? {} : { details: result.details }) } };
                     if (emit === undefined || !persistent) return answer;
                     emit(answer);
                 } catch {
@@ -149,16 +166,19 @@ export class PageCommandService {
             }
             contents.removeListener("did-start-navigation", navigation);
             contents.removeListener("destroyed", cancel);
-            if (this.cancel === cancel) this.cancel = undefined;
+            if (this.cancel === cancel) { this.cancel = undefined; this.frameName = undefined; }
         }
     }
 }
 
-export async function browserFrame(contents: WebContents, allowed: (url: string) => boolean): Promise<FrameSurface | undefined> {
-    const frame: unknown = await contents.executeJavaScript("(() => { const f = Array.from(document.querySelectorAll('iframe.browser-frame[name^=browser-]')).find(f => f.clientWidth > 0 && f.clientHeight > 0 && getComputedStyle(f).visibility !== 'hidden'); if (!f) return null; const r = f.getBoundingClientRect(); return {url:f.src,name:f.name,x:r.x+f.clientLeft,y:r.y+f.clientTop,width:f.clientWidth,height:f.clientHeight}; })()");
+export async function browserFrame(contents: WebContents, allowed: (url: string) => boolean, name?: string): Promise<FrameSurface | undefined> {
+    if (name !== undefined && (name.length === 0 || name.length > 256)) return undefined;
+    const frame: unknown = await contents.executeJavaScript(`(() => { const name = ${JSON.stringify(name ?? null)}; const f = Array.from(document.querySelectorAll('iframe.browser-frame[name]')).find(f => (name === null ? f.name.startsWith('browser-') : f.name === name) && f.clientWidth > 0 && f.clientHeight > 0 && getComputedStyle(f).visibility !== 'hidden'); if (!f) return null; const r = f.getBoundingClientRect(); return {url:f.src,name:f.name,x:r.x+f.clientLeft,y:r.y+f.clientTop,width:f.clientWidth,height:f.clientHeight}; })()`);
     if (frame === null || typeof frame !== "object") return undefined;
     const value = frame as Record<string, unknown>;
     if (typeof value.url !== "string" || !allowed(value.url) || typeof value.name !== "string" || value.name.length === 0 || value.name.length > 256) return undefined;
     if (![value.x, value.y, value.width, value.height].every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 10000)) return undefined;
-    return value as unknown as FrameSurface;
+    const matches = contents.mainFrame.framesInSubtree.filter((candidate) => candidate.name === value.name && sameOrigin(candidate.url, value.url as string));
+    if (matches.length !== 1 || !allowed(matches[0]!.url)) return undefined;
+    return { ...value, url: matches[0]!.url } as unknown as FrameSurface;
 }

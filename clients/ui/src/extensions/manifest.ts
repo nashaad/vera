@@ -9,7 +9,7 @@ export const CORE_WHEN_KEYS: readonly string[] = ["view", "container", "entryKin
 
 export const EXTENSION_ID_PATTERN = /^[a-z0-9-](?:[a-z0-9.-]*[a-z0-9-])?$/;
 const MANIFEST_KEYS = ["id", "version", "engine", "main", "contributes"];
-const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks", "menus"];
+const CONTRIBUTION_KINDS = ["commands", "keybindings", "themes", "tasks", "menus", "filePreviews"];
 const TASK_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const MAX_TITLE_LENGTH = 100;
 const MENU_ENTRY_KEYS = ["command", "title", "description", "button"];
@@ -98,6 +98,7 @@ export interface DesktopManifest {
     readonly themes: readonly DesktopTheme[];
     readonly tasks: readonly DesktopTask[];
     readonly menus: DesktopMenus;
+    readonly filePreviews?: readonly string[];
 }
 
 export interface ManifestFailure {
@@ -167,7 +168,18 @@ function readManifest(value: Record<string, unknown>, id: string): DesktopManife
         themes: readThemes(contributes.themes),
         tasks,
         menus: readMenus(contributes.menus, commands),
+        ...(contributes.filePreviews === undefined ? {} : { filePreviews: readFilePreviews(contributes.filePreviews) }),
     };
+}
+
+function readFilePreviews(value: unknown): readonly string[] {
+    if (!Array.isArray(value) || value.length === 0 || value.length > MAX_FILE_EXTENSIONS) throw new ManifestProblem(`"contributes.filePreviews" needs 1 to ${MAX_FILE_EXTENSIONS} extensions.`);
+    const extensions: string[] = [];
+    for (const item of value) {
+        if (typeof item !== "string" || !FILE_EXTENSION_PATTERN.test(item) || item !== item.toLowerCase() || extensions.includes(item)) throw new ManifestProblem("A preview extension must be a unique lowercase file extension.");
+        extensions.push(item);
+    }
+    return extensions;
 }
 
 function readMain(value: unknown): string | undefined {

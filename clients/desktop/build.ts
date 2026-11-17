@@ -61,7 +61,7 @@ for (const task of TASKS) await bundleTask(task.entry, out, task.file);
 // Desktop extensions that ship with the app, each a folder of the repository holding a vera.desktop.json. The
 // manifest is copied to dist/extensions/<id>/, and each task's `main` (`<name>.cjs`) is bundled from `<name>.ts`
 // in the same folder.
-const INCLUDED_EXTENSIONS = ["vscode-theme-import", "browser-annotate"].map((name) => join(root, "..", "..", "extensions", name));
+const INCLUDED_EXTENSIONS = ["vscode-theme-import", "browser-annotate", "local-html-preview"].map((name) => join(root, "..", "..", "extensions", name));
 const TASK_MAIN = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.cjs$/;
 for (const folder of INCLUDED_EXTENSIONS) {
     const manifestFile = join(folder, DESKTOP_MANIFEST_FILENAME);
