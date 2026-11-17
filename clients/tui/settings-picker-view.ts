@@ -697,6 +697,8 @@ export function createTuiSettingsPickerView(
                 ? "100%"
                 : state.kind === "model" || state.kind === "extension" && state.layout === "list-detail"
                 ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
+                : state.kind === "session_close" && state.quitConfirm === true
+                ? "90%"
                 : "80%";
             renderListPickerRows(
                 renderer,
@@ -1250,17 +1252,18 @@ export function renderListPickerRows(
     nodes.push(header);
     let subtitleLines = 0;
     if (state.subtitle !== undefined) {
+        const subtitleHeight = state.kind === "session_close" && state.quitConfirm === true ? 2 : 3;
         const subtitleNode = new TextRenderable(renderer, {
             content: state.subtitle,
             fg: TUI_MUTED,
             width: "100%",
-            height: 3,
+            height: subtitleHeight,
             marginTop: 1,
             paddingLeft: 1,
         });
         box.add(subtitleNode);
         nodes.push(subtitleNode);
-        subtitleLines = 4;
+        subtitleLines = subtitleHeight + 1;
     }
     if (state.kind === "session") {
         const tipNode = new TextRenderable(renderer, {
@@ -1945,7 +1948,9 @@ export function pickerFooterText(
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session_leave") return "1/2 switch · ↑↓ choose · ⏎ switch · esc back";
-    if (state.kind === "session_close") return "1/2 close · ↑↓ choose · ⏎ close · esc back";
+    if (state.kind === "session_close") return state.quitConfirm === true
+        ? "1/2 quit · ↑↓ choose · ⏎ quit · esc cancel"
+        : "1/2 close · ↑↓ choose · ⏎ close · esc back";
     if (state.kind === "session_preview") {
         return [
             "↑↓ scroll",

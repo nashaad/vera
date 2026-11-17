@@ -6,6 +6,7 @@ import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
 import { RouterProvider } from "./pages/router.tsx";
+import { QuitWarning } from "./session/QuitWarning.tsx";
 import { bannerFor } from "./state/connection.ts";
 import { OutputLog } from "./state/outputLog.ts";
 import { useDesktopFlagsLoaded } from "./state/useDesktopFlags.ts";
@@ -45,6 +46,7 @@ export function App() {
                     <Overlays commands={commands} />
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
+                    <QuitWarning listAgents={listAgents} />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>

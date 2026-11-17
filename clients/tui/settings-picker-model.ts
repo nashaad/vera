@@ -228,6 +228,8 @@ export function pickerCardWidth(
         ? usableWidth
         : state.kind === "model" || (state.kind === "extension" && state.layout === "list-detail")
         ? Math.floor(usableWidth * 0.96)
+        : state.kind === "session_close" && state.quitConfirm === true
+        ? Math.floor(usableWidth * 0.9)
         : Math.floor(usableWidth * 0.8);
     return Math.max(0, cardWidth - DIALOG_CARD_PADDING * 2);
 }

@@ -68,6 +68,7 @@ app.setPath("userData", userData);
 let window: BrowserWindow | undefined;
 let boot: BootSession | undefined;
 let stopping = false;
+let windowClosing = false;
 let activeTheme: ThemeChoice = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
@@ -195,13 +196,20 @@ function createWindow(): BrowserWindow {
         event.preventDefault();
         sendEvent({ type: "command", id: command });
     });
-    created.on("close", shutdown);
+    created.on("close", () => { windowClosing = true; });
     created.on("closed", () => {
+        shutdown();
         if (window === created) window = undefined;
     });
     void created.loadFile(join(import.meta.dirname, "renderer", "index.html"));
     return created;
 }
+
+ipcMain.on(CHANNELS.windowClosing, (event) => {
+    const closing = fromWindow(event) && windowClosing;
+    if (closing) windowClosing = false;
+    event.returnValue = closing;
+});
 
 ipcMain.on(CHANNELS.start, (event) => {
     if (fromWindow(event)) startBoot();
@@ -408,7 +416,7 @@ ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (color !== undefined) window?.setBackgroundColor(color);
 });
 
-app.on("before-quit", shutdown);
+app.on("will-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(() => {
     themeService.load();

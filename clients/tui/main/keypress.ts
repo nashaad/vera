@@ -42,6 +42,7 @@ import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../sta
 import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow, updateTranscriptScrollFollow } from "./notices.ts";
 import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { restartLostHost } from "./restart-lost-host.ts";
+import { beginQuitConfirmation } from "./quit-confirm.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -403,7 +404,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         key.stopPropagation();
         if (action === "quit") {
             disarmQuit(rt);
-            rt.renderer.destroy();
+            void beginQuitConfirmation(rt);
         } else if (action === "arm_quit") {
             armQuit(rt);
         } else if (action === "abort") {
@@ -472,11 +473,19 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.preventDefault();
             key.stopPropagation();
             if (transition.selection?.kind === "session_close"
+                && rt.sessionCloseConfirm.quitConfirm === true) {
+                rt.sessionCloseConfirm = undefined;
+                rt.keepRunningOnExit = transition.selection.sourceDisposition === "keep_running";
+                rt.renderer.destroy();
+            } else if (transition.selection?.kind === "session_close"
                 && transition.selection.sourceDisposition === "stop") {
                 beginParkToJsonl(rt);
             } else if (transition.state === undefined) {
+                const cancelledQuit = rt.sessionCloseConfirm.quitConfirm === true;
                 rt.sessionCloseConfirm = undefined;
-                rt.state = appendTuiNotice(rt.state, "conversation kept running");
+                if (!cancelledQuit) {
+                    rt.state = appendTuiNotice(rt.state, "conversation kept running");
+                }
                 renderState(rt);
                 focusActiveSurface(rt);
             } else {

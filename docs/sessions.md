@@ -46,11 +46,21 @@ show the newer history. Recovered unsent prompts remain available.
 | Action | Result |
 | --- | --- |
 | Ctrl+C while working | Stop the active turn. |
-| Ctrl+C while a stop is in progress | Exit the TUI. |
+| Ctrl+C while a stop is in progress | Quit the TUI, with a warning if attached conversations have background commands. |
 | Ctrl+C while idle with a draft | Clear the draft. |
-| Ctrl+C twice while idle with an empty composer | Exit the TUI. |
+| Ctrl+C twice while idle with an empty composer | Quit, with a warning if attached conversations have background commands. |
 | Ctrl+X then D | Detach: exit the TUI and leave this conversation running, including a turn in progress. |
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
+
+When the TUI is idle with an empty composer, Ctrl+C once asks for a second
+press; Escape cancels. On the second press, if any distinct attached
+conversation that the TUI would release has background commands, a confirmation
+summarizes the command count and the number and location of affected
+conversations. Choose `1. Stop them and quit` to ask Vera to stop those
+conversations and exit, or `2. Keep running` to leave them running and exit.
+Escape cancels and returns to the conversation. With no affected background
+commands, Ctrl+C exits as before. The warning covers attached conversations,
+not every conversation visible in another client.
 
 When a side pane such as `/btw`'s sidekick is focused, `/close` or Ctrl+W
 closes that pane instead and leaves the live conversation running.

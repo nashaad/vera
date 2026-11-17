@@ -334,6 +334,7 @@ export interface TuiSettingsPickerState {
     readonly title?: string;
     readonly subtitle?: string;
     readonly backgroundCommandCount?: number;
+    readonly quitConfirm?: true;
     readonly manageTarget?: "model" | "list";
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;

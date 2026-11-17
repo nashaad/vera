@@ -4,6 +4,8 @@ import type { ListedAgentsPage } from "../../src/host/agent-list-client.ts";
 import {
     BACKGROUND_COMMAND_PAGE_SIZE,
     currentBackgroundCommandCount,
+    quitBackgroundCommandSummary,
+    shouldConfirmQuit,
     stopAndCloseDescription,
 } from "../../clients/tui/background-command-count.ts";
 
@@ -42,6 +44,87 @@ test("@core current background-command count pages to the active conversation", 
         { limit: BACKGROUND_COMMAND_PAGE_SIZE, order: "recent" },
         { limit: BACKGROUND_COMMAND_PAGE_SIZE, order: "recent", cursor: "next" },
     ]);
+});
+
+test("@core quit only confirms when at least one background command is running", () => {
+    expect(shouldConfirmQuit(0)).toBe(false);
+    expect(shouldConfirmQuit(1)).toBe(true);
+});
+
+test("@core quit summary distinguishes current, other, and spread commands", async () => {
+    const agents = [
+        { id: "current", background_commands: 2 },
+        { id: "other", background_commands: 2 },
+    ];
+    const list = async () => listedPage(agents);
+
+    await expect(quitBackgroundCommandSummary(list, "current", undefined))
+        .resolves.toMatchObject({
+            total: 2,
+            current: 2,
+            other: 0,
+            conversations: 1,
+            message: "2 background commands are running in this conversation.",
+        });
+    await expect(quitBackgroundCommandSummary(list, "current", "other"))
+        .resolves.toMatchObject({
+            total: 4,
+            current: 2,
+            other: 2,
+            conversations: 2,
+            message: "4 background commands are running in 2 conversations.",
+        });
+    await expect(quitBackgroundCommandSummary(async () => listedPage([
+        { id: "current" },
+        { id: "other", background_commands: 1 },
+    ]), "current", "other"))
+        .resolves.toMatchObject({
+            total: 1,
+            current: 0,
+            other: 1,
+            conversations: 1,
+            message: "1 background command is running in another conversation.",
+        });
+    await expect(quitBackgroundCommandSummary(list, "other", "other"))
+        .resolves.toMatchObject({
+            total: 2,
+            current: 2,
+            other: 0,
+            conversations: 1,
+            message: "2 background commands are running in this conversation.",
+        });
+});
+
+test("@core quit wording uses singular for one current or other command", async () => {
+    const list = async () => listedPage([
+        { id: "current", background_commands: 1 },
+        { id: "other", background_commands: 1 },
+    ]);
+    await expect(quitBackgroundCommandSummary(list, "current", undefined))
+        .resolves.toMatchObject({ message: "1 background command is running in this conversation." });
+    await expect(quitBackgroundCommandSummary(list, "current", "other"))
+        .resolves.toMatchObject({ message: "2 background commands are running in 2 conversations." });
+});
+
+test("@core quit still counts the other attachment when one lookup fails", async () => {
+    let requests = 0;
+    const list = async () => {
+        requests += 1;
+        if (requests === 1) throw new Error("lookup unavailable");
+        return listedPage([{ id: "other", background_commands: 2 }]);
+    };
+    await expect(quitBackgroundCommandSummary(list, "current", "other"))
+        .resolves.toMatchObject({
+            total: 2,
+            message: "2 background commands are running in another conversation.",
+        });
+    await expect(quitBackgroundCommandSummary(async () => listedPage([
+        { id: "other", background_commands: 1 },
+    ]), undefined, "other"))
+        .resolves.toMatchObject({
+            total: 1,
+            message: "1 background command is running in another conversation.",
+        });
 });
 
 test("@core a listed conversation without the optional count has no running commands", async () => {
