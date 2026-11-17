@@ -262,7 +262,8 @@
 .session-row {
     position: relative;
     display: flex;
-    width: 100%;
+    flex: 0 1 auto;
+    min-width: 0;
     font: inherit;
     text-align: left;
     background: none;
@@ -287,16 +288,28 @@
     background: var(--vera-surface-selected);
 }
 
-.session-row[data-nested="true"] {
-    padding-left: calc(var(--vera-space) * 4.5);
+.session-line {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-right: calc(var(--vera-space) * 2);
+    border-radius: var(--vera-radius);
 }
 
-/* The caret takes the dot's place on hover or focus; the button stays in the tab order while hidden. */
+.session-line:has(.session-row[data-active="true"]) {
+    background: var(--vera-surface-selected);
+}
+
+.session-line:hover { background: var(--vera-surface-hover); }
+.session-line-spacer { flex: 1 1 auto; }
+
+.session-row[data-nested="true"] {
+    padding-left: calc(var(--vera-space) * 7);
+}
+
 .session-fold {
-    position: absolute;
-    top: 50%;
-    left: var(--vera-space);
-    z-index: 1;
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -308,13 +321,6 @@
     border: 0;
     border-radius: var(--vera-radius-sm);
     cursor: pointer;
-    opacity: 0;
-    transform: translateY(-50%);
-}
-
-.session-item:hover .session-fold,
-.session-fold:focus-visible {
-    opacity: 1;
 }
 
 .session-fold:hover {
@@ -334,11 +340,6 @@
 
 .session-fold[aria-expanded="true"] .session-fold-icon {
     transform: rotate(90deg);
-}
-
-.session-item[data-parent="true"]:hover .session-dot,
-.session-item[data-parent="true"]:has(.session-fold:focus-visible) .session-dot {
-    opacity: 0;
 }
 
 .session-dot {
@@ -362,16 +363,73 @@
     white-space: nowrap;
 }
 
-.session-nested {
+.session-summary {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: calc(var(--vera-row-height) - var(--vera-space) / 2);
+    padding: 0 0 0 calc(var(--vera-space) * 7);
+    color: var(--vera-text-muted);
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.session-summary::before,
+.session-item[data-nested="true"]::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--vera-space) * 3.5);
+    width: calc(var(--vera-space) * 2);
+    border-left: thin solid var(--vera-border);
+    content: "";
+    pointer-events: none;
+}
+
+.session-summary::before,
+.session-item[data-last="true"]::before {
+    bottom: 50%;
+    border-bottom: thin solid var(--vera-border);
+    border-bottom-left-radius: var(--vera-radius);
+}
+
+.session-item[data-nested="true"]:not([data-last="true"])::after {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--vera-space) * 3.5);
+    width: calc(var(--vera-space) * 2);
+    border-top: thin solid var(--vera-border);
+    content: "";
+}
+
+.session-spinner {
     flex: 0 0 auto;
-    color: var(--vera-text-disabled);
-    font-size: var(--vera-font-size-label);
+    width: calc(var(--vera-space) * 2.5);
+    height: calc(var(--vera-space) * 2.5);
+    border: thin solid var(--vera-link);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: session-spin var(--vera-motion-loop) infinite;
+    animation-timing-function: steps(8);
+}
+
+@keyframes session-spin { to { transform: rotate(360deg); } }
+
+[data-reduce-motion="true"] .session-spinner,
+.sessions-view[data-motion-visible="false"] .session-spinner { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+    .session-spinner { animation: none; }
 }
 
 .session-time {
     flex: 0 0 auto;
     color: var(--vera-text-disabled);
     font-size: var(--vera-font-size-label);
+    margin-right: calc(var(--vera-space) * 2);
 }
 
 .session-item {
@@ -398,13 +456,22 @@
     transform: translateY(-50%);
 }
 
-.session-item:hover .session-more,
-.session-item:focus-within .session-more {
+.session-line:hover .session-spinner,
+.session-line:focus-within .session-spinner {
+    animation-play-state: paused;
+}
+
+.session-line:hover .session-more,
+.session-line:focus-within .session-more {
     opacity: 1;
 }
 
-.session-item:hover .session-time,
-.session-item:focus-within .session-time {
+.session-line:hover .session-time,
+.session-line:focus-within .session-time,
+.session-line:hover .session-spinner,
+.session-line:focus-within .session-spinner,
+.session-line:hover .session-dot,
+.session-line:focus-within .session-dot {
     visibility: hidden;
 }
 
