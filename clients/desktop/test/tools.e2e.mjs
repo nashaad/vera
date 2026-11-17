@@ -141,6 +141,37 @@ try {
     await page.locator(".plan-title", { hasText: "Crow plan" }).waitFor({ timeout: 10_000 });
     const progress = await page.locator(".plan-progress").innerText();
     if (progress !== "1 of 2 done") throw new Error(`Plan progress was ${progress}`);
+    if (await page.locator('.plan-item[data-just-done="true"]').count() !== 0) throw new Error('A completed turn kept a highlighted Plan row.');
+    await app.evaluate(({ shell }) => {
+        globalThis.openedPlan = undefined;
+        globalThis.failPlan = true;
+        shell.openPath = async (path) => { globalThis.openedPlan = path; return globalThis.failPlan ? 'failed' : ''; };
+    });
+    const planPath = page.getByRole('button', { name: 'Open plan file' });
+    await planPath.focus();
+    await page.keyboard.press('Enter');
+    await page.getByText('The plan file could not be opened').waitFor();
+    if (!(await app.evaluate(() => globalThis.openedPlan))?.endsWith('/plan.md')) throw new Error('Plan opened the wrong path.');
+    await app.evaluate(() => { globalThis.failPlan = false; globalThis.openedPlan = undefined; });
+    await planPath.click();
+    await until('plan opened', async () => Boolean(await app.evaluate(() => globalThis.openedPlan)));
+    await page.locator('.plan-title', { hasText: 'Crow plan' }).waitFor();
+    await page.locator('.sessions-view .session-group .group-head').first().waitFor({ timeout: 15_000 });
+    const layout = async () => page.evaluate(() => {
+        const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+        const progress = box('.plan-progress');
+        const action = box('[data-view="core.plan"] > .view-header .view-actions');
+        const group = box('.sessions-view > .session-group:first-child .group-head');
+        const groupAction = box('[data-view="core.sessions"] > .view-header .view-actions');
+        return { progress: progress && { right: progress.right }, action: action && { left: action.left }, group: group && { center: (group.top + group.bottom) / 2 }, groupAction: groupAction && { center: (groupAction.top + groupAction.bottom) / 2 } };
+    });
+    for (const width of [1200, 800]) {
+        await page.setViewportSize({ width, height: 800 });
+        const positions = await layout();
+        if (!positions.progress || !positions.action || positions.progress.right > positions.action.left) throw new Error(`Plan progress overlaps actions: ${JSON.stringify(positions)}`);
+        if (!positions.group || !positions.groupAction || Math.abs(positions.group.center - positions.groupAction.center) > 2) throw new Error(`Group actions are misaligned: ${JSON.stringify(positions)}`);
+    }
+    await page.setViewportSize({ width: 1200, height: 800 });
 
     // The Files view reads the session's folder itself, one folder at a time.
     await openPane("Files");

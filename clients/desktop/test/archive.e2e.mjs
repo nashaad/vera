@@ -66,7 +66,20 @@ try {
         await page.getByRole("menuitem", { name: label, exact: true }).click();
     };
     const inGroup = async (key) => (await group(key).locator(`[data-session="${id}"]`).count()) === 1;
+    const checkFirstHeader = async (key) => {
+        for (const width of [1200, 800]) {
+            await page.setViewportSize({ width, height: 800 });
+            const geometry = await page.evaluate(() => {
+                const head = document.querySelector('.sessions-view > .session-group:first-child .group-head')?.getBoundingClientRect();
+                const action = document.querySelector('[data-view="core.sessions"] > .view-header .view-actions')?.getBoundingClientRect();
+                return head && action ? { offset: Math.abs((head.top + head.bottom - action.top - action.bottom) / 2) } : undefined;
+            });
+            if (!geometry || geometry.offset > 2) throw new Error(`${key} header is misaligned at ${width}: ${JSON.stringify(geometry)}`);
+        }
+        await page.setViewportSize({ width: 1200, height: 800 });
+    };
     await until("the chat row", () => inGroup("chats"), 10_000);
+    await checkFirstHeader('Chats');
     if (process.env.ARCHIVE_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.ARCHIVE_EVIDENCE_DIR, "archive-before.png"), fullPage: true });
     const secondApp = await trial.launch();
     const second = await secondApp.firstWindow();
@@ -89,6 +102,7 @@ try {
     await Promise.all([page, second].map((window) => window.locator('.session-group[data-group="archived"]').waitFor({ timeout: 5_000 })));
     console.log(`archive e2e: both windows observed durable archive in ${Date.now() - savedAt} ms`);
     await group("archived").waitFor({ timeout: 10_000 });
+    await checkFirstHeader('Archived');
     if ((await group("archived").getAttribute("data-open")) !== "false") throw new Error("Archived did not start collapsed");
     if (await group("chats").count()) throw new Error("The archived chat remained in Chats");
     if ((await page.locator(".transcript-scroll").getAttribute("data-session")) !== id) throw new Error("Archive closed the conversation");
@@ -105,6 +119,7 @@ try {
 
     await menu("Pin Session");
     await until("the pinned row", () => inGroup("pinned"), 10_000);
+    await checkFirstHeader('Pinned');
     await menu("Archive Session");
     await group("archived").waitFor();
     await page.getByRole("button", { name: "Expand Archived", exact: true }).click();
