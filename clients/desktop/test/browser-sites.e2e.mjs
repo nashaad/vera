@@ -175,7 +175,15 @@ try {
     await until("site after restart", async () => (await view()) !== undefined);
     await until("page after restart", async () => (await readSite("document.title")) === "Crow page");
     if (!(await readSite("document.cookie")).includes("trial=fake") || (await readSite("localStorage.getItem('trial')")) !== "fake") throw new Error("Sign-in data did not survive restart");
+    await until("site in recents", async () => {
+        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
+        return saved.some((item) => item.kind === "browser" && item.target.includes("/site"));
+    });
     await pane.getByRole("button", { name: "Forget browsing data" }).click();
+    await until("button clears browser recents", async () => {
+        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
+        return saved.every((item) => item.kind !== "browser");
+    });
     await until("captures cleared", async () => readdirSync(captures).length === 0);
     await until("site closed", async () => (await view()) === undefined);
     await until("the tab of the closed page gone", async () => (await pagePills.count()) === 0);

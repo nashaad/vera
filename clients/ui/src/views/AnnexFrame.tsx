@@ -1,4 +1,5 @@
 import type { AnnexPagesAnswer } from "../protocol/bridge.ts";
+import { recordRecent, RECENT_TITLE_LIMIT } from "../browser/recents.ts";
 
 interface AnnexFrameProps {
     readonly annex: AnnexPagesAnswer;
@@ -19,6 +20,7 @@ export function AnnexFrame({ annex, entry, title, round, name }: AnnexFrameProps
             title={title}
             name={name}
             src={`${annex.url}${entry.slice(1)}`}
+            onLoad={() => recordRecent({ kind: "annex", target: entry, title: title.slice(0, RECENT_TITLE_LIMIT) })}
             sandbox="allow-scripts allow-same-origin allow-forms"
         />
     );

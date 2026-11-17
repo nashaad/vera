@@ -686,6 +686,9 @@ app.whenReady().then(() => {
     themeService.load();
     installMenu();
     window = createWindow();
-    browserPane = new BrowserPane(window);
+    browserPane = new BrowserPane(window,
+        (url, title) => sendEvent({ type: "browser_loaded", url, title }),
+        () => sendEvent({ type: "browser_cleared" }),
+    );
     browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));
 });
