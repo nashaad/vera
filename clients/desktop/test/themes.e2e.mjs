@@ -273,6 +273,9 @@ async function builtinJourney() {
         }
         const onyxRows = page.locator('[data-overlay="themes"] [data-theme-name="onyx"]');
         await onyxRows.waitFor({ timeout: 10_000 });
+        expectEqual(await page.locator('[data-overlay="themes"] .dialog-key').count(), 0, "theme number badges");
+        await selectTheme("light", () => page.keyboard.press("2"));
+        expectEqual(await page.locator('[data-overlay="themes"] [data-theme-name="light"]').getAttribute("aria-pressed"), "true", "keyboard theme selection");
         await page.locator('[data-overlay="themes"] [data-theme-name="imported:crow.onyx"]').waitFor({ timeout: 10_000 });
         const onyxText = await page.locator('[data-overlay="themes"]').innerText();
         if (!onyxText.includes("Onyx") || !onyxText.includes("Extension Crow Onyx")) throw new Error("The builtin and imported Onyx choices with extension source are not both visible in the theme sheet.");

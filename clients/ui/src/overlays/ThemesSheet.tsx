@@ -42,7 +42,7 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
     return (
         <OverlaySheet title="Choose Theme" Icon={EyeIcon} onClose={onClose} name="themes">
             <ul className="dialog-picks">
-                {choices.map((choice, index) => {
+                {choices.map((choice) => {
                     const swatches = swatchColors(choice);
                     const isCurrent = choice === current;
                     const text = themeText(choice, imported);
@@ -65,7 +65,6 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
                                     <span className="dialog-pick-name">{text.label}</span>
                                     <span className="dialog-pick-desc">{text.description}</span>
                                 </span>
-                                <span className="dialog-key" aria-hidden="true">{index < 9 ? index + 1 : ""}</span>
                                 {isCurrent ? <CheckIcon className="dialog-pick-check" /> : null}
                             </button>
                         </li>
