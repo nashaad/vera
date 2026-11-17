@@ -1052,8 +1052,8 @@ When the pane already holds 16 tabs and none is Subagents, a notice says to clos
 a tab first and nothing changes. The tab shows the list for the open session, or
 `Open a session to see its subagents.` when none is open:
 
-- `Active`, with a row for each running subagent (a dot, the title, the status
-  word and the time since its last step), or `No active subagents`. A subagent the
+- `Active · N`, with a row for each running subagent (its icon, title, status
+  word and time since its last step), or `No active subagents`. A subagent the
   host has not listed yet shows by title as `Working` and cannot be opened.
 - `Done · N`, with a row for each of the others, drawn only when there are some.
 - `No subagents in this session.` when it has none.

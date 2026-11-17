@@ -1,6 +1,7 @@
+import { AgentIcon } from "../components/Icons.tsx";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import type { ActiveSession } from "../session/activeSession.ts";
-import { isRunningRow, splitChildren, statusWord, unlistedChildTitles } from "../session/subagents.ts";
+import { splitChildren, statusWord, unlistedChildTitles } from "../session/subagents.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { subagentsTab } from "./store.ts";
 
@@ -18,7 +19,7 @@ export function SubagentsList({ session }: { readonly session: ActiveSession }) 
     return (
         <div className="subagents">
             <section className="tasks-section" aria-label="Active subagents">
-                <h3 className="tasks-heading">Active</h3>
+                <h3 className="tasks-heading">Active · {active.length + unlisted.length}</h3>
                 {active.length + unlisted.length === 0 ? (
                     <p className="tasks-intro">No active subagents</p>
                 ) : (
@@ -27,7 +28,7 @@ export function SubagentsList({ session }: { readonly session: ActiveSession }) 
                         {unlisted.map((title) => (
                             <li key={`untracked-${title}`}>
                                 <div className="subagents-row" data-open="false">
-                                    <span className="session-dot" data-running="true" aria-hidden="true" />
+                                    <AgentIcon className="subagent-list-icon" />
                                     <span className="subagent-name" title={title}>{title}</span>
                                     <span className="subagents-status">{statusWord("working")}</span>
                                 </div>
@@ -49,11 +50,10 @@ export function SubagentsList({ session }: { readonly session: ActiveSession }) 
 }
 
 function ChildRow({ row, parentId, now }: { readonly row: SessionRow; readonly parentId: string; readonly now: number }) {
-    const running = isRunningRow(row);
     return (
         <li>
             <button type="button" className="subagents-row" data-open="true" data-status={row.status} onClick={() => subagentsTab.show(parentId, row.id)}>
-                <span className="session-dot" data-running={running} aria-hidden="true" />
+                <AgentIcon className="subagent-list-icon" />
                 <span className="subagent-name" title={row.name}>{row.name}</span>
                 <span className="subagents-status">{statusWord(row.status)}</span>
                 <span className="session-time">{relativeTime(row.updatedAt, now)}</span>
