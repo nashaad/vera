@@ -11,6 +11,7 @@ function manager(config: () => SandboxConfig, entries: HostLogEntry[]) {
         config,
         permissionRules: () => [],
         log: (entry) => entries.push(entry),
+        scanProtected: () => ({ ok: true, paths: [] }),
         readDependencies: () => ({
             ok: false,
             reason: "bubblewrap (bwrap) not installed",
