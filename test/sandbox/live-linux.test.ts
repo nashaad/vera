@@ -81,7 +81,7 @@ async function run(
 function exited(
     result: Awaited<ReturnType<typeof run>>,
 ): { readonly exitCode: number | null; readonly output: string } {
-    expect(result.kind).toBe("exited");
+    expect(result).toMatchObject({ kind: "exited" });
     if (result.kind !== "exited") throw new Error("command did not run");
     return {
         exitCode: result.snapshot.exitCode ?? null,
@@ -195,7 +195,7 @@ test("@core Linux protects the project's Vera config and rules", async () => {
 
     const skills = exited(await run(registry, workspace,
         "mkdir -p .vera/skills && echo ok > .vera/skills/good.md", "project-skills"));
-    expect(skills.exitCode).toBe(0);
+    expect(skills).toMatchObject({ exitCode: 0 });
     expect(readFileSync(join(workspace, ".vera", "skills", "good.md"), "utf8"))
         .toBe("ok\n");
 });
@@ -227,10 +227,10 @@ test("@core Linux can commit in a linked worktree while shared hooks stay blocke
     const { registry } = registryWithLog();
     const worktree = join(root, "wt");
     const added = exited(await run(registry, worktree, "git add f.txt", "git-add"));
-    expect(added.exitCode).toBe(0);
+    expect(added).toMatchObject({ exitCode: 0 });
     const committed = exited(await run(registry, worktree,
         `git commit -q -m work`, "git-commit"));
-    expect(committed.exitCode).toBe(0);
+    expect(committed).toMatchObject({ exitCode: 0 });
     expect(execFileSync("git", ["log", "--oneline", "-1"], { cwd: worktree }).toString())
         .toContain("work");
 
@@ -276,7 +276,7 @@ test("@core Linux denies a whole folder this user cannot read", async () => {
         // ordinary write still works.
         const control = exited(await run(registry, workspace,
             "touch ok.txt", "unreadable-control"));
-        expect(control.exitCode).toBe(0);
+        expect(control).toMatchObject({ exitCode: 0 });
         expect(existsSync(join(workspace, "ok.txt"))).toBe(true);
     } finally {
         chmodSync(locked, 0o755);
