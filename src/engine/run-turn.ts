@@ -2142,6 +2142,11 @@ export async function runTurn(
                 );
                 state.toolRuntime.allowedTools = applied.allowedTools;
             }
+            await drainPendingDeliveries(state, {
+                select: (delivery) => (delivery.kind ?? "completion") === "completion"
+                    && delivery.sourceKind === undefined,
+                canContinue: () => !turn.signal.aborted && state.haltCheck?.() === undefined,
+            });
             const capacity = capacityForModel(activeModel);
             await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,
@@ -2534,12 +2539,20 @@ function replyText(message: AssistantMessage): string {
         .join("");
 }
 
-async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
+async function drainPendingDeliveries(
+    state: RunTurnState,
+    options?: {
+        readonly select: (delivery: SessionDeliveryEntry) => boolean;
+        readonly canContinue: () => boolean;
+    },
+): Promise<void> {
     const inbox = state.deliveryInbox;
     if (inbox === undefined) {
         return;
     }
     for (const delivery of inbox.pendingDeliveries()) {
+        if (options?.canContinue() === false) return;
+        if (options !== undefined && !options.select(delivery)) continue;
         const message = deliveryMessage(delivery);
         const entry = await inbox.appendDeliveryMessage(
             delivery.id,

@@ -8,7 +8,7 @@ export const asyncSubagentTool: RegisteredTool = {
     definition: {
         name: "async_subagent",
         description:
-            "Launch a focused subagent in the background and return its ID immediately. Use only when you have substantial independent work to continue while the child runs and can proceed without its answer; otherwise use subagent. Its final summary arrives on a later turn. Work directly on small changes, even when they span several files. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
+            "Launch a focused subagent in the background and return its ID immediately. Use only when you have substantial independent work to continue while the child runs and can proceed without its answer; otherwise use subagent. Its final summary is added after your next tool step, or on a new turn when you are idle. Work directly on small changes, even when they span several files. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
         inputSchema: {
             type: "object",
             properties: {
