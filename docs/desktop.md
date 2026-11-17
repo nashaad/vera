@@ -1100,7 +1100,9 @@ and the lines added and removed. Each file row opens to its patch, cut at 400
 lines. `Review` opens the Review view; the button is drawn while Review is shown. Review lists the files changed in the
 last turn, or in the whole session, with their patches. Plan shows the newest
 checklist Vera wrote in its scratch folder: the title, how many items are done,
-a bar and the items, with the item just finished marked. Files shows the
+a bar and the items, with recently completed items marked while the turn runs.
+Open plan file opens its displayed path in the system's default application.
+Files shows the
 session's folder (`Chat` for a chat) as a tree the window reads from disk:
 folders come first, a folder opens one level at a time, and one folder lists
 at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read

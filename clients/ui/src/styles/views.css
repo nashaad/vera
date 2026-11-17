@@ -102,6 +102,14 @@
     height: auto;
 }
 
+.location[data-location="sidebar"] .view[data-view="core.sessions"][data-merged="true"] > .view-header {
+    top: calc(var(--vera-space) * 3.25);
+}
+
+.view[data-merged="true"] .sessions-view > .session-group:first-child .group-head {
+    padding-right: calc(var(--vera-space) * 7);
+}
+
 .view[data-merged="true"]:hover .view-actions {
     opacity: 1;
 }

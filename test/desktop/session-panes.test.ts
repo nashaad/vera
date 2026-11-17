@@ -7,6 +7,7 @@ import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import { clearActiveSession, publishActiveSession } from "../../clients/ui/src/session/activeSession.ts";
 import {
     collectChanges,
+    currentTurnChecklist,
     fileFolder,
     fileName,
     lastTurn,
@@ -83,6 +84,17 @@ describe("changed files", () => {
         });
         expect(latestChecklist([tools("a", [call("old")]), tools("b", [call("new")])])?.title).toBe("new");
         expect(latestChecklist([tools("a", [diffCall("/a", "+a")])])).toBeUndefined();
+    });
+
+    test("@core a new turn without a checklist does not reuse completed-row emphasis", () => {
+        const checklist = { path: "/plan.md", title: "Plan", items: [{ text: "Done", done: true, justDone: true }] };
+        const call: ToolsBlock["calls"][number] = { tool: "write", title: "Plan", args: {}, state: "done", presentation: { kind: "checklist", checklist } };
+        const oldTurn: Block[] = [{ kind: "user", key: "u1", text: "first" }, tools("plan", [call])];
+        expect(currentTurnChecklist(oldTurn)).toBe(checklist);
+        const newTurn: Block[] = [...oldTurn, { kind: "user", key: "u2", text: "next" }];
+        expect(latestChecklist(newTurn)).toBe(checklist);
+        expect(currentTurnChecklist(newTurn)).toBeUndefined();
+        expect(currentTurnChecklist([tools("unknown", [call])])).toBeUndefined();
     });
 
     test("paths read as a name plus a folder relative to the session folder", () => {
