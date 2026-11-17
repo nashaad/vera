@@ -57,6 +57,8 @@ closes that pane instead and leaves the live conversation running.
 
 Detach matches Keep running: nothing is stopped or sent, and the host closes
 the conversation after ten idle minutes. `vera resume <id>` returns to it.
+Commands Vera starts in the background stop when their conversation closes,
+including ten minutes after you leave it running.
 
 Closing the terminal counts as exiting, not detaching. The same holds when a
 tmux pane is killed, an SSH connection drops or the terminal app crashes: a

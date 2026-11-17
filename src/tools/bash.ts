@@ -134,6 +134,7 @@ function bashOutput(result: ManagedProcessRunResult): ToolOutput {
         output:
             `Process still running after ${formatElapsed(snapshot.elapsedMs)} `
             + `(process_id: ${snapshot.processId}, pid: ${snapshot.pid}).\n`
+            + "It belongs to this conversation and stops when the conversation closes or is parked.\n"
             + "Use process read to inspect it or process kill to terminate it."
             + output,
         isError: false,

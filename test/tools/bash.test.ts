@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bashTool, runBash } from "../../src/tools/bash.ts";
+import { ManagedProcessRegistry } from "../../src/tools/process-runtime.ts";
 import { processTool } from "../../src/tools/process.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
@@ -100,6 +101,44 @@ test("bash gives commands EOF instead of inheriting terminal input", async () =>
     }
 });
 
+test.each([
+    ["without captured output", "(no output)", ""],
+    ["with captured output", "  ready\n", "\n\nOutput so far:\nready"],
+])("@core bash reports the lifetime of a running command %s", async (_label, output, suffix) => {
+    const registry = new ManagedProcessRegistry();
+    const scope = registry.scope("conversation");
+    scope.run = async () => ({
+        kind: "running",
+        snapshot: {
+            processId: "p-1",
+            command: "example",
+            pid: 4411,
+            status: "running",
+            elapsedMs: 10_000,
+            output,
+        },
+    });
+
+    try {
+        const result = await runBash("example", ".", undefined, undefined, {
+            processes: scope,
+            yieldAfterMs: 0,
+        });
+
+        expect(result).toEqual({
+            kind: "output",
+            output: "Process still running after 10.0s (process_id: p-1, pid: 4411).\n"
+                + "It belongs to this conversation and stops when the conversation closes or is parked.\n"
+                + "Use process read to inspect it or process kill to terminate it."
+                + suffix,
+            isError: false,
+            processId: "p-1",
+        });
+    } finally {
+        await registry.close();
+    }
+});
+
 test("a blocking Git editor yields as an owned process", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-bash-git-editor-"));
     const editor = join(workspace, "blocking-editor");
@@ -138,6 +177,12 @@ test("a blocking Git editor yields as an owned process", async () => {
         expect(result.kind).toBe("output");
         if (result.kind !== "output") throw new Error("expected tool output");
         expect(result.processId).toBeString();
+        const lines = result.output.split("\n");
+        expect(lines[0]).toMatch(/^Process still running after \d+(?:\.\d+)?(?:ms|s) \(process_id: [^,]+, pid: \d+\)\.$/);
+        expect(lines.slice(1, 3)).toEqual([
+            "It belongs to this conversation and stops when the conversation closes or is parked.",
+            "Use process read to inspect it or process kill to terminate it.",
+        ]);
         await until(async () => {
             try {
                 return (await Bun.file(editorCalled).text()) === "called";
