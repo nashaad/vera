@@ -202,6 +202,9 @@ try {
             const app = document.querySelector('.app');
             for (const token of ['--vera-font-size-body', '--vera-font-size-label', '--vera-font-size-code']) app.style.setProperty(token, '20px');
         });
+        if (size[0] === 1440) {
+            await until('native Browser visible after resize', async () => await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.id === id)?.getVisible() === true, contentsId));
+        }
         const proof = await longCard.evaluate((card) => {
             const rect = card.getBoundingClientRect();
             const button = card.querySelector('.page-capture-details');
