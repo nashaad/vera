@@ -3,7 +3,7 @@ import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts"
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
 import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
-import { modelBrowse } from "../model-browse.ts";
+import { initialModelBrowseScope, modelBrowse } from "../model-browse.ts";
 import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
@@ -154,8 +154,14 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
         };
     }
     const preferences = loadModelPickerPreferences();
-    rt.settingsPicker = modelBrowse({ ...rt.settingsPicker, tab: preferences.scope,
-        browseView: preferences.view, browseSort: preferences.sort }, "browse");
+    const favorites = targetState.modelSettings?.pooled;
+    rt.settingsPicker = modelBrowse({
+        ...rt.settingsPicker,
+        tab: initialModelBrowseScope(preferences.scope, (favorites?.length ?? 0) > 0),
+        ...(favorites === undefined ? { browsePendingScope: preferences.scope } : {}),
+        browseView: preferences.view,
+        browseSort: preferences.sort,
+    }, "browse");
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);
