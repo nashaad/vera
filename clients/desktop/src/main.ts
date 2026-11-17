@@ -6,6 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { requestExtensionThroughHost } from "../../../src/host/extension-request-client.ts";
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
 import { moveSessionThroughHost } from "../../../src/host/session-move-client.ts";
+import { setSessionArchivedThroughHost } from "../../../src/host/session-archive-client.ts";
 import { checkFile, prepareFiles } from "../../../src/attachments/files.ts";
 import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
@@ -347,6 +348,18 @@ ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<C
     const target = idArgument(agentId);
     if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a session to stop." };
     return closeSession(hostSocketPath, target);
+});
+ipcMain.handle(CHANNELS.sessionArchive, async (event, agentId: unknown, archived: unknown) => {
+    const target = idArgument(agentId);
+    if (!fromWindow(event) || target === undefined || typeof archived !== "boolean" || hostSocketPath === undefined) {
+        return { ok: false, reason: "The host is not running." };
+    }
+    try {
+        return await setSessionArchivedThroughHost(hostSocketPath, target, archived)
+            ? { ok: true } : { ok: false, reason: "The session could not be updated." };
+    } catch {
+        return { ok: false, reason: "The session could not be updated." };
+    }
 });
 ipcMain.handle(CHANNELS.sessionMove, async (event, agentId: unknown): Promise<MoveSessionOutcome> => {
     const target = idArgument(agentId);

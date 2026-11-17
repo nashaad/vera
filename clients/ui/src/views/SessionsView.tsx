@@ -3,7 +3,7 @@ import { useState, type MouseEvent } from "react";
 import { sessionRowMenu } from "../commands/session-row-menu.ts";
 import { ChevronRightIcon, MoreIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
-import { groupSessions, type SessionEntry, type SessionGroup } from "../protocol/sessionGroups.ts";
+import { ARCHIVED_KEY, groupSessions, type SessionEntry, type SessionGroup } from "../protocol/sessionGroups.ts";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { isPinned, usePinnedSessions } from "../state/usePins.ts";
 import { useSurface } from "../state/useSurfaces.ts";
@@ -20,13 +20,13 @@ interface Fold {
     readonly onToggle: () => void;
 }
 
-function Row({ row, nested, fold, now }: { readonly row: SessionRow; readonly nested: boolean; readonly fold: Fold | undefined; readonly now: number }) {
+function Row({ row, archiveRoot, nested, fold, now }: { readonly row: SessionRow; readonly archiveRoot: SessionRow | undefined; readonly nested: boolean; readonly fold: Fold | undefined; readonly now: number }) {
     const running = isRunning(row);
     const { route, navigate } = useRouter();
     const { openMenu } = useWorkbench();
     const files = useSurface("files");
     const active = route.kind === "session" && route.agentId === row.id;
-    const menu = (at: { readonly x: number; readonly y: number }): void => openMenu(sessionRowMenu(row, isPinned(row.id), files), at);
+    const menu = (at: { readonly x: number; readonly y: number }): void => openMenu(sessionRowMenu(row, isPinned(row.id), files, archiveRoot), at);
     const more = (event: MouseEvent<HTMLButtonElement>): void => {
         const box = event.currentTarget.getBoundingClientRect();
         menu({ x: box.left, y: box.bottom });
@@ -100,7 +100,7 @@ function visibleEntries(group: SessionGroup, folded: ReadonlySet<string>): reado
 }
 
 function Group({ group, folded, onToggleFold, now }: GroupProps) {
-    const [open, setOpen] = useState(true);
+    const [open, setOpen] = useState(group.key !== ARCHIVED_KEY);
     const { route, navigate } = useRouter();
     const active = route.kind === "workspace" && route.folder === group.workspace;
     return (
@@ -131,10 +131,11 @@ function Group({ group, folded, onToggleFold, now }: GroupProps) {
             </div>
             {open ? (
                 <ul className="session-list">
-                    {visibleEntries(group, folded).map(({ row, nested, nestedCount }) => (
+                    {visibleEntries(group, folded).map(({ row, archiveRoot, nested, nestedCount }) => (
                         <Row
                             key={row.id}
                             row={row}
+                            archiveRoot={archiveRoot}
                             nested={nested}
                             fold={nestedCount === 0 ? undefined : {
                                 count: nestedCount,

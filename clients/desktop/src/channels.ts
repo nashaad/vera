@@ -36,6 +36,7 @@ export const CHANNELS = {
     sidekickOpen: "vera:sidekick-open",
     sidekickSync: "vera:sidekick-sync",
     sessionMove: "vera:session-move",
+    sessionArchive: "vera:session-archive",
     folderChoose: "vera:folder-choose",
     foldersExisting: "vera:folders-existing",
     branchRead: "vera:branch-read",

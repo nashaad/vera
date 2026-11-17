@@ -49,6 +49,7 @@ function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
         rememberStored: async () => {},
         forgetStored: async () => {},
         rename: async () => ({ status: "not_found" }),
+        setArchived: async () => "not_found",
         move: async () => ({ status: "not_found" }),
         trash: async () => "not_found",
         reserveTrash: async () => ({ status: "busy" }),

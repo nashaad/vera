@@ -2,6 +2,7 @@ import type { SessionRow } from "./sessions.ts";
 
 export interface SessionEntry {
     readonly row: SessionRow;
+    readonly archiveRoot?: SessionRow;
     // One level only: a child of a child is listed under the top parent.
     readonly nested: boolean;
     // How many rows are listed under this one; 0 on a nested row.
@@ -9,9 +10,9 @@ export interface SessionEntry {
 }
 
 export interface SessionGroup {
-    // Unique among groups; the Pinned and Chats groups have their own keys.
+    // Special groups have their own keys, separate from folder paths.
     readonly key: string;
-    // Empty for the Pinned and Chats groups and for sessions with no folder.
+    // Empty for special groups and sessions with no folder.
     readonly workspace: string;
     readonly title: string;
     // Chats share one group and its title opens no workspace page.
@@ -21,6 +22,8 @@ export interface SessionGroup {
 
 export const CHATS_TITLE = "Chats";
 export const PINNED_TITLE = "Pinned";
+export const ARCHIVED_KEY = "archived";
+export const ARCHIVED_TITLE = "Archived";
 export const CHAT_FOLDER_LABEL = "Chat";
 
 // The folder a session is shown under: a chat has none of its own to name.
@@ -45,11 +48,42 @@ const PINNED_KEY = "pinned";
 const CHATS_KEY = "chats";
 const FOLDER_KEY = "folder:";
 
-// Pinned rows come first in pin order and leave their own group. The other groups keep the order
-// of their most recent listed session; rows keep the host's order. A subagent is listed under the
-// session that started it, in that session's group, whatever its own folder or chat flag. Chats
-// share one group.
+function archiveRoot(row: SessionRow, byId: ReadonlyMap<string, SessionRow>): SessionRow {
+    let current = row;
+    const seen = new Set([row.id]);
+    for (;;) {
+        const parent = current.parentId === undefined ? undefined : byId.get(current.parentId);
+        if (parent === undefined) return current;
+        if (seen.has(parent.id)) return row;
+        seen.add(parent.id);
+        current = parent;
+    }
+}
+
 export function groupSessions(rows: readonly SessionRow[], pins: readonly string[] = []): readonly SessionGroup[] {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const active: SessionRow[] = [];
+    const archived: SessionRow[] = [];
+    for (const row of rows) {
+        const root = archiveRoot(row, byId);
+        if (root.archived === true || row.archived === true) archived.push(row);
+        else active.push(row);
+    }
+    const groups = groupActiveSessions(active, pins);
+    const result = archived.length === 0 ? groups : [...groups, {
+        key: ARCHIVED_KEY,
+        workspace: "",
+        title: ARCHIVED_TITLE,
+        chats: false,
+        entries: groupActiveSessions(archived).flatMap((group) => group.entries),
+    }];
+    return result.map((group) => ({
+        ...group,
+        entries: group.entries.map((entry) => ({ ...entry, archiveRoot: archiveRoot(entry.row, byId) })),
+    }));
+}
+
+function groupActiveSessions(rows: readonly SessionRow[], pins: readonly string[] = []): readonly SessionGroup[] {
     const pinned = pinnedRows(rows, pins);
     const pinnedIds = new Set(pinned.map((row) => row.id));
     const byId = new Map(rows.map((row) => [row.id, row]));

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { sessionMetadataPath } from "../../src/store/session-metadata.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -65,6 +66,21 @@ test("an imported session records where it came from and chains its messages", a
             .toEqual(["user", "assistant"]);
         expect((await SessionStore.open(path)).name()).toBe("Fix the build");
         expect(await readdir(join(root, "sessions"))).toEqual(["imported.jsonl"]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a new import does not inherit orphaned archive metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-import-writer-"));
+    try {
+        const path = join(root, "imported.jsonl");
+        await writeFile(sessionMetadataPath(path), '{"archived":true}');
+        const store = await writeImportedSession(path, {
+            sessionId: "imported", cwd: "/work", provenance, messages: exchange(),
+        });
+        expect(store.archived()).toBe(false);
+        expect((await SessionStore.open(path)).archived()).toBe(false);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

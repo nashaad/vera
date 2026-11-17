@@ -706,6 +706,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         return this.serial(async () => this.endpoint(await this.claimOwner(id)).rename(id, name, reserved));
     }
 
+    setArchived(id: string, archived: boolean, reserved = false): Promise<"updated" | "not_found" | "failed"> {
+        return this.serial(async () => this.endpoint(await this.claimOwner(id)).setArchived(id, archived, reserved));
+    }
+
     private reservedMessage(id: string, parentId?: string): string {
         return this.moving.has(id) || (parentId !== undefined && this.moving.has(parentId))
             ? "This conversation is being moved to another folder."

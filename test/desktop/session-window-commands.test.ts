@@ -180,10 +180,41 @@ describe("window session commands", () => {
         expect(isPinned("crow-9")).toBe(false);
     });
 
+    test("@core archive saves through the host without navigating or clearing a pin", async () => {
+        const requests: unknown[] = [];
+        const { registry, routes } = wired({
+            setSessionArchived: async (agentId, archived) => {
+                requests.push({ agentId, archived });
+                return { ok: true };
+            },
+        });
+        toggleSessionPin("crow-9");
+        registry.execute(SESSION_ROW_COMMANDS.toggleArchive, other);
+        await Bun.sleep(0);
+        expect(lastToast()).toBe("Session archived");
+        expect(isPinned("crow-9")).toBe(true);
+        registry.execute(SESSION_ROW_COMMANDS.toggleArchive, { ...other, archived: true });
+        await Bun.sleep(0);
+        expect(lastToast()).toBe("Session unarchived");
+        expect(requests).toEqual([{ agentId: "crow-9", archived: true }, { agentId: "crow-9", archived: false }]);
+        expect(routes).toEqual([]);
+        toggleSessionPin("crow-9");
+    });
+
+    test("a refused archive says why and stays on the page", async () => {
+        const { registry, routes } = wired({
+            setSessionArchived: async () => ({ ok: false, reason: "The session could not be saved" }),
+        });
+        registry.execute(SESSION_ROW_COMMANDS.toggleArchive, other);
+        await Bun.sleep(0);
+        expect(lastToast()).toBe("The session could not be saved");
+        expect(routes).toEqual([]);
+    });
+
     test("row commands ignore a missing session", () => {
         expect(sessionTarget(undefined)).toBeUndefined();
         expect(sessionTarget({ agentId: "" })).toBeUndefined();
-        expect(sessionTarget({ agentId: "crow-9" })).toEqual({ agentId: "crow-9", title: "crow-9", workspace: "", chat: false });
+        expect(sessionTarget({ agentId: "crow-9" })).toEqual({ agentId: "crow-9", title: "crow-9", workspace: "", chat: false, archived: false });
     });
 });
 
@@ -192,13 +223,22 @@ describe("session row menu", () => {
     const labels = (entries: ReturnType<typeof sessionRowMenu>) => entries.map((entry) => (entry.kind === "item" ? entry.label : "-"));
 
     test("@core offers rename, pin, files, clone and close for a live session", () => {
-        expect(labels(sessionRowMenu(row, false))).toEqual(["Rename…", "Pin Session", "Open Files Pane", "-", "Clone Session", "Close Session"]);
+        expect(labels(sessionRowMenu(row, false))).toEqual(["Rename…", "Pin Session", "Archive Session", "Open Files Pane", "-", "Clone Session", "Close Session"]);
         expect(labels(sessionRowMenu(row, true))[1]).toBe("Unpin Session");
     });
 
     test("@core the files entry is offered only while the window shows Files", () => {
-        expect(labels(sessionRowMenu(row, false, false))).toEqual(["Rename…", "Pin Session", "-", "Clone Session", "Close Session"]);
+        expect(labels(sessionRowMenu(row, false, false))).toEqual(["Rename…", "Pin Session", "Archive Session", "-", "Clone Session", "Close Session"]);
         expect(labels(sessionRowMenu(row, false, true))).toContain("Open Files Pane");
+    });
+
+    test("an archived child row unarchives the parent family", () => {
+        const parent = { ...row, id: "parent", archived: true };
+        const menu = sessionRowMenu({ ...row, parentId: "parent" }, false, true, parent);
+        const entry = menu.find((item) => item.kind === "item" && item.label === "Unarchive Session");
+        expect(entry?.kind === "item" ? entry.args : undefined).toEqual({
+            agentId: "parent", title: row.name, workspace: row.workspace, chat: false, archived: true,
+        });
     });
 
     test("a stopped session has nothing to close", () => {

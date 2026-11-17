@@ -59,7 +59,7 @@ export interface WorkerHello {
 }
 
 export const COMMON_METHODS = [
-    "locateAgent", "createAgent", "resumeAgent", "listAgents", "renameSession", "moveSession", "trashSession",
+    "locateAgent", "createAgent", "resumeAgent", "listAgents", "renameSession", "setSessionArchived", "moveSession", "trashSession",
     "closeAgent", "blockSession", "unblockSession", "syncAgentContext", "readSessionFacts",
     "searchSessions", "importSession", "listImportableSessions",
 ] as const;

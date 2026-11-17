@@ -274,6 +274,7 @@ export interface RegisteredAgentSummary {
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
     readonly live: boolean;
+    readonly archived?: boolean;
     readonly worker_pid?: number;
     readonly supervisor_pid?: number;
     readonly title?: string;

@@ -469,6 +469,12 @@ export interface SessionUnblockRejectedResponse {
     readonly reason: "not_found" | "failed";
 }
 
+export interface SetSessionArchivedRequest {
+    readonly type: "set_session_archived";
+    readonly target_agent_id: string;
+    readonly archived: boolean;
+}
+
 export interface RenameSessionRequest {
     readonly type: "rename_session";
     readonly target_agent_id: string;
@@ -788,6 +794,18 @@ export interface SessionTrashRejectedResponse {
     readonly reason: "busy" | "not_found" | "failed";
 }
 
+export interface SessionArchivedResponse {
+    readonly type: "session_archived";
+    readonly agent_id: string;
+    readonly archived: boolean;
+}
+
+export interface SessionArchiveRejectedResponse {
+    readonly type: "session_archive_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
+}
+
 export interface SessionRenamedResponse {
     readonly type: "session_renamed";
     readonly agent_id: string;
@@ -1064,6 +1082,7 @@ export type HostRequest =
     | UnblockSessionRequest
     | CutStopWaitRequest
     | RenameSessionRequest
+    | SetSessionArchivedRequest
     | MoveSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
@@ -1124,6 +1143,8 @@ export type HostResponse =
     | SessionUnblockedResponse
     | SessionUnblockRejectedResponse
     | SessionRenamedResponse
+    | SessionArchivedResponse
+    | SessionArchiveRejectedResponse
     | SessionRenameRejectedResponse
     | SessionMovedResponse
     | SessionMoveRejectedResponse
@@ -1587,6 +1608,18 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         return value.workspace === undefined
             ? { type: "list_importable_sessions" }
             : { type: "list_importable_sessions", workspace: value.workspace };
+    }
+    if (
+        value?.type === "set_session_archived"
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+        && typeof value.archived === "boolean"
+    ) {
+        return {
+            type: "set_session_archived",
+            target_agent_id: value.target_agent_id,
+            archived: value.archived,
+        };
     }
     if (
         value?.type === "rename_session"

@@ -23,12 +23,14 @@ export interface SessionTarget {
     readonly title: string;
     readonly workspace: string;
     readonly chat: boolean;
+    readonly archived?: boolean;
 }
 
 // Commands on a sidebar row's session. They take the row as their argument, so the palette does not list them.
 export const SESSION_ROW_COMMANDS = {
     rename: "sessions.rename",
     togglePin: "sessions.togglePin",
+    toggleArchive: "sessions.toggleArchive",
     openFiles: "sessions.openFiles",
     clone: "sessions.clone",
     close: "sessions.close",
@@ -43,6 +45,7 @@ export function sessionTarget(args: unknown): SessionTarget | undefined {
         title: typeof fields.title === "string" ? fields.title : fields.agentId,
         workspace: typeof fields.workspace === "string" ? fields.workspace : "",
         chat: fields.chat === true,
+        archived: fields.archived === true,
     };
 }
 
@@ -145,6 +148,18 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
             title: "Pin Session",
             needsArgs: true,
             run: onRow((target) => toggleSessionPin(target.agentId)),
+        }),
+        registry.register({
+            id: SESSION_ROW_COMMANDS.toggleArchive,
+            title: "Archive Session",
+            needsArgs: true,
+            run: withBridge((bridge, target) => {
+                const archived = target.archived !== true;
+                void bridge.setSessionArchived(target.agentId, archived).then((result) => {
+                    if (!result.ok) showToast(result.reason, "danger");
+                    else showToast(archived ? "Session archived" : "Session unarchived", "success");
+                });
+            }),
         }),
         registry.register({
             id: SESSION_ROW_COMMANDS.openFiles,

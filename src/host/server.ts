@@ -20,6 +20,7 @@ import {
 } from "./lockfile.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import { pageSessionListing } from "./session-listing.ts";
+import { createSessionArchiveIndex } from "./session-archive.ts";
 import {
     checkRecordIdentity,
     processIsAlive,
@@ -192,6 +193,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "import_session":
         case "list_importable_sessions":
         case "rename_session":
+        case "set_session_archived":
         case "move_session":
             return true;
         default:
@@ -318,6 +320,7 @@ export interface StartHostServerOptions {
     readonly unblockSession?: (
         request: UnblockSessionRequest,
     ) => Promise<UnblockSessionOutcome>;
+    readonly setSessionArchived?: (targetAgentId: string, archived: boolean) => Promise<"updated" | "not_found" | "failed">;
     readonly renameSession?: (
         targetAgentId: string,
         name: string | null,
@@ -585,6 +588,7 @@ async function startListener(
                 ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
+            options.setSessionArchived ?? (() => Promise.resolve("not_found")),
             options.moveSession
                 ?? (() => Promise.resolve({ status: "failed" })),
             options.importSession
@@ -805,6 +809,7 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
+    setSessionArchived: (targetAgentId: string, archived: boolean) => Promise<"updated" | "not_found" | "failed">,
     moveSession: (
         targetAgentId: string,
         request: MoveSessionInput,
@@ -1829,10 +1834,15 @@ function receiveConnection(
             finished = true;
             const listRequest = request;
             void Promise.resolve().then(listAgents).then(async (agents) => {
+                const archive = createSessionArchiveIndex(agents);
                 const page = pageSessionListing(agents, listRequest);
+                const pageAgents = page.agents.map((agent) => ({
+                    ...agent,
+                    archived: archive.effectiveArchived(agent.id),
+                }));
                 const rows = listRequest.include === undefined
-                    ? page.agents
-                    : await readSessionFacts(page.agents, listRequest.include);
+                    ? pageAgents
+                    : await readSessionFacts(pageAgents, listRequest.include);
                 const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
@@ -2182,6 +2192,22 @@ function receiveConnection(
             void listImportableSessions(request.workspace)
                 .then((listing) => send({ type: "importable_sessions", ...listing }))
                 .then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "set_session_archived") {
+            clearDeadline();
+            finished = true;
+            void (async () => {
+                const index = createSessionArchiveIndex(await listAgents());
+                const root = index.rootAgentId(request.target_agent_id);
+                if (root === undefined) return "not_found" as const;
+                return await setSessionArchived(root, request.archived);
+            })().then(
+                (result) => result === "updated"
+                    ? send({ type: "session_archived", agent_id: request.target_agent_id, archived: request.archived })
+                    : send({ type: "session_archive_rejected", agent_id: request.target_agent_id, reason: result }),
+                () => send({ type: "session_archive_rejected", agent_id: request.target_agent_id, reason: "failed" }),
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "rename_session") {
