@@ -9,8 +9,10 @@ the pointer beside the preview opens the same toolbar.
 
 Select element outlines the element under the pointer. Click to keep that
 selection. Use Pen for freehand marks, Shapes for a line, arrow, rectangle,
-ellipse or numbered step, and Text for a label. Color and line width apply
-to the next mark. Undo, Redo and Clear affect the marks.
+ellipse or numbered step, and Text for a label. Press Enter or click elsewhere
+to finish a label. Move drags a mark or label without changing the selected
+element. Color and line width apply to the next mark. Undo, Redo and Clear
+affect the marks.
 
 Add to chat puts the selection or drawing into the open session's composer.
 It captures the selected element with its marks, or the visible page when no

@@ -1,14 +1,7 @@
 import { buildTextBlock, canAddAnnotation, clipRect, describeSelection } from "./helpers.ts";
 import type { AnnotationResult, SelectionDetails } from "./helpers.ts";
-
-interface Drawing {
-    readonly kind: "pen" | "line" | "arrow" | "rectangle" | "ellipse" | "step" | "text";
-    readonly points: readonly { readonly x: number; readonly y: number }[];
-    readonly color: string;
-    readonly width: number;
-    readonly label?: string;
-    readonly number?: number;
-}
+import { hitDrawing, translateDrawing } from "./geometry.ts";
+import type { Drawing, Point } from "./geometry.ts";
 
 interface Snapshot {
     readonly drawings: readonly Drawing[];
@@ -65,11 +58,12 @@ function annotatePage(): Promise<AnnotationResult | null> {
         shadow.append(canvas, hover, tag, toolbar, textInput);
         document.documentElement.append(host);
 
-        let mode: Drawing["kind"] | "select" = "select";
+        let mode: Drawing["kind"] | "select" | "move" = "select";
         let selected: Element | undefined;
         let color = getComputedStyle(host).getPropertyValue("--annotation-accent").trim();
         let width = 3;
         let drawing: Drawing | undefined;
+        let moving: { index: number; start: Point; dx: number; dy: number } | undefined;
         let closed = false;
         let capturing = false;
         let deliver = resolve;
@@ -106,21 +100,28 @@ function annotatePage(): Promise<AnnotationResult | null> {
             context.setTransform(canvas.width / view.width, 0, 0, canvas.height / view.height, 0, 0);
             context.clearRect(0, 0, view.width, view.height);
             const ink = getComputedStyle(host).getPropertyValue("--annotation-ink").trim();
-            for (const item of drawings) paint(context, item, ink);
+            for (const [index, item] of drawings.entries()) {
+                context.save();
+                if (moving?.index === index) context.translate(moving.dx, moving.dy);
+                paint(context, item, ink);
+                context.restore();
+            }
             if (drawing !== undefined) paint(context, drawing, ink);
         };
         const setMode = (next: typeof mode): void => {
+            if (next !== "text") addText();
+            moving = undefined;
             mode = next;
-            if (next !== "text") textInput.hidden = true;
             for (const button of Array.from(toolbar.querySelectorAll("button[data-mode]"))) {
                 button.setAttribute("aria-pressed", String(button.getAttribute("data-mode") === next));
             }
             shapes.setAttribute("aria-pressed", String(["line", "arrow", "rectangle", "ellipse", "step"].includes(next)));
-            document.documentElement.style.cursor = "crosshair";
+            document.documentElement.style.cursor = next === "move" ? "default" : "crosshair";
             syncAddButton();
         };
         const icons: Record<string, string> = {
             "Select element": "<path d='M4 3l11 8-5 1-2 5z'/>",
+            Move: "<path d='M9 2v14M2 9h14M6 5l3-3 3 3M6 13l3 3 3-3M5 6L2 9l3 3M13 6l3 3-3 3'/>",
             Pen: "<path d='M4 14l1-4 8-8 3 3-8 8zM11 4l3 3'/>",
             Shapes: "<rect x='3' y='3' width='9' height='9' rx='1'/><circle cx='13' cy='13' r='4'/>",
             Text: "<path d='M3 4h12M9 4v12M6 16h6'/>",
@@ -145,6 +146,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
         };
         toolbar.append(
             button("Select element", () => setMode("select"), "select"),
+            button("Move", () => setMode("move"), "move"),
             button("Pen", () => setMode("pen"), "pen"),
         );
         const shapeWrap = document.createElement("div");
@@ -201,10 +203,10 @@ function annotatePage(): Promise<AnnotationResult | null> {
         const actions = document.createElement("span");
         actions.className = "action-group";
         const syncAddButton = (): void => {
-            const available = canAddAnnotation(selected !== undefined, drawings.length);
+            const available = canAddAnnotation(selected !== undefined, drawings.length) || (!textInput.hidden && textInput.value.length > 0 && drawings.length < DRAWING_LIMIT);
             addToChat.disabled = !available;
             addToChat.hidden = !available;
-            options.hidden = mode === "select";
+            options.hidden = mode === "select" || mode === "move";
             actions.hidden = mode === "select" && drawings.length === 0;
         };
         actions.append(
@@ -244,16 +246,21 @@ function annotatePage(): Promise<AnnotationResult | null> {
             return path.includes(toolbar) || path.includes(textInput);
         };
         const addText = (): void => {
+            if (textInput.hidden) return;
             const label = textInput.value.slice(0, 500);
+            textInput.value = "";
+            textInput.hidden = true;
             if (label.length > 0 && drawings.length < DRAWING_LIMIT) {
                 keep();
                 drawings.push({ kind: "text", points: [textPosition], color, width, label });
                 syncAddButton();
                 render();
             }
-            textInput.value = "";
-            textInput.hidden = true;
+            syncAddButton();
         };
+        textInput.maxLength = 500;
+        textInput.addEventListener("input", syncAddButton);
+        textInput.addEventListener("blur", addText);
         textInput.addEventListener("keydown", (event) => {
             event.stopImmediatePropagation();
             if (event.key === "Escape") {
@@ -280,6 +287,11 @@ function annotatePage(): Promise<AnnotationResult | null> {
                 tag.style.left = `${rect.left}px`;
                 tag.style.top = `${Math.max(0, rect.top - 20)}px`;
             }
+            if (moving !== undefined) {
+                moving.dx = event.clientX - moving.start.x;
+                moving.dy = event.clientY - moving.start.y;
+                render();
+            }
             if (drawing !== undefined) {
                 drawing = { ...drawing, points: [...drawing.points, path(event)].slice(-DRAWING_BOUNDS_LIMIT) };
                 render();
@@ -289,6 +301,25 @@ function annotatePage(): Promise<AnnotationResult | null> {
             if (closed || capturing || isOverlayEvent(event)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
+            if (!textInput.hidden) {
+                addText();
+                return;
+            }
+            if (mode === "move") {
+                const point = path(event);
+                for (let index = drawings.length - 1; index >= 0; index--) {
+                    const item = drawings[index]!;
+                    if (hitDrawing(item, point, (text) => {
+                        if (context === null) return 0;
+                        context.font = `${Math.max(12, text.width * 5)}px sans-serif`;
+                        return context.measureText(text.label ?? "").width;
+                    })) {
+                        moving = { index, start: point, dx: 0, dy: 0 };
+                        break;
+                    }
+                }
+                return;
+            }
             if (mode === "select") {
                 event.preventDefault();
                 event.stopImmediatePropagation();
@@ -322,6 +353,15 @@ function annotatePage(): Promise<AnnotationResult | null> {
             drawing = { kind: mode, points: [path(event)], color, width, ...(mode === "step" ? { number: count } : {}) };
         };
         const onUp = (): void => {
+            if (moving !== undefined) {
+                const { index, dx, dy } = moving;
+                moving = undefined;
+                if (dx !== 0 || dy !== 0) {
+                    keep();
+                    drawings[index] = translateDrawing(drawings[index]!, dx, dy);
+                }
+                render();
+            }
             if (drawing === undefined) return;
             if (drawings.length < DRAWING_LIMIT) {
                 keep();
@@ -354,6 +394,11 @@ function annotatePage(): Promise<AnnotationResult | null> {
             tag.style.top = `${Math.max(0, rect.top - 20)}px`;
         };
         const onResize = (): void => { resize(); refreshSelection(); };
+        const cancelMove = (): void => {
+            if (moving === undefined) return;
+            moving = undefined;
+            render();
+        };
         const finish = async (add: boolean): Promise<void> => {
             if (closed) return;
             if (!add) {
@@ -361,6 +406,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
                 return;
             }
             if (capturing) return;
+            addText();
             capturing = true;
             hover.style.display = "none";
             tag.style.display = "none";
@@ -410,6 +456,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
             if (!listenersAttached) return;
             listenersAttached = false;
             window.removeEventListener("resize", onResize);
+            window.removeEventListener("blur", cancelMove);
             document.removeEventListener("scroll", refreshSelection, true);
             document.removeEventListener("mousemove", onMove, true);
             document.removeEventListener("mousedown", onDown, true);
@@ -437,6 +484,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
         }
         (globalThis as typeof globalThis & { __veraPageCleanup?: () => void }).__veraPageCleanup = cleanup;
         window.addEventListener("resize", onResize);
+        window.addEventListener("blur", cancelMove);
         document.addEventListener("scroll", refreshSelection, true);
         document.addEventListener("mousemove", onMove, true);
         document.addEventListener("mousedown", onDown, true);

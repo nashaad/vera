@@ -106,6 +106,48 @@ try {
         }
     }
 
+    const editProof = await evaluateFixture(`(() => {
+        const shadow = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const button = (name) => shadow.querySelector('button[title="' + name + '"]');
+        const input = shadow.querySelector('.text-entry');
+        const canvas = shadow.querySelector('canvas');
+        const image = () => canvas.toDataURL();
+        const mouse = (type, x, y) => document.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+        const click = (x, y) => { mouse('mousedown', x, y); mouse('mouseup', x, y); };
+        const drag = (x, y, xx, yy) => { mouse('mousedown', x, y); mouse('mousemove', xx, yy); mouse('mouseup', xx, yy); };
+        const type = (value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        button('Text').click(); click(60, 100); type('dag'); click(200, 140);
+        const outside = image();
+        const consumed = input.hidden;
+        button('Undo').click(); const empty = image(); button('Redo').click();
+        const outsideOnce = image() === outside && empty !== outside;
+        click(60, 150); type('crow'); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        const entered = image(); button('Undo').click(); const enterOnce = image() === outside; button('Redo').click();
+        click(60, 200); type('ship'); button('Pen').click();
+        const switched = image(); button('Undo').click(); const switchOnce = image() === entered; button('Redo').click();
+        button('Text').click(); click(60, 250); type('sail'); input.blur();
+        const blurred = image(); button('Undo').click(); const blurOnce = image() === switched; button('Redo').click();
+        button('Move').click(); const pressed = button('Move').getAttribute('aria-pressed') === 'true' && document.documentElement.style.cursor === 'default';
+        mouse('mousedown', 65, 95); mouse('mousemove', 95, 115); window.dispatchEvent(new Event('blur')); mouse('mouseup', 95, 115);
+        const canceled = image() === blurred;
+        drag(65, 95, 95, 115); const moved = image();
+        button('Undo').click(); const undo = image() === blurred; button('Redo').click(); const redo = image() === moved;
+        click(400, 300); const noOp = image() === moved; button('Undo').click(); const noOpHistory = image() === blurred; button('Redo').click();
+        button('Clear').click();
+        button('Shapes').click(); button('Arrow').click();
+        const color = shadow.querySelector('input[type=color]');
+        color.value = '#ff0000'; color.dispatchEvent(new Event('input')); drag(40, 50, 140, 50);
+        color.value = '#0000ff'; color.dispatchEvent(new Event('input')); drag(40, 50, 140, 50);
+        button('Move').click(); drag(80, 50, 80, 80);
+        const ctx = canvas.getContext('2d');
+        const pixel = (x, y) => Array.from(ctx.getImageData(Math.round(x * canvas.width / innerWidth), Math.round(y * canvas.height / innerHeight), 1, 1).data);
+        const oldPixel = pixel(80, 50), newPixel = pixel(80, 80);
+        const topmost = oldPixel[0] > 200 && oldPixel[2] < 30 && newPixel[2] > 200 && newPixel[0] < 30;
+        button('Clear').click(); color.value = '#e8582a'; color.dispatchEvent(new Event('input')); button('Select element').click();
+        return { consumed, outsideOnce, enterOnce, switchOnce, blurOnce, pressed, canceled, moved: moved !== blurred, undo, redo, noOp, noOpHistory, topmost };
+    })()`);
+    if (Object.values(editProof).some((value) => !value)) throw new Error('Annotation editing proof failed: ' + JSON.stringify(editProof));
+
     const selected = await evaluateFixture(`(() => {
         const target = document.querySelector('#target');
         const rect = target.getBoundingClientRect();
@@ -143,9 +185,22 @@ try {
         document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: start.x, clientY: start.y }));
         document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: end.x, clientY: end.y }));
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: end.x, clientY: end.y }));
-        toolbar.querySelector('button[title="Add to chat"]').click();
+        toolbar.querySelector('button[title="Move"]').click();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: start.x, clientY: start.y + 20 }));
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: start.x + 30, clientY: start.y + 20 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: start.x + 30, clientY: start.y + 20 }));
+        toolbar.querySelector('button[title="Text"]').click();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: target.left + 65, clientY: target.top + 95 }));
+        const input = shadow.querySelector('.text-entry'); input.value = 'dag'; input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: target.left + 200, clientY: target.top + 110 }));
+        toolbar.querySelector('button[title="Move"]').click();
         return true;
     })()`);
+    if (process.env.VERA_ANNOTATION_EDIT_PROOF) {
+        const png = await app.evaluate(async ({ webContents }, id) => Array.from((await webContents.fromId(id).capturePage()).toPNG()), contentsId);
+        writeFileSync(process.env.VERA_ANNOTATION_EDIT_PROOF, Buffer.from(png));
+    }
+    await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click()`);
     await runningCommand;
 
     const chip = page.locator(".page-capture-chip");
@@ -303,13 +358,20 @@ try {
         if (context === null) throw new Error("The capture image cannot be sampled.");
         context.drawImage(image, 0, 0);
         const scale = image.naturalWidth / 352;
+        const text = context.getImageData(Math.round(65 * scale), Math.round(78 * scale), Math.round(40 * scale), Math.round(18 * scale)).data;
+        let textPixels = 0;
+        for (let i = 0; i < text.length; i += 4) {
+            if (text[i] > 200 && text[i + 1] < 170 && text[i + 2] < 130) textPixels++;
+        }
         return {
             background: Array.from(context.getImageData(5, 5, 1, 1).data),
-            rectangle: Array.from(context.getImageData(Math.round(20 * scale), Math.round(45 * scale), 1, 1).data),
+            rectangle: Array.from(context.getImageData(Math.round(50 * scale), Math.round(45 * scale), 1, 1).data),
+            textPixels,
         };
     });
     if (sampledPixels.background.join(",") !== "240,240,240,255") throw new Error(`The selected image background pixel is ${sampledPixels.background.join(",")}.`);
-    if (sampledPixels.rectangle.join(",") !== "232,88,42,255") throw new Error(`The rectangle stroke pixel is ${sampledPixels.rectangle.join(",")}.`);
+    if (sampledPixels.rectangle.some((value, index) => Math.abs(value - [232, 88, 42, 255][index]) > 6)) throw new Error(`The rectangle stroke pixel is ${sampledPixels.rectangle.join(",")}.`);
+    if (sampledPixels.textPixels < 3) throw new Error('Captured text is missing from its original position.');
     if (!(await card.innerText()).includes("Element\n<p /> #target")) throw new Error(`The capture card lacks element details: ${await card.innerText()}`);
     if (!(await card.innerText()).includes("This domain is for annotation testing.")) throw new Error("The capture card lacks the selected text.");
     await card.getByRole("button", { name: "Show more details" }).click();
@@ -343,6 +405,28 @@ try {
     await until('annotation trigger becomes available', async () => await trigger.isEnabled());
     await trigger.click();
     await until("annotation mode on the second run", async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]')?.shadowRoot)"));
+    const pendingAdd = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        s.querySelector('button[title="Text"]').click();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 80, clientY: 100 }));
+        const input = s.querySelector('.text-entry');
+        input.value = 'pending crow'; input.dispatchEvent(new Event('input', { bubbles: true }));
+        const add = s.querySelector('button[title="Add to chat"]');
+        const available = !add.hidden && !add.disabled;
+        add.click();
+        return available;
+    })()`);
+    if (!pendingAdd) throw new Error('Pending text did not enable Add to chat.');
+    await until('pending text capture attached', async () => await page.locator('.page-capture-chip').count() === 1);
+    await until('pending text capture restored tools', async () => await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('[role=toolbar]').style.display === 'flex'`));
+    const pendingOnce = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const image = () => s.querySelector('canvas').toDataURL();
+        const before = image(); s.querySelector('button[title="Undo"]').click(); const after = image();
+        s.querySelector('button[title="Undo"]').click(); return before !== after && image() === after;
+    })()`);
+    if (!pendingOnce) throw new Error('Pending text was not committed exactly once.');
+    await page.locator('.page-capture-chip').last().locator('.chip-x').click();
     await evaluateFixture("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
     await until("annotation mode closed by Escape", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
 
