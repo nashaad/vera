@@ -22,9 +22,11 @@ and marks; captures already added stay in the composer.
 ## Include with a message
 
 A selection shows as a chip with a pointer, the element's tag and a text
-excerpt. Hover or focus it to see the screenshot, Element and Text. Show more details opens
-Computed styles, HTML and Siblings; Show more opens the longer HTML and sibling
-excerpts. Removing the chip removes both its image and selection text.
+excerpt. Hover or focus it to see the screenshot, Element and Text. Show more
+details expands the card and shows Computed styles, HTML and Siblings, each in
+one readable code block. For longer HTML and sibling excerpts, Show more expands
+the block and Show less returns it to the shorter excerpt. Removing the chip
+removes both its image and selection text.
 
 Send your message as usual. Vera receives the screenshot as an image and a
 plain-text block naming the page and describing the selection. There is no

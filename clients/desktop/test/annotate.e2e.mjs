@@ -164,7 +164,86 @@ try {
     const readable = await rtl.evaluate((element) => ({ direction: getComputedStyle(element.querySelector('span')).direction, fits: element.scrollWidth <= element.clientWidth + 1 }));
     if (readable.direction !== 'rtl' || !readable.fits) throw new Error(`RTL capture preview is not readable: ${JSON.stringify(readable)}`);
     await rtlChip.locator('.chip-x').click();
-    await evaluateFixture(`document.querySelector('#target').textContent = 'This domain is for annotation testing.'`);
+    await evaluateFixture(`(() => {
+        const target = document.querySelector('#target');
+        target.textContent = 'Une longue phrase française avec des détails lisibles. '.repeat(12);
+        target.setAttribute('data-long', 'attribut '.repeat(100));
+        for (let index = 0; index < 12; index++) {
+            const sibling = document.createElement('p');
+            sibling.textContent = 'Élément voisin avec du contenu '.repeat(10);
+            sibling.className = 'proof-sibling';
+            target.after(sibling);
+        }
+    })()`);
+    await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click()`);
+    await until('long capture attached', async () => await page.locator('.page-capture-chip').count() === 2);
+    const longChip = page.locator('.page-capture-chip').last();
+    await until('long capture ready', async () => await longChip.getAttribute('data-attaching') === 'false');
+    await longChip.focus();
+    const longCard = longChip.locator('.page-capture-pop');
+    await longCard.getByRole('button', { name: 'Show more details' }).click();
+    const expected = await evaluateFixture(`(() => {
+        const target = document.querySelector('#target');
+        const tag = '<p id="target" data-long="' + target.getAttribute('data-long').slice(0, 128) + '"> (selected)';
+        return { html: target.outerHTML, siblings: [tag, ...Array(9).fill('<p class="proof-sibling">')].join(', ') };
+    })()`);
+    const htmlMore = longCard.getByRole('button', { name: 'Show more', exact: true }).first();
+    await htmlMore.focus();
+    await htmlMore.press('Enter');
+    const siblingsMore = longCard.getByRole('button', { name: 'Show more', exact: true }).last();
+    await siblingsMore.scrollIntoViewIfNeeded();
+    await siblingsMore.click();
+    const blocks = longCard.locator('pre');
+    if (await longCard.getByRole('button', { name: 'Show less' }).count() !== 2 || await blocks.count() !== 3 || await blocks.nth(1).textContent() !== expected.html || await blocks.nth(2).textContent() !== expected.siblings) throw new Error('Expanded text differs from the captured details.');
+    const originalSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+    for (const size of [[800, 650], [1440, 900]]) {
+        await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), size);
+        await page.evaluate(() => {
+            const app = document.querySelector('.app');
+            for (const token of ['--vera-font-size-body', '--vera-font-size-label', '--vera-font-size-code']) app.style.setProperty(token, '20px');
+        });
+        const proof = await longCard.evaluate((card) => {
+            const rect = card.getBoundingClientRect();
+            const button = card.querySelector('.page-capture-details');
+            const icon = button.querySelector('svg').getBoundingClientRect();
+            const label = button.querySelector('span').getBoundingClientRect();
+            return {
+                viewport: [innerWidth, innerHeight],
+                rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width },
+                alignment: Math.abs((icon.top + icon.bottom) / 2 - (label.top + label.bottom) / 2),
+                codeSize: parseFloat(getComputedStyle(card.querySelector('pre')).fontSize),
+                blocks: [...card.querySelectorAll('pre')].map((pre) => ({ height: pre.clientHeight, scrollHeight: pre.scrollHeight, width: pre.clientWidth, scrollWidth: pre.scrollWidth, lineHeight: parseFloat(getComputedStyle(pre).lineHeight) || parseFloat(getComputedStyle(pre).fontSize) })),
+            };
+        });
+        if (size[0] === 1440) {
+            const surface = await pane.locator('.browser-frame').boundingBox();
+            const nativeVisible = await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.id === id)?.getVisible(), contentsId);
+            console.log('native surface proof:', JSON.stringify({ surface, card: proof.rect, nativeVisible }));
+            if (surface === null || proof.rect.right > surface.x || nativeVisible !== true) throw new Error('Expanded capture unnecessarily covers the native Browser.');
+        }
+        console.log('capture layout proof:', JSON.stringify(proof));
+        if (proof.rect.left < 0 || proof.rect.top < 0 || proof.rect.right > proof.viewport[0] || proof.rect.bottom > proof.viewport[1]) throw new Error('Expanded capture is outside the viewport.');
+        if (proof.codeSize !== 20 || proof.alignment > 1 || proof.blocks.length !== 3 || proof.blocks.some((block) => block.scrollWidth > block.width + 1 || block.scrollHeight > block.height + 1 || block.height < block.lineHeight * 2)) throw new Error('Capture details are clipped or the chevron is misaligned.');
+    }
+    const less = longCard.getByRole('button', { name: 'Show less' });
+    await less.last().scrollIntoViewIfNeeded();
+    await less.last().click();
+    await less.first().scrollIntoViewIfNeeded();
+    await less.first().focus();
+    await less.first().press('Enter');
+    if (await longCard.getByRole('button', { name: 'Show more', exact: true }).count() !== 2) throw new Error('Expanded details cannot be collapsed.');
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), originalSize);
+    await page.evaluate(() => {
+        const app = document.querySelector('.app');
+        for (const token of ['--vera-font-size-body', '--vera-font-size-label', '--vera-font-size-code']) app.style.removeProperty(token);
+    });
+    await longChip.locator('.chip-x').click();
+    await evaluateFixture(`(() => {
+        const target = document.querySelector('#target');
+        target.textContent = 'This domain is for annotation testing.';
+        target.removeAttribute('data-long');
+        document.querySelectorAll('.proof-sibling').forEach((sibling) => sibling.remove());
+    })()`);
     await app.evaluate(({ webContents }, id) => {
         const contents = webContents.fromId(id);
         const original = contents.capturePage;

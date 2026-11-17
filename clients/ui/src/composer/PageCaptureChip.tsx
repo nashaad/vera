@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { XIcon } from "../components/Icons.tsx";
+import { ChevronRightIcon, XIcon } from "../components/Icons.tsx";
 import { PointerIcon } from "../components/PointerIcon.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import type { PageCapture } from "./page-captures.ts";
@@ -19,19 +19,19 @@ export interface PageCaptureChipProps {
 interface ExpandableTextProps {
     readonly label: string;
     readonly value: string;
+    readonly onResize: () => void;
 }
 
-function ExpandableText({ label, value }: ExpandableTextProps) {
-    const preview = value.slice(0, 300);
+function ExpandableText({ label, value, onResize }: ExpandableTextProps) {
+    const [expanded, setExpanded] = useState(false);
     return (
         <div>
             <strong>{label}</strong>
-            <pre className="request-code">{preview}</pre>
+            <pre className="request-code">{expanded ? value : value.slice(0, 300)}</pre>
             {value.length <= 300 ? null : (
-                <details>
-                    <summary>Show more</summary>
-                    <pre className="request-code">{value}</pre>
-                </details>
+                <button type="button" className="page-capture-more" aria-expanded={expanded} onClick={() => { setExpanded((current) => !current); onResize(); }}>
+                    {expanded ? "Show less" : "Show more"}
+                </button>
             )}
         </div>
     );
@@ -40,8 +40,10 @@ function ExpandableText({ label, value }: ExpandableTextProps) {
 export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
     const [open, setOpen] = useState(false);
     const [details, setDetails] = useState(false);
+    const [contentVersion, setContentVersion] = useState(0);
     const root = useRef<HTMLSpanElement>(null);
-    const placement = usePopoverPlacement(open, root);
+    const placement = usePopoverPlacement(open, root, `${details}:${contentVersion}`);
+    const resized = () => setContentVersion((value) => value + 1);
     const { capture } = item;
     const selection = capture.details;
     const title = selection === undefined
@@ -81,9 +83,10 @@ export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
             {open ? (
                 <span
                     className="context-pop page-capture-pop"
+                    data-expanded={details}
                     role="dialog"
                     dir="auto"
-                    data-popover="above-start"
+                    data-popover={details ? "above-end" : "above-start"}
                     style={placement}
                 >
                     <strong className="page-capture-heading">Included with your message</strong>
@@ -95,14 +98,14 @@ export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
                             <p className="page-capture-row"><strong>Element</strong><span dir="auto">{`<${selection.tag} /> ${selection.selector}`}</span></p>
                             <p className="page-capture-row"><strong>Text</strong><span dir="auto">{selection.text}</span></p>
                             <button type="button" className="page-capture-details" aria-expanded={details} onClick={() => setDetails((value) => !value)}>
-                                <span aria-hidden="true">{details ? "⌄" : "›"}</span>{details ? "Hide details" : "Show more details"}
+                                <ChevronRightIcon className="page-capture-chevron" /><span>{details ? "Hide details" : "Show more details"}</span>
                             </button>
                             {details ? (
                                 <>
                                     <strong>Computed styles</strong>
                                     <pre className="request-code">{selection.styles}</pre>
-                                    <ExpandableText label="HTML" value={selection.html} />
-                                    <ExpandableText label="Siblings" value={selection.siblings} />
+                                    <ExpandableText label="HTML" value={selection.html} onResize={resized} />
+                                    <ExpandableText label="Siblings" value={selection.siblings} onResize={resized} />
                                 </>
                             ) : null}
                         </>

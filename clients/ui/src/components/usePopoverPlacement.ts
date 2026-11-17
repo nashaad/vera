@@ -10,7 +10,7 @@ type PlacedStyle = CSSProperties & { readonly "--popover-room": string };
 // The popover is the root's direct child marked data-popover="<above|below>-<start|end>". It is
 // position: fixed, so a narrow pane cannot clip it; the returned style keeps it inside the nearest
 // sheet or dialog, else the window, and flips it to the other side when that side has more room.
-export function usePopoverPlacement(open: boolean, root: RefObject<HTMLElement | null>): PlacedStyle | undefined {
+export function usePopoverPlacement(open: boolean, root: RefObject<HTMLElement | null>, contentVersion?: string | number): PlacedStyle | undefined {
     const [style, setStyle] = useState<PlacedStyle | undefined>(undefined);
     useLayoutEffect(() => {
         if (!open) return undefined;
@@ -38,7 +38,7 @@ export function usePopoverPlacement(open: boolean, root: RefObject<HTMLElement |
         place();
         window.addEventListener("resize", place);
         return () => window.removeEventListener("resize", place);
-    }, [open, root]);
+    }, [open, root, contentVersion]);
     return style;
 }
 
