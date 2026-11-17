@@ -63,7 +63,7 @@ function session(id: string): TuiAgentClient {
             readModelSettings: () => ({
                 model: "test",
                 reasoningEffort: "high",
-                contextWindow: 100,
+                contextWindow: 200_000,
                 pooled: POOLED,
             }),
             readApprovalMode: () => "auto",
