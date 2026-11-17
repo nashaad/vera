@@ -99,7 +99,7 @@ function AgentList({ agents, selected, pending, error, notice, onPick }: AgentLi
                 <p className="dialog-text">This session lists no agents.</p>
             ) : (
                 <ul className="dialog-picks">
-                    {agents.map((agent, index) => {
+                    {agents.map((agent) => {
                         const isSelected = agent.name === selected;
                         return (
                             <li key={agent.name}>
@@ -122,7 +122,6 @@ function AgentList({ agents, selected, pending, error, notice, onPick }: AgentLi
                                             <span className="dialog-pick-meta">Default model: <code>{agent.defaultModel}</code></span>
                                         )}
                                     </span>
-                                    {index < 9 ? <span className="dialog-key" aria-hidden="true">{index + 1}</span> : null}
                                     {pending === agent.name ? <span className="dialog-pick-meta">Switching…</span> : null}
                                     {isSelected && pending !== agent.name ? <CheckIcon className="dialog-pick-check" /> : null}
                                 </button>
