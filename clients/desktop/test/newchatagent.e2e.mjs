@@ -101,6 +101,7 @@ try {
     await page.waitForSelector("[data-overlay=\"agent\"] .dialog-pick", { timeout: 10_000 });
     if (await sheetPick("plan").count() !== 0) throw new Error("A chat with no folder lists a project agent.");
     if (await sheetPick("default").count() !== 1) throw new Error("The sheet does not list the default agent.");
+    if (await page.locator('[data-overlay="agent"] .dialog-key').count() !== 0) throw new Error("The sheet shows number badges.");
     await page.keyboard.press("Escape");
 
     // A folder with a project agent offers it, picking it from the sheet shows it on the pill.
@@ -108,9 +109,18 @@ try {
     await pill.waitFor({ timeout: 15_000 });
     await pill.click();
     await sheetPick("plan").waitFor({ timeout: 15_000 });
+    const planIndex = await page.locator('[data-overlay="agent"] .dialog-pick').evaluateAll((rows) => rows.findIndex((row) => row.getAttribute("data-agent") === "plan"));
+    if (planIndex < 0 || planIndex >= 9) throw new Error("The plan agent has no number shortcut.");
     await sheetPick("plan").click();
     await page.waitForSelector("[data-overlay=\"agent\"]", { state: "detached", timeout: 10_000 });
     if ((await pill.getAttribute("data-agent")) !== "plan") throw new Error("The pill does not show the picked agent.");
+    await pill.click();
+    await sheetPick("default").click();
+    await pill.click();
+    await sheetPick("plan").waitFor({ timeout: 10_000 });
+    await page.keyboard.press(String(planIndex + 1));
+    await page.waitForSelector('[data-overlay="agent"]', { state: "detached", timeout: 10_000 });
+    if ((await pill.getAttribute("data-agent")) !== "plan") throw new Error("The number key did not select the plan agent.");
 
     // Another folder that does not offer the pick sends the pill back to the default and says so.
     await openFolder(shore, "shore");
