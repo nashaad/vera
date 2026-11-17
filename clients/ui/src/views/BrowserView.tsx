@@ -1,16 +1,18 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 
 import { annexHost, currentEntry, displayAddress, isAnnexPath, pageAt, resolveAddress } from "../browser/address.ts";
+import { historyRequestVersion, subscribeHistoryRequest, takeHistoryRequest } from "../browser/history-request.ts";
 import { nativeCommand } from "../browser/native.ts";
 import { openAddressIn, showAnnexIn } from "../browser/open.ts";
 import { browserSlots, CONTAINER_SLOT, useSlot, useSlotStore } from "../browser/slots.ts";
 import { useAnnexPages } from "../browser/useAnnexPages.ts";
 import { useNativeSurface } from "../browser/useNativeSurface.ts";
-import { ArrowLeftIcon, ArrowRightIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
+import { ArrowLeftIcon, ArrowRightIcon, ClockIcon, ExternalIcon, HomeIcon, RefreshIcon } from "../components/Icons.tsx";
 import type { AnnexPage, AnnexPagesAnswer, DesktopBridge } from "../protocol/bridge.ts";
 import { BrowserCommands } from "../extensions/BrowserCommands.tsx";
 import { usePaneTab, usePublishTabTitle } from "../workbench/tab-context.tsx";
 import { AnnexFrame } from "./AnnexFrame.tsx";
+import { BrowserHistory } from "./BrowserHistory.tsx";
 import { useViewEnvironment, type ViewProps } from "./env.tsx";
 
 const PLACEHOLDER = "Search Vera's pages or enter an address";
@@ -31,8 +33,17 @@ export function BrowserView({ visible }: ViewProps) {
     const [frameRound, setFrameRound] = useState(0);
     const [clearing, setClearing] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
-    const surface = useNativeSurface(visible && page !== undefined);
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [focusClear, setFocusClear] = useState(0);
+    const historyRequest = useSyncExternalStore(subscribeHistoryRequest, historyRequestVersion, historyRequestVersion);
+    const surface = useNativeSurface(visible && !historyOpen && page !== undefined);
     usePublishTabTitle(page?.title);
+
+    useEffect(() => {
+        if (!visible || !takeHistoryRequest()) return;
+        setHistoryOpen(true);
+        setFocusClear((value) => value + 1);
+    }, [visible, historyRequest]);
 
     // The shell draws one page at a time: the one this view shows, or none for one of Vera's pages.
     useEffect(() => {
@@ -48,6 +59,7 @@ export function BrowserView({ visible }: ViewProps) {
 
     const onKey = (event: KeyboardEvent<HTMLInputElement>): void => {
         if (event.key === "Enter" && typed !== undefined) {
+            setHistoryOpen(false);
             const address = resolveAddress(typed, annex?.url, annex?.pages ?? []);
             if (address === "" || isAnnexPath(address)) void showAnnexIn(key, address);
             else if (page === undefined) void openAddressIn(key, typed);
@@ -70,7 +82,11 @@ export function BrowserView({ visible }: ViewProps) {
                     aria-label="Back"
                     title="Back"
                     disabled={page === undefined ? slot.history.at === 0 : !page.back}
-                    onClick={() => page === undefined ? browserSlots.step(key, -1) : void nativeCommand("back")}
+                    onClick={() => {
+                        setHistoryOpen(false);
+                        if (page === undefined) browserSlots.step(key, -1);
+                        else void nativeCommand("back");
+                    }}
                 >
                     <ArrowLeftIcon />
                 </button>
@@ -80,7 +96,11 @@ export function BrowserView({ visible }: ViewProps) {
                     aria-label="Forward"
                     title="Forward"
                     disabled={page === undefined ? slot.history.at >= slot.history.entries.length - 1 : !page.forward}
-                    onClick={() => page === undefined ? browserSlots.step(key, 1) : void nativeCommand("forward")}
+                    onClick={() => {
+                        setHistoryOpen(false);
+                        if (page === undefined) browserSlots.step(key, 1);
+                        else void nativeCommand("forward");
+                    }}
                 >
                     <ArrowRightIcon />
                 </button>
@@ -122,6 +142,21 @@ export function BrowserView({ visible }: ViewProps) {
                 >
                     <ExternalIcon />
                 </button>
+                {window.veraDesktop === undefined ? null : (
+                    <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="History"
+                        aria-pressed={historyOpen}
+                        title="History"
+                        onClick={() => {
+                            setFocusClear(0);
+                            setHistoryOpen((open) => !open);
+                        }}
+                    >
+                        <ClockIcon />
+                    </button>
+                )}
                 <BrowserCommands hasPage={visible && (page !== undefined || (annex !== undefined && pageAt(entry, annex.pages) !== undefined))} onError={setError} />
             </div>
             <div className="browser-controls">
@@ -129,10 +164,19 @@ export function BrowserView({ visible }: ViewProps) {
                 <button type="button" disabled={clearing} onClick={() => void forget()}>Forget browsing data</button>
             </div>
             {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
-            {page === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
-            {page === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
-            {page === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} frameName={`browser-${key}`} browse={(next) => browserSlots.browse(key, next)} /> : null}
-            {page === undefined ? null : <div className="browser-frame" ref={surface} />}
+            {historyOpen ? (
+                <BrowserHistory focusClear={focusClear} open={(url) => {
+                    setHistoryOpen(false);
+                    if (page === undefined) void openAddressIn(key, url);
+                    else void nativeCommand("navigate", url);
+                }} />
+            ) : null}
+            <div className="browser-page" hidden={historyOpen}>
+                {page === undefined && result === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
+                {page === undefined && result !== undefined && !result.ok ? <p className="view-note" role="alert">{result.reason}</p> : null}
+                {page === undefined && annex !== undefined ? <BrowserBody annex={annex} entry={entry} frameRound={frameRound} frameName={`browser-${key}`} browse={(next) => browserSlots.browse(key, next)} /> : null}
+                {page === undefined ? null : <div className="browser-frame" ref={surface} />}
+            </div>
         </div>
     );
 }

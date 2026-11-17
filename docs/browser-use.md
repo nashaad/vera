@@ -20,6 +20,14 @@ plaintext. Forget browsing data closes the site pages, and their tabs with them,
 sign-ins, site storage and cache. A site can also end a sign-in or use a
 session cookie that expires when the window closes.
 The host must be connected to forget browsing data.
+
+Browser history lists web pages shown in the pane, whether opened by you or by
+`desktop_browser`. Search the history or browse it by day; opening an entry loads
+it in the current tab. Clear removes history and recent site pages immediately,
+while preserving Vera page recents. Cmd+Shift+Delete
+(Ctrl+Shift+Delete on other platforms) opens history with Clear focused; press
+Enter to clear it.
+
 Sites cannot use permission-gated features such as the camera, microphone,
 location or notifications in the pane.
 

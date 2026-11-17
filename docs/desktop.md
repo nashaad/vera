@@ -1152,6 +1152,13 @@ removes them. Sign-ins are stored in the home like provider keys, in an
 owner-only directory, and the cookie store is plaintext. A site may end a
 sign-in or use a session cookie that expires when the window closes.
 
+Browser history records web pages shown in the pane, whether opened by you or by
+`desktop_browser`. It is searchable and grouped by day. Opening an entry loads it
+in the current tab. Clear removes the history and recent site pages
+immediately, while keeping Vera page recents. Cmd+Shift+Delete
+(Ctrl+Shift+Delete on other platforms) opens Browser history with Clear focused;
+press Enter to clear it.
+
 Browser tools are off by default. Turn on Browser tools in the pane to let Vera
 read and act in the selected site tab, under the session's approval mode. A page
 Vera opens gets its own Browser tab. You can watch and take over in the pane. See

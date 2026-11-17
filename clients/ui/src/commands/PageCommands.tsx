@@ -1,8 +1,11 @@
 import { useEffect, useRef } from "react";
 
+import { requestHistory } from "../browser/history-request.ts";
 import { BROWSER_CONTAINER, openBrowserTab, showAnnexIn } from "../browser/open.ts";
 import { browserSlots, CONTAINER_SLOT } from "../browser/slots.ts";
 import { useWorkbench } from "../workbench/context.tsx";
+import { revealContainer } from "../workbench/reveal.ts";
+import { BROWSER_HISTORY_COMMAND } from "./keys.ts";
 import { registerPageCommands } from "./page-commands.ts";
 import type { CommandRegistry } from "./registry.ts";
 
@@ -11,6 +14,21 @@ export function PageCommands({ commands }: { readonly commands: CommandRegistry 
     const workbench = useWorkbench();
     const latest = useRef(workbench);
     latest.current = workbench;
+
+    useEffect(() => {
+        if (window.veraDesktop === undefined) return;
+        return commands.register({
+            id: BROWSER_HISTORY_COMMAND,
+            title: "Show Browser History",
+            run: () => {
+                const workbench = latest.current;
+                if (workbench.hidden.has(BROWSER_HISTORY_COMMAND)) return;
+                if (!workbench.layout.containers.some((container) => container.id === BROWSER_CONTAINER)) return;
+                revealContainer(workbench, BROWSER_CONTAINER);
+                requestHistory();
+            },
+        });
+    }, [commands]);
 
     useEffect(() => registerPageCommands(commands, {
         open: (entry) => {

@@ -14,11 +14,14 @@ export interface NativeShortcut {
     readonly shift: boolean;
 }
 
+export const BROWSER_HISTORY_COMMAND = "browser.history";
+
 export const LAYOUT_SHORTCUTS = [
     { command: "layout.toggleSidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+B", code: "KeyB", alt: false, shift: false },
     { command: "layout.toggleRightPane", label: "Toggle Right Pane", accelerator: "CmdOrCtrl+Alt+B", code: "KeyB", alt: true, shift: false },
     { command: "layout.togglePanel", label: "Toggle Panel", accelerator: "CmdOrCtrl+J", code: "KeyJ", alt: false, shift: false },
     { command: "layout.closeTab", label: "Close Tab", accelerator: "CmdOrCtrl+W", code: "KeyW", alt: false, shift: false },
+    { command: BROWSER_HISTORY_COMMAND, label: "Show Browser History", accelerator: "CmdOrCtrl+Shift+Delete", code: "Delete", alt: false, shift: true },
 ] as const satisfies readonly NativeShortcut[];
 
 // The shortcuts the right pane's kinds declare, each showing that kind's most recent tab.
@@ -59,6 +62,7 @@ export const RELOAD_SHORTCUT = { command: "page.reload", label: "Reload Page", a
 // Bound in the shell with no menu item of their own.
 export const EXTRA_SHORTCUTS = [
     { ...RELOAD_SHORTCUT, accelerator: "CmdOrCtrl+Shift+R", shift: true },
+    { command: BROWSER_HISTORY_COMMAND, label: "Show Browser History", accelerator: "CmdOrCtrl+Shift+Delete", code: "Backspace", alt: false, shift: true },
     { command: "palette.commands", label: "Command Palette…", accelerator: "CmdOrCtrl+Shift+P", code: "KeyP", alt: false, shift: true },
 ] as const satisfies readonly NativeShortcut[];
 
@@ -139,9 +143,10 @@ const ARROWS: Readonly<Record<string, string>> = { ArrowUp: "↑", ArrowDown: "�
 function nativeRows(shortcuts: readonly NativeShortcut[], platform: string): readonly ShortcutRow[] {
     return shortcuts.map((shortcut) => ({
         label: shortcut.label.replace(/…$/, ""),
-        chords: NATIVE_SHORTCUTS
+        chords: [...new Set(NATIVE_SHORTCUTS
             .filter((other) => other.command === shortcut.command)
-            .map((other) => acceleratorKeys(other.accelerator, platform)),
+            .map((other) => other.accelerator))]
+            .map((accelerator) => acceleratorKeys(accelerator, platform)),
     }));
 }
 

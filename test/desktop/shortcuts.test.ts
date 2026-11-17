@@ -46,6 +46,34 @@ test("@core reload shortcuts dispatch only the page command", () => {
     expect(commands).toEqual(["page.reload"]);
 });
 
+test("history opens on the platform modifier, Shift and Delete", () => {
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true }), "darwin")).toBe("browser.history");
+    expect(shortcutCommand(key("Backspace", { meta: true, shift: true }), "darwin")).toBe("browser.history");
+    expect(shortcutCommand(key("Delete", { control: true, shift: true }), "linux")).toBe("browser.history");
+    expect(shortcutCommand(key("Backspace", { control: true, shift: true }), "win32")).toBe("browser.history");
+    expect(shortcutCommand(key("Delete", { meta: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, alt: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, isAutoRepeat: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, type: "keyUp" }), "darwin")).toBeUndefined();
+    const run: string[] = [];
+    const template = buildMenuTemplate("darwin", (id) => run.push(id));
+    const view = template.find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    const history = items.find((entry) => entry.id === "browser.history");
+    expect(history?.accelerator).toBe("CmdOrCtrl+Shift+Delete");
+    (history?.click as () => void)();
+    expect(run).toEqual(["browser.history"]);
+    const matches: string[] = [];
+    const walk = (entries: readonly { id?: string; accelerator?: unknown; submenu?: unknown }[]): void => {
+        for (const entry of entries) {
+            if (entry.accelerator === "CmdOrCtrl+Shift+Delete") matches.push(entry.id ?? "");
+            if (Array.isArray(entry.submenu)) walk(entry.submenu);
+        }
+    };
+    walk(template);
+    expect(matches).toEqual(["browser.history"]);
+});
+
 test("@core Cmd+W closes the shown tab and never reaches the window", () => {
     expect(shortcutCommand(key("KeyW", { meta: true }), "darwin")).toBe("layout.closeTab");
     expect(shortcutCommand(key("KeyW", { control: true }), "linux")).toBe("layout.closeTab");

@@ -1,3 +1,4 @@
+import { BROWSER_HISTORY_COMMAND } from "../commands/keys.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { NAVIGATION_COMMANDS } from "../commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../commands/overlay-ids.ts";
@@ -84,7 +85,7 @@ const FLAG_COMMANDS: Readonly<Partial<Record<FlagKey, readonly string[]>>> = {
     devices: [NAVIGATION_COMMANDS.devices],
     tour: [NAVIGATION_COMMANDS.tour],
     coverage: [NAVIGATION_COMMANDS.coverage],
-    browser: Object.values(PAGE_COMMANDS),
+    browser: [...Object.values(PAGE_COMMANDS), BROWSER_HISTORY_COMMAND],
     doctor: [OVERLAY_COMMANDS.doctor.id],
     diagnostics: [OVERLAY_COMMANDS.diagnostics.id],
     failures: [OVERLAY_COMMANDS.failures.id],
