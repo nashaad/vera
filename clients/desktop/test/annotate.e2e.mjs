@@ -399,12 +399,91 @@ try {
     const images = parts.filter((part) => part?.type === "image_url" && typeof part.image_url?.url === "string");
     if (images.length !== 1) throw new Error(`The provider received ${images.length} image attachments.`);
     if (!images[0].image_url.url.startsWith("data:image/png;base64,")) throw new Error("The provider image attachment is not the captured PNG.");
+    const draftBeforeClose = await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('canvas').toDataURL()`);
     await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title=\"Close\"]').click()");
     await until("first annotation command closed", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
     await trigger.waitFor({ state: 'visible' });
     await until('annotation trigger becomes available', async () => await trigger.isEnabled());
     await trigger.click();
     await until("annotation mode on the second run", async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]')?.shadowRoot)"));
+    const restored = await evaluateFixture(`(() => {
+        const hosts = document.querySelectorAll('[data-vera-annotation]');
+        const s = hosts[0].shadowRoot;
+        const canvas = s.querySelector('canvas');
+        const image = canvas.toDataURL();
+        s.querySelector('button[title="Undo"]').click(); const undone = canvas.toDataURL();
+        s.querySelector('button[title="Redo"]').click();
+        return { hosts: hosts.length, image, history: undone !== image && canvas.toDataURL() === image,
+            selection: s.querySelector('.tag').textContent === 'p' && s.querySelector('.hover').style.display === 'block' };
+    })()`);
+    if (restored.hosts !== 1 || restored.image !== draftBeforeClose || !restored.history || !restored.selection) throw new Error('Close/reopen lost or duplicated the annotation draft.');
+    const movedRestored = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const canvas = s.querySelector('canvas'); const before = canvas.toDataURL();
+        const r = document.querySelector('#target').getBoundingClientRect();
+        s.querySelector('button[title="Move"]').click();
+        for (const [type, x, y] of [['mousedown', r.left + 68, r.top + 90], ['mousemove', r.left + 78, r.top + 100], ['mouseup', r.left + 78, r.top + 100]]) {
+            document.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+        }
+        const changed = canvas.toDataURL() !== before; s.querySelector('button[title="Undo"]').click();
+        return changed && canvas.toDataURL() === before;
+    })()`);
+    if (!movedRestored) throw new Error('Restored marks could not be moved and undone.');
+    const reopen = async (label) => {
+        await until(label + ' command ready', async () => await trigger.isEnabled());
+        await trigger.click();
+        await until(label + ' tools ready', async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))"));
+    };
+    const closeTools = async (label) => {
+        await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title=\"Close\"]').click()");
+        await until(label + ' tools closed', async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
+    };
+    await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        s.querySelector('button[title="Text"]').click();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 80, clientY: 100 }));
+        const input = s.querySelector('.text-entry'); input.value = 'kept crow'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await closeTools('pending text');
+    await reopen('pending text');
+    const pendingClose = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const image = () => s.querySelector('canvas').toDataURL();
+        const kept = image(); s.querySelector('button[title="Undo"]').click(); const undone = image();
+        s.querySelector('button[title="Redo"]').click(); return { kept, undone, once: image() === kept };
+    })()`);
+    if (pendingClose.kept === draftBeforeClose || pendingClose.undone !== draftBeforeClose || !pendingClose.once) throw new Error('Pending text was not kept once across Close.');
+    if (process.env.VERA_ANNOTATION_DRAFT_PROOF) {
+        const png = await app.evaluate(async ({ webContents }, id) => Array.from((await webContents.fromId(id).capturePage()).toPNG()), contentsId);
+        writeFileSync(process.env.VERA_ANNOTATION_DRAFT_PROOF, Buffer.from(png));
+    }
+    const cleared = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        s.querySelector('button[title="Clear"]').click(); return s.querySelector('canvas').toDataURL();
+    })()`);
+    await closeTools('cleared draft'); await reopen('cleared draft');
+    if (await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('canvas').toDataURL()") !== cleared) throw new Error('Cleared marks returned after reopen.');
+    await closeTools('hidden selection');
+    await evaluateFixture("document.querySelector('#target').style.display = 'none'");
+    await reopen('hidden selection');
+    if (!(await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        return s.querySelector('.tag').style.display !== 'block' && s.querySelector('button[title="Add to chat"]').hidden;
+    })()`))) throw new Error('A hidden saved element was restored.');
+    await closeTools('before reload');
+    await app.evaluate(async ({ webContents }, id) => {
+        const contents = webContents.fromId(id);
+        await new Promise((resolve) => { contents.once('did-finish-load', resolve); contents.reload(); });
+    }, contentsId);
+    await reopen('after reload');
+    if (!(await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const canvas = s.querySelector('canvas');
+        const blank = document.createElement('canvas'); blank.width = canvas.width; blank.height = canvas.height;
+        s.querySelector('button[title="Undo"]').click();
+        return canvas.toDataURL() === blank.toDataURL() && s.querySelector('button[title="Add to chat"]').hidden;
+    })()`))) throw new Error('Reload restored a previous document draft.');
+
     const pendingAdd = await evaluateFixture(`(() => {
         const s = document.querySelector('[data-vera-annotation]').shadowRoot;
         s.querySelector('button[title="Text"]').click();
@@ -427,11 +506,26 @@ try {
     })()`);
     if (!pendingOnce) throw new Error('Pending text was not committed exactly once.');
     await page.locator('.page-capture-chip').last().locator('.chip-x').click();
+    await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        s.querySelector('button[title="Text"]').click();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 100, clientY: 120 }));
+        const input = s.querySelector('.text-entry'); input.value = 'escaped crow'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
     await evaluateFixture("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
     await until("annotation mode closed by Escape", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
 
     await trigger.click();
     await until("annotation mode for close", async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]')?.shadowRoot)"));
+    const escaped = await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const canvas = s.querySelector('canvas'); const kept = canvas.toDataURL();
+        const blank = document.createElement('canvas'); blank.width = canvas.width; blank.height = canvas.height;
+        s.querySelector('button[title="Undo"]').click(); const undone = canvas.toDataURL();
+        s.querySelector('button[title="Redo"]').click();
+        return kept !== undone && undone === blank.toDataURL() && canvas.toDataURL() === kept;
+    })()`);
+    if (!escaped) throw new Error('Escape did not retain pending text and history.');
     await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title=\"Close\"]').click()");
     await until("annotation mode closed by toolbar", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
 
@@ -450,6 +544,7 @@ try {
     const captureCount = await page.locator(".page-capture-chip").count();
     const annexCommand = trigger.click();
     await annexPage.locator("[data-vera-annotation]").waitFor({ timeout: 15_000 });
+    if (!(await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').hidden))) throw new Error('Another document inherited the native page draft.');
     await annexTarget.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const x = rect.x + rect.width / 2;
@@ -486,6 +581,18 @@ try {
     }
     await annexChip.locator(".chip-x").click();
     await annexChip.waitFor({ state: "detached", timeout: 5_000 });
+    const annexDraft = await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('canvas').toDataURL());
+    await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Close"]').click());
+    await annexPage.locator('[data-vera-annotation]').waitFor({ state: 'detached' });
+    await until('annex reopen ready', async () => await trigger.isEnabled());
+    await trigger.click();
+    await annexPage.locator('[data-vera-annotation]').waitFor();
+    const annexRestored = await annexTarget.evaluate(() => {
+        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const canvas = s.querySelector('canvas');
+        return { image: canvas.toDataURL(), width: canvas.width, height: canvas.height, tag: s.querySelector('.tag').textContent, addHidden: s.querySelector('button[title="Add to chat"]').hidden };
+    });
+    if (annexRestored.image !== annexDraft) throw new Error('Annex frame lost its draft across reopen: ' + JSON.stringify({ ...annexRestored, image: annexRestored.image.length, before: annexDraft.length }));
     await address.fill(`http://127.0.0.1:${fixture.address().port}/`);
     await address.press('Enter');
     await annexFrame.waitFor({ state: 'detached', timeout: 10_000 });

@@ -29,6 +29,29 @@ interface PageWorld {
     readonly offset: PageRectangle;
 }
 
+interface ExecutionContext {
+    readonly id: number;
+    readonly name: string;
+    readonly auxData?: { readonly frameId?: string };
+}
+
+async function frameWorld(api: Electron.Debugger, frameId: string, sessionId?: string): Promise<number> {
+    let existing: number | undefined;
+    const created = (_event: Electron.Event, method: string, params: { context?: ExecutionContext }, session?: string): void => {
+        const context = params.context;
+        if (method === "Runtime.executionContextCreated" && session === sessionId && context?.name === "vera-page-command" && context.auxData?.frameId === frameId) existing = context.id;
+    };
+    api.on("message", created);
+    try {
+        await api.sendCommand("Runtime.enable", {}, sessionId);
+    } finally {
+        api.removeListener("message", created);
+    }
+    if (existing !== undefined) return existing;
+    const world = await api.sendCommand("Page.createIsolatedWorld", { frameId, worldName: "vera-page-command" }, sessionId) as { executionContextId: number };
+    return world.executionContextId;
+}
+
 function sameOrigin(left: string, right: string): boolean {
     try { const a = new URL(left); const b = new URL(right); return a.protocol === b.protocol && a.host === b.host; } catch { return false; }
 }
@@ -70,10 +93,10 @@ async function isolatedWorld(contents: WebContents, frame?: FrameSurface, onDeta
             if ((method === "Page.frameDetached" && params.frameId === frameId) || (method === "Target.detachedFromTarget" && sessionId !== undefined && params.sessionId === sessionId)) onDetach?.();
         };
         api.on("message", detached);
-        const world = await api.sendCommand("Page.createIsolatedWorld", { frameId, worldName: "vera-page-command" }, sessionId) as { executionContextId: number };
+        const contextId = await frameWorld(api, frameId, sessionId);
         return {
             run: async (expression) => {
-                const reply = await api.sendCommand("Runtime.evaluate", { contextId: world.executionContextId, expression, awaitPromise: true, returnByValue: true }, sessionId) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+                const reply = await api.sendCommand("Runtime.evaluate", { contextId, expression, awaitPromise: true, returnByValue: true }, sessionId) as { result?: { value?: unknown }; exceptionDetails?: unknown };
                 if (reply.exceptionDetails !== undefined) throw new Error("The page could not be read.");
                 return reply.result?.value;
             },

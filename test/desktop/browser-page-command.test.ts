@@ -49,7 +49,7 @@ describe("page command boundary", () => {
             expect(contents.listenerCount("did-start-navigation")).toBe(0);
         } finally { rmSync(directory, { recursive: true, force: true }); }
     });
-    test("@core targets a cross-process annex frame by URL and name in an isolated world", async () => {
+    test.each([false, true])("@core targets a cross-process annex frame by URL and name, reusing world: %s", async (reuse) => {
         const contents = new Contents();
         let attached = false;
         const calls: string[] = [];
@@ -64,6 +64,14 @@ describe("page command boundary", () => {
                 if (method === "Target.getTargets") return { targetInfos: [{ targetId: "annex", type: "iframe", url: "http://localhost/usage" }] };
                 if (method === "Target.attachToTarget") return { sessionId: "child" };
                 if (method === "Page.enable") return {};
+                if (method === "Runtime.enable") {
+                    expect(session).toBe("child");
+                    const context = { id: 42, name: "vera-page-command", auxData: { frameId: "annex" } };
+                    debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context }, "another-child");
+                    debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context: { ...context, auxData: { frameId: "another-frame" } } }, "child");
+                    if (reuse) debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context }, "child");
+                    return {};
+                }
                 expect(session).toBe("child");
                 if (method === "Page.createIsolatedWorld") {
                     expect(parameters?.frameId).toBe("annex");
@@ -75,7 +83,8 @@ describe("page command boundary", () => {
         }) });
         expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 10, y: 20, width: 300, height: 400 })).toEqual({ ok: true, kind: "closed" });
         expect(debuggerEvents.listenerCount("message")).toBe(0);
-        expect(calls).toContain("Page.createIsolatedWorld");
+        expect(calls).toContain("Runtime.enable");
+        expect(calls.includes("Page.createIsolatedWorld")).toBe(!reuse);
         expect(attached).toBe(false);
     });
     test("frame detach cancels a pending command and releases its debugger listener", async () => {

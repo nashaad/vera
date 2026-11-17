@@ -7,6 +7,31 @@ interface Snapshot {
     readonly drawings: readonly Drawing[];
 }
 
+interface AnnotationDraft {
+    readonly drawings: Drawing[];
+    readonly undo: Snapshot[];
+    readonly redo: Snapshot[];
+    readonly selected?: WeakRef<Element>;
+    readonly color: string;
+    readonly width: number;
+    readonly count: number;
+}
+
+interface AnnotationState {
+    draft?: AnnotationDraft;
+    left: boolean;
+}
+
+function annotationState(): AnnotationState {
+    const world = globalThis as typeof globalThis & { __veraAnnotationState?: AnnotationState };
+    if (world.__veraAnnotationState !== undefined) return world.__veraAnnotationState;
+    const state: AnnotationState = { left: false };
+    world.__veraAnnotationState = state;
+    window.addEventListener("pagehide", () => { state.left = true; delete state.draft; });
+    window.addEventListener("pageshow", () => { state.left = false; });
+    return state;
+}
+
 const DRAWING_LIMIT = 200;
 const HISTORY_LIMIT = 100;
 const DRAWING_BOUNDS_LIMIT = 4096;
@@ -14,6 +39,9 @@ function annotatePage(): Promise<AnnotationResult | null> {
     return new Promise((resolve) => {
         const existing = (globalThis as typeof globalThis & { __veraPageCleanup?: () => void }).__veraPageCleanup;
         existing?.();
+        const state = annotationState();
+        const draft = state.draft;
+        delete state.draft;
         const host = document.createElement("div");
         host.setAttribute("data-vera-annotation", "");
         const shadow = host.attachShadow({ mode: "open" });
@@ -59,9 +87,10 @@ function annotatePage(): Promise<AnnotationResult | null> {
         document.documentElement.append(host);
 
         let mode: Drawing["kind"] | "select" | "move" = "select";
-        let selected: Element | undefined;
-        let color = getComputedStyle(host).getPropertyValue("--annotation-accent").trim();
-        let width = 3;
+        let selected = draft?.selected?.deref();
+        if (selected !== undefined && (!selected.isConnected || selected.ownerDocument !== document || selected.getClientRects().length === 0 || getComputedStyle(selected).visibility === "hidden")) selected = undefined;
+        let color = draft?.color ?? getComputedStyle(host).getPropertyValue("--annotation-accent").trim();
+        let width = draft?.width ?? 3;
         let drawing: Drawing | undefined;
         let moving: { index: number; start: Point; dx: number; dy: number } | undefined;
         let closed = false;
@@ -69,13 +98,13 @@ function annotatePage(): Promise<AnnotationResult | null> {
         let deliver = resolve;
         let resultResolved = false;
         let listenersAttached = true;
-        let count = 0;
+        let count = draft?.count ?? 0;
         let textPosition = { x: 0, y: 0 };
         const originalCursor = document.documentElement.style.getPropertyValue("cursor");
         const originalCursorPriority = document.documentElement.style.getPropertyPriority("cursor");
-        const undo: Snapshot[] = [];
-        const redo: Snapshot[] = [];
-        const drawings: Drawing[] = [];
+        const undo = draft?.undo ?? [];
+        const redo = draft?.redo ?? [];
+        const drawings = draft?.drawings ?? [];
         const dimensions = (): { width: number; height: number; scale: number } => ({
             width: window.innerWidth,
             height: window.innerHeight,
@@ -470,6 +499,14 @@ function annotatePage(): Promise<AnnotationResult | null> {
             }
         }
         function cleanup(): void {
+            if (closed) return;
+            addText();
+            if (!state.left) {
+                state.draft = {
+                    drawings, undo, redo, color, width, count,
+                    ...(selected === undefined ? {} : { selected: new WeakRef(selected) }),
+                };
+            }
             closed = true;
             stopListeners();
             host.remove();
@@ -493,6 +530,12 @@ function annotatePage(): Promise<AnnotationResult | null> {
         document.addEventListener("keydown", onKey, true);
         resize();
         setMode("select");
+        if (selected !== undefined) {
+            hover.style.display = "block";
+            tag.style.display = "block";
+            tag.textContent = selected.localName;
+            refreshSelection();
+        }
     });
 }
 

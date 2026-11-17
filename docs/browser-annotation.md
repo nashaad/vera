@@ -18,8 +18,11 @@ Add to chat puts the selection or drawing into the open session's composer.
 It captures the selected element with its marks, or the visible page when no
 element is selected. The toolbar and selection outline are not in the image.
 The tools and selected outline remain so you can add another capture. Select a
-different element to replace the selection. Close or Escape removes the toolbar
-and marks; captures already added stay in the composer.
+different element to replace the selection. Close or Escape hides the tools
+and keeps the page's draft, including pending text. Reopen the pointer tool to
+restore the marks, selected element and Undo/Redo. Clear removes the marks.
+Reloading or leaving the page discards its draft; captures already added stay
+in the composer.
 
 ## Include with a message
 
