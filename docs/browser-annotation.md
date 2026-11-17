@@ -14,12 +14,14 @@ to the next mark. Undo, Redo and Clear affect the marks.
 Add to chat puts the selection or drawing into the open session's composer.
 It captures the selected element with its marks, or the visible page when no
 element is selected. The toolbar and selection outline are not in the image.
-Close or Escape removes the toolbar and marks without attaching anything.
+The tools and selected outline remain so you can add another capture. Select a
+different element to replace the selection. Close or Escape removes the toolbar
+and marks; captures already added stay in the composer.
 
 ## Include with a message
 
 A selection shows as a chip with a pointer, the element's tag and a text
-excerpt. Hover it to see the screenshot, Element and Text. Show details opens
+excerpt. Hover or focus it to see the screenshot, Element and Text. Show more details opens
 Computed styles, HTML and Siblings; Show more opens the longer HTML and sibling
 excerpts. Removing the chip removes both its image and selection text.
 

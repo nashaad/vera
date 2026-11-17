@@ -35,7 +35,6 @@ function marksOf(block: Block): BlockMarks {
 }
 
 export interface SessionPlace {
-    // The session's own folder; a chat's files folder does not count.
     readonly folder: string | undefined;
     readonly chat: boolean;
 }
@@ -57,7 +56,7 @@ export function readSessionEvidence(watch: SessionWatch, place: SessionPlace, se
     return {
         review,
         plan,
-        files: seen.files || (place.folder !== undefined && !place.chat),
+        files: seen.files || (place.folder !== undefined && place.folder !== ""),
         // A stopped session offers Start in the same pill, so it counts as something to show.
         context: seen.context || watch.context !== undefined || canStart(watch),
     };

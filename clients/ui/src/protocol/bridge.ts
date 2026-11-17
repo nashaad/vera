@@ -370,7 +370,7 @@ export interface DesktopBridge {
     loadImportedThemes(): Promise<readonly ImportedThemeSummary[]>;
     // Runs a command of an enabled extension included with Vera in a task process. A command with a file filter
     // opens the native picker first. `pick` is a key from the command's last `pick` answer.
-    runExtensionCommand(command: string, pick?: string): Promise<ExtensionCommandResult>;
+    runExtensionCommand(command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void): Promise<ExtensionCommandResult>;
     // The desktop extensions, installed and included, and the themes of the enabled ones, read again from disk.
     listDesktopExtensions(): Promise<ExtensionChangeResult>;
     // Opens the native picker for a package, unpacks it in a task process and returns what it holds; nothing is installed yet.

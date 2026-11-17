@@ -436,16 +436,18 @@ ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
     installMenu();
 });
 ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
-ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown): Promise<ExtensionCommandResult> => {
+ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown, token: unknown): Promise<ExtensionCommandResult> => {
     if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
-    if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string")) return { ok: false, reason: "Vera could not import that theme." };
+    if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string") || (token !== undefined && (typeof token !== "string" || token.length > 64))) return { ok: false, reason: "Vera could not import that theme." };
     const script = extensionStore.pageScript(command);
     if (script !== undefined && pick === undefined) {
         const native = browserPane?.current();
         const contents = native ?? window.webContents;
         const frame = native === undefined ? await browserFrame(contents, onAnnex) : undefined;
         if (native === undefined && frame === undefined) return { ok: true, kind: "closed" };
-        return pageCommands.run(script, contents, pastedImageDirectory(selectedVeraHome()), frame);
+        return pageCommands.run(script, contents, pastedImageDirectory(selectedVeraHome()), frame, token === undefined ? undefined : (result) => {
+            if (!event.sender.isDestroyed()) event.sender.send(CHANNELS.extensionCommandProgress, token, result);
+        });
     }
     return extensionCommands.run(command, pick);
 });
@@ -648,17 +650,16 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
     if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
     const pane = browserPane;
     if (command !== "state" && command !== "bounds" && browserClearing !== undefined) await browserClearing;
+    const previousActive = pane.state().active;
     let opened: number | undefined;
     if (command === "open" && (value === undefined || typeof value === "string")) opened = pane.open(value);
     if (command === "navigate" && typeof value === "string") {
         if (pane.current() === undefined) pane.open(value);
         else await pane.navigate(value).catch(() => {});
     }
-    if (command === "select" && (value === null || typeof value === "number")) {
-        if (pane.state().active !== value) pageCommands.stop();
-        pane.select(value);
-    }
+    if (command === "select" && (value === null || typeof value === "number")) pane.select(value);
     if (command === "close" && typeof value === "number") pane.close(value);
+    if (pane.state().active !== previousActive) pageCommands.stop();
     if (command === "back" && pane.current()?.navigationHistory.canGoBack()) pane.current()?.navigationHistory.goBack();
     if (command === "forward" && pane.current()?.navigationHistory.canGoForward()) pane.current()?.navigationHistory.goForward();
     if (command === "reload") pane.current()?.reload();

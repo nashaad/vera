@@ -15,7 +15,9 @@ class Contents extends EventEmitter {
         expect(world).toBe(1004);
         const code = entries[0]!.code;
         this.scripts.push(code);
-        return code.includes("delete globalThis") ? undefined : this.result;
+        if (code.includes("delete globalThis")) return undefined;
+        if (code.includes("typeof globalThis.__veraPageNext")) return false;
+        return this.result;
     }
     async capturePage(rect: unknown): Promise<unknown> {
         this.captured = rect;
@@ -51,7 +53,8 @@ describe("page command boundary", () => {
         const contents = new Contents();
         let attached = false;
         const calls: string[] = [];
-        Object.assign(contents, { debugger: {
+        const debuggerEvents = new EventEmitter();
+        Object.assign(contents, { debugger: Object.assign(debuggerEvents, {
             isAttached: () => attached,
             attach: () => { attached = true; },
             detach: () => { attached = false; },
@@ -60,6 +63,7 @@ describe("page command boundary", () => {
                 if (method === "Page.getFrameTree") return { frameTree: { frame: session === undefined ? { id: "main", url: "file:///index.html" } : { id: "annex", url: "http://localhost/usage", name: "browser-tab" } } };
                 if (method === "Target.getTargets") return { targetInfos: [{ targetId: "annex", type: "iframe", url: "http://localhost/usage" }] };
                 if (method === "Target.attachToTarget") return { sessionId: "child" };
+                if (method === "Page.enable") return {};
                 expect(session).toBe("child");
                 if (method === "Page.createIsolatedWorld") {
                     expect(parameters?.frameId).toBe("annex");
@@ -68,9 +72,56 @@ describe("page command boundary", () => {
                 expect(parameters?.contextId).toBe(42);
                 return { result: { value: null } };
             },
-        } });
+        }) });
         expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 10, y: 20, width: 300, height: 400 })).toEqual({ ok: true, kind: "closed" });
+        expect(debuggerEvents.listenerCount("message")).toBe(0);
         expect(calls).toContain("Page.createIsolatedWorld");
+        expect(attached).toBe(false);
+    });
+    test("frame detach cancels a pending command and releases its debugger listener", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        let attached = false;
+        let cleanup = false;
+        Object.assign(contents, { debugger: Object.assign(events, {
+            isAttached: () => attached,
+            attach: () => { attached = true; },
+            detach: () => { attached = false; },
+            sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "annex", url: "http://localhost/usage", name: "browser-tab" } }] } };
+                if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                if (method === "Runtime.evaluate") {
+                    if (String(parameters?.expression).includes("delete globalThis")) cleanup = true;
+                    else return new Promise(() => {});
+                }
+                return { result: { value: null } };
+            },
+        }) });
+        const service = new PageCommandService();
+        const pending = service.run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 0, y: 0, width: 300, height: 400 });
+        while (events.listenerCount("message") === 0) await Promise.resolve();
+        events.emit("message", {}, "Page.frameDetached", { frameId: "annex" });
+        expect(await pending).toEqual({ ok: true, kind: "closed" });
+        expect(events.listenerCount("message")).toBe(0);
+        expect(attached).toBe(false);
+        expect(cleanup).toBe(false);
+    });
+    test("failed isolated-world creation removes the debugger listener", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        let attached = false;
+        Object.assign(contents, { debugger: Object.assign(events, {
+            isAttached: () => attached,
+            attach: () => { attached = true; },
+            detach: () => { attached = false; },
+            sendCommand: async (method: string) => {
+                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "annex", url: "http://localhost/usage", name: "browser-tab" } }] } };
+                if (method === "Page.createIsolatedWorld") throw new Error("frame gone");
+                return {};
+            },
+        }) });
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 0, y: 0, width: 300, height: 400 })).toEqual({ ok: false, reason: "The page could not be read." });
+        expect(events.listenerCount("message")).toBe(0);
         expect(attached).toBe(false);
     });
     test("refuses malformed output before capturing", async () => {

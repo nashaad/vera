@@ -43,9 +43,10 @@ test("@core a diff or a checklist from history or the live turn turns on review 
     expect(read(watch({ history: [tools("t3", call(), call({ kind: "tool_notice", text: "big" }))] }))).toMatchObject({ review: false, plan: false });
 });
 
-test("@core a chat's files folder does not count as a folder", () => {
-    expect(read(watch(), CHAT).files).toBe(false);
+test("@core Files is available for chat and session folders", () => {
+    expect(read(watch(), CHAT).files).toBe(true);
     expect(read(watch(), { folder: undefined, chat: false }).files).toBe(false);
+    expect(read(watch(), { folder: "", chat: true }).files).toBe(false);
     expect(read(watch(), FOLDER).files).toBe(true);
 });
 

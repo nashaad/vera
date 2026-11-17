@@ -77,7 +77,7 @@ try {
         return child?.webContents.id;
     });
     await until("the fixture in the Browser tab", async () => (await browserContents()) !== undefined);
-    const contentsId = await browserContents();
+    let contentsId = await browserContents();
     const evaluateFixture = (expression) => app.evaluate(async ({ webContents }, args) => webContents.fromId(args.id)?.executeJavaScript(args.expression), { id: contentsId, expression });
     await until("the fixture target", async () => await evaluateFixture("document.querySelector('#target')?.innerText") === "This domain is for annotation testing.");
 
@@ -100,7 +100,7 @@ try {
             close: bounds(toolbar.querySelector('button[title="Close"]')),
         };
     })()`);
-    for (const [label, rect] of Object.entries({ toolbar: toolbarBounds.toolbar, add: toolbarBounds.add, close: toolbarBounds.close })) {
+    for (const [label, rect] of Object.entries({ toolbar: toolbarBounds.toolbar, close: toolbarBounds.close })) {
         if (rect.left < 0 || rect.right > toolbarBounds.viewportWidth || rect.top < 0 || rect.bottom > toolbarBounds.viewportHeight || rect.width <= 0 || rect.height <= 0) {
             throw new Error(`The annotation ${label} controls are outside the page viewport: ${JSON.stringify(toolbarBounds)}.`);
         }
@@ -117,13 +117,26 @@ try {
         return target.id;
     })()`);
     if (selected !== "target") throw new Error(`The fixture selection returned ${selected}.`);
+    const stable = await evaluateFixture(`(() => {
+        const shadow = document.querySelector('[data-vera-annotation]').shadowRoot;
+        const toolbar = shadow.querySelector('[role=toolbar]');
+        toolbar.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true, clientX: 1, clientY: 1 }));
+        const tag = shadow.querySelector('.tag').textContent;
+        const target = document.querySelector('#target');
+        target.style.marginTop = '25px';
+        document.dispatchEvent(new Event('scroll'));
+        const aligned = Math.abs(parseFloat(shadow.querySelector('.hover').style.top) - target.getBoundingClientRect().top) < 1;
+        target.removeAttribute('style');
+        document.dispatchEvent(new Event('scroll'));
+        return tag === 'p' && aligned;
+    })()`);
+    if (!stable) throw new Error('Selection changed over the toolbar or did not follow scrolling.');
 
     await evaluateFixture(`(() => {
         const shadow = document.querySelector('[data-vera-annotation]').shadowRoot;
         const toolbar = shadow.querySelector('[role=toolbar]');
-        const shapes = toolbar.querySelector('select');
-        shapes.value = 'rectangle';
-        shapes.dispatchEvent(new Event('change', { bubbles: true }));
+        toolbar.querySelector('button[title="Shapes"]').click();
+        toolbar.querySelector('button[title="Rectangle"]').click();
         const target = document.querySelector('#target').getBoundingClientRect();
         const start = { x: target.left + 20, y: target.top + 20 };
         const end = { x: target.left + 110, y: target.top + 70 };
@@ -137,12 +150,64 @@ try {
 
     const chip = page.locator(".page-capture-chip");
     await chip.waitFor({ timeout: 10_000 });
+    await until("toolbar and selection restored after capture", async () => await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]')?.shadowRoot;
+        return s?.querySelector('[role=toolbar]')?.style.display !== 'none' && s?.querySelector('.hover')?.style.display === 'block';
+    })()`));
+    await evaluateFixture(`document.querySelector('#target').textContent = 'مرحبا'.repeat(80)`);
+    await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click()`);
+    await until("a second capture without closing tools", async () => await page.locator('.page-capture-chip').count() === 2);
+    const rtlChip = page.locator('.page-capture-chip').last();
+    await rtlChip.focus();
+    const rtl = rtlChip.locator('.context-pop p').filter({ hasText: 'مرحبا' });
+    await rtl.waitFor();
+    const readable = await rtl.evaluate((element) => ({ direction: getComputedStyle(element.querySelector('span')).direction, fits: element.scrollWidth <= element.clientWidth + 1 }));
+    if (readable.direction !== 'rtl' || !readable.fits) throw new Error(`RTL capture preview is not readable: ${JSON.stringify(readable)}`);
+    await rtlChip.locator('.chip-x').click();
+    await evaluateFixture(`document.querySelector('#target').textContent = 'This domain is for annotation testing.'`);
+    await app.evaluate(({ webContents }, id) => {
+        const contents = webContents.fromId(id);
+        const original = contents.capturePage;
+        contents.capturePage = function (...args) {
+            contents.capturePage = original;
+            throw new Error('capture failed');
+        };
+    }, contentsId);
+    await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click()`);
+    await until("toolbar restored after a failed capture", async () => await evaluateFixture(`(() => {
+        const s = document.querySelector('[data-vera-annotation]')?.shadowRoot;
+        return s?.querySelector('[role=toolbar]')?.style.display === 'flex' && s?.querySelector('.hover')?.style.display === 'block';
+    })()`));
+    if (await page.locator('.page-capture-chip').count() !== 1) throw new Error('A failed capture attached an image.');
+    await evaluateFixture(`document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click()`);
+    await until("capture succeeds after a failure", async () => await page.locator('.page-capture-chip').count() === 2);
+    await page.locator('.page-capture-chip').last().locator('.chip-x').click();
     const chipText = await chip.innerText();
     if (!chipText.includes("<p /> This domain is for")) throw new Error(`The annotation chip shows ${chipText}.`);
     await until("the capture to finish attaching", async () => await chip.getAttribute("data-attaching") === "false");
-    await chip.locator(".chip-x").focus();
+    await chip.hover();
     const card = chip.locator(".context-pop");
     await card.getByText("Included with your message").waitFor();
+    const chipBox = await chip.boundingBox();
+    const cardBox = await card.boundingBox();
+    if (chipBox === null || cardBox === null) throw new Error('Preview has no bounds.');
+    await page.mouse.move(Math.max(cardBox.x + 4, Math.min(chipBox.x + chipBox.width / 2, cardBox.x + cardBox.width - 4)), cardBox.y + cardBox.height - 3, { steps: 12 });
+    if (!(await card.isVisible())) throw new Error('Preview closed while moving the pointer into it.');
+    await chip.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    if (!(await card.getByRole('button', { name: 'Show more details' }).evaluate((element) => element === document.activeElement))) throw new Error('Tab did not reach preview details.');
+    await page.keyboard.press('Enter');
+    await card.getByText('Computed styles', { exact: true }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.evaluate(() => {
+        window.__previewEscapeLeaked = false;
+        window.addEventListener('keydown', (event) => { if (event.key === 'Escape') window.__previewEscapeLeaked = true; }, { once: true });
+    });
+    await page.keyboard.press('Escape');
+    if (await card.isVisible()) throw new Error('Escape did not close the capture preview.');
+    if (await page.evaluate(() => window.__previewEscapeLeaked)) throw new Error('Preview Escape escaped to the session.');
+    await chip.locator('.chip-x').focus();
     const cardImage = card.locator("img");
     await cardImage.waitFor();
     const cardImageSize = await cardImage.evaluate((image) => ({ width: image.naturalWidth, height: image.naturalHeight }));
@@ -165,8 +230,9 @@ try {
     if (sampledPixels.rectangle.join(",") !== "232,88,42,255") throw new Error(`The rectangle stroke pixel is ${sampledPixels.rectangle.join(",")}.`);
     if (!(await card.innerText()).includes("Element\n<p /> #target")) throw new Error(`The capture card lacks element details: ${await card.innerText()}`);
     if (!(await card.innerText()).includes("This domain is for annotation testing.")) throw new Error("The capture card lacks the selected text.");
-    await card.getByRole("button", { name: "Show details" }).click();
+    await card.getByRole("button", { name: "Show more details" }).click();
     for (const label of ["Computed styles", "HTML", "Siblings"]) await card.getByText(label, { exact: true }).waitFor();
+    if (process.env.VERA_ANNOTATION_PROOF) await page.screenshot({ path: process.env.VERA_ANNOTATION_PROOF });
 
     await composer.fill(prompt);
     await composer.press("Enter");
@@ -183,12 +249,16 @@ try {
     const content = typeof user?.content === "string"
         ? user.content
         : parts.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
-    for (const expected of [prompt, "Selected in the Browser tab on", "Element: p", "Selector: #target", "Text: This domain is for annotation testing.", "HTML: <p id=\"target\">"]) {
-        if (!content.includes(expected)) throw new Error(`The sent provider message lacks ${JSON.stringify(expected)}.`);
+    for (const expected of [prompt, "Selected in the Browser tab on", "Element: p", "Selector: #target", "Text: This domain is for annotation testing.", "HTML: <p id=\"target\""]) {
+        if (!content.includes(expected)) throw new Error(`The sent provider message lacks ${JSON.stringify(expected)}: ${content}`);
     }
     const images = parts.filter((part) => part?.type === "image_url" && typeof part.image_url?.url === "string");
     if (images.length !== 1) throw new Error(`The provider received ${images.length} image attachments.`);
     if (!images[0].image_url.url.startsWith("data:image/png;base64,")) throw new Error("The provider image attachment is not the captured PNG.");
+    await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title=\"Close\"]').click()");
+    await until("first annotation command closed", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
+    await trigger.waitFor({ state: 'visible' });
+    await until('annotation trigger becomes available', async () => await trigger.isEnabled());
     await trigger.click();
     await until("annotation mode on the second run", async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]')?.shadowRoot)"));
     await evaluateFixture("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
@@ -225,9 +295,8 @@ try {
     await annexTarget.evaluate((element) => {
         const shadow = document.querySelector("[data-vera-annotation]").shadowRoot;
         const toolbar = shadow.querySelector('[role="toolbar"]');
-        const shapes = toolbar.querySelector("select");
-        shapes.value = "rectangle";
-        shapes.dispatchEvent(new Event("change", { bubbles: true }));
+        toolbar.querySelector('button[title="Shapes"]').click();
+        toolbar.querySelector('button[title="Rectangle"]').click();
         const rect = element.getBoundingClientRect();
         const start = { x: rect.left + 8, y: rect.top + 8 };
         const end = { x: rect.left + 36, y: rect.top + 24 };
@@ -251,6 +320,38 @@ try {
     }
     await annexChip.locator(".chip-x").click();
     await annexChip.waitFor({ state: "detached", timeout: 5_000 });
+    await address.fill(`http://127.0.0.1:${fixture.address().port}/`);
+    await address.press('Enter');
+    await annexFrame.waitFor({ state: 'detached', timeout: 10_000 });
+    await until('annex frame command released on replacement', async () => await app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].webContents.debugger.isAttached()));
+    await until('annotation trigger available after frame replacement', async () => await trigger.isEnabled());
+    await until('replacement native page ready', async () => (await browserContents()) !== undefined);
+    contentsId = await browserContents();
+    await trigger.click();
+    await until('annotation on replacement page', async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))"));
+    await app.evaluate(({ webContents }, id) => {
+        const contents = webContents.fromId(id);
+        const original = contents.capturePage;
+        contents.capturePage = function (...args) {
+            contents.capturePage = original;
+            return new Promise((resolve, reject) => { globalThis.releaseCapture = () => original.apply(contents, args).then(resolve, reject); });
+        };
+    }, contentsId);
+    await evaluateFixture(`(() => {
+        const rect = document.querySelector('#target').getBoundingClientRect();
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: rect.left + 20, clientY: rect.top + 20 }));
+        document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').click();
+    })()`);
+    await until('capture in flight', async () => await app.evaluate(() => typeof globalThis.releaseCapture === 'function'));
+    await evaluateFixture("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await until('Escape closes tools during capture', async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
+    await app.evaluate(() => { globalThis.releaseCapture(); delete globalThis.releaseCapture; });
+    await until('canceled capture releases command', async () => await trigger.isEnabled());
+    if (await page.locator('.page-capture-chip').count() !== 0) throw new Error('A canceled capture was attached.');
+    await trigger.click();
+    await until('annotation active before tab close', async () => await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))"));
+    await page.locator('[data-switcher="rightPane"] .switcher-pill:has([data-container="core.browser"])').last().locator('.switcher-close').click();
+    await until('native page closed with annotation active', async () => await app.evaluate(({ webContents }, id) => !webContents.getAllWebContents().some((contents) => contents.id === id), contentsId));
 
     console.log("annotate e2e passed");
 } catch (error) {

@@ -119,6 +119,25 @@ try {
     await until("view hidden under palette", async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === false));
     await page.keyboard.press("Escape");
     await until("view restored", async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === true));
+    await page.evaluate(() => {
+        const popover = document.createElement('div');
+        popover.id = 'occlusion-test';
+        popover.dataset.popover = 'above-start';
+        popover.style.cssText = 'position:fixed;left:0;top:0;width:10px;height:10px;z-index:9999';
+        document.body.append(popover);
+    });
+    await page.waitForTimeout(150);
+    await until('nonoverlapping popover leaves the view visible', async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === true));
+    await page.evaluate(() => {
+        const box = document.querySelector('.browser-frame').getBoundingClientRect();
+        const popover = document.querySelector('#occlusion-test');
+        popover.setAttribute('role', 'menu');
+        popover.style.left = `${box.left + 5}px`;
+        popover.style.top = `${box.top + 5}px`;
+    });
+    await until('overlapping menu hides the view', async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === false));
+    await page.evaluate(() => document.querySelector('#occlusion-test').remove());
+    await until('view restored after overlapping menu', async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === true));
     const input = page.locator(".composer-input");
     await input.fill("Read and press the button");
     await input.press("Enter");
@@ -140,7 +159,7 @@ try {
     if ((await readSite("document.querySelector('input').value")) !== "Crow") throw new Error("The page input was not filled");
     await page.locator('.pill-button[data-mode="ask"]').click();
     await page.locator('[role="menu"]').first().waitFor();
-    await until("view hidden under menu", async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === false));
+    await until("view visible beside menu", async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes('/site'))?.getVisible() === true));
     await page.keyboard.press("Escape");
     await press(app, "K", [MODIFIER]);
     await page.locator('input[aria-label="Command palette"]').fill("Choose Theme");

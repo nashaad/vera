@@ -20,7 +20,13 @@ export function BrowserCommands({ hasPage, onError }: BrowserCommandsProps) {
         setRunning(true);
         onError(undefined);
         try {
-            const result = await window.veraDesktop.runExtensionCommand(command);
+            const result = await window.veraDesktop.runExtensionCommand(command, undefined, (progress) => {
+                if (!progress.ok) onError(progress.reason);
+                else if (progress.kind === "capture") {
+                    onError(undefined);
+                    queuePageCapture(owner, progress.capture);
+                }
+            });
             if (!result.ok) onError(result.reason);
             else if (result.kind === "capture") queuePageCapture(owner, result.capture);
         } catch { onError("The page could not be read."); }
