@@ -78,6 +78,13 @@ button.subagents-row:focus-visible {
     outline-offset: calc(var(--vera-space) / -2);
 }
 
+.subagent-list-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+    color: var(--vera-text-muted);
+}
+
 .subagents-status {
     flex: 0 0 auto;
     color: var(--vera-text-muted);

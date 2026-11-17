@@ -18,6 +18,7 @@ const MESSAGE_REPLY = "Twelve more doubloons sit in the starboard chest.";
 
 const requests = [];
 let spawned = 0;
+let heldChild;
 
 const provider = createServer((request, response) => {
     if (request.method === "GET" && request.url.endsWith("/models")) {
@@ -47,6 +48,11 @@ const provider = createServer((request, response) => {
             response.write(streamChunk(body.model, { role: "assistant", tool_calls: [call] }, "tool_calls"));
         } else {
             const asked = child && JSON.stringify(last ?? {}).includes(MESSAGE);
+            if (child && !asked && heldChild === undefined) {
+                response.write(streamChunk(body.model, { role: "assistant" }));
+                heldChild = { response, model: body.model };
+                return;
+            }
             response.write(streamChunk(body.model, { role: "assistant", content: asked ? MESSAGE_REPLY : child ? CHILD_REPLY : MAIN_REPLY }, "stop"));
         }
         response.end("data: [DONE]\n\n");
@@ -101,6 +107,28 @@ try {
     if ((await page.locator(".run-head").filter({ hasText: /subagent/i }).count()) !== 0) throw new Error("A run line still names the subagent call.");
     if ((await tabs().count()) !== 0) throw new Error("The Subagents tab was open before anything asked for it.");
 
+    // Hold the child's stream until the list shows its running state.
+    await until("the child stream held", async () => heldChild !== undefined);
+    await sessionMenu("Subagents");
+    const list = page.locator(`${pane} .subagents`);
+    await list.waitFor({ timeout: 15_000 });
+    const active = list.locator('section[aria-label="Active subagents"]');
+    await until("the listed working child", async () => {
+        const row = active.locator('.subagents-row[data-open="true"]');
+        return (await row.count()) === 1 && (await row.innerText()).includes("Working");
+    }, 45_000);
+    if ((await active.locator(".tasks-heading").innerText()) !== "Active · 1") throw new Error("The Active heading does not count the running child.");
+    if ((await list.locator('section[aria-label="Finished subagents"]').count()) !== 0) throw new Error("Done is shown before a child finishes.");
+    heldChild.response.write(streamChunk(heldChild.model, { content: CHILD_REPLY }, "stop"));
+    heldChild.response.end("data: [DONE]\n\n");
+    await until("the child moves to Done", async () => {
+        const done = list.locator('section[aria-label="Finished subagents"]');
+        return (await done.count()) === 1 && (await done.innerText()).includes(DESCRIPTION)
+            && (await active.locator(".tasks-heading").innerText()) === "Active · 0";
+    }, 45_000);
+    const doneText = await list.locator('section[aria-label="Finished subagents"]').innerText();
+    if (!/Done · 1/.test(doneText) || !/Idle|Done|Ended/.test(doneText)) throw new Error(`Finished list reads ${doneText}`);
+
     // The card opens the Subagents tab on the child, with its reply and a box to message it.
     await card().click();
     await tabs().first().waitFor({ timeout: 15_000 });
@@ -128,15 +156,20 @@ try {
 
     // The back arrow shows the list, with the finished child under Done.
     await detail.getByRole("button", { name: "Back to subagents" }).click();
-    const list = page.locator(`${pane} .subagents`);
     await list.waitFor({ timeout: 15_000 });
     await until("the child under Done", async () => (await list.locator('section[aria-label="Finished subagents"] .subagents-row').count()) === 1);
     if (!(await list.locator('section[aria-label="Finished subagents"] .tasks-heading').innerText()).includes("Done · 1")) throw new Error("The Done heading does not count the child.");
+    if (!(await list.locator('section[aria-label="Active subagents"] .tasks-heading').innerText()).includes("Active · 0")) throw new Error("The Active heading does not count the children.");
     if (!(await list.locator('section[aria-label="Active subagents"]').innerText()).includes("No active subagents")) throw new Error("The Active list is not empty.");
+    if ((await list.locator('.subagents-row .subagent-list-icon').count()) !== 1) throw new Error("The child row has no agent icon.");
     const row = list.locator(".subagents-row").first();
     if (!(await row.innerText()).includes(DESCRIPTION)) throw new Error(`The row reads "${await row.innerText()}".`);
 
     // A row opens the same detail again.
+    await row.focus();
+    await row.press("Enter");
+    await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
+    await detail.getByRole("button", { name: "Back to subagents" }).click();
     await row.click();
     await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
 
@@ -161,6 +194,7 @@ try {
     console.error(error);
     if (page !== undefined) console.error("Page text:", await page.locator(".app").first().innerText().catch(() => "unreadable"));
 } finally {
+    heldChild?.response.destroy();
     await trial.cleanup();
     provider.closeAllConnections();
     await new Promise((resolve) => provider.close(resolve));
