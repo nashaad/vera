@@ -20,11 +20,11 @@ function reportTitleBarHeight(height: number): void {
 
 export function App() {
     const [log] = useState(() => new OutputLog());
-    const { state, reconnect, answer } = useHostConnection(log);
+    const { state, reconnect, answer, listAgents } = useHostConnection(log);
     const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout();
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
-    const environment = useMemo(() => ({ connection: state, log }), [state, log]);
+    const environment = useMemo(() => ({ connection: state, log, listAgents }), [state, log, listAgents]);
     const platform = window.veraDesktop?.platform ?? "";
 
     const banner = bannerFor(state);

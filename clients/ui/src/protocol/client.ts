@@ -10,11 +10,13 @@ export interface AgentListFacts {
     readonly agents: readonly unknown[];
     readonly next_cursor?: string;
     readonly total?: number;
+    readonly unavailable_workers?: readonly string[];
 }
 
 export interface ListAgentsOptions {
     readonly limit?: number;
     readonly order?: "id" | "recent";
+    readonly cursor?: string;
 }
 
 const MAX_FRAME_BYTES = 1_048_576;
@@ -48,6 +50,8 @@ export class HostProtocolClient {
     private readonly pending = new Map<string, Pending>();
     private buffered = "";
     private failed: Error | undefined;
+    private listAgentsBusy = false;
+    private readonly queuedListAgents: Array<() => void> = [];
 
     constructor(private readonly sendFrame: (text: string) => void) {}
 
@@ -61,12 +65,27 @@ export class HostProtocolClient {
 
     // One page, most recently updated first. The host reports the whole listing's size as total.
     listAgents(options: ListAgentsOptions = {}): Promise<AgentListFacts> {
-        const { limit = 50, order } = options;
-        return this.request<AgentListFacts>(
-            { type: "list_agents", limit, ...(order === undefined ? {} : { order }) },
-            "agent_list",
-            isAgentList,
-        );
+        return new Promise((resolve, reject) => {
+            const start = (): void => {
+                this.listAgentsBusy = true;
+                const { limit = 50, order, cursor } = options;
+                void this.request<AgentListFacts>(
+                    {
+                        type: "list_agents",
+                        limit,
+                        ...(order === undefined ? {} : { order }),
+                        ...(cursor === undefined ? {} : { cursor }),
+                    },
+                    "agent_list",
+                    isAgentList,
+                ).then(resolve, reject).then(() => {
+                    this.listAgentsBusy = false;
+                    this.queuedListAgents.shift()?.();
+                });
+            };
+            if (this.listAgentsBusy) this.queuedListAgents.push(start);
+            else start();
+        });
     }
 
     feed(chunk: string): void {
@@ -164,7 +183,10 @@ function isAgentList(value: unknown): value is AgentListFacts {
         && Array.isArray(list.agents)
         && (list.total === undefined
             || (typeof list.total === "number" && Number.isSafeInteger(list.total)))
-        && (list.next_cursor === undefined || typeof list.next_cursor === "string");
+        && (list.next_cursor === undefined || typeof list.next_cursor === "string")
+        && (list.unavailable_workers === undefined
+            || (Array.isArray(list.unavailable_workers)
+                && list.unavailable_workers.every((worker) => typeof worker === "string")));
 }
 
 // A page with more rows behind it and no total has no honest count.

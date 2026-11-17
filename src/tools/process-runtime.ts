@@ -108,8 +108,9 @@ export interface ManagedProcessRegistryOptions {
     readonly groupPollMs?: number;
     readonly signalProcessTree?: (pid: number) => string | undefined;
     readonly processGroupAlive?: (pid: number) => boolean;
-    readonly onProcessStarted?: (pid: number, startedAt: string) => void;
-    readonly onProcessSettled?: (pid: number) => void;
+    readonly onProcessStarted?: (pid: number, startedAt: string, ownerId: string) => void;
+    readonly onProcessSettled?: (pid: number, ownerId: string) => void;
+    readonly onLiveCountChanged?: (ownerId: string, count: number) => void;
     readonly onObservationStarted?: (start: ManagedProcessObservationStart) => Promise<void>;
     readonly onObservationSettled?: (settlement: ManagedProcessObservationSettlement) => Promise<void>;
     readonly onObservationInterrupted?: (start: ManagedProcessObservationStart) => Promise<void>;
@@ -147,6 +148,7 @@ interface ManagedProcessRecord {
     observationStarted?: Promise<void>;
     observationSettled?: Promise<void>;
     visible: boolean;
+    background: boolean;
     leaderExited: boolean;
     groupExited: boolean;
     capturesDrained: boolean;
@@ -187,8 +189,9 @@ export class ManagedProcessRegistry {
     private readonly groupPollMs: number;
     private readonly signalTree: ((pid: number) => string | undefined) | undefined;
     private readonly groupAlive: (pid: number) => boolean;
-    private readonly onProcessStarted: (pid: number, startedAt: string) => void;
-    private readonly onProcessSettled: (pid: number) => void;
+    private readonly onProcessStarted: (pid: number, startedAt: string, ownerId: string) => void;
+    private readonly onProcessSettled: (pid: number, ownerId: string) => void;
+    private readonly onLiveCountChanged: (ownerId: string, count: number) => void;
     private onObservationStarted: ManagedProcessRegistryOptions["onObservationStarted"];
     private onObservationSettled: ManagedProcessRegistryOptions["onObservationSettled"];
     private onObservationInterrupted: ManagedProcessRegistryOptions["onObservationInterrupted"];
@@ -234,6 +237,7 @@ export class ManagedProcessRegistry {
         this.onObservationStarted = options.onObservationStarted;
         this.onObservationSettled = options.onObservationSettled;
         this.onObservationInterrupted = options.onObservationInterrupted;
+        this.onLiveCountChanged = options.onLiveCountChanged ?? (() => {});
         this.sandbox = options.sandbox;
     }
 
@@ -265,6 +269,11 @@ export class ManagedProcessRegistry {
 
     hasUnsettledObservedProcess(ownerId: string): boolean {
         return (this.unsettledObservations.get(ownerId) ?? 0) > 0;
+    }
+
+    liveCount(ownerId: string): number {
+        return this.ownerRecords(ownerId)
+            .filter((record) => record.background && record.finishedAt === undefined).length;
     }
 
     async close(): Promise<void> {
@@ -374,12 +383,13 @@ export class ManagedProcessRegistry {
             completion: lifecycle.promise,
             resolveCompletion: lifecycle.resolve,
             visible: false,
+            background: false,
             leaderExited: false,
             groupExited: false,
             capturesDrained: false,
         };
         this.records.set(record.processId, record);
-        this.onProcessStarted(record.subprocess.pid, record.identityStartedAt);
+        this.onProcessStarted(record.subprocess.pid, record.identityStartedAt, ownerId);
         if (options.observation !== undefined) {
             this.unsettledObservations.set(ownerId, (this.unsettledObservations.get(ownerId) ?? 0) + 1);
             record.observation = {
@@ -438,7 +448,7 @@ export class ManagedProcessRegistry {
                         cleanupError = errorMessage(cleanup);
                     }
                     this.remove(record);
-                } else record.visible = true;
+                } else this.setVisible(record, true);
                 return {
                     kind: "rejected",
                     reason: `Could not register process observation: ${errorMessage(error)}`
@@ -469,7 +479,7 @@ export class ManagedProcessRegistry {
 
         if (outcome === "aborted") {
             const terminated = await this.stopAndWait(record);
-            if (!terminated) record.visible = true;
+            if (!terminated) this.setVisible(record, true);
             if (terminated && !abortedWhileRegistering && record.observationSettled !== undefined) {
                 await record.observationSettled;
             }
@@ -491,7 +501,7 @@ export class ManagedProcessRegistry {
         }
 
         // Ownership has moved out of the foreground turn. A later abort of that turn must not kill a process whose ID was already returned.
-        record.visible = true;
+        this.setVisible(record, true);
         if (record.finishedAt !== undefined) {
             if (record.observationSettled !== undefined) await record.observationSettled;
             const snapshot = await this.withSandboxOutcome(record);
@@ -549,7 +559,7 @@ export class ManagedProcessRegistry {
 
     async closeOwner(ownerId: string): Promise<void> {
         const records = this.ownerRecords(ownerId);
-        for (const record of records) record.visible = true;
+        for (const record of records) this.setVisible(record);
         const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
         await Promise.allSettled(records.map((record) => record.observationSettled));
         for (const [index, record] of records.entries()) {
@@ -673,6 +683,15 @@ export class ManagedProcessRegistry {
     private ownerRecords(ownerId: string): ManagedProcessRecord[] {
         return [...this.records.values()]
             .filter((record) => record.ownerId === ownerId);
+    }
+
+    private setVisible(record: ManagedProcessRecord, background = false): void {
+        record.visible = true;
+        if (!background || record.background) return;
+        record.background = true;
+        if (record.finishedAt === undefined) {
+            this.onLiveCountChanged(record.ownerId, this.liveCount(record.ownerId));
+        }
     }
 
     private makeRetainedRoom(ownerId: string): void {
@@ -855,7 +874,7 @@ export class ManagedProcessRegistry {
         record.exitDrainTimer = undefined;
         record.terminationError = undefined;
         record.finishedAt = this.clock();
-        this.onProcessSettled(record.subprocess.pid);
+        this.onProcessSettled(record.subprocess.pid, record.ownerId);
         if (record.observation !== undefined && record.observationStarted !== undefined) {
             const output = record.output.observationTail();
             const settlement: ManagedProcessObservationSettlement = {
@@ -881,6 +900,9 @@ export class ManagedProcessRegistry {
                     process.stderr.write(`Process observation failed: ${errorMessage(error)}\n`);
                 },
             );
+        }
+        if (record.background) {
+            this.onLiveCountChanged(record.ownerId, this.liveCount(record.ownerId));
         }
         record.resolveCompletion();
         if (record.visible) this.retainExited(record);

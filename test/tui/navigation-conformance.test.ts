@@ -91,6 +91,7 @@ const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
         exception: "Preview is a nested text page; Up/Down scroll, Escape returns to Resume",
     },
     session_create_leave: {},
+    session_close: {},
     session_import: {},
     configure: {},
     settings: {},

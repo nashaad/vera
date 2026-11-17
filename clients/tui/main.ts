@@ -200,7 +200,6 @@ import {
 import { TuiBodyFocusController } from "./body-focus.ts";
 import { createTuiPermissionsConfirmView } from "./permissions-confirm.ts";
 import { createTuiSessionTrashConfirmView } from "./session-trash-confirm.ts";
-import { createTuiSessionCloseConfirmView } from "./session-close-confirm.ts";
 import { createTuiAnimationsPreviewView } from "./animations-preview.ts";
 import { createTuiProviderForgetConfirmView } from "./provider-forget-confirm.ts";
 import { createTuiOverridesResetConfirmView } from "./overrides-reset-confirm.ts";
@@ -1143,7 +1142,7 @@ export async function startTui(
     rt.catalogRefreshes = new Map<string, string>();
     /** The settings change each in-flight admission was meant to end in, applied when its "added" verdict lands. */
     rt.sessionTrashPending = false;
-    rt.sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = undefined;
     rt.animationsPreviewOpen = false;
     rt.footerEditor = undefined;
     rt.footerEditorParent = undefined;
@@ -1937,8 +1936,6 @@ export async function startTui(
     rt.admissionDialogView = createTuiAdmissionDialogView(rt.renderer);
     rt.sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(rt.renderer);
-    rt.sessionCloseConfirmView =
-        createTuiSessionCloseConfirmView(rt.renderer);
     rt.animationsPreviewView = createTuiAnimationsPreviewView(rt.renderer);
     rt.footerEditorView = createFooterEditorView(rt.renderer);
     rt.providerForgetConfirmView =
@@ -1967,7 +1964,6 @@ export async function startTui(
         rt.permissionsConfirmView,
         rt.admissionDialogView,
         rt.sessionTrashConfirmView,
-        rt.sessionCloseConfirmView,
         rt.providerForgetConfirmView,
         rt.overridesResetConfirmView,
         rt.approvalView,
@@ -2289,6 +2285,10 @@ export async function startTui(
         rt.timelinePicker = { ...rt.timelinePicker, selectedIndex: index };
     });
     rt.settingsPickerView.pointer = rowPointer(rt, (index) => {
+        if (rt.sessionCloseConfirm !== undefined) {
+            rt.sessionCloseConfirm = { ...rt.sessionCloseConfirm, selectedIndex: index };
+            return;
+        }
         if (rt.settingsPicker === undefined) return;
         rt.settingsPicker = moveTuiSettingsPickerPointer(rt.settingsPicker, index);
     });
@@ -2541,7 +2541,6 @@ export async function startTui(
     rt.app.add(rt.permissionsConfirmView.box);
     rt.app.add(rt.admissionDialogView.surface);
     rt.app.add(rt.sessionTrashConfirmView.surface);
-    rt.app.add(rt.sessionCloseConfirmView.surface);
     rt.app.add(rt.animationsPreviewView.surface);
     rt.app.add(rt.footerEditorView.surface);
     rt.app.add(rt.providerForgetConfirmView.surface);
@@ -3184,7 +3183,6 @@ export async function startTui(
         () => rt.documentDialogView.repaint(),
         ...rt.admissionDialogView.themeBindings,
         ...rt.sessionTrashConfirmView.themeBindings,
-        ...rt.sessionCloseConfirmView.themeBindings,
         ...rt.animationsPreviewView.themeBindings,
         ...rt.footerEditorView.themeBindings,
         ...rt.providerForgetConfirmView.themeBindings,

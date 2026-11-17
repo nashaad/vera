@@ -1414,18 +1414,18 @@ test("closing in-flight work asks first", async () => {
     try {
         await session.waitForVisiblePane("TURN IN FLIGHT");
         session.sendKey("C-w");
-        let pane = await session.waitForVisiblePane("Stop this conversation?");
-        expect(pane).toContain("[1] close");
+        let pane = await session.waitForVisiblePane("1. Stop & close");
+        expect(pane).toContain("2. Keep running");
         session.sendKey("Escape");
         pane = await session.waitForVisiblePaneWhere(
             (visible) =>
                 visible.includes("TURN IN FLIGHT")
-                && !visible.includes("Stop this conversation?"),
+                && !visible.includes("1. Stop & close"),
             "the in-flight transcript after cancel",
         );
         expect(pane).not.toContain("This conversation is idle.");
         session.sendKey("C-w");
-        await session.waitForVisiblePane("[1] close");
+        await session.waitForVisiblePane("1. Stop & close");
         session.sendKey("1");
         pane = await session.waitForVisiblePaneWhere(
             (visible) =>

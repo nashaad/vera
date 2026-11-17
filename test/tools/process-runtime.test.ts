@@ -11,6 +11,102 @@ import {
 
 const ENV = process.env as Readonly<Record<string, string | undefined>>;
 
+test("a foreground process is not counted before it exits", async () => {
+    const changes: number[] = [];
+    const registry = new ManagedProcessRegistry({
+        onLiveCountChanged: (_ownerId, count) => changes.push(count),
+    });
+    const scope = registry.scope("foreground");
+    try {
+        const running = scope.run({
+            command: "sleep 0.2",
+            cwd: process.cwd(),
+            env: ENV,
+            yieldAfterMs: 500,
+            interactive: false,
+        });
+        await Bun.sleep(30);
+        expect(registry.liveCount("foreground")).toBe(0);
+        expect(changes).toEqual([]);
+        expect(await running).toMatchObject({ kind: "exited" });
+        expect(changes).toEqual([]);
+    } finally {
+        await registry.close();
+    }
+});
+
+test("an observed background process reports counts and settlement independently", async () => {
+    const counts: number[] = [];
+    const starts: Array<{ pid: number; ownerId: string }> = [];
+    const settlements: Array<{ pid: number; ownerId: string }> = [];
+    const observed: string[] = [];
+    const registry = new ManagedProcessRegistry({
+        onProcessStarted: (pid, _startedAt, ownerId) => starts.push({ pid, ownerId }),
+        onProcessSettled: (pid, ownerId) => settlements.push({ pid, ownerId }),
+        onLiveCountChanged: (_ownerId, count) => counts.push(count),
+        async onObservationStarted() { observed.push("started"); },
+        async onObservationSettled() { observed.push("settled"); },
+    });
+    const scope = registry.scope("crow-owner");
+    try {
+        const running = expectRunning(await scope.run({
+            command: "sleep 0.2",
+            cwd: process.cwd(),
+            env: ENV,
+            yieldAfterMs: 0,
+            interactive: false,
+            observation: { extensionId: "crow.extension", description: "Crow checks the cargo" },
+        }));
+        expect(starts).toEqual([{ pid: running.pid, ownerId: "crow-owner" }]);
+        expect(counts).toEqual([1]);
+        expect(registry.liveCount("crow-owner")).toBe(1);
+        await untilValue(() => observed.includes("settled") ? true : undefined);
+        expect(settlements).toEqual(starts);
+        expect(observed).toEqual(["started", "settled"]);
+        expect(counts).toEqual([1, 0]);
+        expect(registry.liveCount("crow-owner")).toBe(0);
+    } finally {
+        await registry.close();
+    }
+});
+
+test("a failed observation registration counts an unconfirmed live process", async () => {
+    const counts: number[] = [];
+    const interrupted: string[] = [];
+    const registry = new ManagedProcessRegistry({
+        id: () => "p-registration-failed",
+        stopWaitMs: 10,
+        signalProcessTree: () => "simulated signal failure",
+        onLiveCountChanged: (_ownerId, count) => counts.push(count),
+        async onObservationStarted() { throw new Error("registration failed"); },
+        async onObservationSettled() { throw new Error("unexpected settlement"); },
+        async onObservationInterrupted(start) { interrupted.push(start.processId); },
+    });
+    try {
+        const result = await registry.scope("crow-owner").run({
+            command: "sleep 0.4",
+            cwd: process.cwd(),
+            env: ENV,
+            yieldAfterMs: 0,
+            interactive: false,
+            observation: { extensionId: "crow.extension", description: "Crow checks the cargo" },
+        });
+        expect(result).toMatchObject({
+            kind: "rejected",
+            reason: "Could not register process observation: registration failed Process remains managed as p-registration-failed.",
+        });
+        expect(registry.liveCount("crow-owner")).toBe(1);
+        expect(counts).toEqual([1]);
+        await untilValue(() => !registry.hasLiveProcesses() && !registry.hasUnsettledObservedProcess("crow-owner")
+            ? true : undefined);
+        expect(interrupted).toEqual(["p-registration-failed"]);
+        expect(counts).toEqual([1, 0]);
+    } finally {
+        await untilValue(() => !registry.hasLiveProcesses() ? true : undefined);
+        await registry.close();
+    }
+});
+
 test("a yielded process survives its former turn signal and can be killed", async () => {
     const registry = new ManagedProcessRegistry({ id: () => "p-survives" });
     const scope = registry.scope("session-a");

@@ -10,7 +10,6 @@ import { createTuiNamePromptView } from "../../clients/tui/name-prompt.ts";
 import { createTuiSecretPromptView } from "../../clients/tui/secret-prompt.ts";
 import { createTuiProviderFormView } from "../../clients/tui/settings-picker-provider-form.ts";
 import { createTuiProviderForgetConfirmView } from "../../clients/tui/provider-forget-confirm.ts";
-import { createTuiSessionCloseConfirmView } from "../../clients/tui/session-close-confirm.ts";
 import { createTuiSessionTrashConfirmView } from "../../clients/tui/session-trash-confirm.ts";
 import { createTuiOverridesResetConfirmView } from "../../clients/tui/overrides-reset-confirm.ts";
 import { createTuiPermissionsConfirmView } from "../../clients/tui/permissions-confirm.ts";
@@ -127,7 +126,7 @@ test("persistent dialogs all use the configurable shared header", async () => {
     const setup = await createTestRenderer({ width: 100, height: 40 });
     const factories = [
         createTuiAdmissionDialogView, createTuiNamePromptView, createTuiSecretPromptView,
-        createTuiProviderFormView, createTuiProviderForgetConfirmView, createTuiSessionCloseConfirmView,
+        createTuiProviderFormView, createTuiProviderForgetConfirmView,
         createTuiSessionTrashConfirmView, createTuiOverridesResetConfirmView,
         createTuiApprovalView, createTuiQuestionView, createTuiDiagnosticsDialogView,
         createTuiRequestOptionsEditorView,

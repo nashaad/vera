@@ -9,6 +9,7 @@ import {
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { browseModels, initialModelBrowseScope } from "./model-browse.ts";
 import { subagentTitle } from "./subagent-title.ts";
+import { stopAndCloseDescription } from "./background-command-count.ts";
 import {
     bg,
     BoxRenderable,
@@ -1497,6 +1498,25 @@ export function sessionPickerGroup(agent: RegisteredAgentSummary): string {
     if (agent.status === "waiting") return NEEDS_YOU_GROUP;
     if (agent.status === "working") return WORKING_GROUP;
     return live ? IDLE_GROUP : RECENT_GROUP;
+}
+
+export function startTuiSessionClosePicker(
+    title: string,
+    count: number,
+): TuiSettingsPickerState {
+    const options: readonly TuiSettingsPickerOption[] = [
+        { value: "stop", label: "Stop & close", description: stopAndCloseDescription(count) },
+        { value: "keep_running", label: "Keep running", description: "leave it open" },
+    ];
+    return {
+        kind: "session_close",
+        title: `Close ${title}`,
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        backgroundCommandCount: count,
+    };
 }
 
 export function startTuiCreateLeavePicker(

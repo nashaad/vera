@@ -187,7 +187,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         },
         resumeAgent: resumeSession,
         listAgents: () => options.keepResidentOwner === true
-            ? Promise.resolve(snapshots.list())
+            ? snapshots.refreshAndList()
             : router.list(),
         onRosterChanged: (listener: () => void) => snapshots.onChanged(listener),
         listBackgroundAgents: () => snapshots.list(),

@@ -122,6 +122,8 @@ export function createRemoteHostBoundary(
                 await pipe.request({ method: "process.observationInterrupted", observation }, AbortSignal.timeout(30_000));
             },
         } : {}),
+        onLiveCountChanged: (ownerId, count) =>
+            pipe.notify({ method: "process.count", ownerId, count }),
         ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
     });
 

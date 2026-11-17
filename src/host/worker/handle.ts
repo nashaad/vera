@@ -65,6 +65,7 @@ export interface StartWorkerOptions {
     readonly processObservations?: ManagedProcessObservationHandlers;
     readonly deadlineMs?: number;
     readonly onUpdate?: (update: AgentUpdate, ownerId?: string) => void;
+    readonly onProcessCountChanged?: (ownerId: string, count: number) => void;
     readonly command?: readonly string[];
     readonly cwd?: string;
     readonly env?: Readonly<Record<string, string>>;
@@ -245,6 +246,7 @@ export async function startWorker(
         onProcessStarted: (pid, processStartedAt) => supervisor?.watchProcessGroup(pid, processStartedAt),
         onProcessSettled: (pid) => supervisor?.forgetProcessGroup(pid),
         ...(observationHandlers === undefined ? {} : { processObservations: observationHandlers }),
+        onProcessCountChanged: (ownerId, count) => options.onProcessCountChanged?.(ownerId, count),
         onBlockAck: (ack) => settleBlockAck(ack),
     });
 

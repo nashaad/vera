@@ -159,6 +159,12 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     extensionTools: options.extensionTools,
                     toolRuntime: hostToolRuntime(store, options.data),
                 }),
+            onProcessCountChanged: (ownerId, count) => {
+                if (ownerId !== store.header.id) return;
+                if (count === 0) delete options.entry.backgroundCommands;
+                else options.entry.backgroundCommands = count;
+                reg.notifyRosterChanged();
+            },
             onUpdate: (update, ownerId) => {
                 if (agent.closed && ownerId === undefined && update.type === "turn_finished") {
                     closedTurnFinished = true;

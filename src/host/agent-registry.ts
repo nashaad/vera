@@ -137,6 +137,14 @@ export class AgentRegistry {
         this.processRegistry = new ManagedProcessRegistry({
             ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
             ...options.processObservations,
+            onLiveCountChanged: (id, count) => {
+                const entry = this.agents.get(id);
+                if (entry !== undefined) {
+                    if (count === 0) delete entry.backgroundCommands;
+                    else entry.backgroundCommands = count;
+                }
+                this.notifyRosterChanged();
+            },
         });
         this.reviewerSettings = options.reviewer;
         this.defaultModel = options.model;

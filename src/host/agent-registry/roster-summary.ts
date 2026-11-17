@@ -29,6 +29,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
         entry.store, entry.store.appendedLineCount(), entry.store.name(),
         entry.store.agentFailure()?.timestamp, size, status, live, entry.identity?.name,
         entry.kind, entry.parentId, entry.worker?.pid, entry.worker?.supervisor?.pid,
+        entry.backgroundCommands,
     ];
     const cached = summaries.get(entry);
     if (cached !== undefined
@@ -68,6 +69,9 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
             ?? entry.store.latestMessageTimestamp()
             ?? entry.store.header.timestamp,
         ...(size === undefined ? {} : { size_bytes: size }),
+        ...(entry.backgroundCommands === undefined || entry.backgroundCommands === 0
+            ? {}
+            : { background_commands: entry.backgroundCommands }),
     };
     summaries.set(entry, { inputs, summary });
     return summary;

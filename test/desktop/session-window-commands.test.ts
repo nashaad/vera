@@ -11,6 +11,7 @@ import { LAYOUT_COMMANDS } from "../../clients/ui/src/commands/layout-commands.t
 import { SESSION_COMMANDS } from "../../clients/ui/src/commands/session-commands.ts";
 import { currentToasts } from "../../clients/ui/src/overlays/toasts.ts";
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
+import type { BackgroundCommandCountResult } from "../../clients/ui/src/protocol/backgroundCommands.ts";
 import { clearActiveSession, publishActiveSession } from "../../clients/ui/src/session/activeSession.ts";
 import { closeSessionSheet, openedSessionSheet } from "../../clients/ui/src/session/sessionSheets.ts";
 import { isPinned, toggleSessionPin } from "../../clients/ui/src/state/usePins.ts";
@@ -23,13 +24,24 @@ describe("window session commands", () => {
         clearActiveSession("crow-1");
     });
 
-    function wired(bridge: Partial<DesktopBridge>, parent?: { kind: "session"; agentId: string; title: string }) {
+    function wired(
+        bridge: Partial<DesktopBridge>,
+        parent?: { kind: "session"; agentId: string; title: string },
+        count = 0,
+        countResult?: BackgroundCommandCountResult,
+    ) {
         const registry = new CommandRegistry();
         const routes: unknown[] = [];
+        const warnings: Array<{ agentId: string; count: number; confirm: () => void }> = [];
         registerSessionWindowCommands(registry, {
             navigate: (route) => routes.push(route),
             parentRoute: () => parent,
             bridge: () => bridge as DesktopBridge,
+            backgroundCommandCount: async (): Promise<BackgroundCommandCountResult> =>
+                countResult ?? { ok: true, count },
+            warnAboutBackgroundCommands: (target, warningCount, confirm) => {
+                warnings.push({ agentId: target.agentId, count: warningCount, confirm });
+            },
         });
         publishActiveSession({
             bridge: bridge as DesktopBridge,
@@ -39,7 +51,7 @@ describe("window session commands", () => {
             watch: initialWatch("crow-1"),
             send: () => undefined,
         });
-        return { registry, routes };
+        return { registry, routes, warnings };
     }
 
     function lastToast(): string | undefined {
@@ -49,7 +61,13 @@ describe("window session commands", () => {
     test("@core they do nothing while no session page is open", () => {
         const registry = new CommandRegistry();
         const routes: unknown[] = [];
-        registerSessionWindowCommands(registry, { navigate: (route) => routes.push(route), parentRoute: () => undefined, bridge: () => undefined });
+        registerSessionWindowCommands(registry, {
+            navigate: (route) => routes.push(route),
+            parentRoute: () => undefined,
+            bridge: () => undefined,
+            backgroundCommandCount: async () => ({ ok: true, count: 0 }),
+            warnAboutBackgroundCommands: () => {},
+        });
         const before = currentToasts().length;
         for (const id of [SESSION_COMMANDS.rename, SESSION_COMMANDS.clone, SESSION_COMMANDS.close, SESSION_COMMANDS.parent]) {
             expect(registry.execute(id)).toBe(true);
@@ -88,7 +106,70 @@ describe("window session commands", () => {
         expect(lastToast()).toBe("Session closed");
     });
 
-    test("a refused clone or close stays on the page and says why", async () => {
+    test("@core uncertain background count closes without a warning", async () => {
+        const closed: string[] = [];
+        const { registry, warnings } = wired({
+            closeSession: async (agentId) => {
+                closed.push(agentId);
+                return { ok: true, retained: true };
+            },
+        }, undefined, 0, { ok: false, reason: "ignored" });
+        registry.execute(SESSION_COMMANDS.close);
+        await Bun.sleep(0);
+        expect(warnings).toEqual([]);
+        expect(closed).toEqual(["crow-1"]);
+        expect(lastToast()).toBe("Session closed");
+    });
+
+    test("@core one background command warns, and cancelling leaves the session open", async () => {
+        const closed: string[] = [];
+        const { registry, routes, warnings } = wired({
+            closeSession: async (agentId) => {
+                closed.push(agentId);
+                return { ok: true, retained: true };
+            },
+        }, undefined, 1);
+        registry.execute(SESSION_COMMANDS.close);
+        await Bun.sleep(0);
+        expect(warnings.map(({ agentId, count }) => ({ agentId, count }))).toEqual([{ agentId: "crow-1", count: 1 }]);
+        expect(closed).toEqual([]);
+        expect(routes).toEqual([]);
+    });
+
+    test("@core two background commands wait for confirmation before closing", async () => {
+        const closed: string[] = [];
+        const { registry, routes, warnings } = wired({
+            closeSession: async (agentId) => {
+                closed.push(agentId);
+                return { ok: true, retained: true };
+            },
+        }, undefined, 2);
+        registry.execute(SESSION_COMMANDS.close);
+        await Bun.sleep(0);
+        expect(warnings.map(({ agentId, count }) => ({ agentId, count }))).toEqual([{ agentId: "crow-1", count: 2 }]);
+        expect(closed).toEqual([]);
+        expect(routes).toEqual([]);
+        warnings[0]?.confirm();
+        await Bun.sleep(0);
+        expect(closed).toEqual(["crow-1"]);
+        expect(routes).toEqual([{ kind: "home" }]);
+    });
+
+    test("@core a failed background lookup closes without showing a warning", async () => {
+        const closed: string[] = [];
+        const { registry, warnings } = wired({
+            closeSession: async (agentId) => {
+                closed.push(agentId);
+                return { ok: true, retained: true };
+            },
+        }, undefined, 0, { ok: false, reason: "unavailable" });
+        registry.execute(SESSION_COMMANDS.close);
+        await Bun.sleep(0);
+        expect(warnings).toEqual([]);
+        expect(closed).toEqual(["crow-1"]);
+    });
+
+    test("@core a refused clone or close stays on the page and says why", async () => {
         const { registry, routes } = wired({
             cloneSession: async () => ({ ok: false, reason: "The host could not copy the session" }),
             closeSession: async () => ({ ok: false, reason: "The host could not close the session" }),
@@ -148,6 +229,24 @@ describe("window session commands", () => {
         registry.execute(SESSION_ROW_COMMANDS.openFiles, other);
         expect(routes).toHaveLength(1);
         expect(activated).toEqual([{ container: "core.files" }]);
+    });
+
+    test("@core a row's close checks its own target and waits for confirmation", async () => {
+        const closed: string[] = [];
+        const { registry, routes, warnings } = wired({
+            closeSession: async (agentId) => {
+                closed.push(agentId);
+                return { ok: true, retained: true };
+            },
+        }, undefined, 1);
+        registry.execute(SESSION_ROW_COMMANDS.close, other);
+        await Bun.sleep(0);
+        expect(warnings.map(({ agentId, count }) => ({ agentId, count }))).toEqual([{ agentId: "crow-9", count: 1 }]);
+        expect(closed).toEqual([]);
+        warnings[0]?.confirm();
+        await Bun.sleep(0);
+        expect(closed).toEqual(["crow-9"]);
+        expect(routes).toEqual([]);
     });
 
     test("@core a row's close stays on the open page, and a row's clone opens the copy", async () => {

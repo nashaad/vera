@@ -20,6 +20,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.dialStrip !== undefined) {
         return () => rt.dialCard.focus();
     }
+    if (rt.sessionCloseConfirm !== undefined) {
+        return () => rt.settingsPickerView.focus();
+    }
     const uiRequest = focusedUiRequest(rt)
         ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard);
     if (
@@ -81,9 +84,6 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     }
     if (rt.admissionDialog !== undefined) {
         return () => rt.admissionDialogView.box.focus();
-    }
-    if (rt.sessionCloseConfirm) {
-        return () => rt.sessionCloseConfirmView.box.focus();
     }
     if (rt.sessionTrashCandidate !== undefined) {
         return () => rt.sessionTrashConfirmView.box.focus();
@@ -615,7 +615,7 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
     rt.admissionReturnPicker = undefined;
     rt.sessionTrashCandidate = undefined;
     rt.sessionTrashPending = false;
-    rt.sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = undefined;
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;

@@ -3,6 +3,7 @@ import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
+import { currentBackgroundCommandCount } from "../background-command-count.ts";
 import { modelSwitchCommand } from "../model-switch-command.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
@@ -15,7 +16,7 @@ import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelD
 import { renderState } from "../main/render-state.ts";
 import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
-import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerState, type TuiExtensionPickerTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, handleTuiSettingsPickerKey, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerState, type TuiExtensionPickerTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
 import { loadModelPickerPreferences, saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
@@ -43,9 +44,30 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     transition:
         | TuiSettingsPickerTransition
         | TuiExtensionPickerTransition,
+    countChecked = false,
 ): void {
     const extensionPickerWasOpen = rt.settingsPicker?.kind === "extension";
     const previousPicker = rt.settingsPicker;
+    const leaveParent = transition.state?.kind === "session_leave"
+        ? transition.state.parent
+        : undefined;
+    if (!countChecked && leaveParent?.kind === "session"
+        && (previousPicker?.kind === "session" || previousPicker?.kind === "session_preview")
+        && rt.dependencies.listSessionPage !== undefined) {
+        void currentBackgroundCommandCount(
+            rt.dependencies.listSessionPage,
+            focusedAgentClient(rt).agentId,
+        ).catch(() => undefined).then((count) => {
+            if (rt.shuttingDown || rt.settingsPicker !== previousPicker) return;
+            const refreshed = { ...leaveParent, backgroundCommandCount: count };
+            applySettingsPickerTransition(
+                rt,
+                handleTuiSettingsPickerKey(refreshed, { name: "enter" }),
+                true,
+            );
+        });
+        return;
+    }
     const providerParent = previousPicker?.kind === "provider_actions" || previousPicker?.kind === "provider"
         ? previousPicker : undefined;
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
