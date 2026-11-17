@@ -256,7 +256,7 @@ async function builtinJourney() {
         await press(app, "K", [MODIFIER]);
         const palette = page.locator('input[aria-label="Command palette"]');
         await palette.waitFor({ timeout: 10_000 });
-        await palette.fill("Theme: Muted Blue");
+        await palette.fill("Muted Blue");
         await page.locator('.palette-row[data-command="theme.muted-blue"]').waitFor({ timeout: 10_000 });
         await selectTheme("muted-blue", () => palette.press("Enter"));
         await capture("muted-blue");
@@ -289,7 +289,7 @@ async function builtinJourney() {
         await press(app, "K", [MODIFIER]);
         const onyxPalette = page.locator('input[aria-label="Command palette"]');
         await onyxPalette.waitFor({ timeout: 10_000 });
-        await onyxPalette.fill("Theme: Onyx");
+        await onyxPalette.fill("Onyx");
         const builtinOnyxCommand = page.locator('.palette-row[data-command="theme.onyx"]');
         const importedOnyxCommand = page.locator('.palette-row[data-command="theme.imported.crow.onyx"]');
         await builtinOnyxCommand.waitFor({ timeout: 10_000 });
@@ -324,7 +324,7 @@ async function builtinJourney() {
 
         await press(app, "K", [MODIFIER]);
         await palette.waitFor({ timeout: 10_000 });
-        await palette.fill("Theme: High Contrast");
+        await palette.fill("High Contrast");
         const highContrast = page.locator('.palette-row[data-command="theme.highContrast"]');
         await highContrast.waitFor({ timeout: 10_000 });
         expectEqual(await highContrast.innerText(), "Theme: High Contrast", "the high contrast palette title");
