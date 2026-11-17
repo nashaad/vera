@@ -1,0 +1,61 @@
+name: Full tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: full-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  full:
+    name: Full tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install development dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Set up Linux sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor bubblewrap socat ripgrep
+          sudo tee /etc/apparmor.d/vera-ci-bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+              userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/vera-ci-bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          bun -e '
+              import { SandboxManager } from "./src/sandbox/manager.ts";
+              const sandbox = new SandboxManager({
+                  config: () => ({ enabled: true, network: "open", allowed_domains: [] }),
+                  permissionRules: () => [],
+                  log: () => {},
+              });
+              const inspection = sandbox.inspection();
+              console.log(inspection);
+              if (inspection.status !== "active") process.exit(1);
+          '
+
+      - name: Run full test suite
+        run: bun test
