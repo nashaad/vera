@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 
-import { signalVerifiedProcessGroup, type ProcessGroupReads } from "../src/process-group.ts";
+import { signalVerifiedProcessGroup, type ProcessGroupMember, type ProcessGroupReads } from "../src/process-group.ts";
 
 const pid = 4242;
 const startedAt = Date.UTC(2026, 10, 8, 12, 0, 0);
@@ -13,6 +17,44 @@ function reads(signals: string[], overrides: ProcessGroupReads = {}): ProcessGro
         ...overrides,
     };
 }
+
+test("@core process group snapshots accept zero group IDs without signalling them", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-ps-snapshot-"));
+    try {
+        writeFileSync(join(directory, "ps"), "#!/bin/sh\nprintf '%s\\n' \"$VERA_TEST_PS_OUTPUT\"\n", { mode: 0o755 });
+        const module = new URL("../src/process-group.ts", import.meta.url).href;
+        const script = `import { readProcessGroupSnapshot } from ${JSON.stringify(module)}; console.log(JSON.stringify(readProcessGroupSnapshot() ?? null));`;
+        const readRows = (output: string): unknown => JSON.parse(execFileSync(process.execPath, ["-e", script], {
+            encoding: "utf8",
+            env: { ...process.env, PATH: `${directory}${delimiter}${process.env.PATH ?? ""}`, VERA_TEST_PS_OUTPUT: output },
+        }));
+
+        const rows = readRows("2 0 S 00:01\n4242 4242 Ss 00:00") as ProcessGroupMember[];
+        expect(rows).toMatchObject([{ pid: 2, group: 0, state: "S" }, { pid: 4242, group: 4242, state: "Ss" }]);
+        const signals: string[] = [];
+        const leader = rows[1]!;
+        expect(signalVerifiedProcessGroup({ pid: leader.pid, started_at: new Date(leader.startedAt).toISOString() }, "SIGTERM", {
+            reads: reads(signals, { readProcessGroupSnapshot: () => rows }),
+        })).toBe("sent");
+        expect(signals).toEqual(["SIGTERM:-4242"]);
+        const zeroGroup = rows[0]!;
+        expect(signalVerifiedProcessGroup({ pid: zeroGroup.pid, started_at: new Date(zeroGroup.startedAt).toISOString() }, "SIGKILL", {
+            reads: reads(signals, { readProcessGroupSnapshot: () => rows }),
+        })).toBe("not_group_leader");
+        expect(signals).toEqual(["SIGTERM:-4242"]);
+        for (const invalid of ["0 0 S 00:01", "2 -1 S 00:01", "2 ? S 00:01", "2 9007199254740992 S 00:01", "2 0 S invalid"]) {
+            expect(readRows(invalid)).toBeNull();
+        }
+        for (const invalid of [-1, 0, 1]) {
+            expect(signalVerifiedProcessGroup({ pid: invalid, started_at: record.started_at }, "SIGKILL", {
+                reads: reads(signals),
+            })).toBe("unverified");
+        }
+        expect(signals).toEqual(["SIGTERM:-4242"]);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
 
 test("a verified group leader receives the group signal", () => {
     const signals: string[] = [];

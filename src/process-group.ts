@@ -47,7 +47,7 @@ export function readProcessGroupSnapshot(): readonly ProcessGroupMember[] | unde
             const group = Number(match[2]);
             const elapsed = parseElapsedTime(match[4]!);
             if (!Number.isSafeInteger(pid) || pid < 1 || !Number.isSafeInteger(group)
-                || group < 1 || elapsed === undefined) return undefined;
+                || group < 0 || elapsed === undefined) return undefined;
             members.push({ pid, group, state: match[3]!, startedAt: now - elapsed });
         }
         return members;
