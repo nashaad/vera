@@ -102,6 +102,13 @@ export class RoutedSnapshots {
         if (target <= this.completed) return Promise.resolve();
         return new Promise<void>((resolve) => this.waiters.push({ target, resolve }));
     }
+
+    async refreshAndList(): Promise<readonly RegisteredAgentSummary[]> {
+        this.refresh();
+        await this.wait();
+        return this.list();
+    }
+
     list(): readonly RegisteredAgentSummary[] { return this.summaries; }
     workIndex(): WorkIndexSnapshot { return this.index; }
 

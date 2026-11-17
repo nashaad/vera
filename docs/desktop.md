@@ -241,7 +241,8 @@ Six views ship with the app:
   - Clone Session copies the session and opens the copy.
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
-    as it is.
+    as it is. If the session has background commands, a confirmation counts
+    them and offers `Stop and close` or `Cancel`.
 - Review, Plan and Files, each in its own container in the right pane,
   follow the open session; see Session tools.
 - Browser, in its own container in the right pane, shows Vera's pages; see
@@ -503,7 +504,9 @@ Slash commands:
   `/rename Crow's nest audit` renames the open session and shows a notice in the
   window's corner; `/rename` alone opens a sheet with the current name. `/clone`
   starts a new session holding a copy of the whole conversation and opens it.
-  `/close` stops the session and keeps its file, then opens New Chat. `/parent`
+  `/close` stops the session and keeps its file, then opens New Chat. When
+  background commands are running, `/close` and Close Session in the palette
+  ask for confirmation, just like Close Session in the sidebar. `/parent`
   opens the session that started this one and says so when there is none. These
   four need a session; on New Chat they say `/name needs an open session`.
 - Skills appear as `/<skill-name>`, one row for each skill the session can run.

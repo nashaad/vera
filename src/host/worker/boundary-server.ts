@@ -27,6 +27,7 @@ export interface WorkerBoundaryServerOptions {
     readonly onProcessStarted?: (pid: number, startedAt: string) => void;
     readonly onProcessSettled?: (pid: number) => void;
     readonly processObservations?: ManagedProcessObservationHandlers;
+    readonly onProcessCountChanged?: (ownerId: string, count: number) => void;
     readonly onBlockAck?: (ack: SessionBlockAck) => void;
 }
 
@@ -510,6 +511,13 @@ export function createWorkerBoundaryServer(
             if (message.method === "process.settled") {
                 const { pid } = body as { readonly pid: number };
                 options.onProcessSettled?.(pid);
+                return;
+            }
+            if (message.method === "process.count") {
+                const { ownerId, count } = body as { readonly ownerId?: unknown; readonly count?: unknown };
+                if (typeof ownerId !== "string" || ownerId.trim().length === 0
+                    || typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return;
+                options.onProcessCountChanged?.(ownerId, count);
                 return;
             }
         },

@@ -282,6 +282,7 @@ export interface RegisteredAgentSummary {
     readonly parent_id?: string;
     readonly forked_from?: string;
     readonly size_bytes?: number;
+    readonly background_commands?: number;
     readonly created_at?: string;
     readonly facts?: SessionFacts;
     readonly imported_from?: ImportedSessionSummary;
@@ -842,6 +843,7 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
+    backgroundCommands?: number;
     /** Block confirmation for a session that runs in the host process; a worker uses its handle. */
     blockControl?: SessionBlockControl;
     /** True while a block file holds an in-process session. */

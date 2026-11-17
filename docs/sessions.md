@@ -67,13 +67,23 @@ running, detach with Ctrl+X then D first.
 
 `/clear` starts a new conversation and asks Close this conversation or Keep
 running. Keep running stays idle for ten minutes, then closes. `/clear stop`
-and `/clear keep` make that choice without asking. `/new` is the same command
-as `/clear`.
+closes without asking unless the conversation has background commands, when it
+asks with the same menu. `/clear keep` keeps running without asking. `/new` is
+the same command as `/clear`.
 
 In the New conversation picker, `1. Close this conversation` closes the source
 and starts fresh, while `2. Keep running` keeps the source running and starts
 fresh. Either number acts immediately without Enter. Arrow navigation, Enter,
 and Escape keep their usual picker behavior.
+
+When this conversation has background shell commands, the switch and New
+conversation leave menus count them and warn that closing stops them. `/close`
+and Ctrl+W open a picker when background commands or work are in flight. Press
+`1` for Stop & close or `2` for Keep running; either acts immediately. You can
+also use the arrows and Enter. Escape cancels and leaves the conversation open.
+An idle conversation with no background commands closes directly. A focused side
+pane handles `/close` or Ctrl+W by closing the pane and leaving the conversation
+running.
 
 Other conversations can remain running after the TUI exits.
 

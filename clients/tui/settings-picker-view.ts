@@ -880,7 +880,8 @@ function optionRowLabel(
 ): string {
     return (digitQuickSelect(state) && state.kind !== "settings"
             || state.kind === "session_create_leave"
-            || state.kind === "session_leave")
+            || state.kind === "session_leave"
+            || state.kind === "session_close")
             && state.query === ""
             && row.index < 9
         ? `${row.index + 1}. ${row.option.label}`
@@ -1465,6 +1466,12 @@ export function renderListPickerRows(
                     : { description: row.option.description }),
                 meta: row.option.rowMeta
                     ?? optionMeta(state, row.option, detailed, listedPrefixWidth),
+                ...((state.kind === "session_close"
+                        || ((state.kind === "session_leave" || state.kind === "session_create_leave")
+                            && (state.backgroundCommandCount ?? 0) > 0))
+                        && row.option.value === "stop"
+                    ? { wrap: true, hangDescription: true }
+                    : {}),
                 card: row.option.card,
                 ...(listedHeader ? { background: TUI_INPUT } : {}),
                 active: row.index === state.selectedIndex,
@@ -1752,7 +1759,8 @@ export function renderListPickerRows(
     if (tipLine !== undefined && tipLine.text.length > 0 && (state.kind === "extension" || state.verificationTargets === undefined)
         && state.kind !== "model_verification" && state.kind !== "model_defaults"
         && state.kind !== "session_leave"
-        && state.kind !== "session_create_leave") {
+        && state.kind !== "session_create_leave"
+        && state.kind !== "session_close") {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,
@@ -1937,6 +1945,7 @@ export function pickerFooterText(
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session_leave") return "1/2 switch · ↑↓ choose · ⏎ switch · esc back";
+    if (state.kind === "session_close") return "1/2 close · ↑↓ choose · ⏎ close · esc back";
     if (state.kind === "session_preview") {
         return [
             "↑↓ scroll",

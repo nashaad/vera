@@ -175,6 +175,37 @@ test("@core overlapping roster refreshes share a trailing snapshot without delay
     }
 });
 
+test("@core a failed snapshot refresh returns the cached list and recovers", async () => {
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const session = { id: "crow", workspace: "/work", sessionPath: "/sessions/crow.jsonl" };
+    let failed = true;
+    let count = 1;
+    worker.snapshot = async () => {
+        if (failed) throw new Error("worker snapshot unavailable");
+        const summary: RegisteredAgentSummary = {
+            id: session.id, live: true, workspace: session.workspace, session_path: session.sessionPath,
+            kind: "interactive", status: "idle", background_commands: count,
+        };
+        return { residents: [session], summaries: [summary], work: [], unreadSources: [] };
+    };
+    const snapshots = new RoutedSnapshots(host, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
+    }], () => 0, () => {});
+
+    expect(await snapshots.refreshAndList()).toEqual([]);
+    failed = false;
+    const cached = await snapshots.refreshAndList();
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({ id: "crow", background_commands: 1 });
+    failed = true;
+    const lists = await Promise.all([snapshots.refreshAndList(), snapshots.refreshAndList()]);
+    expect(lists).toEqual([cached, cached]);
+    failed = false;
+    count = 2;
+    expect((await snapshots.refreshAndList())[0]).toMatchObject({ id: "crow", background_commands: 2 });
+});
+
 test("a roster change during a trailing pass publishes the latest state", async () => {
     const host = endpoint(new Map());
     const worker = endpoint(new Map());

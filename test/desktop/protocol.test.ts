@@ -44,6 +44,24 @@ test("@core the client rejects an oversized frame and fails pending work", async
     expect(identity).rejects.toThrow("larger than this client accepts");
 });
 
+test("@core list_agents serializes overlapping pages and carries each cursor", async () => {
+    const { client, frames } = connected();
+    const first = client.listAgents({ limit: 100, order: "recent" });
+    const second = client.listAgents({ limit: 100, order: "recent", cursor: "crow-100" });
+    expect(frames.map((frame) => JSON.parse(frame))).toEqual([
+        { type: "list_agents", limit: 100, order: "recent" },
+    ]);
+    client.feed("{\"type\":\"agent_list\",\"agents\":[],\"next_cursor\":\"crow-100\",\"total\":101}\n");
+    await first;
+    await Bun.sleep(0);
+    expect(frames.map((frame) => JSON.parse(frame))).toEqual([
+        { type: "list_agents", limit: 100, order: "recent" },
+        { type: "list_agents", limit: 100, order: "recent", cursor: "crow-100" },
+    ]);
+    client.feed("{\"type\":\"agent_list\",\"agents\":[{}],\"total\":101}\n");
+    await second;
+});
+
 test("@core the page request carries its size and order, and the count comes from total", async () => {
     const { client, frames } = connected();
     const page = client.listAgents({ limit: 25, order: "recent" });

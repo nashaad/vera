@@ -57,6 +57,9 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                         ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,
                     ...(size === undefined ? {} : { size_bytes: size }),
+                    ...(entry.backgroundCommands === undefined || entry.backgroundCommands === 0
+                        ? {}
+                        : { background_commands: entry.backgroundCommands }),
                 };
             })
             .sort((left, right) => left.id.localeCompare(right.id));

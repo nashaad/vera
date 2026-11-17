@@ -1,4 +1,5 @@
 import { stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
+import { stopAndSwitchDescription } from "./background-command-count.ts";
 import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 import {
     isSessionSpaceKey,
@@ -37,6 +38,10 @@ export function screenPickerKey(
         case "session_leave":
         case "session_create_leave":
             return leaveConfirmKey(state, key);
+        case "session_close":
+            return tuiBindingId("picker", key) === undefined
+                ? leaveConfirmKey(state, key)
+                : undefined;
         case "session_import":
             return tuiBindingId("import_picker", key) === "import_scope"
                 ? {
@@ -103,14 +108,28 @@ function sessionPickerKey(
             && selected.section === undefined
             && selected.current !== true
         ) {
+            const options = state.backgroundCommandCount === undefined
+                || state.backgroundCommandCount === 0
+                ? SESSION_LEAVE_OPTIONS
+                : SESSION_LEAVE_OPTIONS.map((option) =>
+                    option.value === "stop"
+                        ? {
+                            ...option,
+                            description: stopAndSwitchDescription(
+                                state.backgroundCommandCount!,
+                            ),
+                        }
+                        : option,
+                );
             return {
                 state: {
                     kind: "session_leave",
                     title: `Switch to ${selected.label}`,
-                    allOptions: SESSION_LEAVE_OPTIONS,
-                    options: SESSION_LEAVE_OPTIONS,
+                    allOptions: options,
+                    options,
                     selectedIndex: 0,
                     query: "",
+                    backgroundCommandCount: state.backgroundCommandCount,
                     parent: state,
                 },
                 handled: true,
@@ -132,21 +151,22 @@ function leaveConfirmKey(
     key: TuiSettingsPickerKey,
 ): TuiSettingsPickerTransition {
     const creating = state.kind === "session_create_leave";
+    const closing = state.kind === "session_close";
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return unchanged(state, false);
     }
     const shortcut = !key.shift && (key.name === "1" || key.name === "2");
-    if (creating && shortcut) {
+    if ((creating || closing) && shortcut) {
         return {
             selection: {
-                kind: "session_create_leave",
+                kind: closing ? "session_close" : "session_create_leave",
                 sourceDisposition: key.name === "1" ? "stop" : "keep_running",
             },
             handled: true,
         };
     }
     if (key.name === "escape") {
-        return creating
+        return creating || closing
             ? { handled: true }
             : { state: state.parent, handled: true };
     }
@@ -170,11 +190,14 @@ function leaveConfirmKey(
     const sourceDisposition = choice.value === "keep_running"
         ? "keep_running"
         : "stop";
-    if (creating) {
-        return state.ignoreEnter === true
+    if (creating || closing) {
+        return creating && state.ignoreEnter === true
             ? { state: { ...state, ignoreEnter: false }, handled: true }
             : {
-                selection: { kind: "session_create_leave", sourceDisposition },
+                selection: {
+                    kind: closing ? "session_close" : "session_create_leave",
+                    sourceDisposition,
+                },
                 handled: true,
             };
     }

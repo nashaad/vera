@@ -24,7 +24,9 @@ live conversation, choose what happens to it:
 
 In the leave menu, press `1` to stop and switch or `2` to switch and keep
 running. Either key acts immediately. You can also move with the arrows and
-press Enter. In the conversation list, digits remain search input.
+press Enter. In the conversation list, digits remain search input. When the
+conversation has background shell commands, the leave menu counts them and
+warns that closing stops them.
 
 Space on a highlighted conversation opens a preview and does not switch.
 Escape closes the preview.

@@ -2,6 +2,10 @@ import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
 import type { RegisteredAgentSummary } from "../../../src/host/agent-registry.ts";
 import type { TrashSessionResult } from "../../../src/host/session-trash-client.ts";
 import { startTuiAdmissionDialog } from "../admission-dialog.ts";
+import {
+    currentBackgroundCommandCount,
+    stopAndCreateDescription,
+} from "../background-command-count.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { createHomeClient, isHomeClient } from "../home-client.ts";
 import { createHomeState, homeStateWithRestarts, type HomeAction } from "../home-screen.ts";
@@ -21,8 +25,10 @@ import { clearTranscriptNodes, renderState } from "../main/render-state.ts";
 import { forgetPersistedAgentPane, rememberOpenPaneGroup } from "../main/sidebar-pane.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { openCommandPalette, openResumePicker, openSearchOverlay, refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
-import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
-import { sessionPickerLists, startTuiCreateLeavePicker, startTuiSessionPicker } from "../settings-picker.ts";
+import { hasSessionCloseWork, type TuiSessionLeaveDisposition, type TuiSessionLeaveResult } from "../session-lifecycle.ts";
+import { sessionPickerLists, startTuiCreateLeavePicker, startTuiSessionClosePicker, startTuiSessionPicker } from "../settings-picker.ts";
+import { subagentTitle } from "../subagent-title.ts";
+import { SESSION_CREATE_LEAVE_OPTIONS } from "../settings-picker-types.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, createTuiState, dropTuiAdmission, setTuiWorkspaceRoot } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -131,7 +137,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.sessionSwitchPending = false;
     rt.sessionTrashCandidate = undefined;
     rt.sessionTrashPending = false;
-    rt.sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = undefined;
     rt.providerForgetCandidate = undefined;
     rt.timelinePicker = undefined;
     rt.settingsPicker = undefined;
@@ -251,21 +257,27 @@ export function requestCloseSession(rt: TuiRuntime): void {
     if (requestFocusedPaneClose(rt)) {
         return;
     }
-    if (
-        rt.state.working
-        || rt.state.compactingSince !== undefined
-        || rt.pendingUiRequest !== undefined
-    ) {
-        rt.sessionCloseConfirm = true;
-        renderState(rt);
-        focusActiveSurface(rt);
-        return;
-    }
-    beginParkToJsonl(rt);
+    const source = rt.client;
+    void currentBackgroundCommandCount(
+        rt.dependencies.listSessionPage,
+        source.agentId,
+    ).catch(() => 0).then((count) => {
+        if (rt.shuttingDown || rt.sessionSwitchPending || rt.client !== source) return;
+        if (count > 0 || hasSessionCloseWork(rt.state, rt.pendingUiRequest !== undefined)) {
+            rt.sessionCloseConfirm = startTuiSessionClosePicker(
+                subagentTitle(rt.sessionTitle ?? "untitled", rt.sessionParentId),
+                count,
+            );
+            renderState(rt);
+            focusActiveSurface(rt);
+            return;
+        }
+        beginParkToJsonl(rt);
+    });
 }
 
 export function beginParkToJsonl(rt: TuiRuntime): void {
-    rt.sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = undefined;
     if (isWorkerFreeClient(rt.client) || rt.sessionSwitchPending) {
         return;
     }
@@ -495,26 +507,55 @@ export function requestCreateSession(
         return;
     }
     if (rt.sessionSwitchPending) return;
-    if (options.sourceDisposition !== undefined) {
-        beginCreateSession(rt, options.sourceDisposition);
+    if (options.sourceDisposition === "keep_running") {
+        beginCreateSession(rt, "keep_running");
         return;
     }
-    rt.settingsPicker = startTuiCreateLeavePicker(options.ignoreEnter === true);
-    focusActiveSurface(rt);
-    renderState(rt);
-    if (options.ignoreEnter === true) {
-        setTimeout(() => {
-            if (
-                rt.settingsPicker?.kind === "session_create_leave"
-                && rt.settingsPicker.ignoreEnter === true
-            ) {
-                rt.settingsPicker = {
-                    ...rt.settingsPicker,
-                    ignoreEnter: false,
-                };
+    const source = rt.client;
+    void currentBackgroundCommandCount(
+        rt.dependencies.listSessionPage,
+        source.agentId,
+    ).catch(() => 0).then((count) => {
+        if (rt.shuttingDown || rt.sessionSwitchPending || rt.client !== source) return;
+        if (options.sourceDisposition === "stop" && count === 0) {
+            beginCreateSession(rt, "stop");
+            return;
+        }
+        const picker = startTuiCreateLeavePicker(options.ignoreEnter === true);
+        const pickerOptions = count > 0
+            ? SESSION_CREATE_LEAVE_OPTIONS.map((option) =>
+                option.value === "stop"
+                    ? {
+                        ...option,
+                        description: stopAndCreateDescription(count),
+                    }
+                    : option,
+            )
+            : picker.options;
+        rt.settingsPicker = count > 0
+            ? {
+                ...picker,
+                allOptions: pickerOptions,
+                options: pickerOptions,
+                backgroundCommandCount: count,
             }
-        }, 0);
-    }
+            : picker;
+        focusActiveSurface(rt);
+        renderState(rt);
+        if (options.ignoreEnter === true) {
+            setTimeout(() => {
+                if (
+                    rt.settingsPicker?.kind === "session_create_leave"
+                    && rt.settingsPicker.ignoreEnter === true
+                ) {
+                    rt.settingsPicker = {
+                        ...rt.settingsPicker,
+                        ignoreEnter: false,
+                    };
+                }
+            }, 0);
+        }
+    });
 }
 
 export function beginCreateSession(rt: TuiRuntime, 

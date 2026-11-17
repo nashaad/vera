@@ -39,11 +39,15 @@ matching rows. Delegated conversations appear in their normal status group.
 Temporary BTW conversations do not appear here.
 
 Keep running stays idle for ten minutes without a viewer, then Vera closes
-that worker and keeps the saved file. Ctrl+Shift+Left and Ctrl+Shift+Right
-cycle those live conversations without opening the picker.
+that worker and keeps the saved file. If background commands are running, the
+leave menu counts them and warns that closing stops them. The later idle close
+stops them too. Ctrl+Shift+Left and Ctrl+Shift+Right cycle those live
+conversations without opening the picker.
 
 Ctrl+N from a live session asks Close this conversation or Keep running, the
 same as `/clear`. Home and file-view Ctrl+N start immediately.
 
-To park live work, use `/close` or Ctrl+W from the composer. See
-[Saved conversations](sessions.md).
+To park live work, use `/close` or Ctrl+W from the composer. When background
+commands or work are in flight, choose Stop & close or Keep running in the
+picker; an idle conversation with no commands closes directly. A focused side
+pane closes instead of the conversation. See [Saved conversations](sessions.md).
