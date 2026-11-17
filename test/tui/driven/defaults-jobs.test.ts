@@ -28,7 +28,9 @@ test("the manage menu reaches the defaults, which name the job slots", async () 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("More models");
+        await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g");
+        await session.waitForVisiblePane("● Favorites");
         // Ctrl+K is the browse page's own menu; the defaults live under it.
         session.sendKey("C-k");
         await session.waitForVisiblePane("Manage models");
@@ -129,6 +131,8 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/model");
         session.sendKey("Enter");
+        await session.waitForVisiblePane("All connected");
+        session.sendKey("C-g");
         await session.waitForVisiblePane("Your favorite models land here.");
         session.sendText("one");
         await session.waitForVisiblePane("Ctrl+F favorite");
