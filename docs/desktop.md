@@ -311,17 +311,20 @@ Seven views ship with the app:
   subagent of a chat does not get a group named after the chat's folder. A
   subagent of a subagent is listed under the same top parent. A pinned session's
   subagents are listed under it in Pinned, and a pinned subagent is listed in
-  Pinned on its own. A session with subagents shows a chevron on hover that
-  collapses them; the collapsed row shows a count such as `2 nested`. A group
-  and a parent collapse and expand while the window stays open; neither state is
-  kept across launches. Archived sessions and their subagents leave Pinned,
-  Chats and their folder groups for an `Archived` group at the bottom. It starts
-  collapsed. Opening an archived session from that group or Go to Session does
-  not unarchive it. Each row has a dot, the session's title, and the time since its
-  last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
-  `1y`). A session that is running or waiting has a filled blue dot and shows no
-  time. The other rows have an outlined dot. Picking a row opens that session,
-  and the row of the open session is filled.
+  Pinned on its own. Subagents start collapsed beneath their parent. A count such
+  as `2 nested` shows how many are listed, with `· 1 working` when one is working.
+  Click the count or the chevron beside the parent title to show the nested rows;
+  click the chevron again to collapse them. A group and a parent collapse and
+  expand while the window stays open; neither state is kept across launches.
+  Archived sessions and their subagents leave Pinned, Chats and their folder
+  groups for an `Archived` group at the bottom. It starts collapsed. Opening an
+  archived session from that group or Go to Session does not unarchive it. Each
+  row shows the session's title and its status at the right. A working session
+  has a rotating indicator, a session waiting on you has a filled dot, and the
+  other rows have an outlined dot and the time since their last activity, written
+  short (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`). Reduce motion stops the rotating
+  indicator. Picking a row opens that session, and the row of the open session is
+  filled.
 
   A session's title is its name, whether you gave it or Vera's automatic titles
   did, or else the start of its first prompt, the same as in the terminal UI.
