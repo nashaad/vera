@@ -17,7 +17,7 @@ import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerState, type TuiExtensionPickerTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
-import { saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
+import { loadModelPickerPreferences, saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import {
@@ -31,6 +31,13 @@ import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { loadOptionalVeraConfig, VeraConfigError } from "../../../src/config.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import { applyModelSwitch, openModelSwitcher } from "../main/model-switcher-ops.ts";
+
+function browsePreferenceState(
+    picker: TuiSettingsPickerState | TuiExtensionPickerState | undefined,
+): TuiSettingsPickerState | undefined {
+    const state = picker?.kind === "model_menu" ? picker.parent : picker;
+    return state?.kind === "model" && state.modelBrowse === "browse" ? state : undefined;
+}
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
@@ -50,14 +57,23 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     ) {
         beginSessionPreviewLoad(rt, transition.previewSession.path);
     }
-    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse === "browse"
-        && (previousPicker?.kind === "model_menu"
-            || previousPicker?.kind === "model" && previousPicker.tab !== rt.settingsPicker.tab)) {
-        try {
-            saveModelPickerPreferences({ view: rt.settingsPicker.browseView ?? "standard",
-                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.browseSort ?? "library" });
-        } catch (error) {
-            showStatusNotice(rt, `Could not save model picker preferences: ${String(error)}`);
+    const previousBrowse = browsePreferenceState(previousPicker);
+    const nextBrowse = browsePreferenceState(rt.settingsPicker);
+    if (previousBrowse !== undefined && nextBrowse !== undefined) {
+        const scopeChanged = previousBrowse.tab !== nextBrowse.tab;
+        const viewChanged = previousBrowse.browseView !== nextBrowse.browseView;
+        const sortChanged = previousBrowse.browseSort !== nextBrowse.browseSort;
+        if (scopeChanged || viewChanged || sortChanged) {
+            try {
+                const saved = loadModelPickerPreferences();
+                saveModelPickerPreferences({
+                    scope: scopeChanged ? nextBrowse.tab === "all" ? "all" : "pool" : saved.scope,
+                    view: viewChanged ? nextBrowse.browseView ?? "standard" : saved.view,
+                    sort: sortChanged ? nextBrowse.browseSort ?? "library" : saved.sort,
+                });
+            } catch (error) {
+                showStatusNotice(rt, `Could not save model picker preferences: ${String(error)}`);
+            }
         }
     }
     if (

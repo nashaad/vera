@@ -7,7 +7,7 @@ import {
     importToolLabel,
 } from "../../src/store/session-import-provenance.ts";
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
-import { browseModels } from "./model-browse.ts";
+import { browseModels, initialModelBrowseScope } from "./model-browse.ts";
 import { subagentTitle } from "./subagent-title.ts";
 import {
     bg,
@@ -311,8 +311,10 @@ export function syncTuiModelPicker(
         undefined,
         settings?.pooled,
     );
-    // The tab is the user's own place in the pane, so a snapshot arriving from the host must not move them out of it.
-    const tab = state.tab ?? "all";
+    const pendingScope = state.modelBrowse === "browse" ? state.browsePendingScope : undefined;
+    const tab = pendingScope !== undefined && settings?.pooled !== undefined
+        ? initialModelBrowseScope(pendingScope, settings.pooled.length > 0)
+        : state.tab ?? "all";
     // Closed sections are the user's own place in the pane too, for the same reason the tab is: a snapshot arriving from the host must not reopen them under the user mid-action.
     const collapsed = state.collapsed ?? [];
     const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
@@ -321,6 +323,9 @@ export function syncTuiModelPicker(
         allOptions: settings?.providerCatalogs === undefined ? rebuilt.allOptions : rebuilt.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         providerCatalogs: settings?.providerCatalogs ?? state.providerCatalogs,
         modelBrowse: state.modelBrowse,
+        ...(pendingScope !== undefined && settings?.pooled === undefined
+            ? { browsePendingScope: pendingScope }
+            : {}),
         browseView: state.browseView,
         browseProvider: state.browseProvider,
         browseAvailableOnly: state.browseAvailableOnly,
