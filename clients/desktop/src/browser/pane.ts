@@ -4,6 +4,7 @@ import { app, session, WebContentsView, type BrowserWindow } from "electron";
 
 import { BROWSER_TAB_LIMIT, type BrowserBounds, type BrowserState } from "../../../ui/src/browser/native-types.ts";
 import { browserUrl, URL_LIMIT } from "../../../ui/src/browser/url.ts";
+import { BROWSER_HISTORY_COMMAND } from "../../../ui/src/commands/keys.ts";
 import { shortcutCommand } from "../shortcuts.ts";
 
 function isWebUrl(value: string): boolean {
@@ -22,7 +23,7 @@ export class BrowserPane {
         private readonly window: BrowserWindow,
         private readonly loaded: (url: string, title: string) => void = () => {},
         private readonly cleared: () => void = () => {},
-        private readonly reloadShortcut: () => void = () => {},
+        private readonly shortcut: (command: "page.reload.native" | typeof BROWSER_HISTORY_COMMAND) => void = () => {},
     ) {}
 
     private session(): Electron.Session {
@@ -71,9 +72,12 @@ export class BrowserPane {
         const id = this.nextId++;
         this.tabs.set(id, view);
         view.webContents.on("before-input-event", (event, input) => {
-            if (shortcutCommand(input, process.platform) !== "page.reload") return;
+            const command = shortcutCommand(input, process.platform);
+            if (command !== "page.reload" && command !== BROWSER_HISTORY_COMMAND) return;
             event.preventDefault();
-            if (this.active === id && this.bounds !== undefined && this.bounds.width > 0 && this.bounds.height > 0) this.reloadShortcut();
+            if (this.active === id && this.bounds !== undefined && this.bounds.width > 0 && this.bounds.height > 0) {
+                this.shortcut(command === "page.reload" ? "page.reload.native" : command);
+            }
         });
         const record = (): void => {
             const url = view.webContents.getURL();
