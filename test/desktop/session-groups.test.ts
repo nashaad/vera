@@ -177,6 +177,35 @@ test("a chat names itself Chat and has no folder path to show", () => {
     expect(rowFolderPath(row("a", ""))).toBeUndefined();
 });
 
+test("@core archived families leave pins, chats and folders and restore their pin order", () => {
+    const rows = [
+        row("folder", "/p"),
+        row("parent", "/chat.files", { chat: true, archived: true }),
+        row("child", "/q", { parentId: "parent" }),
+        row("grandchild", "/q", { parentId: "child", status: "waiting" }),
+    ];
+    const pins = ["child", "parent"];
+    const groups = groupSessions(rows, pins);
+    expect(groups.map((group) => group.title)).toEqual(["p", "Archived"]);
+    expect(shape(groups[1])).toEqual([["parent", false, 2], ["child", true, 0], ["grandchild", true, 0]]);
+    expect(groups[1]?.entries.map((entry) => entry.archiveRoot?.id)).toEqual(["parent", "parent", "parent"]);
+    expect(waitingCount(rows)).toBe(1);
+    const restored = groupSessions(rows.map((entry) => ({ ...entry, archived: false })), pins);
+    expect(restored.map((group) => group.title)).toEqual(["Pinned", "p"]);
+    expect(restored[0]?.entries.map((entry) => entry.row.id)).toEqual(["child", "grandchild", "parent"]);
+    expect(pins).toEqual(["child", "parent"]);
+});
+
+test("archived standalone sessions share the last group whatever their folder", () => {
+    const groups = groupSessions([
+        row("a", "/p", { archived: true }),
+        row("b", "/q", { archived: true, chat: true }),
+        row("c", "/r"),
+    ]);
+    expect(groups.map((group) => group.title)).toEqual(["r", "Archived"]);
+    expect(groups[1]?.entries.map((entry) => entry.row.id)).toEqual(["a", "b"]);
+});
+
 test("folder names and the waiting count", () => {
     expect(folderName("/Users/crow/Projects/vera")).toBe("vera");
     expect(folderName("C:\\ships\\brig\\")).toBe("brig");

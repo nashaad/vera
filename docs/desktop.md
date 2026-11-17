@@ -307,7 +307,10 @@ Seven views ship with the app:
   Pinned on its own. A session with subagents shows a chevron on hover that
   collapses them; the collapsed row shows a count such as `2 nested`. A group
   and a parent collapse and expand while the window stays open; neither state is
-  kept across launches. Each row has a dot, the session's title, and the time since its
+  kept across launches. Archived sessions and their subagents leave Pinned,
+  Chats and their folder groups for an `Archived` group at the bottom. It starts
+  collapsed. Opening an archived session from that group or Go to Session does
+  not unarchive it. Each row has a dot, the session's title, and the time since its
   last activity at the right, written short (`now`, `5m`, `3h`, `2d`, `1mo`,
   `1y`). A session that is running or waiting has a filled blue dot and shows no
   time. The other rows have an outlined dot. Picking a row opens that session,
@@ -329,6 +332,15 @@ Seven views ship with the app:
     folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
     newer pin past that drops the oldest. The terminal UI keeps its own pins. A
     pinned session shows only while it is among the sessions the list has loaded.
+  - Archive Session moves the session and its subagents into Archived; Unarchive
+    Session returns them to their groups, including Pinned when still pinned.
+    Either action on a subagent's row applies to its parent session family,
+    even when the parent is outside the loaded page. Pins are preserved. The host saves the archive choice with
+    the session, so it survives a host restart and other windows see it too.
+    Archiving leaves the open conversation shown, never stops a running turn and
+    does not change when an idle session parks. A session that needs you still
+    shows its notice, which opens it without unarchiving. The terminal has no
+    archive control, and archiving does not hide a session there.
   - Open Files Pane opens the session and the right pane on its Files view. The
     row is offered while Files is shown.
   - Clone Session copies the session and opens the copy.
@@ -1627,6 +1639,7 @@ node clients/desktop/test/chattab.e2e.mjs
 node clients/desktop/test/help.e2e.mjs
 node clients/desktop/test/btw.e2e.mjs
 node clients/desktop/test/rename.e2e.mjs
+node clients/desktop/test/archive.e2e.mjs
 node clients/desktop/test/tools.e2e.mjs
 node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/artifact-pane.e2e.mjs
@@ -1811,6 +1824,11 @@ the title bar show the title and not the generated name, then renames it with
 `/rename` and from the row menu's sheet, which starts from the shown title. It
 checks the row and the title bar show each new name within one three-second poll,
 with no turn in between.
+
+The archive test archives a session from its row menu, opens Archived, and
+unarchives it back into its group. It checks a pin is restored, an archived
+session still opens from Go to Session, and archiving during a streamed turn
+leaves the conversation shown and lets the turn finish. It stops its trial host.
 
 The tools test runs a local provider that writes a scratch checklist, writes a
 file and edits it. It checks the turn's edits roll up into one card, opens the

@@ -194,6 +194,7 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         readWorkIndex: () => snapshots.workIndex(),
         attachmentCoordinator: attachments,
         renameSession: (id: string, name: string | null) => reserveAgent(id, (reserved) => router.rename(id, name, reserved)),
+        setSessionArchived: (id: string, archived: boolean) => reserveAgent(id, (reserved) => router.setArchived(id, archived, reserved)),
         moveSession: (id: string, request: Parameters<HostRouter["move"]>[1]) => reserveAgent(id, (reserved) => router.move(id, request, reserved)),
         trashSession: (id: string) => reserveAgent(id, (reserved) => router.trash(id, reserved)),
         closeAgent: (id: string, reason?: Parameters<HostRouter["close"]>[1]) => router.close(id, reason),

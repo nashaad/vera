@@ -35,6 +35,7 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                                 ? "completed" as const
                                 : entry.agent.status,
                     live: entryIsLive(entry),
+                    archived: entry.store.archived(),
                     ...(entry.worker === undefined
                         ? {}
                         : {

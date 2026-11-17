@@ -94,6 +94,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sidekickSync, sidekickAgentId)) as SyncSidekickResult,
     closeSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionClose, agentId)) as CloseSessionResult,
+    setSessionArchived: async (agentId: string, archived: boolean) =>
+        (await ipcRenderer.invoke(CHANNELS.sessionArchive, agentId, archived)) as { readonly ok: true } | { readonly ok: false; readonly reason: string },
     moveSession: async (agentId: string) =>
         (await ipcRenderer.invoke(CHANNELS.sessionMove, agentId)) as MoveSessionOutcome,
     existingFolders: async (folders: readonly string[]) => {

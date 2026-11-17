@@ -79,6 +79,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     rememberStored(summary: RegisteredAgentSummary): Promise<void>;
     forgetStored(id: string): Promise<void>;
     rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    setArchived(id: string, archived: boolean, reserved?: boolean): Promise<"updated" | "not_found" | "failed">;
     move(id: string, request: MoveSessionInput, reserved?: boolean): Promise<MoveSessionOutcome>;
     trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     reserveTrash(ids: readonly string[], rootId: string, registeredIds: readonly string[], reservedIds: readonly string[]): Promise<TrashReservation>;

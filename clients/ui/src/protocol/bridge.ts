@@ -297,6 +297,7 @@ export interface DesktopBridge {
     // Opens the native folder picker and asks the host to move the session to the folder chosen; a chat's files go with it.
     // The host ends the session's watch connections while it moves, so the page attaches again after "moved".
     moveSession(agentId: string): Promise<MoveSessionOutcome>;
+    setSessionArchived(agentId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     // With no folder the host creates a chat, a session that works in a folder of its own.
     // With notesOffer true the session may offer to keep notes; the host fixes that when it creates the session.
