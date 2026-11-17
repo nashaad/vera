@@ -4,7 +4,8 @@
 
 Open a session and a page in the desktop's Browser pane. The pointer button at
 the right of the address bar opens the annotation toolbar on the page. It works
-on sites and Vera's annex pages.
+on sites and Vera's annex pages. In Files, open an HTML file and choose Preview;
+the pointer beside the preview opens the same toolbar.
 
 Select element outlines the element under the pointer. Click to keep that
 selection. Use Pen for freehand marks, Shapes for a line, arrow, rectangle,
@@ -28,7 +29,8 @@ excerpts. Removing the chip removes both its image and selection text.
 Send your message as usual. Vera receives the screenshot as an image and a
 plain-text block naming the page and describing the selection. There is no
 separate annotation request. Drawings without an element include the page
-address and screenshot, without element details.
+address and screenshot, without element details. A local preview also names the
+source file.
 
 ## Execution
 

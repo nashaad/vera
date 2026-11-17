@@ -1112,7 +1112,12 @@ numbers. The window reads at most the first 256 KB and says so when the file is
 longer. A folder, a file that is not text and a file that is gone each show one
 line saying so. The arrows in the bar step back and forward through the files
 opened, up to the last 50, and `Browse files` hides or shows the tree. An open
-file is read again when a turn ends. Plan and Review are built from the
+file is read again when a turn ends. An HTML file offers Source and Preview.
+Preview renders it beside the tree, including relative assets in the session's
+folder. The pointer selects or draws on the page and adds a screenshot and file
+details to the session's composer. Reload reads the file again after a change;
+Source returns to its text. See [Browser annotation](browser-annotation.md).
+Plan and Review are built from the
 session's conversation, so when the session is not running and nothing of it
 has loaded, each says `This session is not running. Start it to see its plan.`
 or `This session is not running. Start it to see its changes.` with
@@ -1381,7 +1386,7 @@ of those, and on a `var(--vera-*)` name that is not declared.
 
 A desktop extension adds to the desktop app itself. Today an extension can add
 themes, and an extension that ships with the app can add tasks, page scripts,
-the commands that run them, and entries for those commands in Settings, the
+file preview types, the commands that run them, and entries for those commands in Settings, the
 View menu and the Browser toolbar. It is a folder
 with a `vera.desktop.json` manifest. The terminal UI
 does not use desktop extensions and keeps its own themes.
@@ -1426,7 +1431,10 @@ ship in the app and are not copied there; an included id in that file is ignored
 `engine` is `vera-gui@^1`. Each theme has a `label` of 1 to 120 characters and a
 `path` inside the extension to a theme file, at most 2 MiB, in the format Vera
 saves when it imports a VS Code theme. An extension holds at most 32 themes. An
-extension that adds only themes needs no `main`. Unknown keys are refused.
+extension that adds only themes needs no `main`. An included extension can list
+up to eight lowercase file extensions without dots under `contributes.filePreviews`;
+Files offers Preview for those types. Installed extensions do not enable file
+previews. Unknown keys are refused.
 
 ### Tasks
 

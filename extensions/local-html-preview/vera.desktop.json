@@ -1,0 +1,8 @@
+{
+    "id": "vera.local-html-preview",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "filePreviews": ["html", "htm"]
+    }
+}

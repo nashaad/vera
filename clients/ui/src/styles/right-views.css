@@ -531,6 +531,25 @@ button.file-row:focus-visible {
     min-height: 0;
 }
 
+.local-preview-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--vera-space);
+    padding: var(--vera-space);
+}
+
+.local-preview-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: var(--vera-surface-input);
+}
+
+.local-preview-controls .right-seg {
+    margin: 0;
+}
+
 .file-preview-bar {
     display: flex;
     flex: 0 0 auto;

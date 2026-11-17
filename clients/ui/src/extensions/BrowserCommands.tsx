@@ -8,9 +8,10 @@ import { desktopExtensions, subscribeDesktopExtensions } from "./state.ts";
 interface BrowserCommandsProps {
     readonly hasPage: boolean;
     readonly onError: (reason: string | undefined) => void;
+    readonly frameName?: string;
 }
 
-export function BrowserCommands({ hasPage, onError }: BrowserCommandsProps) {
+export function BrowserCommands({ hasPage, onError, frameName }: BrowserCommandsProps) {
     const extensions = useSyncExternalStore(subscribeDesktopExtensions, desktopExtensions);
     const session = useActiveSession();
     const [running, setRunning] = useState(false);
@@ -26,7 +27,7 @@ export function BrowserCommands({ hasPage, onError }: BrowserCommandsProps) {
                     onError(undefined);
                     queuePageCapture(owner, progress.capture);
                 }
-            });
+            }, frameName);
             if (!result.ok) onError(result.reason);
             else if (result.kind === "capture") queuePageCapture(owner, result.capture);
         } catch { onError("The page could not be read."); }

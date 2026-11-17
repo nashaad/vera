@@ -55,14 +55,14 @@ const bridge: DesktopBridge = {
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),
     loadImportedThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesLoad)) as readonly ImportedThemeSummary[],
-    runExtensionCommand: async (command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void) => {
+    runExtensionCommand: async (command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void, frameName?: string) => {
         const token = onProgress === undefined ? undefined : crypto.randomUUID();
         const handler = (_event: unknown, id: string, result: ExtensionCommandResult): void => {
             if (id === token) onProgress?.(result);
         };
         if (token !== undefined) ipcRenderer.on(CHANNELS.extensionCommandProgress, handler);
         try {
-            return (await ipcRenderer.invoke(CHANNELS.extensionCommand, command, pick, token)) as ExtensionCommandResult;
+            return (await ipcRenderer.invoke(CHANNELS.extensionCommand, command, pick, token, frameName)) as ExtensionCommandResult;
         } finally {
             if (token !== undefined) ipcRenderer.off(CHANNELS.extensionCommandProgress, handler);
         }
@@ -138,6 +138,8 @@ const bridge: DesktopBridge = {
     },
     listFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderList, folder)) as FolderListing,
     readFilePreview: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileRead, path)) as FilePreview,
+    openLocalPreview: async (root: string, path: string) => await ipcRenderer.invoke(CHANNELS.previewOpen, root, path),
+    closeLocalPreview: (token: string) => ipcRenderer.send(CHANNELS.previewClose, token),
     readModelSettings: async (workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelsRead, workspace)) as HostModelsResult,
     listProviders: async () => (await ipcRenderer.invoke(CHANNELS.providerList)) as ProviderListResult,

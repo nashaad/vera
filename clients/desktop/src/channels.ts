@@ -43,6 +43,8 @@ export const CHANNELS = {
     branchRead: "vera:branch-read",
     folderList: "vera:folder-list",
     fileRead: "vera:file-read",
+    previewOpen: "vera:preview-open",
+    previewClose: "vera:preview-close",
     imagesChoose: "vera:images-choose",
     imagePaste: "vera:image-paste",
     filesCheck: "vera:files-check",

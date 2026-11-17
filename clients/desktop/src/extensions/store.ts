@@ -41,6 +41,7 @@ interface Found {
     readonly tasks: readonly DesktopTask[];
     readonly commands: readonly DesktopCommand[];
     readonly menus: DesktopManifest["menus"];
+    readonly filePreviews?: readonly string[];
 }
 
 // The commands the window can run: those that name a task of an extension included with Vera, the only ones that run.
@@ -124,6 +125,7 @@ export class ExtensionStore {
                 tasks: manifest.tasks,
                 commands: manifest.commands,
                 menus: manifest.menus,
+                ...(manifest.filePreviews === undefined ? {} : { filePreviews: manifest.filePreviews }),
             });
             if (found.length >= MAX_EXTENSIONS) break;
         }
@@ -156,6 +158,7 @@ export class ExtensionStore {
                 ...(command.category === undefined ? {} : { category: command.category }),
             })),
             menus: menusOf(entry),
+            ...(entry.included && entry.filePreviews !== undefined ? { filePreviews: entry.filePreviews } : {}),
             included: entry.included,
             enabled: !this.off(entry, disabled),
         }));

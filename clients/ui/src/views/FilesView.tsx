@@ -14,7 +14,7 @@ export function FilesView({ visible }: ViewProps) {
     if (session === undefined) return <p className="view-empty">Open a session to see its files.</p>;
     const folder = session.folder;
     if (folder === undefined || folder === "") return <p className="view-empty">This session has no folder.</p>;
-    return <FolderFiles key={folder} session={session} folder={folder} visible={visible} />;
+    return <FolderFiles key={`${session.agentId}:${folder}`} session={session} folder={folder} visible={visible} />;
 }
 
 interface FolderFilesProps {
@@ -69,7 +69,7 @@ function FolderFiles({ session, folder, visible }: FolderFilesProps) {
             )}
             <div className="files-split">
                 {opened === undefined ? null : (
-                    <FilePreview bridge={session.bridge} path={opened} visible={visible} running={running} />
+                    <FilePreview key={opened} bridge={session.bridge} folder={folder} path={opened} visible={visible} running={running} />
                 )}
                 <div className="files-tree" hidden={!showTree}>
                     {session.chat ? (
