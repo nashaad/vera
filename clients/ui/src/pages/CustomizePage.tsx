@@ -227,7 +227,7 @@ export function CustomizePage() {
         if (reading.phase !== "ready") return <p className="customize-note">Reading…</p>;
         return (
             <>
-                <div className="toolbar">
+                <div className="toolbar customize-filters">
                     {KIND_PILLS.map((pill) => (
                         <button
                             key={pill}
@@ -266,7 +266,7 @@ export function CustomizePage() {
             lede={folderLabel === undefined ? "What Vera loads for a new chat." : `What Vera loads for ${folderLabel}.`}
             wide
         >
-            <div className="toolbar">
+            <div className="toolbar customize-toolbar">
                 <FolderMenu folder={folder} folders={folders} onPick={setChosen} />
                 <div className="customize-seg" role="group" aria-label="Customize view">
                     <button type="button" aria-pressed={yours} onClick={() => setMode("yours")}>
