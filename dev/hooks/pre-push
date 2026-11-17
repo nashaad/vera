@@ -1,0 +1,19 @@
+#!/bin/sh
+# Remind pushers to run the full test suite separately.
+
+trap '' PIPE
+
+remind=0
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha || [ -n "$local_ref$local_sha$remote_ref$remote_sha" ]; do
+    case "$local_sha" in
+        ''|*[!0]*) remind=1 ;;
+    esac
+done
+
+if [ "$remind" -eq 1 ]; then
+    (
+        printf 'pre-push: the full suite is bun test; this hook does not run it.\n' >&2
+    ) >/dev/null || :
+fi
+
+exit 0
