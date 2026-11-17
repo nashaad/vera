@@ -366,7 +366,10 @@ socketAndLoopbackTest("a silent worker record without a count uses the configure
 
 socketAndLoopbackTest("recovery waits for an answering worker-shaped socket outside the pool", async () => {
     const harness = await fixture(15_000, 2);
-    const extra = createServer((socket) => socket.end("{}\n"));
+    const extra = createServer((socket) => {
+        socket.resume();
+        socket.end("{}\n");
+    });
     try {
         harness.freeze();
         await waitFor(() => stopped(harness.worker), "worker to stop");
