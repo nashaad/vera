@@ -6,6 +6,7 @@ import {
     type AuthStorage,
 } from "./auth-storage.ts";
 import { UserFacingError } from "../user-facing-error.ts";
+import { openUrl } from "../url-opener.ts";
 import { oauthCallbackResponse } from "./oauth-callback-page.ts";
 
 export const OPENAI_CODEX_PROVIDER_ID = "openai-codex";
@@ -102,7 +103,7 @@ export async function loginOpenAICodex(
 
     try {
         // Not awaited: some openers only return once the browser exits.
-        void (options.openAuthorizationUrl ?? openBrowser)(authorizationUrl).then((opened) => {
+        void (options.openAuthorizationUrl ?? openUrl)(authorizationUrl).then((opened) => {
             if (!opened) options.onBrowserUnavailable?.(authorizationUrl);
         });
         const code = await callback.code;
@@ -551,20 +552,6 @@ function startOpenAICodexCallback(
             server.stop(true);
         },
     };
-}
-
-async function openBrowser(url: string): Promise<boolean> {
-    const command = process.platform === "darwin"
-        ? ["open", url]
-        : process.platform === "win32"
-            ? ["cmd", "/c", "start", "", url]
-            : ["xdg-open", url];
-    try {
-        const opener = Bun.spawn(command, { stdout: "ignore", stderr: "ignore" });
-        return await opener.exited === 0;
-    } catch {
-        return false;
-    }
 }
 
 function base64Url(value: Uint8Array): string {
