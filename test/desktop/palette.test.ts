@@ -77,11 +77,28 @@ test("@core theme commands appear only in a nonblank search without affecting ex
     for (const query of ["", "  \t "]) {
         expect(rankItems(items, query).map(({ item }) => item.id)).toEqual(["theme.choose", "import.theme"]);
     }
-    expect(rankItems(items, "dark").some(({ item }) => item.id === "theme.dark")).toBe(true);
-    expect(rankItems(items, "crow night").some(({ item }) => item.id === "theme.imported.crow.night")).toBe(true);
+    expect(rankItems(items, "theme").map(({ item }) => item.id)).toEqual(["theme.choose", "import.theme"]);
+    const dark = rankItems(items, "dark").find(({ item }) => item.id === "theme.dark");
+    expect(dark?.indices).toEqual([7, 8, 9, 10]);
+    const onyx = rankItems(items, "onx").find(({ item }) => item.id === "theme.onyx");
+    expect(onyx?.indices).toEqual([7, 8, 10]);
+    const crow = rankItems(items, "crow night").find(({ item }) => item.id === "theme.imported.crow.night");
+    expect(crow?.indices).toEqual([7, 8, 9, 10, 12, 13, 14, 15, 16]);
+    expect(labelSegments(crow!.item.label, crow!.indices).filter((segment) => segment.hit).map((segment) => segment.text)).toEqual(["Crow", "Night"]);
     expect(registry.execute("theme.dark")).toBe(true);
     expect(registry.execute("theme.imported.crow.night")).toBe(true);
     expect(applied).toEqual(["dark", "imported:crow.night"]);
+});
+
+test("palette search text highlights the name when it repeats the title prefix", () => {
+    const registry = new CommandRegistry();
+    registry.register({ id: "example", title: "Theme: Theme", paletteSearchText: "Theme", run() {} });
+    const [result] = rankItems(buildCommandItems(registry.list(), "darwin"), "theme");
+    expect(result?.indices).toEqual([7, 8, 9, 10, 11]);
+    expect(labelSegments(result!.item.label, result!.indices)).toEqual([
+        { text: "Theme: ", hit: false },
+        { text: "Theme", hit: true },
+    ]);
 });
 
 test("command groups follow the id prefix and sort by group, then title", () => {

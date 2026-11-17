@@ -200,7 +200,7 @@ the entries of parts that are off. On other platforms the modifier is Ctrl.
 Cmd+K or Cmd+Shift+P opens the command palette. It lists commands that
 need no argument and whose part of the window is shown, grouped as Go, Pages,
 Window, Session, Theme and Help, with each command's shortcut. Individual theme
-commands appear when you search for them; Choose Theme and the import commands
+commands appear when you search for their names; Choose Theme and the import commands
 are listed without a search. Typing filters the list by fuzzy match and marks the matched
 letters. Up and Down move, Enter runs the command and Escape closes the
 palette. Cmd+P opens Go to Session, the same list over sessions, each with its

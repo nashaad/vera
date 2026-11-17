@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { BUILTIN_THEME_REGISTRY } from "../../ui/src/theme/registry.ts";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
@@ -63,11 +62,8 @@ try {
     await input.fill("theme");
     const ids = await rows.evaluateAll((entries) => entries.map((entry) => entry.getAttribute("data-command")));
     await selectedId(ids[0]);
-    const builtinIds = BUILTIN_THEME_REGISTRY.map(({ name }) => name === "high-contrast" ? "theme.highContrast" : `theme.${name}`);
     assert.deepEqual(new Set(ids), new Set([
-        ...builtinIds,
         "theme.choose",
-        "theme.imported.crow.night",
         "vera.vscode-theme-import.import",
         "vera.vscode-theme-import.installed",
     ]));
@@ -104,7 +100,7 @@ try {
     await selectedId("theme.choose");
     assert.match(await selected.innerText(), /Choose Theme/);
     await input.press("ArrowDown");
-    await selectedId(ids[ids.indexOf("theme.choose") + 1]);
+    await selectedId(ids[(ids.indexOf("theme.choose") + 1) % ids.length]);
     await input.press("ArrowUp");
     await selectedId("theme.choose");
     await input.press("Enter");

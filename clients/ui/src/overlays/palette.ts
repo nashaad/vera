@@ -23,6 +23,7 @@ export interface PaletteItem {
     readonly status: "working" | "waiting" | undefined;
     readonly fields: readonly string[];
     readonly searchOnly?: true;
+    readonly labelSearchText?: string;
 }
 
 export interface RankedItem {
@@ -63,8 +64,9 @@ export function buildCommandItems(commands: readonly Command[], platform: string
             age: "",
             keys: shortcutKeys(command.id, platform),
             status: undefined,
-            fields: [command.title],
+            fields: [command.paletteSearchText ?? command.title],
             searchOnly: command.paletteSearchOnly,
+            labelSearchText: command.paletteSearchText,
         }));
     return items.sort((left, right) => {
         const byGroup = GROUP_ORDER.indexOf(left.group as CommandGroup) - GROUP_ORDER.indexOf(right.group as CommandGroup);
@@ -152,8 +154,12 @@ function matchItem(item: PaletteItem, words: readonly string[]): { readonly rank
         }
         if (best === undefined) return undefined;
         total += best.score;
-        const labelMatch = fuzzyMatch(word, item.label);
-        if (labelMatch !== undefined) for (const index of labelMatch.indices) indices.add(index);
+        const labelText = item.labelSearchText ?? item.label;
+        const labelMatch = fuzzyMatch(word, labelText);
+        const labelOffset = item.labelSearchText === undefined ? 0 : item.label.lastIndexOf(labelText);
+        if (labelMatch !== undefined && labelOffset !== -1) {
+            for (const index of labelMatch.indices) indices.add(labelOffset + index);
+        }
     }
     return { ranked: { item, indices: [...indices].sort((left, right) => left - right) }, score: total };
 }
