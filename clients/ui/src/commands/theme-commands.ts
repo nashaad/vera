@@ -24,12 +24,14 @@ export function registerThemeCommands(
     const disposers = THEME_NAMES.map((name) => registry.register({
         id: THEME_COMMANDS[name],
         title: `Theme: ${name === "high-contrast" ? "High Contrast" : THEME_LABELS[name]}`,
+        paletteSearchOnly: true,
         run: () => apply(name),
     }));
     for (const theme of imported) {
         disposers.push(registry.register({
             id: importedThemeCommand(theme.slug),
             title: `Theme: ${theme.name}`,
+            paletteSearchOnly: true,
             run: () => apply(importedThemeId(theme.slug)),
         }));
     }

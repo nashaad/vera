@@ -197,9 +197,11 @@ the entries of parts that are off. On other platforms the modifier is Ctrl.
 
 ## Command palette and sheets
 
-Cmd+K or Cmd+Shift+P opens the command palette. It lists every command that
-needs no argument and whose part of the window is shown, grouped as Go, Pages,
-Window, Session, Theme and Help, with each command's shortcut. Typing filters the list by fuzzy match and marks the matched
+Cmd+K or Cmd+Shift+P opens the command palette. It lists commands that
+need no argument and whose part of the window is shown, grouped as Go, Pages,
+Window, Session, Theme and Help, with each command's shortcut. Individual theme
+commands appear when you search for them; Choose Theme and the import commands
+are listed without a search. Typing filters the list by fuzzy match and marks the matched
 letters. Up and Down move, Enter runs the command and Escape closes the
 palette. Cmd+P opens Go to Session, the same list over sessions, each with its
 folder and age and a dot while it is working or waiting on you; Enter opens the
@@ -1201,9 +1203,9 @@ Midnight Blue II, NC, NC Navy, retro31 and Vera Orange.
 They are available without installing anything from the catalog.
 Dark remains the default.
 
-View > Theme, View > Choose Theme…, Settings > Appearance and the command
-palette's `Theme: <label>` commands list built-in themes before the themes of
-enabled desktop extensions.
+View > Theme, View > Choose Theme… and Settings > Appearance list built-in
+themes before the themes of enabled desktop extensions. The command palette
+finds both as `Theme: <label>` when searched.
 Tour's Theme menu offers the same choices.
 Choose Theme and Appearance show each theme's colors as swatches.
 Switching applies at once and remembers the choice for the next launch.
