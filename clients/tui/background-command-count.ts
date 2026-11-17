@@ -42,6 +42,41 @@ export async function currentBackgroundCommandCount(
     throw new Error("Current conversation was not found within 5,000 sessions");
 }
 
+export function shouldConfirmQuit(backgroundCommandCount: number): boolean {
+    return backgroundCommandCount > 0;
+}
+
+export interface QuitBackgroundCommandSummary {
+    readonly total: number;
+    readonly current: number;
+    readonly other: number;
+    readonly conversations: number;
+    readonly message: string;
+}
+
+export async function quitBackgroundCommandSummary(
+    listSessionPage: ListSessionPage | undefined,
+    currentAgentId: string | undefined,
+    otherAgentId: string | undefined,
+): Promise<QuitBackgroundCommandSummary> {
+    const currentCount = currentAgentId === undefined
+        ? Promise.resolve(0)
+        : currentBackgroundCommandCount(listSessionPage, currentAgentId).catch(() => 0);
+    const otherCount = otherAgentId === undefined || otherAgentId === currentAgentId
+        ? Promise.resolve(0)
+        : currentBackgroundCommandCount(listSessionPage, otherAgentId).catch(() => 0);
+    const [current, other] = await Promise.all([currentCount, otherCount]);
+    const total = current + other;
+    const conversations = Number(current > 0) + Number(other > 0);
+    const command = total === 1 ? "1 background command" : `${total} background commands`;
+    const message = conversations > 1
+        ? `${command} are running in ${conversations} conversations.`
+        : current > 0
+        ? `${command} ${total === 1 ? "is" : "are"} running in this conversation.`
+        : `${command} ${total === 1 ? "is" : "are"} running in another conversation.`;
+    return { total, current, other, conversations, message };
+}
+
 export function stopAndCloseDescription(count: number): string {
     if (count <= 0) return "stop this conversation and its running turn";
     const commands = count === 1 ? "1 background command" : `${count} background commands`;

@@ -251,6 +251,15 @@
     border-top: 0;
 }
 
+.overlay-sheet[data-overlay="quit-background-commands"] .session-sheet-foot {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.overlay-sheet[data-overlay="quit-background-commands"] .session-sheet-foot-row {
+    justify-content: flex-end;
+}
+
 .session-sheet-action:disabled {
     opacity: 0.6;
     cursor: default;

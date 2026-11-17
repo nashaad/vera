@@ -47,6 +47,13 @@ conversations without opening the picker.
 Ctrl+N from a live session asks Close this conversation or Keep running, the
 same as `/clear`. Home and file-view Ctrl+N start immediately.
 
+When you quit the TUI with Ctrl+C, Vera checks the background commands in
+all attached conversations that would be released on exit. If any are running,
+choose `1. Stop them and quit` to stop those conversations, or `2. Keep running` to
+leave them running and quit; Escape cancels. The message identifies whether the
+commands are in this conversation, another one, or spread across conversations.
+With no affected background commands, quitting works as before.
+
 To park live work, use `/close` or Ctrl+W from the composer. When background
 commands or work are in flight, choose Stop & close or Keep running in the
 picker; an idle conversation with no commands closes directly. A focused side

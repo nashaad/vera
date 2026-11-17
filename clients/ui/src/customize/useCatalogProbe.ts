@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
+import { unwatchDesktopSession, watchDesktopSession } from "../protocol/watchedSessions.ts";
 import { IDLE_PROBE, probeFailed, probeIds, reduceProbe, startProbe, type ProbeState } from "./probe.ts";
 import { listAgentsCommand, listSkillsCommand, listSourcesCommand, parseCatalogLine, type CatalogReply } from "./wire.ts";
 
@@ -45,7 +46,7 @@ export function useCatalogProbe(
             setState(next);
             if (next.phase === "loading" || done) return;
             done = true;
-            bridge.unwatchSession(PROBE_PANE);
+            unwatchDesktopSession(bridge, PROBE_PANE);
         };
         const timer = setTimeout(() => finish(probeFailed(current, "The session did not list its customizations in time.")), PROBE_TIMEOUT_MS);
         const off = bridge.onEvent((event) => {
@@ -69,11 +70,11 @@ export function useCatalogProbe(
             const reply: CatalogReply | undefined = parseCatalogLine(event.text);
             if (reply !== undefined) finish(reduceProbe(current, ids, reply));
         });
-        bridge.watchSession(PROBE_PANE, agentId);
+        watchDesktopSession(bridge, PROBE_PANE, agentId);
         return () => {
             clearTimeout(timer);
             off();
-            if (!done) bridge.unwatchSession(PROBE_PANE);
+            if (!done) unwatchDesktopSession(bridge, PROBE_PANE);
         };
     }, [bridge, agentId, connected, reload]);
     return state;

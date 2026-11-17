@@ -28,6 +28,7 @@ import { CHANNELS } from "./channels.ts";
 
 const bridge: DesktopBridge = {
     platform: process.platform,
+    consumeWindowClose: () => ipcRenderer.sendSync(CHANNELS.windowClosing) === true,
     start: () => ipcRenderer.send(CHANNELS.start),
     reconnect: () => ipcRenderer.send(CHANNELS.reconnect),
     answer: (id: string, yes: boolean) => ipcRenderer.send(CHANNELS.answer, { id, yes }),

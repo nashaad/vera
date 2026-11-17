@@ -193,6 +193,7 @@ export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
 
 export interface DesktopBridge {
     readonly platform: string;
+    consumeWindowClose(): boolean;
     start(): void;
     reconnect(): void;
     answer(id: string, yes: boolean): void;

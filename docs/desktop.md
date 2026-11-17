@@ -41,6 +41,15 @@ While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
 connection, ends the attachment and shows the banner.
 
+When you quit the desktop app with background commands in a conversation open
+in the main or companion pane, a confirmation counts them and offers `Cancel`,
+`Keep running`, and `Stop and quit`. Keep running quits as usual and leaves the
+conversations running; the host parks them after ten idle minutes. Stop and quit
+asks the host to close each counted conversation still open in a pane before
+quitting, with a three-second deadline.
+Cancel or Escape leaves the app open. The warning appears for menu Quit, Cmd+Q,
+and closing the last window when that closes the app.
+
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
@@ -314,7 +323,7 @@ returns to where you last put it. A file that cannot be read is moved to
 
 A session page shows that session's conversation, with a composer under it for
 your next message. The app watches the session without joining it, so closing
-the window leaves the session running. A session that is running keeps
+the window leaves the session running unless you choose to stop it. A session that is running keeps
 updating as it works. Approvals and questions show as cards under the
 conversation; see Approvals and questions.
 

@@ -1500,6 +1500,27 @@ export function sessionPickerGroup(agent: RegisteredAgentSummary): string {
     return live ? IDLE_GROUP : RECENT_GROUP;
 }
 
+export function startTuiQuitConfirmPicker(message: string): TuiSettingsPickerState {
+    const options: readonly TuiSettingsPickerOption[] = [
+        { value: "stop", label: "Stop them and quit", description: "" },
+        {
+            value: "keep_running",
+            label: "Keep running",
+            description: "stays up ten idle minutes, then stops",
+        },
+    ];
+    return {
+        kind: "session_close",
+        title: "Quit Vera",
+        subtitle: message,
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        quitConfirm: true,
+    };
+}
+
 export function startTuiSessionClosePicker(
     title: string,
     count: number,

@@ -24,13 +24,17 @@ current screen. A picker may use a shortcut differently from the composer.
 | Ctrl+G | Change focus between conversation panes. |
 | Ctrl+\ | Cycle split and single-pane layouts. |
 | Escape | Stop work and keep the draft, clear an idle draft, or cancel a first Ctrl+C. |
-| Ctrl+C | Stop work, clear an idle draft, or exit with an empty composer when pressed twice. |
+| Ctrl+C | Stop work, clear an idle draft, or quit after confirming what happens to attached conversations with background commands. |
 | Ctrl+U, Ctrl+D | Scroll the transcript half a page up or down. Escape or Ctrl+C clears an idle draft. |
 
-With an empty composer, the first Ctrl+C only asks for a second press. The
-second press can come any time later, and Escape cancels the first. Ctrl+C
-also exits at once when a stop is in progress. Other conversations can remain
-running after the TUI exits. See [Saved conversations](sessions.md).
+With an empty composer, the first Ctrl+C asks for a second press. The second
+press can come any time later, and Escape cancels the first. If any conversation
+the TUI would release has background commands, Vera asks whether to stop those
+conversations and quit or keep them running and quit; Escape cancels the quit.
+This includes distinct attached conversations, not only the one on screen. With
+no affected background commands, the second press exits directly. Ctrl+C also
+quits when a stop is in progress, with the same warning when needed. Other
+conversations can remain running after the TUI exits. See [Saved conversations](sessions.md).
 
 ## Remap an action
 
