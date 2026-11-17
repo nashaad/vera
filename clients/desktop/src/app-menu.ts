@@ -4,7 +4,7 @@ import { importedThemeCommand, THEME_COMMANDS } from "../../ui/src/commands/them
 import type { DesktopMenuItem } from "../../ui/src/protocol/extensions.ts";
 import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
-import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
+import { RELOAD_SHORTCUT, type NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
 import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
@@ -104,8 +104,7 @@ export function buildMenuTemplate(
             },
             sheet("themes"),
             { type: "separator" },
-            { role: "reload" },
-            { role: "forceReload" },
+            item(RELOAD_SHORTCUT),
             { role: "toggleDevTools" },
             { type: "separator" },
             { role: "resetZoom" },
