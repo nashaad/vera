@@ -127,6 +127,7 @@ socketTest(
         const socketPath = join(directory, "host.sock");
         let idle = false;
         let shutdownAccepted = false;
+        const shutdownNotified = Promise.withResolvers<void>();
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
@@ -135,6 +136,7 @@ socketTest(
             canShutdown: () => idle,
             onShutdownAccepted: () => {
                 shutdownAccepted = true;
+                shutdownNotified.resolve();
             },
         });
         try {
@@ -179,7 +181,7 @@ socketTest(
                 pid: 101,
                 started_at: server.identity.started_at,
             });
-            await Bun.sleep(0);
+            await shutdownNotified.promise;
             expect(shutdownAccepted).toBeTrue();
 
             const blocked = await connectHost({ socketPath });
@@ -249,6 +251,7 @@ socketTest(
         const agent = new ResidentAgent("agent-1", "/work/one");
         let replaceable = false;
         let accepted = false;
+        const shutdownNotified = Promise.withResolvers<void>();
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
@@ -256,6 +259,7 @@ socketTest(
             canReplace: () => replaceable,
             onShutdownAccepted: () => {
                 accepted = true;
+                shutdownNotified.resolve();
             },
         });
         const attached = await connectHost({ socketPath });
@@ -281,7 +285,7 @@ socketTest(
                 type: "shutdown_for_replacement_accepted",
                 pid: server.identity.pid,
             });
-            await Bun.sleep(0);
+            await shutdownNotified.promise;
             expect(accepted).toBeTrue();
             await attached.send({ type: "prompt", content: "too late" });
             await expect(attached.receive()).rejects.toThrow();

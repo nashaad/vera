@@ -66,7 +66,10 @@ socketTest(
     "an annex helper still fails when the host drops before the reply",
     async () => {
         await withServer(
-            (socket) => socket.end(),
+            (socket) => {
+                socket.resume();
+                socket.end();
+            },
             async (socketPath) => {
                 await expect(readAnnexUrlThroughHost(socketPath))
                     .rejects.toThrow("host connection closed");

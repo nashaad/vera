@@ -714,7 +714,10 @@ socketTest(
     async () => {
         const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
-        const server = createServer((socket) => socket.end());
+        const server = createServer((socket) => {
+            socket.resume();
+            socket.end();
+        });
         try {
             await new Promise<void>((resolve, reject) => {
                 server.once("error", reject);
@@ -738,6 +741,7 @@ socketTest(
         const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
         const server = createServer((socket) => {
+            socket.resume();
             const drip = setInterval(() => socket.write(" "), 50);
             const stop = () => clearInterval(drip);
             socket.once("close", stop);
@@ -768,7 +772,10 @@ socketTest(
 async function requestIdentityFromPeer(reply: string) {
     const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
     const socketPath = join(directory, "host.sock");
-    const server = createServer((socket) => socket.end(reply));
+    const server = createServer((socket) => {
+        socket.resume();
+        socket.end(reply);
+    });
     try {
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);

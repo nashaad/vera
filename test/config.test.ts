@@ -44,6 +44,7 @@ test("Vera config loads the shared model choice", () => {
         provider: "openrouter",
         model: "anthropic/example-model",
         approval_mode: "auto",
+        sandbox: { enabled: false, network: "open", allowed_domains: [] },
     });
 });
 
@@ -452,6 +453,7 @@ test("Vera config selects OpenAI Codex", () => {
         model: "gpt-5.6-sol",
         reasoning_effort: "off",
         approval_mode: "auto",
+        sandbox: { enabled: false, network: "open", allowed_domains: [] },
     });
 });
 
@@ -470,6 +472,7 @@ test("Vera config selects Ollama without an API key", () => {
         model: "gemma4:26b",
         reasoning_effort: "off",
         approval_mode: "auto",
+        sandbox: { enabled: false, network: "open", allowed_domains: [] },
     });
 });
 
