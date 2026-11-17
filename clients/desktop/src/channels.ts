@@ -13,6 +13,7 @@ export const CHANNELS = {
     theme: "vera:theme",
     themesLoad: "vera:themes-load",
     extensionCommand: "vera:extension-command",
+    extensionCommandProgress: "vera:extension-command-progress",
     desktopExtensionsList: "vera:desktop-extensions-list",
     desktopExtensionPreview: "vera:desktop-extension-preview",
     desktopExtensionInstall: "vera:desktop-extension-install",

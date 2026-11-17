@@ -25,13 +25,20 @@ export function useNativeSurface(show: boolean) {
             window.cancelAnimationFrame(frame);
             frame = window.requestAnimationFrame(() => {
                 const element = surface.current;
-                const overlay = [...document.querySelectorAll<HTMLElement>(OVERLAYS)]
-                    .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
-                if (element === null || overlay) {
+                if (element === null) {
                     send(null);
                     return;
                 }
                 const rect = element.getBoundingClientRect();
+                const overlay = [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some((node) => {
+                    if (node.getClientRects().length === 0 || getComputedStyle(node).visibility === "hidden") return false;
+                    const box = node.getBoundingClientRect();
+                    return box.left < rect.right && box.right > rect.left && box.top < rect.bottom && box.bottom > rect.top;
+                });
+                if (overlay) {
+                    send(null);
+                    return;
+                }
                 if (rect.width <= 0 || rect.height <= 0) {
                     send(null);
                     return;

@@ -20,7 +20,10 @@ export async function runExtensionCommand(
     const owner = activeSession()?.agentId;
     let result;
     try {
-        result = await bridge.runExtensionCommand(command, pick);
+        result = await bridge.runExtensionCommand(command, pick, (progress) => {
+            if (progress.ok && progress.kind === "capture" && owner !== undefined) queuePageCapture(owner, progress.capture);
+            else if (!progress.ok) report({ ok: false, message: progress.reason });
+        });
     } catch {
         report(FAILED);
         return;

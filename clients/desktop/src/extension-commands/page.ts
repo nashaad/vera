@@ -5,7 +5,7 @@ import { savePastedImage } from "../pasted-image.ts";
 import { parsePageResult, type PageRectangle } from "./page-result.ts";
 
 const WORLD_ID = 1004;
-const CLEANUP = "globalThis.__veraPageCleanup?.(); delete globalThis.__veraPageCleanup; delete globalThis.__veraPageResult";
+const CLEANUP = "globalThis.__veraPageCleanup?.(); delete globalThis.__veraPageCleanup; delete globalThis.__veraPageResult; delete globalThis.__veraPageNext";
 
 interface FrameIdentity {
     readonly id: string;
@@ -29,7 +29,7 @@ interface PageWorld {
     readonly offset: PageRectangle;
 }
 
-async function isolatedWorld(contents: WebContents, frame?: FrameSurface): Promise<PageWorld> {
+async function isolatedWorld(contents: WebContents, frame?: FrameSurface, onDetach?: () => void): Promise<PageWorld> {
     if (frame === undefined) {
         return {
             run: (code) => contents.executeJavaScriptInIsolatedWorld(WORLD_ID, [{ code }], true),
@@ -40,6 +40,7 @@ async function isolatedWorld(contents: WebContents, frame?: FrameSurface): Promi
     const api = contents.debugger;
     if (api.isAttached()) throw new Error("The page could not be read.");
     api.attach("1.3");
+    let detached: ((_event: Electron.Event, method: string, params: { frameId?: string; sessionId?: string }) => void) | undefined;
     try {
         const tree = await api.sendCommand("Page.getFrameTree") as { frameTree: FrameTree };
         let target = tree.frameTree.childFrames?.find((child) => child.frame.url === frame.url && child.frame.name === frame.name);
@@ -58,17 +59,25 @@ async function isolatedWorld(contents: WebContents, frame?: FrameSurface): Promi
             }
         }
         if (target === undefined) throw new Error("The page could not be read.");
-        const world = await api.sendCommand("Page.createIsolatedWorld", { frameId: target.frame.id, worldName: "vera-page-command" }, sessionId) as { executionContextId: number };
+        const frameId = target.frame.id;
+        await api.sendCommand("Page.enable");
+        if (sessionId !== undefined) await api.sendCommand("Page.enable", {}, sessionId);
+        detached = (_event: Electron.Event, method: string, params: { frameId?: string; sessionId?: string }): void => {
+            if ((method === "Page.frameDetached" && params.frameId === frameId) || (method === "Target.detachedFromTarget" && sessionId !== undefined && params.sessionId === sessionId)) onDetach?.();
+        };
+        api.on("message", detached);
+        const world = await api.sendCommand("Page.createIsolatedWorld", { frameId, worldName: "vera-page-command" }, sessionId) as { executionContextId: number };
         return {
             run: async (expression) => {
                 const reply = await api.sendCommand("Runtime.evaluate", { contextId: world.executionContextId, expression, awaitPromise: true, returnByValue: true }, sessionId) as { result?: { value?: unknown }; exceptionDetails?: unknown };
                 if (reply.exceptionDetails !== undefined) throw new Error("The page could not be read.");
                 return reply.result?.value;
             },
-            release: () => { if (api.isAttached()) api.detach(); },
+            release: () => { if (detached !== undefined) api.removeListener("message", detached); if (api.isAttached()) api.detach(); },
             offset: frame,
         };
     } catch (error) {
+        if (detached !== undefined) api.removeListener("message", detached);
         if (api.isAttached()) api.detach();
         throw error;
     }
@@ -81,36 +90,61 @@ export class PageCommandService {
         this.cancel?.();
     }
 
-    async run(script: string, contents: WebContents, directory: string, frame?: FrameSurface): Promise<ExtensionCommandResult> {
+    async run(script: string, contents: WebContents, directory: string, frame?: FrameSurface, emit?: (result: ExtensionCommandResult) => void): Promise<ExtensionCommandResult> {
         if (this.cancel !== undefined) return { ok: true, kind: "closed" };
         let wasCanceled = false;
-        let cancel!: () => void;
-        const canceled = new Promise<null>((resolve) => { cancel = () => { wasCanceled = true; resolve(null); }; });
+        let frameDetached = false;
+        let releaseDetached: (() => void) | undefined;
+        const detached = new Promise<void>((resolve) => { releaseDetached = resolve; });
+        let wake: (() => void) | undefined;
+        const cancel = (): void => { wasCanceled = true; wake?.(); };
+        const wait = (pending: Promise<unknown>): Promise<unknown> => new Promise((resolve, reject) => {
+            const stop = (): void => resolve(null);
+            wake = stop;
+            if (wasCanceled) { stop(); return; }
+            pending.then((value) => { if (wake === stop) wake = undefined; resolve(value); }, (error) => { if (wake === stop) wake = undefined; reject(error); });
+        });
         this.cancel = cancel;
         let world: PageWorld | undefined;
         const navigation = (): void => cancel();
         contents.on("did-start-navigation", navigation);
         contents.once("destroyed", cancel);
         try {
-            world = await isolatedWorld(contents, frame);
-            const value = await Promise.race([world.run(`${script}\n;globalThis.__veraPageResult`), canceled]);
-            if (value === null) return { ok: true, kind: "closed" };
-            const result = parsePageResult(value);
-            if (result === undefined || contents.isDestroyed()) throw new Error("The page could not be read.");
-            const { x, y, width, height } = result.rect;
-            if (x + width > world.offset.width || y + height > world.offset.height) throw new Error("The page could not be read.");
-            const rect = { x: Math.ceil(x + world.offset.x), y: Math.ceil(y + world.offset.y), width: Math.floor(width), height: Math.floor(height) };
-            const image = await contents.capturePage(rect, { stayHidden: true, stayAwake: true });
-            if (wasCanceled) return { ok: true, kind: "closed" };
-            const path = await savePastedImage(directory, image.toPNG(), "image/png");
-            if (path === undefined) throw new Error("Could not attach this file.");
-            if (wasCanceled) return { ok: true, kind: "closed" };
-            return { ok: true, kind: "capture", capture: { path, preview: image.resize({ width: Math.min(640, image.getSize().width) }).toDataURL(), text: result.text, ...(result.details === undefined ? {} : { details: result.details }) } };
+            world = await isolatedWorld(contents, frame, () => { frameDetached = true; releaseDetached?.(); cancel(); });
+            let pending = world.run(`${script}\n;globalThis.__veraPageResult`);
+            while (!wasCanceled) {
+                const value = await wait(pending);
+                if (value === null || wasCanceled) return { ok: true, kind: "closed" };
+                const persistent = await world.run("typeof globalThis.__veraPageNext === 'function'");
+                try {
+                    const result = parsePageResult(value);
+                    if (result === undefined || contents.isDestroyed()) throw new Error("The page could not be read.");
+                    const { x, y, width, height } = result.rect;
+                    if (x + width > world.offset.width || y + height > world.offset.height) throw new Error("The page could not be read.");
+                    const rect = { x: Math.ceil(x + world.offset.x), y: Math.ceil(y + world.offset.y), width: Math.floor(width), height: Math.floor(height) };
+                    const image = await contents.capturePage(rect, { stayHidden: true, stayAwake: true });
+                    if (wasCanceled) return { ok: true, kind: "closed" };
+                    const path = await savePastedImage(directory, image.toPNG(), "image/png");
+                    if (path === undefined) throw new Error("Could not attach this file.");
+                    if (wasCanceled || (persistent && !(await world.run("typeof globalThis.__veraPageNext === 'function'")))) return { ok: true, kind: "closed" };
+                    const answer: ExtensionCommandResult = { ok: true, kind: "capture", capture: { path, preview: image.resize({ width: Math.min(640, image.getSize().width) }).toDataURL(), text: result.text, ...(result.details === undefined ? {} : { details: result.details }) } };
+                    if (emit === undefined || !persistent) return answer;
+                    emit(answer);
+                } catch {
+                    if (wasCanceled) return { ok: true, kind: "closed" };
+                    if (emit === undefined) throw new Error("The page could not be read.");
+                    emit({ ok: false, reason: "The page could not be read." });
+                }
+                pending = world.run("globalThis.__veraPageNext?.() ?? null");
+            }
+            return { ok: true, kind: "closed" };
         } catch {
             return wasCanceled ? { ok: true, kind: "closed" } : { ok: false, reason: "The page could not be read." };
         } finally {
             if (world !== undefined) {
-                try { await world.run(CLEANUP); } catch {}
+                if (!frameDetached) {
+                    try { await Promise.race([world.run(CLEANUP), detached]); } catch {}
+                }
                 try { world.release(); } catch {}
             }
             contents.removeListener("did-start-navigation", navigation);

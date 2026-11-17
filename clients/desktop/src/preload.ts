@@ -55,8 +55,18 @@ const bridge: DesktopBridge = {
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),
     loadImportedThemes: async () => (await ipcRenderer.invoke(CHANNELS.themesLoad)) as readonly ImportedThemeSummary[],
-    runExtensionCommand: async (command: string, pick?: string) =>
-        (await ipcRenderer.invoke(CHANNELS.extensionCommand, command, pick)) as ExtensionCommandResult,
+    runExtensionCommand: async (command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void) => {
+        const token = onProgress === undefined ? undefined : crypto.randomUUID();
+        const handler = (_event: unknown, id: string, result: ExtensionCommandResult): void => {
+            if (id === token) onProgress?.(result);
+        };
+        if (token !== undefined) ipcRenderer.on(CHANNELS.extensionCommandProgress, handler);
+        try {
+            return (await ipcRenderer.invoke(CHANNELS.extensionCommand, command, pick, token)) as ExtensionCommandResult;
+        } finally {
+            if (token !== undefined) ipcRenderer.off(CHANNELS.extensionCommandProgress, handler);
+        }
+    },
     listDesktopExtensions: async () => (await ipcRenderer.invoke(CHANNELS.desktopExtensionsList)) as ExtensionChangeResult,
     previewDesktopExtension: async () => (await ipcRenderer.invoke(CHANNELS.desktopExtensionPreview)) as ExtensionPreviewResult,
     installDesktopExtension: async (token: string) =>

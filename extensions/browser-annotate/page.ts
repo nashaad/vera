@@ -18,7 +18,7 @@ const DRAWING_LIMIT = 200;
 const HISTORY_LIMIT = 100;
 const DRAWING_BOUNDS_LIMIT = 4096;
 function annotatePage(): Promise<AnnotationResult | null> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const existing = (globalThis as typeof globalThis & { __veraPageCleanup?: () => void }).__veraPageCleanup;
         existing?.();
         const host = document.createElement("div");
@@ -29,8 +29,13 @@ function annotatePage(): Promise<AnnotationResult | null> {
         style.textContent = `
             :host{all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;--annotation-accent:#e8582a!important;--annotation-focus:#7f9ff0!important;--annotation-ink:#000!important;--annotation-text:#e6e6e6!important;--annotation-surface:#131313!important;--annotation-border:#262626!important;--annotation-radius:7px!important;--annotation-surface-hover:#1e1e1e!important;--annotation-accent-text:#000!important;--annotation-border-input:#343434!important;--annotation-surface-input:#0f0f0f!important;--annotation-radius-sm:5px!important;--annotation-font-size:13px!important;--annotation-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif!important;--annotation-shadow:0 12px 34px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.05)!important;color:var(--annotation-text)!important;font:var(--annotation-font-size) var(--annotation-font)!important;color-scheme:dark!important}
             *{box-sizing:border-box}
-            .toolbar{position:fixed;z-index:2147483647;pointer-events:auto;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:4px;padding:6px;max-width:calc(100vw - 16px);width:max-content;flex-wrap:wrap;background:var(--annotation-surface);border:1px solid var(--annotation-border);border-radius:var(--annotation-radius);box-shadow:var(--annotation-shadow);white-space:normal}
-            button{font:inherit;color:var(--annotation-text);background:transparent;border:0;border-radius:var(--annotation-radius);padding:7px 9px;cursor:pointer}
+            .toolbar{position:fixed;z-index:2147483647;pointer-events:auto;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:3px;padding:5px;max-width:calc(100vw - 16px);width:max-content;flex-wrap:wrap;background:var(--annotation-surface);border:1px solid var(--annotation-border);border-radius:18px;box-shadow:var(--annotation-shadow)}
+            button{font:inherit;color:var(--annotation-text);background:transparent;border:0;border-radius:7px;min-width:32px;height:32px;padding:0 8px;cursor:pointer}
+            button svg{width:17px;height:17px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+            button:focus-visible,input:focus-visible{outline:2px solid var(--annotation-focus);outline-offset:2px}
+            .shape-wrap{position:relative}.shape-menu{position:absolute;bottom:40px;left:0;min-width:150px;padding:4px;background:var(--annotation-surface);border:1px solid var(--annotation-border);border-radius:8px;box-shadow:var(--annotation-shadow)}
+            .shape-menu[hidden],.options[hidden],.action-group[hidden],button[hidden]{display:none}.shape-menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left}.shape-menu button span{flex:1}.shape-menu button b{font-weight:normal}.shape-menu button[aria-checked=false] b:last-child{visibility:hidden}
+            .options,.action-group{display:flex;align-items:center;gap:3px}
             button:hover,button[aria-pressed=true]{background:var(--annotation-surface-hover)}
             button.primary{color:var(--annotation-accent-text);background:var(--annotation-accent)}
             .divider{width:1px;height:22px;background:var(--annotation-border);margin:0 2px}
@@ -39,7 +44,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
             .text-entry{position:fixed;z-index:2147483647;pointer-events:auto;width:180px;padding:6px}
             .text-entry[hidden]{display:none}
             canvas{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none}
-            .hover{position:fixed;pointer-events:none;border:2px solid var(--annotation-focus);background:color-mix(in srgb,var(--annotation-focus) 10%,transparent);z-index:2147483646}
+            .hover{position:fixed;pointer-events:none;border:1px solid var(--annotation-focus);background:color-mix(in srgb,var(--annotation-focus) 6%,transparent);z-index:2147483646}
             .tag{position:fixed;pointer-events:none;background:var(--annotation-focus);color:var(--annotation-ink);padding:2px 5px;border-radius:var(--annotation-radius-sm);font:12px var(--annotation-font);z-index:2147483647}
         `;
         shadow.append(style);
@@ -66,6 +71,8 @@ function annotatePage(): Promise<AnnotationResult | null> {
         let width = 3;
         let drawing: Drawing | undefined;
         let closed = false;
+        let capturing = false;
+        let deliver = resolve;
         let resultResolved = false;
         let listenersAttached = true;
         let count = 0;
@@ -108,13 +115,27 @@ function annotatePage(): Promise<AnnotationResult | null> {
             for (const button of Array.from(toolbar.querySelectorAll("button[data-mode]"))) {
                 button.setAttribute("aria-pressed", String(button.getAttribute("data-mode") === next));
             }
-            document.documentElement.style.cursor = next === "select" ? "crosshair" : "crosshair";
+            shapes.setAttribute("aria-pressed", String(["line", "arrow", "rectangle", "ellipse", "step"].includes(next)));
+            document.documentElement.style.cursor = "crosshair";
+            syncAddButton();
+        };
+        const icons: Record<string, string> = {
+            "Select element": "<path d='M4 3l11 8-5 1-2 5z'/>",
+            Pen: "<path d='M4 14l1-4 8-8 3 3-8 8zM11 4l3 3'/>",
+            Shapes: "<rect x='3' y='3' width='9' height='9' rx='1'/><circle cx='13' cy='13' r='4'/>",
+            Text: "<path d='M3 4h12M9 4v12M6 16h6'/>",
+            Undo: "<path d='M7 5L3 9l4 4M3 9h8a4 4 0 010 8'/>",
+            Redo: "<path d='M11 5l4 4-4 4M15 9H7a4 4 0 000 8'/>",
+            Clear: "<path d='M4 5h10M7 5V3h4v2M5 5l1 11h6l1-11'/>",
+            Close: "<path d='M4 4l10 10M14 4L4 14'/>",
         };
         const button = (label: string, action: () => void, dataMode?: string): HTMLButtonElement => {
             const element = document.createElement("button");
             element.type = "button";
-            element.textContent = label;
+            if (icons[label] === undefined) element.textContent = label;
+            else element.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${icons[label]}</svg>`;
             element.title = label;
+            element.setAttribute("aria-label", label);
             if (dataMode !== undefined) {
                 element.dataset.mode = dataMode;
                 element.setAttribute("aria-pressed", "false");
@@ -126,22 +147,37 @@ function annotatePage(): Promise<AnnotationResult | null> {
             button("Select element", () => setMode("select"), "select"),
             button("Pen", () => setMode("pen"), "pen"),
         );
-        const shapes = document.createElement("select");
-        for (const shape of ["Line", "Arrow", "Rectangle", "Ellipse", "Step"] as const) {
-            const option = document.createElement("option");
-            option.value = shape.toLowerCase();
-            option.textContent = shape;
-            shapes.append(option);
+        const shapeWrap = document.createElement("div");
+        shapeWrap.className = "shape-wrap";
+        const shapeMenu = document.createElement("div");
+        shapeMenu.className = "shape-menu";
+        shapeMenu.hidden = true;
+        const shapes = button("Shapes", () => {
+            shapeMenu.hidden = !shapeMenu.hidden;
+            shapes.setAttribute("aria-expanded", String(!shapeMenu.hidden));
+        });
+        shapes.setAttribute("aria-expanded", "false");
+        shapes.setAttribute("aria-haspopup", "menu");
+        shapeMenu.setAttribute("role", "menu");
+        for (const [shape, symbol] of [["Line", "╱"], ["Arrow", "↗"], ["Rectangle", "□"], ["Ellipse", "○"], ["Step", "①"]] as const) {
+            const option = button(shape, () => {
+                setMode(shape.toLowerCase() as Drawing["kind"]);
+                for (const item of Array.from(shapeMenu.querySelectorAll("button"))) item.setAttribute("aria-checked", String(item === option));
+                shapeMenu.hidden = true;
+                shapes.setAttribute("aria-expanded", "false");
+            });
+            option.setAttribute("role", "menuitemradio");
+            option.setAttribute("aria-checked", "false");
+            option.innerHTML = `<b aria-hidden="true">${symbol}</b><span>${shape}</span><b aria-hidden="true">✓</b>`;
+            shapeMenu.append(option);
         }
-        shapes.setAttribute("aria-label", "Shapes");
-        shapes.title = "Shapes";
-        shapes.addEventListener("click", () => setMode(shapes.value as Drawing["kind"]));
-        shapes.addEventListener("change", () => setMode(shapes.value as Drawing["kind"]));
-        toolbar.append(shapes, button("Text", () => setMode("text"), "text"));
+        shapeWrap.append(shapes, shapeMenu);
+        toolbar.append(shapeWrap, button("Text", () => setMode("text"), "text"));
         const colorInput = document.createElement("input");
         colorInput.type = "color";
         colorInput.value = color;
         colorInput.title = "Color";
+        colorInput.setAttribute("aria-label", "Color");
         colorInput.addEventListener("input", () => color = colorInput.value);
         const widthInput = document.createElement("input");
         widthInput.type = "range";
@@ -149,20 +185,29 @@ function annotatePage(): Promise<AnnotationResult | null> {
         widthInput.max = "12";
         widthInput.value = String(width);
         widthInput.title = "Width";
+        widthInput.setAttribute("aria-label", "Width");
         widthInput.addEventListener("input", () => width = Number(widthInput.value));
         const divider = (): HTMLSpanElement => {
             const element = document.createElement("span");
             element.className = "divider";
             return element;
         };
-        toolbar.append(colorInput, widthInput, divider());
+        const options = document.createElement("span");
+        options.className = "options";
+        options.append(divider(), colorInput, widthInput);
+        toolbar.append(options);
         const addToChat = button("Add to chat", () => finish(true));
         addToChat.className = "primary";
+        const actions = document.createElement("span");
+        actions.className = "action-group";
         const syncAddButton = (): void => {
-            addToChat.disabled = !canAddAnnotation(selected !== undefined, drawings.length);
+            const available = canAddAnnotation(selected !== undefined, drawings.length);
+            addToChat.disabled = !available;
+            addToChat.hidden = !available;
+            options.hidden = mode === "select";
+            actions.hidden = mode === "select" && drawings.length === 0;
         };
-        syncAddButton();
-        toolbar.append(
+        actions.append(
             button("Undo", () => {
                 const snapshot = undo.pop();
                 if (snapshot !== undefined) {
@@ -189,10 +234,9 @@ function annotatePage(): Promise<AnnotationResult | null> {
                 syncAddButton();
                 render();
             }),
-            divider(),
-            addToChat,
-            button("Close", () => finish(false)),
         );
+        toolbar.append(actions, divider(), addToChat, button("Close", () => finish(false)));
+        syncAddButton();
 
         const path = (event: MouseEvent): { x: number; y: number } => ({ x: event.clientX, y: event.clientY });
         const isOverlayEvent = (event: Event): boolean => {
@@ -221,8 +265,8 @@ function annotatePage(): Promise<AnnotationResult | null> {
             }
         });
         const onMove = (event: MouseEvent): void => {
-            if (closed || isOverlayEvent(event)) return;
-            if (mode === "select") {
+            if (closed || capturing || isOverlayEvent(event)) return;
+            if (mode === "select" && selected === undefined) {
                 const target = document.elementFromPoint(event.clientX, event.clientY);
                 if (target === null || target === host || host.contains(target)) return;
                 const rect = target.getBoundingClientRect();
@@ -242,7 +286,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
             }
         };
         const onDown = (event: MouseEvent): void => {
-            if (closed || isOverlayEvent(event)) return;
+            if (closed || capturing || isOverlayEvent(event)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             if (mode === "select") {
@@ -252,8 +296,16 @@ function annotatePage(): Promise<AnnotationResult | null> {
                 if (target !== null && target !== host && !host.contains(target)) {
                     selected = target;
                     syncAddButton();
-                    hover.style.display = "none";
-                    tag.style.display = "none";
+                    const rect = target.getBoundingClientRect();
+                    hover.style.display = "block";
+                    hover.style.left = `${rect.left}px`;
+                    hover.style.top = `${rect.top}px`;
+                    hover.style.width = `${rect.width}px`;
+                    hover.style.height = `${rect.height}px`;
+                    tag.textContent = target.localName;
+                    tag.style.display = "block";
+                    tag.style.left = `${rect.left}px`;
+                    tag.style.top = `${Math.max(0, rect.top - 20)}px`;
                 }
                 return;
             }
@@ -280,7 +332,7 @@ function annotatePage(): Promise<AnnotationResult | null> {
             render();
         };
         const onClick = (event: MouseEvent): void => {
-            if (closed || isOverlayEvent(event)) return;
+            if (closed || capturing || isOverlayEvent(event)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
         };
@@ -291,15 +343,25 @@ function annotatePage(): Promise<AnnotationResult | null> {
                 finish(false);
             }
         };
-        const onResize = (): void => resize();
+        const refreshSelection = (): void => {
+            if (selected === undefined || capturing || closed) return;
+            const rect = selected.getBoundingClientRect();
+            hover.style.left = `${rect.left}px`;
+            hover.style.top = `${rect.top}px`;
+            hover.style.width = `${rect.width}px`;
+            hover.style.height = `${rect.height}px`;
+            tag.style.left = `${rect.left}px`;
+            tag.style.top = `${Math.max(0, rect.top - 20)}px`;
+        };
+        const onResize = (): void => { resize(); refreshSelection(); };
         const finish = async (add: boolean): Promise<void> => {
             if (closed) return;
-            closed = true;
-            stopListeners();
             if (!add) {
                 cleanup();
                 return;
             }
+            if (capturing) return;
+            capturing = true;
             hover.style.display = "none";
             tag.style.display = "none";
             toolbar.style.display = "none";
@@ -312,10 +374,13 @@ function annotatePage(): Promise<AnnotationResult | null> {
             let details: SelectionDetails | undefined;
             try {
                 details = selected === undefined ? undefined : describeSelection(selected);
-            } catch (error) {
-                resultResolved = true;
-                cleanup();
-                reject(error);
+            } catch {
+                toolbar.style.display = "flex";
+                if (selected !== undefined) {
+                    hover.style.display = "block";
+                    tag.style.display = "block";
+                }
+                capturing = false;
                 return;
             }
             const result: AnnotationResult = {
@@ -326,12 +391,26 @@ function annotatePage(): Promise<AnnotationResult | null> {
             await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
             if (resultResolved) return;
             resultResolved = true;
-            resolve(result);
+            deliver(result);
         };
+        const next = (): Promise<AnnotationResult | null> => {
+            if (closed) return Promise.resolve(null);
+            toolbar.style.display = "flex";
+            if (selected !== undefined) {
+                hover.style.display = "block";
+                tag.style.display = "block";
+            }
+            capturing = false;
+            refreshSelection();
+            resultResolved = false;
+            return new Promise((done) => { deliver = done; });
+        };
+        (globalThis as typeof globalThis & { __veraPageNext?: typeof next }).__veraPageNext = next;
         function stopListeners(): void {
             if (!listenersAttached) return;
             listenersAttached = false;
             window.removeEventListener("resize", onResize);
+            document.removeEventListener("scroll", refreshSelection, true);
             document.removeEventListener("mousemove", onMove, true);
             document.removeEventListener("mousedown", onDown, true);
             document.removeEventListener("mouseup", onUp, true);
@@ -352,11 +431,13 @@ function annotatePage(): Promise<AnnotationResult | null> {
             }
             if (!resultResolved) {
                 resultResolved = true;
-                resolve(null);
+                deliver(null);
             }
+            delete (globalThis as typeof globalThis & { __veraPageNext?: typeof next }).__veraPageNext;
         }
         (globalThis as typeof globalThis & { __veraPageCleanup?: () => void }).__veraPageCleanup = cleanup;
         window.addEventListener("resize", onResize);
+        document.addEventListener("scroll", refreshSelection, true);
         document.addEventListener("mousemove", onMove, true);
         document.addEventListener("mousedown", onDown, true);
         document.addEventListener("mouseup", onUp, true);

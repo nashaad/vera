@@ -90,6 +90,11 @@ try {
     await until("the copied file", () => copies(trial.home).length === 1);
     const [copied] = copies(trial.home);
     if (!copied.includes(".jsonl.files/") || readFileSync(copied, "utf8") !== "a crow report") throw new Error(`Unexpected copy: ${copied}`);
+    await page.getByRole('button', { name: 'Toggle Right Pane' }).click();
+    await page.locator('[data-pane-launcher]').click();
+    await page.locator('[data-pane-option="core.files"]').click();
+    await page.locator('.file-entry', { hasText: 'report.txt' }).click();
+    await page.locator('.file-preview-lines', { hasText: 'a crow report' }).waitFor();
     await page.evaluate(() => {
         const picker = document.createElement("input");
         picker.type = "file";

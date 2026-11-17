@@ -52,11 +52,21 @@ export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
             ref={root}
             className="chip chip-file page-capture-chip"
             data-attaching={item.attaching}
+            tabIndex={0}
             onMouseEnter={() => setOpen(true)}
-            onMouseLeave={() => setOpen(false)}
+            onMouseLeave={(event) => {
+                if (!event.currentTarget.contains(document.activeElement)) setOpen(false);
+            }}
             onFocus={() => setOpen(true)}
+            onKeyDown={(event) => {
+                if (event.key === "Escape" && open) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpen(false);
+                }
+            }}
             onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null) && !event.currentTarget.matches(":hover")) setOpen(false);
             }}
         >
             <PointerIcon className="chip-icon" />
@@ -70,19 +80,23 @@ export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
             ><XIcon className="chip-x-icon" /></button>
             {open ? (
                 <span
-                    className="context-pop"
+                    className="context-pop page-capture-pop"
                     role="dialog"
+                    dir="auto"
                     data-popover="above-start"
                     style={placement}
                 >
-                    <strong>Included with your message</strong>
+                    <strong className="page-capture-heading">Included with your message</strong>
                     <img className="feedback-thumbnail" src={capture.preview} alt="" />
                     {selection === undefined ? (
                         <p>Image {item.number}</p>
                     ) : (
                         <>
-                            <p><strong>Element</strong><br />{`<${selection.tag} /> ${selection.selector}`}</p>
-                            <p><strong>Text</strong><br />{selection.text}</p>
+                            <p className="page-capture-row"><strong>Element</strong><span dir="auto">{`<${selection.tag} /> ${selection.selector}`}</span></p>
+                            <p className="page-capture-row"><strong>Text</strong><span dir="auto">{selection.text}</span></p>
+                            <button type="button" className="page-capture-details" aria-expanded={details} onClick={() => setDetails((value) => !value)}>
+                                <span aria-hidden="true">{details ? "⌄" : "›"}</span>{details ? "Hide details" : "Show more details"}
+                            </button>
                             {details ? (
                                 <>
                                     <strong>Computed styles</strong>
@@ -90,9 +104,7 @@ export function PageCaptureChip({ item, onRemove }: PageCaptureChipProps) {
                                     <ExpandableText label="HTML" value={selection.html} />
                                     <ExpandableText label="Siblings" value={selection.siblings} />
                                 </>
-                            ) : (
-                                <button type="button" onClick={() => setDetails(true)}>Show details</button>
-                            )}
+                            ) : null}
                         </>
                     )}
                 </span>
