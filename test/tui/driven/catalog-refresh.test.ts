@@ -25,7 +25,9 @@ test("the model picker's refresh key asks the provider and shows the new list", 
         expect(pane).toContain("More models");
         expect(pane).not.toContain("Two");
 
-        // The page opens on Favorites, and the catalog rows are under All.
+        await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g");
+        await session.waitForVisiblePane("● Favorites");
         session.sendKey("C-g");
         await session.waitForVisiblePane("● Recommended");
         session.sendKey("C-g");

@@ -92,7 +92,9 @@ test("default verification finishes when model settings arrive while it runs", a
         await session.waitForVisiblePane("Start a conversation");
         // Opened from /models, so a settings snapshot rebuilds the picker underneath.
         session.sendText("/models"); session.sendKey("Enter");
-        await session.waitForVisiblePane("More models");
+        await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g");
+        await session.waitForVisiblePane("● Favorites");
         session.sendKey("C-k");
         await session.waitForVisiblePane("Manage models");
         session.sendKey("Down"); session.sendKey("Down"); session.sendKey("Enter");

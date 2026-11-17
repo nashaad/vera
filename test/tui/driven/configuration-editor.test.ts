@@ -62,7 +62,7 @@ test("configure chooses the profile config and reports when its editor closes", 
         const pane = await session.waitForVisiblePane(
             "Profile config editor closed:",
         );
-        expect(pane).toContain("config.json");
+        expect(pane.replace(/\s+/g, "")).toContain(openedPath!.replace(/\s+/g, ""));
     } finally {
         closeEditor?.();
         await session.close();

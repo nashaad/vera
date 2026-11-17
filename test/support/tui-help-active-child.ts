@@ -29,7 +29,7 @@ export function createTuiHelpActiveDependencies(): TuiDependencies {
             readModelSettings: () => ({
                 model: "test",
                 reasoningEffort: "high",
-                contextWindow: 100,
+                contextWindow: 200_000,
             }),
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,

@@ -23,6 +23,8 @@ test("browse keeps the search text while Tab walks its sections, and Enter favor
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models"); session.sendKey("Enter");
+        await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g");
         await session.waitForVisiblePane("● Favorites");
         await session.waitForVisiblePane("No favorites yet");
         session.sendKey("C-g"); await session.waitForVisiblePane("● Recommended");
