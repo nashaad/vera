@@ -41,11 +41,6 @@ export class BrowserGateway {
         } catch { this.available = false; }
     }
 
-    async forget(): Promise<void> {
-        if (this.socket === undefined) throw new Error("The host is not running.");
-        await requestExtensionThroughHost(this.socket, EXTENSION, "forget", {}, AbortSignal.timeout(30_000));
-    }
-
     private async loop(socket: string, signal: AbortSignal): Promise<void> {
         while (!signal.aborted) {
             try {
@@ -57,13 +52,6 @@ export class BrowserGateway {
                 }
                 if (!isRecord(job) || typeof job.id !== "string") continue;
                 const raw = job.request;
-                if (isRecord(raw) && raw.action === "forget") {
-                    let result: Record<string, unknown>;
-                    try { await this.cdp.forget(); result = { output: "Browsing data cleared." }; }
-                    catch (error) { result = { error: error instanceof Error ? error.message : "Could not forget browsing data." }; }
-                    await requestExtensionThroughHost(socket, EXTENSION, "reply", { id: job.id, ...result } as JsonValue, signal);
-                    continue;
-                }
                 const request = isRecord(raw) ? parseBrowserRequest(raw) : undefined;
                 let result: Record<string, unknown>;
                 if (request === undefined) result = { error: "Invalid browser request." };

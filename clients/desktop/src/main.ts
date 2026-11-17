@@ -109,7 +109,6 @@ let hostSocketPath: string | undefined;
 let annexUrl: string | undefined;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
-let browserClearing: Promise<void> | undefined;
 
 const pipe = new HostPipe(sendEvent);
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
@@ -678,7 +677,6 @@ ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean
 ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown) => {
     if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
     const pane = browserPane;
-    if (command !== "state" && command !== "bounds" && browserClearing !== undefined) await browserClearing;
     const previousActive = pane.state().active;
     let opened: number | undefined;
     if (command === "open" && (value === undefined || typeof value === "string")) opened = pane.open(value);
@@ -695,11 +693,6 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
     if (command === "external") {
         const url = pane.current()?.getURL();
         if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
-    }
-    if (command === "forget") {
-        const clearing = browserGateway?.forget() ?? Promise.reject(new Error("The host is not running."));
-        browserClearing = clearing;
-        try { await clearing; } finally { if (browserClearing === clearing) browserClearing = undefined; }
     }
     if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
     if (command === "bounds") {
@@ -732,7 +725,6 @@ app.whenReady().then(() => {
     window = createWindow();
     browserPane = new BrowserPane(window,
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
-        () => sendEvent({ type: "browser_cleared" }),
         (id) => sendEvent({ type: "command", id }),
     );
     browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));

@@ -274,10 +274,10 @@ kind that can be opened. The field filters tiles and recent pages; it also opens
 web address. Focus the field to see recent pages, use the arrow keys to select one
 and Enter to open it, or Escape to close the list. Other text filters without
 opening a web search. Recent pages stay in the desktop home between launches.
-Forget browsing data removes site recents, but keeps Vera page recents. A tile is
-disabled while its kind cannot take another tab. Picking a tile, or a kind in the launcher, always
-opens a new tab of that kind and shows it. `+` opens the launcher, which has a
-filter field and a row for each kind with its shortcut. If the typed text is a web
+A tile is disabled while its kind cannot take another tab. Picking a tile, or a
+kind in the launcher, always opens a new tab of that kind and shows it. `+`
+opens the launcher, which has a filter field and a row for each kind with its
+shortcut. If the typed text is a web
 address, such as `example.com/docs`, `localhost:3000` or one that starts with
 `https://`, the first row opens it in a new Browser tab; a bare word such as `files`
 only filters. Up/Down move through the rows, Enter opens the focused row and Escape
@@ -1146,11 +1146,11 @@ refused.
 
 Enter an address for a site, or a Vera page's name or path such as `/runs`.
 Open in your browser opens the current page in the system browser. Back and
-Forward move through the current tab. Browser tabs are not kept when the window
-closes; their sign-ins and site data stay in the home until Forget browsing data
-removes them. Sign-ins are stored in the home like provider keys, in an
-owner-only directory, and the cookie store is plaintext. A site may end a
-sign-in or use a session cookie that expires when the window closes.
+Forward move through the current tab. Browser tabs share cookies, site storage
+and cache in memory while the desktop is open. Tabs, sign-ins and site data do
+not survive closing the desktop. Site recents and saved captures remain in the
+home, and downloaded files remain where you save them. Data left in
+`machine/desktop/chromium/browser` by earlier versions is not opened or deleted.
 
 Browser history records web pages shown in the pane, whether opened by you or by
 `desktop_browser`. It is searchable and grouped by day. Opening an entry loads it

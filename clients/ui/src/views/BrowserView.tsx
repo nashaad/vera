@@ -31,7 +31,6 @@ export function BrowserView({ visible }: ViewProps) {
     const annex = result?.ok === true ? result : undefined;
     const [typed, setTyped] = useState<string | undefined>(undefined);
     const [frameRound, setFrameRound] = useState(0);
-    const [clearing, setClearing] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
     const [historyOpen, setHistoryOpen] = useState(false);
     const [focusClear, setFocusClear] = useState(0);
@@ -49,13 +48,6 @@ export function BrowserView({ visible }: ViewProps) {
     useEffect(() => {
         if (visible) void nativeCommand("select", slot.page ?? null);
     }, [visible, slot.page]);
-
-    const forget = async (): Promise<void> => {
-        setClearing(true);
-        const answer = await nativeCommand("forget");
-        setError(answer === undefined && window.veraDesktop !== undefined ? "Could not forget browsing data." : undefined);
-        setClearing(false);
-    };
 
     const onKey = (event: KeyboardEvent<HTMLInputElement>): void => {
         if (event.key === "Enter" && typed !== undefined) {
@@ -109,7 +101,6 @@ export function BrowserView({ visible }: ViewProps) {
                     aria-label="Address"
                     value={typed ?? (page === undefined ? displayAddress(entry, annex?.url) : page.url)}
                     placeholder={PLACEHOLDER}
-                    disabled={clearing}
                     spellCheck={false}
                     onChange={(event) => setTyped(event.target.value)}
                     onFocus={(event) => event.currentTarget.select()}
@@ -161,7 +152,6 @@ export function BrowserView({ visible }: ViewProps) {
             </div>
             <div className="browser-controls">
                 <label><input type="checkbox" role="switch" aria-label="Browser tools" checked={native?.toolsEnabled ?? false} disabled={!(native?.toolsAvailable ?? false)} onChange={(event) => void nativeCommand("tools", event.target.checked)} /> Browser tools {native?.toolsEnabled ? "on" : "off"}</label>
-                <button type="button" disabled={clearing} onClick={() => void forget()}>Forget browsing data</button>
             </div>
             {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
             {historyOpen ? (

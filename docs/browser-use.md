@@ -14,12 +14,11 @@ Browser tabs. Cmd+R (Ctrl+R on other platforms) reloads the visible Browser page
 or Files HTML Preview without reloading the desktop window. When no page is
 visible, the shortcut does nothing.
 
-Sign in to sites yourself in the pane. Sign-ins made there are stored in the
-Vera home like provider keys, in an owner-only directory. The cookie store is
-plaintext. Forget browsing data closes the site pages, and their tabs with them, and removes their saved
-sign-ins, site storage and cache. A site can also end a sign-in or use a
-session cookie that expires when the window closes.
-The host must be connected to forget browsing data.
+You can sign in to sites yourself in the pane. Browser tabs share cookies, site
+storage and cache in memory while the desktop is open; those sign-ins and site
+data do not survive closing the desktop. Site recents and saved captures remain
+in the home, and downloaded files remain where you save them. Data left in
+`machine/desktop/chromium/browser` by earlier versions is not opened or deleted.
 
 Browser history lists web pages shown in the pane, whether opened by you or by
 `desktop_browser`. Search the history or browse it by day; opening an entry loads
