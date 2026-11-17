@@ -118,6 +118,10 @@ export async function sendToPeer(reg: AgentRegistry, caller: PeerCaller, effect:
         const recipient = reg.agents.get(effect.to);
         const inbox = reg.options.inboxDelivery;
         if (inbox === undefined) return toolError("Native inbox participation is unavailable in this session.");
+        if (recipient?.kind === "background" && recipient.parentId === caller.id
+            && recipient.failure === undefined && !recipient.agent.closed && !recipient.agent.failed) {
+            return toolError(`Async subagent ${effect.to} is your child. Use message_subagent to send it more work.`);
+        }
         if (
             recipient === undefined
             || recipient.kind !== "interactive"

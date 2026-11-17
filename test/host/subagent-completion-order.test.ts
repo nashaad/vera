@@ -15,10 +15,10 @@ test("a local completion begins recording before the next microtask", async () =
         },
     } as unknown as SessionStore;
     const child = {
-        agent: { id: "child" },
+        agent: { id: "child", hasPendingTurn: () => false },
         store: {
             header: { cwd: "/work" },
-            messages: () => [{ role: "assistant", content: [{ type: "text", text: "Found the map" }] }],
+            activeHeadId: () => null,
         },
         pendingAsyncTurns: 1,
         pendingCompletionDeliveries: 0,

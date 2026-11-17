@@ -155,6 +155,7 @@ export class ResidentAgent {
     private terminalFailure: AgentUpdate | undefined;
     private isClosed = false;
     private pendingCommandCount = 0;
+    private pendingPromptCommands = 0;
     private unstartedPrompts = 0;
     // Wakes the engine took that have neither started a turn nor been discarded; one may sit queued behind a running turn.
     private outstandingDeliveryWakes = 0;
@@ -187,8 +188,9 @@ export class ResidentAgent {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
-                    if (queued.command.type === "prompt" && !this.routerHalted) {
-                        this.unstartedPrompts += 1;
+                    if (queued.command.type === "prompt") {
+                        this.pendingPromptCommands -= 1;
+                        if (!this.routerHalted) this.unstartedPrompts += 1;
                     }
                     if (queued.command.type === "trigger_delivery_turn") {
                         this.deliveryTurnQueued = false;
@@ -296,6 +298,7 @@ export class ResidentAgent {
                     throw new AgentCommandQueueFullError();
                 }
                 this.pendingCommandCount += 1;
+                if (command.type === "prompt") this.pendingPromptCommands += 1;
                 try {
                     this.inbound.push({
                         command: isTimelineCommand(command)
@@ -321,6 +324,7 @@ export class ResidentAgent {
                     });
                 } catch (error) {
                     this.pendingCommandCount -= 1;
+                    if (command.type === "prompt") this.pendingPromptCommands -= 1;
                     throw error;
                 }
             },
@@ -388,7 +392,7 @@ export class ResidentAgent {
         }
     }
 
-    sendPrompt(content: string): void {
+    sendPrompt(content: string, releaseHeld = false): void {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
@@ -403,13 +407,21 @@ export class ResidentAgent {
             throw new AgentCommandQueueFullError();
         }
         this.pendingCommandCount += 1;
+        this.pendingPromptCommands += 1;
         try {
             this.inbound.push({
                 command: { type: "prompt", content },
                 countsTowardLimit: true,
             });
+            if (releaseHeld) {
+                this.inbound.push({
+                    command: { type: "release_queued_prompts", mode: "all" },
+                    countsTowardLimit: false,
+                });
+            }
         } catch (error) {
             this.pendingCommandCount -= 1;
+            this.pendingPromptCommands -= 1;
             throw error;
         }
     }
@@ -866,7 +878,8 @@ export class ResidentAgent {
     }
 
     hasPendingTurn(): boolean {
-        return this.currentStatus !== "idle"
+        return (this.pendingPromptCommands > 0 && !this.routerHalted)
+            || this.currentStatus !== "idle"
             || this.unstartedPrompts > 0
             || this.outstandingDeliveryWakes > 0
             || this.deliveryTurnQueued;

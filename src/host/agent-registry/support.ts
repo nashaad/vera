@@ -850,6 +850,7 @@ export interface RegisteredAgentEntry {
     cutReason?: string;
     completed: boolean;
     pendingAsyncTurns: number;
+    resumeAsyncQueueOnMessage?: boolean;
     pendingCompletionDeliveries: number;
     completionSequence: number;
     failure?: unknown;
