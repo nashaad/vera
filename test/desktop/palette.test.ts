@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
+import { registerThemeCommands } from "../../clients/ui/src/commands/theme-commands.ts";
+import { parseImportedSummary } from "../../clients/ui/src/theme/imported.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import {
     buildCommandItems,
@@ -61,6 +63,25 @@ test("@core command entries leave out commands that need arguments and the palet
     const sidebar = items.find((item) => item.id === "layout.toggleSidebar");
     expect(sidebar?.keys).toEqual(["⌘", "B"]);
     expect(items.find((item) => item.id === "go.newChat")?.keys).toEqual(["⌘", "N"]);
+});
+
+test("@core theme commands appear only in a nonblank search without affecting execution", () => {
+    const registry = new CommandRegistry();
+    const applied: string[] = [];
+    const imported = parseImportedSummary({ slug: "crow.night", name: "Crow Night", type: "dark", source: "Crow" });
+    expect(imported).toBeDefined();
+    registerThemeCommands(registry, (choice) => applied.push(choice), [imported!]);
+    registry.register({ id: "theme.choose", title: "Choose Theme", run() {} });
+    registry.register({ id: "import.theme", title: "Import Theme", run() {} });
+    const items = buildCommandItems(registry.list(), "darwin");
+    for (const query of ["", "  \t "]) {
+        expect(rankItems(items, query).map(({ item }) => item.id)).toEqual(["theme.choose", "import.theme"]);
+    }
+    expect(rankItems(items, "dark").some(({ item }) => item.id === "theme.dark")).toBe(true);
+    expect(rankItems(items, "crow night").some(({ item }) => item.id === "theme.imported.crow.night")).toBe(true);
+    expect(registry.execute("theme.dark")).toBe(true);
+    expect(registry.execute("theme.imported.crow.night")).toBe(true);
+    expect(applied).toEqual(["dark", "imported:crow.night"]);
 });
 
 test("command groups follow the id prefix and sort by group, then title", () => {

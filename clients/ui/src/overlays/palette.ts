@@ -22,6 +22,7 @@ export interface PaletteItem {
     readonly keys: readonly string[];
     readonly status: "working" | "waiting" | undefined;
     readonly fields: readonly string[];
+    readonly searchOnly?: true;
 }
 
 export interface RankedItem {
@@ -63,6 +64,7 @@ export function buildCommandItems(commands: readonly Command[], platform: string
             keys: shortcutKeys(command.id, platform),
             status: undefined,
             fields: [command.title],
+            searchOnly: command.paletteSearchOnly,
         }));
     return items.sort((left, right) => {
         const byGroup = GROUP_ORDER.indexOf(left.group as CommandGroup) - GROUP_ORDER.indexOf(right.group as CommandGroup);
@@ -159,7 +161,7 @@ function matchItem(item: PaletteItem, words: readonly string[]): { readonly rank
 // An empty query keeps the items' own order. Otherwise the best score comes first, ties keep their order.
 export function rankItems(items: readonly PaletteItem[], query: string, limit: number = PALETTE_LIMIT): readonly RankedItem[] {
     const words = query.trim().toLowerCase().split(/\s+/).filter((word) => word.length > 0);
-    if (words.length === 0) return items.slice(0, limit).map((item) => ({ item, indices: [] }));
+    if (words.length === 0) return items.filter((item) => !item.searchOnly).slice(0, limit).map((item) => ({ item, indices: [] }));
     const scored: { readonly ranked: RankedItem; readonly score: number }[] = [];
     for (const item of items) {
         const match = matchItem(item, words);
