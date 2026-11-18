@@ -72,10 +72,51 @@ sh install.sh ~/Downloads/vera-darwin-arm64.tar.gz
 Set `VERA_VERSION` to install a version other than the newest, and
 `VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. Without
 `VERA_VERSION`, the installer asks the GitHub API for the newest release; if
-that request fails, set `VERA_VERSION` to install a specific version. The
-release includes its own runtime, so Bun and Node are not needed. Installing
+that request fails, set `VERA_VERSION` to install a specific version.
+`VERA_RELEASES_API` overrides the release-list URL, and
+`VERA_RELEASES_DOWNLOAD_BASE` overrides the release download base used for the
+platform archive and its `.sha256` checksum. The default download base is
+`https://github.com/nashaad/vera/releases/download`; both variables can be set
+when using a release mirror. The release includes its own runtime, so Bun and
+Node are not needed. Installing
 the same release again leaves it in place, and installing a newer one keeps
 the previous release for [`vera rollback`](installed-command.md).
+
+### Add the desktop app on macOS
+
+After it installs `vera`, the installer asks `Also install the Vera desktop app? [Y/n] `,
+and Enter answers yes. It reads the answer from the terminal rather than from
+the script, so the question works when the script arrives through `curl | sh`.
+With no terminal to ask on, it skips the app and prints how to add it later.
+
+`VERA_DESKTOP` answers ahead of time: `yes` installs the app, `no` skips it
+without asking, and `ask`, the default, asks. Any other value stops the
+installer before it changes anything. On Linux the installer says the desktop
+app is not available yet, and `VERA_DESKTOP=yes` fails there once `vera` is
+installed. The desktop app finds Vera only in `~/.local`, so when
+`VERA_INSTALL_PREFIX` names another directory the installer installs `vera`,
+skips the app without a question, and `VERA_DESKTOP=yes` fails. A release that
+has no desktop app yet is skipped without a question, and `VERA_DESKTOP=yes`
+fails against it. Installing from a file you downloaded skips the app, because
+the app comes from a release download; run the installer without a file to add
+it.
+
+The app comes from the same release as `vera`. Each macOS platform has two more
+files in the release, each with a `.sha256` file: `vera-desktop-darwin-<arch>.tar.gz`,
+the desktop code built for that release's host, and
+`vera-desktop-shell-darwin-<arch>.tar.gz`, which holds `Vera.app`. The
+installer checks both sums and the code's host build before it writes anything.
+It puts the code under `share/vera/desktop/` in the install prefix, puts
+`Vera.app` in `/Applications` when you can write there and otherwise in
+`~/Applications`, clears the macOS quarantine flag on what it installs, and
+opens the app. It never uses `sudo`.
+
+An existing `Vera.app` that is not the Vera desktop app is left alone, and the
+installer prints its path. An existing Vera desktop app is replaced, and put
+back if the replacement fails. While Vera is running the installer does not
+replace it: it asks you to quit Vera and run the installer again. When the
+desktop step fails for any reason, the `vera` command stays installed and the
+installer exits with status 1.
 
 ## Install from a checkout
 

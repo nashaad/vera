@@ -34,7 +34,14 @@ function fakeTarball(root: string, buildId: string): string {
 
 function install(prefix: string, tarball: string, path = "/usr/bin:/bin:/usr/sbin") {
     return Bun.spawnSync(["sh", installer, tarball], {
-        env: { ...process.env, HOME: prefix, VERA_HOME: join(prefix, "home"), VERA_INSTALL_PREFIX: prefix, PATH: path },
+        env: {
+            ...process.env,
+            HOME: prefix,
+            VERA_HOME: join(prefix, "home"),
+            VERA_INSTALL_PREFIX: prefix,
+            VERA_DESKTOP: "no",
+            PATH: path,
+        },
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -47,6 +54,7 @@ function installDownload(prefix: string, path: string, extra: Record<string, str
             HOME: prefix,
             VERA_HOME: join(prefix, "home"),
             VERA_INSTALL_PREFIX: prefix,
+            VERA_DESKTOP: "no",
             VERA_VERSION: "",
             VERA_RELEASES_API: "",
             VERA_REPO: "",
@@ -265,6 +273,71 @@ test("install.sh resolves the newest release from the API and downloads its expl
         expect(urls).toContain("https://github.com/nashaad/vera/releases/download/v9.9.9/vera-darwin-arm64.tar.gz.sha256");
         expect(readlinkSync(join(prefix, "share", "vera", "current"))).toBe("releases/vera-eeee");
     } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("install.sh downloads archive and checksum from VERA_RELEASES_DOWNLOAD_BASE over real HTTP", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-install-download-base-"));
+    const tarball = fakeTarball(root, "vera-mirror");
+    const bytes = new Uint8Array(readFileSync(tarball));
+    const checksum = `${createHash("sha256").update(bytes).digest("hex")}  vera-darwin-arm64.tar.gz\n`;
+    const requests: string[] = [];
+    const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(request) {
+            const path = new URL(request.url).pathname;
+            requests.push(path);
+            if (path === "/api/releases") {
+                return new Response('[{"tag_name":"v9.9.9"}]', {
+                    headers: { "content-type": "application/json" },
+                });
+            }
+            if (path === "/mirror/v9.9.9/vera-darwin-arm64.tar.gz") return new Response(bytes);
+            if (path === "/mirror/v9.9.9/vera-darwin-arm64.tar.gz.sha256") return new Response(checksum);
+            return new Response("not found", { status: 404 });
+        },
+    });
+    try {
+        const prefix = join(root, "prefix");
+        const base = `http://127.0.0.1:${server.port}/mirror/`;
+        const api = `http://127.0.0.1:${server.port}/api/releases?per_page=1`;
+        const bin = join(root, "bin");
+        mkdirSync(bin);
+        writeFileSync(join(bin, "curl"), `#!/bin/sh\nexec /usr/bin/curl --noproxy '*' --max-time 5 "$@"\n`, { mode: 0o755 });
+        writeFileSync(join(bin, "uname"), '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n', { mode: 0o755 });
+        const child = Bun.spawn(["sh", installer], {
+            env: {
+                ...process.env,
+                HOME: prefix,
+                VERA_HOME: join(prefix, "home"),
+                VERA_INSTALL_PREFIX: prefix,
+                VERA_DESKTOP: "no",
+                VERA_VERSION: "",
+                VERA_RELEASES_API: api,
+                VERA_RELEASES_DOWNLOAD_BASE: base,
+                PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+                NO_PROXY: "127.0.0.1,localhost",
+                no_proxy: "127.0.0.1,localhost",
+            },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const [, stderr, exit] = await Promise.all([
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+            child.exited,
+        ]);
+        expect(exit, stderr).toBe(0);
+        expect(requests).toEqual([
+            "/api/releases",
+            "/mirror/v9.9.9/vera-darwin-arm64.tar.gz",
+            "/mirror/v9.9.9/vera-darwin-arm64.tar.gz.sha256",
+        ]);
+        expect(readlinkSync(join(prefix, "share", "vera", "current"))).toBe("releases/vera-mirror");
+    } finally {
+        server.stop(true);
         rmSync(root, { recursive: true, force: true });
     }
 });
