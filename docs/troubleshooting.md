@@ -39,8 +39,11 @@ If a Ctrl+L restart fails, the conversation says so and prints `vera resume <id>
 
 To choose **Reconnect host**, press Ctrl+P. It attaches to or replaces the host
 associated with this Vera home and returns to the same conversation without
-changing the installed build. It is not a slash
-command. Choosing it authorizes that recovery; there is no second prompt.
+changing the installed build. On Home, it refreshes the session list and
+settings without opening a conversation. It replaces only the host Home was
+connected to; if a different healthy host answers, Home attaches to it. It is
+not a slash command. Choosing it authorizes that recovery; there is no second
+prompt.
 
 Every client of a Vera home shares one host. Replacing a healthy host stops it
 for all of them: each other attached TUI loses its connection until it
@@ -56,8 +59,9 @@ reconnects, with Ctrl+L or Reconnect host if it does not do so itself.
 | Healthy and busy, client still connected | Refuse replacement while other work is using it. |
 | Healthy, client already disconnected | Attach to it and reattach the conversation. It is not asked to shut down. |
 
-A busy refusal protects active work. The composer stays usable. Let that work
-finish, or use the deliberate shutdown controls in
+A busy refusal protects active work. The composer stays usable. On Home, a
+dialog asks you to let the work finish and try Reconnect host again. You can
+also use the deliberate shutdown controls in
 [Development instances and process cleanup](runtime-and-worktrees.md).
 
 Reconnect host does not signal a process whose start time the system cannot
