@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import sharp from "sharp";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
@@ -93,13 +94,70 @@ try {
     await until("annotation tools", async () => await frame.locator('[data-vera-annotation]').count() === 1);
     if (await page.frameLocator('iframe[name="browser-decoy"]').locator('[data-vera-annotation]').count()) throw new Error("Annotation targeted the other frame");
     await target.click({ force: true });
-    await frame.locator('[data-vera-annotation]').evaluate((element) => element.shadowRoot.querySelector('button[title="Add to chat"]').click());
+    const zooms = [1, 1, 1.25, 0.8];
+    let headingReference;
+    const initialFrame = await page.locator('iframe[title="File preview"]').boundingBox();
+    for (const [index, zoom] of zooms.entries()) {
+        if (index === 1) {
+            await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1840, 1000));
+            await until("preview moved", async () => (await page.locator('iframe[title="File preview"]').boundingBox()).x > initialFrame.x + 200);
+        }
+        if (index >= 2) {
+            await app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(value), zoom);
+            await until("shell zoom", async () => Math.abs(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getZoomFactor()) - zoom) < 0.001);
+        }
+        let previousLayout;
+        let stableFrames = 0;
+        await until("selection layout settled", async () => {
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+            const bounds = await target.boundingBox();
+            const surface = await page.locator('iframe[title="File preview"]').boundingBox();
+            if (bounds === null || surface === null || bounds.width <= 0 || bounds.x < surface.x || bounds.x + bounds.width > surface.x + surface.width) return false;
+            const layout = JSON.stringify({ bounds, surface });
+            stableFrames = layout === previousLayout ? stableFrames + 1 : 0;
+            previousLayout = layout;
+            return stableFrames >= 3;
+        });
+        if (index === 0) headingReference = await sharp(await target.screenshot()).resize(200, 100).removeAlpha().raw().toBuffer();
+        await until("Add available", async () => await frame.locator('[data-vera-annotation]').evaluate((element) => {
+            const button = element.shadowRoot.querySelector('button[title="Add to chat"]');
+            return button && !button.disabled && button.getClientRects().length > 0;
+        }));
+        await frame.locator('[data-vera-annotation]').evaluate((element) => element.shadowRoot.querySelector('button[title="Add to chat"]').click());
+        await until(`capture ${index + 1}`, async () => await page.locator('.page-capture-chip[data-attaching="false"]').count() === index + 1);
+    }
     await page.locator('iframe[name="browser-decoy"]').evaluate((element) => element.remove());
-    await page.locator('.page-capture-chip[data-attaching="false"]').waitFor({ timeout: 15_000 });
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-annotated.png` });
     await composer.fill("CHANGE PREVIEW");
     await composer.press("Enter");
     await until("provider source identity and screenshot", () => requests.some((body) => { const text = JSON.stringify(body.messages); return text.includes(`Local source file: ${join(realFolder, "index.html")}`) && text.includes("#target") && text.includes("Initial crow") && text.includes("data:image/"); }));
+    const request = requests.findLast((body) => JSON.stringify(body.messages).includes(`Local source file: ${join(realFolder, "index.html")}`));
+    const user = request.messages.findLast((message) => message.role === "user");
+    const images = user.content.filter((part) => part.type === "image_url");
+    if (images.length !== zooms.length) throw new Error(`Expected ${zooms.length} captures, got ${images.length}`);
+    let reference;
+    let referenceSize;
+    for (const [index, image] of images.entries()) {
+        const bytes = Buffer.from(image.image_url.url.split(",")[1], "base64");
+        if (process.env.VERA_PREVIEW_PROOF) writeFileSync(`${process.env.VERA_PREVIEW_PROOF}-capture-${index}.png`, bytes);
+        const size = await sharp(bytes).metadata();
+        const pixels = await sharp(bytes).resize(200, 100).removeAlpha().raw().toBuffer();
+        let ink = 0;
+        for (let i = 0; i < pixels.length; i += 3) if (pixels[i] < 80 && pixels[i + 1] < 100 && pixels[i + 2] < 120) ink += 1;
+        if (ink < 500 || ink > 6500) throw new Error(`Capture ${index + 1} has unexpected heading ink: ${ink}`);
+        if (reference === undefined) {
+            let difference = 0;
+            for (let i = 0; i < pixels.length; i += 1) difference += Math.abs(headingReference[i] - pixels[i]);
+            if (difference / pixels.length > 15) throw new Error("The first capture does not match the unzoomed heading");
+            reference = pixels;
+            referenceSize = size;
+            continue;
+        }
+        if (Math.abs(size.width / referenceSize.width - zooms[index]) > 0.04 || Math.abs(size.height / referenceSize.height - zooms[index]) > 0.04) throw new Error(`Capture ${index + 1} has the wrong dimensions`);
+        let difference = 0;
+        for (let i = 0; i < pixels.length; i += 1) difference += Math.abs(reference[i] - pixels[i]);
+        if (difference / pixels.length > 15) throw new Error(`Capture ${index + 1} does not match the heading: ${difference / pixels.length}`);
+    }
     await until("the edit", () => readFileSync(join(folder, "index.html"), "utf8").includes("Changed crow"));
     await composer.fill("preview reload draft");
     await press(app, "R", [MODIFIER]);

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PageCommandService } from "../../clients/desktop/src/extension-commands/page.ts";
+import { browserFrame, PageCommandService } from "../../clients/desktop/src/extension-commands/page.ts";
 
 class Contents extends EventEmitter {
     readonly scripts: string[] = [];
@@ -131,6 +131,40 @@ describe("page command boundary", () => {
         }) });
         expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 0, y: 0, width: 300, height: 400 })).toEqual({ ok: false, reason: "The page could not be read." });
         expect(events.listenerCount("message")).toBe(0);
+        expect(attached).toBe(false);
+    });
+    test("refuses a replacement frame with the same name and origin", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        const original = { name: "preview-abc", url: "http://localhost/preview" };
+        const frames = [original];
+        let attached = false;
+        Object.assign(contents, {
+            mainFrame: { framesInSubtree: frames },
+            executeJavaScript: async () => ({ ...original, x: 10, y: 20, width: 300, height: 400 }),
+            debugger: Object.assign(events, {
+                isAttached: () => attached,
+                attach: () => { attached = true; },
+                detach: () => { attached = false; },
+                sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "child", ...original } }] } };
+                    if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                    if (method === "Runtime.evaluate") {
+                        const expression = String(parameters?.expression);
+                        if (expression.includes("pageScript()")) {
+                            frames[0] = { ...original };
+                            return { result: { value: { rect: { x: 1, y: 2, width: 20, height: 30 }, text: "Selection" } } };
+                        }
+                        return { result: { value: false } };
+                    }
+                    return {};
+                },
+            }),
+        });
+        const frame = await browserFrame(contents.contents(), () => true, original.name);
+        expect(frame).toBeDefined();
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", frame)).toEqual({ ok: false, reason: "The page could not be read." });
+        expect(contents.captured).toBeUndefined();
         expect(attached).toBe(false);
     });
     test("refuses malformed output before capturing", async () => {
