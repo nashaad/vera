@@ -5,6 +5,7 @@ import { basename, join, resolve, sep } from "node:path";
 import { defaultVeraHomeDirectory, selectedVeraHome, veraRuntimeDirectoryIn } from "../profile-paths.ts";
 import { liveProcessDirectoryIn } from "../live-process.ts";
 import { type LaunchVeraHome } from "./launch-environment.ts";
+import { targetPidIsAncestor, type ProcessAncestryOptions } from "./process-ancestry.ts";
 import { classifyVeraProcess, START_TIME_TOLERANCE_MS } from "./process-identity.ts";
 import { defaultHostLockPath, inspectHostLockFile, type HostLockInspection } from "./lockfile.ts";
 import { readRecordedWorkers, type RecordedWorker } from "./pool/worker-records.ts";
@@ -36,6 +37,24 @@ export interface ResetCandidate {
     readonly proof: ResetProof;
     readonly recorded: boolean;
     readonly build?: string;
+}
+
+export function clientOwnedWatchdog(
+    candidate: ResetCandidate,
+    clientPids: readonly number[],
+    isAncestor: (pid: number, options: ProcessAncestryOptions) => boolean | undefined = targetPidIsAncestor,
+): boolean {
+    return candidate.role === "watchdog"
+        && clientPids.some((pid) => isAncestor(pid, { currentPid: candidate.pid }) !== false);
+}
+
+export function stoppableResetCandidates(
+    candidates: readonly ResetCandidate[],
+    isAncestor?: Parameters<typeof clientOwnedWatchdog>[2],
+): ResetCandidate[] {
+    const clientPids = [process.pid, ...candidates.filter((candidate) => candidate.role === "client").map((candidate) => candidate.pid)];
+    return candidates.filter((candidate) => candidate.role !== "client"
+        && !clientOwnedWatchdog(candidate, clientPids, isAncestor));
 }
 
 export interface ResetRecordedProcess {

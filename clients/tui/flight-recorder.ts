@@ -1,4 +1,3 @@
-import { isCompiledRelease, runtimePath } from "../../src/release/runtime-path.ts";
 import {
     appendFileSync,
     chmodSync,
@@ -14,6 +13,7 @@ import {
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
+import { clientFlightPaths } from "../../src/client-flight-paths.ts";
 
 export interface TuiFlightEvent extends Record<string, unknown> {
     readonly type: string;
@@ -31,7 +31,6 @@ export interface TuiFlightRecorderOptions {
     readonly runtimeDirectory?: string;
     readonly now?: () => Date;
     readonly pid?: number;
-    readonly spawnWatchdog?: boolean;
     readonly heartbeatIntervalMs?: number;
 }
 
@@ -39,19 +38,14 @@ const HEARTBEAT_INTERVAL_MS = 1_000;
 const FLUSH_INTERVAL_MS = 250;
 const STALL_RECORD_MS = 500;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
-const WATCHDOG_EXIT_TIMEOUT_MS = 1_000;
 
 export function createTuiFlightRecorder(
     options: TuiFlightRecorderOptions = {},
 ): TuiFlightRecorder {
     const instanceId = randomUUID();
-    const directory = join(
-        options.runtimeDirectory ?? veraRuntimeDirectory(),
-        "logs",
-        "clients",
+    const { directory, logPath, heartbeatPath } = clientFlightPaths(
+        options.runtimeDirectory ?? veraRuntimeDirectory(), instanceId,
     );
-    const logPath = join(directory, `${instanceId}.jsonl`);
-    const heartbeatPath = join(directory, `${instanceId}.heartbeat`);
     const now = options.now ?? (() => new Date());
     const pid = options.pid ?? process.pid;
     let sessionId: string | undefined;
@@ -128,23 +122,6 @@ export function createTuiFlightRecorder(
     }, heartbeatIntervalMs);
     heartbeat.unref();
 
-    const watchdog = options.spawnWatchdog === false
-        ? undefined
-        : Bun.spawn([
-            process.execPath,
-            isCompiledRelease() ? "--vera-role=watchdog" : runtimePath(join(import.meta.dir, "flight-watchdog.ts"), "bundle/clients/tui/flight-watchdog.js"),
-            String(pid),
-            heartbeatPath,
-            logPath,
-            instanceId,
-        ], {
-            argv0: "vera-watchdog",
-            stdin: "inherit",
-            stdout: "inherit",
-            stderr: "ignore",
-        });
-    watchdog?.unref();
-
     const onUncaught = (error: Error): void => {
         record({ type: "uncaught_exception", error: serializeError(error) });
         flush();
@@ -176,35 +153,10 @@ export function createTuiFlightRecorder(
             clearInterval(heartbeat);
             process.off("uncaughtExceptionMonitor", onUncaught);
             process.off("unhandledRejection", onUnhandled);
-            shutdown = watchdog === undefined
-                ? Promise.resolve()
-                : stopWatchdog(watchdog);
+            shutdown = Promise.resolve();
             return shutdown;
         },
     };
-}
-
-async function stopWatchdog(watchdog: Pick<Bun.Subprocess, "kill" | "exited">): Promise<void> {
-    watchdog.kill("SIGTERM");
-    if (await waitForWatchdogExit(watchdog)) return;
-    watchdog.kill("SIGKILL");
-    if (!await waitForWatchdogExit(watchdog)) {
-        throw new Error("TUI watchdog did not exit after SIGKILL.");
-    }
-}
-
-async function waitForWatchdogExit(watchdog: Pick<Bun.Subprocess, "kill" | "exited">): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            watchdog.exited.then(() => true),
-            new Promise<boolean>((resolve) => {
-                timer = setTimeout(() => resolve(false), WATCHDOG_EXIT_TIMEOUT_MS);
-            }),
-        ]);
-    } finally {
-        clearTimeout(timer);
-    }
 }
 
 function prepareLog(path: string): void {

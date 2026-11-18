@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { signalVerifiedProcessGroup, type ProcessGroupMember } from "./process-group.ts";
@@ -30,6 +30,7 @@ export interface LiveProcessRecord {
     readonly kind: LiveProcessKind;
     readonly started_at: string;
     readonly runtime_dir: string;
+    readonly client_instance_id?: string;
 }
 
 export const LIVE_PROCESS_SCHEMA_VERSION = 1 as const;
@@ -58,6 +59,7 @@ export function postLiveProcessIn(
         readonly pid?: number;
         readonly startedAt?: string;
         readonly runtimeDir?: string;
+        readonly clientInstanceId?: string;
     } = {},
 ): LiveProcessRecord {
     const record: LiveProcessRecord = {
@@ -67,6 +69,7 @@ export function postLiveProcessIn(
         started_at: options.startedAt
             ?? new Date(Date.now() - process.uptime() * 1_000).toISOString(),
         runtime_dir: options.runtimeDir ?? veraRuntimeDirectory(),
+        ...(kind !== "tui" || options.clientInstanceId === undefined ? {} : { client_instance_id: options.clientInstanceId }),
     };
     const directory = liveProcessDirectoryIn(veraHome);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -84,6 +87,7 @@ export function postLiveProcess(
         readonly pid?: number;
         readonly startedAt?: string;
         readonly runtimeDir?: string;
+        readonly clientInstanceId?: string;
         readonly home?: string;
     } = {},
 ): LiveProcessRecord {
@@ -330,10 +334,18 @@ export function skippedProcessLine(
     }
 }
 
-function readLiveProcessFile(path: string): LiveProcessRecord | undefined {
+export function readLiveProcessFile(path: string): LiveProcessRecord | undefined {
     let text: string;
     try {
-        text = readFileSync(path, "utf8");
+        const fd = openSync(path, "r");
+        try {
+            const buffer = Buffer.alloc(8_193);
+            const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+            if (bytes === buffer.length) return undefined;
+            text = buffer.toString("utf8", 0, bytes);
+        } finally {
+            closeSync(fd);
+        }
     } catch {
         return undefined;
     }
@@ -360,6 +372,10 @@ function readLiveProcessFile(path: string): LiveProcessRecord | undefined {
         kind: record.kind,
         started_at: record.started_at,
         runtime_dir: record.runtime_dir,
+        ...(typeof record.client_instance_id === "string"
+            && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.client_instance_id)
+            ? { client_instance_id: record.client_instance_id }
+            : {}),
     };
 }
 

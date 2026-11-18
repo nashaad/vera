@@ -12,6 +12,7 @@ import { backUpResetRecords } from "./reset-backup.ts";
 import {
     discoverResetProcesses,
     startsMatch,
+    stoppableResetCandidates,
     veraRoleOf,
     type ResetCandidate,
     type ResetDiscovery,
@@ -51,6 +52,7 @@ export interface ResetDependencies {
     readonly killPolls?: number;
     readonly gracefulDeadlineMs?: number;
     readonly pollMs?: number;
+    readonly isAncestor?: Parameters<typeof stoppableResetCandidates>[1];
 }
 
 export const GRACEFUL_STOP_DEADLINE_MS = 30_000;
@@ -77,13 +79,13 @@ const PROOF_LABEL: Record<ResetCandidate["proof"], string> = {
 export async function runHostReset(options: ResetOptions, dependencies: ResetDependencies): Promise<number> {
     const { system, output, errorOutput } = dependencies;
     const discovery = await discoverResetProcesses(system, { home: options.home, defaultHome: options.defaultHome });
-    const stoppable = discovery.candidates.filter((candidate) => candidate.role !== "client");
+    const stoppable = stoppableResetCandidates(discovery.candidates, dependencies.isAncestor);
     if (stoppable.length === 0 && discovery.candidates.length === 0 && discovery.records.length === 0
         && discovery.lock.state === "absent" && discovery.unproven.length === 0 && !hasStaleRuntimeFiles(discovery)) {
         output(`Nothing to reset: no Vera process or record belongs to ${discovery.home}.\n`);
         return 0;
     }
-    output(renderPlan(discovery));
+    output(renderPlan(discovery, stoppable));
     if (discovery.unproven.length > 0) {
         for (const item of discovery.unproven) {
             errorOutput(`PID ${item.pid} could not be proven to belong to this home (${item.reason}).\n`);
@@ -115,7 +117,7 @@ function hasStaleRuntimeFiles(discovery: ResetDiscovery): boolean {
     return existsSync(discovery.socketPath) || existsSync(join(discovery.runtime, "control.sock"));
 }
 
-function renderPlan(discovery: ResetDiscovery): string {
+function renderPlan(discovery: ResetDiscovery, stoppable: readonly ResetCandidate[]): string {
     const lines = [`Vera home: ${discovery.home}`];
     if (discovery.candidates.length === 0) {
         lines.push("No running Vera process belongs to this home.");
@@ -123,7 +125,12 @@ function renderPlan(discovery: ResetDiscovery): string {
         lines.push(`Found ${discovery.candidates.length} Vera process${discovery.candidates.length === 1 ? "" : "es"} for this home:`);
         for (const candidate of discovery.candidates) {
             const build = candidate.build === undefined ? "" : `, build ${candidate.build}`;
-            const note = candidate.role === "client" ? " (attached client, left running)" : "";
+            let note = "";
+            if (!stoppable.includes(candidate)) {
+                note = candidate.role === "watchdog"
+                    ? " (watchdog of an attached TUI, left running)"
+                    : " (attached client, left running)";
+            }
             lines.push(`  ${ROLE_LABEL[candidate.role]} PID ${candidate.pid}, started ${new Date(candidate.startedAt).toISOString()}${build}${note}`);
             lines.push(`    proof: ${PROOF_LABEL[candidate.proof]}`);
         }

@@ -1,5 +1,6 @@
 import { chmodSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { TERMINAL_RESTORE_SEQUENCE } from "../terminal-restore-sequence.ts";
 
 import {
     RELEASE_ANNEX_NAME,
@@ -127,11 +128,14 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `root=\${here%/*/*}\n`
             + `release=$here\n`
         : `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`;
+    const restoreSequence = TERMINAL_RESTORE_SEQUENCE.replaceAll("\x1b", "\\033");
     writeFileSync(
         path,
         `#!/bin/sh\n`
             + setup
             + `stop=0\n`
+            + `saved_tty=\n`
+            + `if [ -t 0 ]; then saved_tty=$(stty -g <&0 2>/dev/null) || saved_tty=; fi\n`
             + `named=0\n`
             + `if (exec -a vera true) 2>/dev/null; then named=1; fi\n`
             + `trap ':' INT\n`
@@ -145,6 +149,10 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `        ${RELAUNCH_LAUNCHER_ENV}=$$ ${target.bun} ${target.entry} "$@"\n`
             + `    fi\n`
             + `    code=$?\n`
+            + `    if [ "$code" -gt 128 ] && [ "$code" -ne 129 ] && [ "$code" -ne 131 ] && [ "$code" -ne 143 ]; then\n`
+            + `        if [ -n "$saved_tty" ]; then stty "$saved_tty" <&0 2>/dev/null || :; fi\n`
+            + `        if [ -t 1 ]; then printf '%b' '${restoreSequence}'; fi\n`
+            + `    fi\n`
             + `    if [ "$code" -ne ${RELAUNCH_EXIT_CODE} ] || [ "$stop" -ne 0 ]; then\n`
             + `        exit "$code"\n`
             + `    fi\n`
