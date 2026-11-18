@@ -20,6 +20,7 @@ case "$home/" in "$HOME/.vera/"*) fail "daily home refused" ;; esac
 mkdir -p "$prefix" "$home"
 export VERA_HOME="$home" VERA_INSTALL_PREFIX="$prefix"
 export VERA_RELEASES_API="$feed/releases" VERA_RELEASES_DOWNLOAD_BASE="$feed"
+export VERA_DESKTOP=no
 work=$(mktemp -d)
 vera="$prefix/bin/vera"
 share="$prefix/share/vera"
@@ -97,9 +98,138 @@ detach_stdio() {
     exec 3>&-
 }
 
+plist_text() { plutil -extract "$2" raw -o - "$1" 2>/dev/null; }
+write_faux_config() {
+    printf '%s\n' '{"schema_version":1,"host":{"workers":0},"provider":"faux-local","model":"faux-model","approval_mode":"auto","providers":{"faux-local":{"protocol":"openai-chat","base_url":"'"$feed"'/v1","credential":"none"}}}' >"$home/config.json"
+}
+current_build() { basename "$(readlink "$share/current")"; }
+# Vera.app in the temporary Applications folder: bundle id, shell marker, ad-hoc signature, no quarantine mark.
+check_app() {
+    [ -d "$app" ] || fail "Vera.app missing at $app"
+    [ "$(plist_text "$app/Contents/Info.plist" CFBundleIdentifier)" = dev.vera.desktop ] || fail "Vera.app bundle id is not dev.vera.desktop"
+    [ "$(plutil -type shell_api "$app/Contents/Resources/vera-shell.json" 2>/dev/null)" = integer ] || fail "Vera.app has no shell marker"
+    codesign --verify --deep --strict "$app" >"$work/codesign.log" 2>&1 || { cat "$work/codesign.log"; fail "codesign --verify --deep --strict failed"; }
+    if xattr -lr "$app" 2>/dev/null | grep -q com.apple.quarantine; then fail "Vera.app carries a quarantine mark"; fi
+}
+check_record() {
+    [ -f "$record" ] || fail "installed.json missing"
+    [ "$(plist_text "$record" layout_version)" = 1 ] && [ "$(plist_text "$record" app_path)" = "$app" ] || fail "installed.json does not record $app"
+}
+# The desktop package for a host build and version is whole, matches the build, and no install is left half done.
+check_package() {
+    dir="$share/desktop/$1/$2"
+    manifest="$dir/desktop-package.json"
+    [ -f "$manifest" ] || fail "no desktop package for $1 at $dir"
+    [ "$(plist_text "$manifest" host_build_id)" = "$1" ] || fail "package at $dir targets another host build"
+    [ "$(plist_text "$manifest" desktop_version)" = "$2" ] || fail "package at $dir is another desktop version"
+    entry=$(plist_text "$manifest" entry)
+    [ -n "$entry" ] && [ -f "$dir/$entry" ] || fail "package at $dir has no entry file"
+    for partial in "$share/desktop/"*/.tmp-* "$share/releases/".staging-*; do [ ! -e "$partial" ] || fail "left $partial behind"; done
+}
+desktop_update_phase() {
+    write_faux_config
+    start_host
+    old_pid=$(pid_of_host)
+    "$vera" update >"$work/update.log" 2>&1 || { cat "$work/update.log"; fail "update failed"; }
+    grep -q "Update rehearsal release $newer" "$work/update.log" || fail "release notes missing"
+    grep -q "The next 'vera' starts it" "$work/update.log" || fail "cold update start notice missing"
+    kill -0 "$old_pid" 2>/dev/null && fail "cold update left the old host running"
+    new_build=$(current_build)
+    [ "$new_build" != "$old_build" ] || fail "build did not change"
+    [ "$(basename "$(readlink "$share/rollback")")" = "$old_build" ] || fail "rollback pin is not $old_build"
+    check_package "$new_build" "$newer"
+    check_package "$old_build" "$older"
+    check_app
+    check_record
+    [ "$(cksum <"$record")" = "$record_sum" ] || fail "update rewrote installed.json"
+    ok "update activated $new_build with its desktop package $newer; the $older package stays for rollback; app and record untouched"
+    printf '%s\n' '{"type":"detach"}' >&3 || true
+    wait "$stdio" 2>/dev/null || true
+    stdio=
+    exec 3>&-
+    start_host
+    until_file "$lock" "$new_build"
+    [ "$(field "$lock" build_id)" = "$new_build" ] && [ "$(pid_of_host)" != "$old_pid" ] || fail "host did not start on $new_build"
+    check_package "$(field "$lock" build_id)" "$newer"
+    ok "host started on $new_build, the build whose desktop package is $newer"
+    detach_stdio
+    "$vera" rollback >"$work/rollback.log" 2>&1 || { cat "$work/rollback.log"; fail "rollback failed"; }
+    until_file "$lock" "$old_build"
+    [ "$(current_build)" = "$old_build" ] && [ "$(field "$lock" build_id)" = "$old_build" ] || fail "rollback did not move the host to $old_build"
+    "$vera" --version >"$work/version"
+    grep -q "vera $older" "$work/version" || fail "rollback version"
+    check_package "$old_build" "$older"
+    check_app
+    [ "$(cksum <"$record")" = "$record_sum" ] || fail "rollback rewrote installed.json"
+    ok "rollback moved host and desktop package back to $old_build and $older"
+    stop_host
+}
+desktop_held_phase() {
+    write_faux_config
+    start_host
+    old_pid=$(pid_of_host)
+    scenario no-desktop
+    "$vera" update >"$work/held.log" 2>&1 || { cat "$work/held.log"; fail "held update exited non-zero"; }
+    cat "$work/held.log"
+    grep -qF "Vera $newer is downloaded. It turns on once the desktop app for it is released; run 'vera update' again then." "$work/held.log" || fail "held line missing"
+    [ "$(current_build)" = "$old_build" ] || fail "held update moved current"
+    [ ! -e "$share/rollback" ] && [ ! -L "$share/rollback" ] || fail "held update created a rollback pin"
+    [ "$(pid_of_host)" = "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null && [ "$(field "$lock" build_id)" = "$old_build" ] || fail "held update disturbed the host on $old_build"
+    "$vera" --version >"$work/version"
+    grep -q "vera $older" "$work/version" || fail "held update changed the version"
+    [ "$(ls -d "$share/releases/"vera-* | wc -l | tr -d ' ')" = 2 ] || fail "held release was not unpacked beside $old_build"
+    [ "$(find "$share/desktop" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' ')" = 1 ] || fail "held update installed a desktop package"
+    check_package "$old_build" "$older"
+    check_app
+    [ "$(cksum <"$record")" = "$record_sum" ] || fail "held update rewrote installed.json"
+    ok "held: approved line printed, current, rollback, host, packages, app and record unchanged"
+    scenario normal
+    detach_stdio
+    "$vera" update >"$work/after-held.log" 2>&1 || { cat "$work/after-held.log"; fail "update after the desktop release appeared failed"; }
+    new_build=$(current_build)
+    [ "$new_build" != "$old_build" ] || fail "update after the desktop release appeared did not activate"
+    kill -0 "$old_pid" 2>/dev/null && fail "cold update left the old host running"
+    check_package "$new_build" "$newer"
+    ok "once the desktop package existed, the next update activated $new_build with package $newer"
+}
+desktop_leg() {
+    [ "$(uname -s)" = Darwin ] || fail "the $leg leg runs on macOS only"
+    # HOME is a temporary folder only for sh and bun here, never for Electron.
+    # Its .local is the daily prefix, so its .vera is the home that goes with it.
+    export HOME="$prefix"
+    prefix="$HOME/.local"
+    home="$HOME/.vera"
+    lock="$home/runtime/host.json"
+    mkdir -p "$home"
+    export VERA_HOME="$home"
+    share="$prefix/share/vera"
+    vera="$prefix/bin/vera"
+    apps="$HOME/Applications"
+    app="$apps/Vera.app"
+    record="$share/desktop/installed.json"
+    mkdir -p "$apps"
+    export VERA_INSTALL_PREFIX="$prefix" VERA_DESKTOP=yes VERA_INSTALL_APPLICATIONS="$apps" VERA_INSTALL_NO_OPEN=1
+    install_old
+    old_build=$(current_build)
+    grep -q "Installed the Vera desktop app $older" "$work/install.log" || { cat "$work/install.log"; fail "installer did not report the desktop app"; }
+    check_app
+    check_record
+    check_package "$old_build" "$older"
+    record_sum=$(cksum <"$record")
+    ok "installed Vera $older ($old_build) with the desktop app: bundle id, shell marker, signature, package and record"
+    case "$leg" in
+        desktop-update) desktop_update_phase ;;
+        desktop-held) desktop_held_phase ;;
+    esac
+    ok "$leg leg complete"
+    exit 0
+}
+
 if [ -z "${VERA_REHEARSAL_LEG:-}" ]; then
     result=0
-    for leg in cold cold-palette hot wrong-checksum truncated-tarball; do
+    legs="cold cold-palette hot wrong-checksum truncated-tarball"
+    if [ "$(uname -s)" = Darwin ]; then legs="$legs desktop-install desktop-update desktop-held"; fi
+    for leg in $legs; do
         echo "== leg: $leg =="
         VERA_REHEARSAL_LEG="$leg" sh "$0" "$feed" "$prefix/$leg" "$home/$leg" "$older" "$newer" || result=1
     done
@@ -109,10 +239,11 @@ leg=$VERA_REHEARSAL_LEG
 if [ "$leg" = hot ]; then export VERA_HOT_UPDATE=1; else unset VERA_HOT_UPDATE; fi
 scenario normal
 curl -fsS --max-time 30 "$feed/install.sh" >"$work/install.sh" || fail "download installer"
+case "$leg" in desktop-install | desktop-update | desktop-held) desktop_leg ;; esac
 install_old
 old_build=$(basename "$(readlink "$share/current")")
 ok "installed older Vera $older ($old_build)"
-printf '%s\n' '{"schema_version":1,"host":{"workers":0},"provider":"faux-local","model":"faux-model","approval_mode":"auto","providers":{"faux-local":{"protocol":"openai-chat","base_url":"'"$feed"'/v1","credential":"none"}}}' >"$home/config.json"
+write_faux_config
 start_host
 old_pid=$(pid_of_host)
 ok "private host started on $old_build (PID $old_pid), faux provider without credentials"
