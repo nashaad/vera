@@ -4,9 +4,9 @@ import type { ModelOperationResult, ModelOperationStep } from "../model/model-op
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { sessionScratchDir } from "../engine/run-turn.ts";
 import { createServer, type Server, type Socket } from "node:net";
-import { chmod, lstat, mkdir, stat, unlink } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, rmdir, stat, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
     createHostLockfile,
@@ -600,13 +600,11 @@ async function startListener(
     let ownedSocketStat: Stats | undefined;
     try {
         await prepareSocketDirectory(socketPath);
-        await listenAfterRemovingStaleSocket(
+        ownedSocketStat = await listenAfterRemovingStaleSocket(
             server,
             socketPath,
             options.lockPath ?? defaultHostLockPath(),
         );
-        ownedSocketStat = await lstat(socketPath);
-        await chmod(socketPath, 0o600);
         const publish = () => worker === undefined ? createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
             socketPath,
@@ -2570,22 +2568,44 @@ export class HostSocketHeldError extends Error {
     }
 }
 
+// Bun unlinks the path a listener bound when it closes, even after another host replaced it.
+// The public path is a hard link to a socket bound at a private name, so that unlink misses it.
 async function listenAfterRemovingStaleSocket(
     server: Server,
     socketPath: string,
     lockPath: string,
-): Promise<void> {
+): Promise<Stats> {
     await clearSocketPathOrRefuse(socketPath, lockPath);
+    const privateDirectory = await mkdtemp(join(dirname(socketPath), ".v-"));
+    const privateSocketPath = join(privateDirectory, "s");
+    let owned: Stats | undefined;
+    let published = false;
     try {
-        await listen(server, socketPath);
-        return;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") {
-            throw error;
+        await listen(server, privateSocketPath);
+        owned = await lstat(privateSocketPath);
+        await chmod(privateSocketPath, 0o600);
+        try {
+            await link(privateSocketPath, socketPath);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            await clearSocketPathOrRefuse(socketPath, lockPath);
+            await link(privateSocketPath, socketPath);
         }
+        published = true;
+        await unlink(privateSocketPath);
+        await rmdir(privateDirectory);
+        return owned;
+    } catch (error) {
+        await closeServer(server);
+        if (published) await removeOwnedSocket(socketPath, owned);
+        await removeOwnedSocket(privateSocketPath, owned);
+        try {
+            await rmdir(privateDirectory);
+        } catch (cleanupError) {
+            if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") throw cleanupError;
+        }
+        throw error;
     }
-    await clearSocketPathOrRefuse(socketPath, lockPath);
-    await listen(server, socketPath);
 }
 
 async function clearSocketPathOrRefuse(

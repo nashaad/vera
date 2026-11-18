@@ -1,11 +1,15 @@
 import { afterEach, expect, spyOn } from "bun:test";
 import {
+    existsSync,
+    mkdirSync,
     mkdtempSync,
+    readdirSync,
     rmSync,
     statSync,
     unlinkSync,
     writeFileSync,
 } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { createConnection, createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +22,7 @@ import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../src/host/capabilities.ts";
 import { historyPageFromEntries } from "../../src/host/history-page.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { UNIX_SOCKET_PATH_LIMIT } from "../../src/host/startup-failure.ts";
 import { sessionScratchDir } from "../../src/engine/run-turn.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -1369,6 +1374,149 @@ socketTest(
                     ? resolve()
                     : reject(error));
             });
+        }
+    },
+);
+
+socketTest(
+    "@core host removes its own socket and private bind path on close",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            expect(readdirSync(directory).sort()).toEqual(["host.json", "host.sock"]);
+            expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+        } finally {
+            await server.close();
+        }
+        expect(existsSync(socketPath)).toBeFalse();
+        expect(readdirSync(directory)).toEqual(["host.json"]);
+    },
+);
+
+socketTest(
+    "host removes its socket and private bind path when startup fails",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        await expect(startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            onListening: async () => { throw new Error("startup failed"); },
+        })).rejects.toThrow("startup failed");
+        expect(readdirSync(directory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host cleans up when socket publication fails",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const originalLink = fsPromises.link;
+        const linkSpy = spyOn(fsPromises, "link").mockImplementation(async (existingPath, newPath) => {
+            if (newPath === socketPath) throw new Error("publication failed");
+            await originalLink(existingPath, newPath);
+        });
+        try {
+            await expect(startHostServer({ socketPath, lockPath: join(directory, "host.json") }))
+                .rejects.toThrow("publication failed");
+            expect(readdirSync(directory)).toEqual([]);
+        } finally {
+            linkSpy.mockRestore();
+        }
+    },
+);
+
+socketTest(
+    "host accepts a socket path at the platform limit",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const padding = UNIX_SOCKET_PATH_LIMIT - 1 - Buffer.byteLength(join(directory, "host.sock")) - 1;
+        const socketDirectory = join(directory, "x".repeat(padding));
+        mkdirSync(socketDirectory);
+        const socketPath = join(socketDirectory, "host.sock");
+        expect(Buffer.byteLength(socketPath)).toBe(UNIX_SOCKET_PATH_LIMIT - 1);
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            const connection = await connectHost({ socketPath });
+            try {
+                await connection.send({ type: "host_identity" });
+                expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+            } finally {
+                connection.close();
+            }
+            expect(readdirSync(socketDirectory)).toEqual(["host.sock"]);
+        } finally {
+            await server.close();
+        }
+        expect(readdirSync(socketDirectory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host accepts a short socket name at the platform limit",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const padding = UNIX_SOCKET_PATH_LIMIT - 1 - Buffer.byteLength(join(directory, "s")) - 1;
+        const socketDirectory = join(directory, "x".repeat(padding));
+        mkdirSync(socketDirectory);
+        const socketPath = join(socketDirectory, "s");
+        expect(Buffer.byteLength(socketPath)).toBe(UNIX_SOCKET_PATH_LIMIT - 1);
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            const connection = await connectHost({ socketPath });
+            try {
+                await connection.send({ type: "host_identity" });
+                expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+            } finally {
+                connection.close();
+            }
+        } finally {
+            await server.close();
+        }
+        expect(readdirSync(socketDirectory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host recovers a crashed listener without private bind leftovers",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const lockPath = join(directory, "host.json");
+        const moduleUrl = new URL("../../src/host/server.ts", import.meta.url).href;
+        const script = `import { startHostServer } from ${JSON.stringify(moduleUrl)};
+            await startHostServer({ socketPath: ${JSON.stringify(socketPath)}, lockPath: ${JSON.stringify(lockPath)}, buildId: "test" });
+            process.kill(process.pid, "SIGKILL");`;
+        const home = temporaryHostDirectory();
+        const child = Bun.spawn([process.execPath, "-e", script], {
+            env: { ...process.env, HOME: home, VERA_HOME: home },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+        try {
+            await child.exited;
+            const stderr = await new Response(child.stderr).text();
+            expect({ signal: child.signalCode, stderr }).toEqual({ signal: "SIGKILL", stderr: "" });
+            expect(readdirSync(directory).sort()).toEqual(["host.json", "host.sock"]);
+            const server = await startHostServer({ socketPath, lockPath });
+            try {
+                const connection = await connectHost({ socketPath });
+                try {
+                    await connection.send({ type: "host_identity" });
+                    expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+                } finally {
+                    connection.close();
+                }
+            } finally {
+                await server.close();
+            }
+            expect(readdirSync(directory)).toEqual(["host.json"]);
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            await child.exited;
         }
     },
 );
