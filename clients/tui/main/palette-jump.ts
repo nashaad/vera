@@ -2,6 +2,7 @@ import { openDials } from "./agents-dials.ts";
 import { openPoolVerifyScopePicker } from "./pool-admission.ts";
 import type { TuiCommandAction, TuiPaletteEntry } from "../commands.ts";
 import { jumpMenuLines, type JumpRow } from "../jump.ts";
+import { isHomeClient } from "../home-client.ts";
 import { beginSessionResume, openHelp, openSearchOverlay, openWorkTab, toggleWorkspaceSidebar, renderCommandSuggestions, resumeJsonlView } from "../main.ts";
 import { positionCommandSuggestions } from "../main/chrome.ts";
 import { beginHostReconnect, focusActiveSurface } from "../main/focus-switch.ts";
@@ -145,7 +146,9 @@ function runManualReconnect(rt: TuiRuntime): void {
         renderState(rt);
         return;
     }
-    if (rt.dependencies.reconnectSession === undefined || rt.client.agentId === undefined) {
+    if (isHomeClient(rt.client)
+        ? rt.dependencies.reconnectHome === undefined
+        : rt.dependencies.reconnectSession === undefined || rt.client.agentId === undefined) {
         rt.state = appendTuiError(rt.state, "Reconnecting this session is unavailable");
         renderState(rt);
         return;

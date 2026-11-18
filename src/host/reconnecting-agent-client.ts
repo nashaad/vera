@@ -441,7 +441,10 @@ export function createReconnectingAgentClient(
         while (policy.delaysMs === undefined || reconnects < policy.delaysMs.length) {
             if (closed) throw new Error("Agent attachment is closed");
             const delayMs = policy.delaysMs?.[reconnects]
-                ?? Math.min(RECONNECT_INITIAL_DELAY_MS * 2 ** reconnects, RECONNECT_MAX_DELAY_MS);
+                ?? (reconnects === 0 ? 0 : Math.min(
+                    RECONNECT_INITIAL_DELAY_MS * 2 ** (reconnects - 1),
+                    RECONNECT_MAX_DELAY_MS,
+                ));
             try {
                 if (reconnectDeadline?.aborted === true) break;
                 reconnectSignal.throwIfAborted();
