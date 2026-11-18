@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { BrowserSync } from "./browser/BrowserSync.tsx";
+import { BrowserToolsStatus } from "./browser/BrowserToolsNotice.tsx";
 import { recordVisit } from "./browser/history.ts";
 import { recordRecent } from "./browser/recents.ts";
 import { ChatCommands } from "./chat/ChatCommands.tsx";
@@ -88,6 +89,7 @@ export function App() {
                             {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
                         />
                     ) : <div className="workbench" />}
+                    <BrowserToolsStatus />
                     {firstRun ? <ProviderWizard onClose={() => setFirstRun(false)} /> : null}
                     <Overlays commands={commands} />
                     <SessionWindowCommands commands={commands} />

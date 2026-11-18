@@ -1,4 +1,5 @@
 export const BROWSER_TAB_LIMIT = 12;
+export const BROWSER_STATE_CHANGED = "browser.stateChanged";
 
 export interface BrowserTab {
     readonly id: number;
