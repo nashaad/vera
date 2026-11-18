@@ -34,7 +34,14 @@ function fakeTarball(root: string, buildId: string): string {
 
 function install(prefix: string, tarball: string, path = "/usr/bin:/bin:/usr/sbin") {
     return Bun.spawnSync(["sh", installer, tarball], {
-        env: { ...process.env, HOME: prefix, VERA_HOME: join(prefix, "home"), VERA_INSTALL_PREFIX: prefix, PATH: path },
+        env: {
+            ...process.env,
+            HOME: prefix,
+            VERA_HOME: join(prefix, "home"),
+            VERA_INSTALL_PREFIX: prefix,
+            VERA_DESKTOP: "no",
+            PATH: path,
+        },
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -47,6 +54,7 @@ function installDownload(prefix: string, path: string, extra: Record<string, str
             HOME: prefix,
             VERA_HOME: join(prefix, "home"),
             VERA_INSTALL_PREFIX: prefix,
+            VERA_DESKTOP: "no",
             VERA_VERSION: "",
             VERA_RELEASES_API: "",
             VERA_REPO: "",
@@ -305,6 +313,7 @@ test("install.sh downloads archive and checksum from VERA_RELEASES_DOWNLOAD_BASE
                 HOME: prefix,
                 VERA_HOME: join(prefix, "home"),
                 VERA_INSTALL_PREFIX: prefix,
+                VERA_DESKTOP: "no",
                 VERA_VERSION: "",
                 VERA_RELEASES_API: api,
                 VERA_RELEASES_DOWNLOAD_BASE: base,
