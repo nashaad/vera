@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,7 +58,7 @@ realProcessTest("Reconnect host inside a busy conversation keeps its host and to
     const toolPidPath = join(root, "tool.pid");
     const env = {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
-        HOME: root,
+        HOME: sourceTestHome(root),
         VERA_HOME: trialHome,
         VERA_DEV_INSTANCE: `${basename(process.cwd())} dev`,
         TMPDIR: root,
