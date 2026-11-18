@@ -489,6 +489,9 @@ export function beginHostReconnect(rt: TuiRuntime,
         rt.dependencies.reconnectSession(currentAgentId, {
             ...(replaceExisting ? { replaceExisting: true } : {}),
             ...(confirmWedge ? { confirmWedge: true } : {}),
+            ...(rt.relaunching === true && rt.dependencies.relaunchTui !== undefined
+                ? { attachOnly: true }
+                : {}),
         }),
         ((next: TuiAgentClient) => discardSwitchTarget(rt, next)),
     ).then((next) => {

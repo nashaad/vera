@@ -620,6 +620,7 @@ export interface TuiDependencies {
         options?: {
             readonly replaceExisting?: boolean;
             readonly confirmWedge?: boolean;
+            readonly attachOnly?: boolean;
         },
     ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
@@ -898,6 +899,7 @@ export async function startConfiguredTui(
                 const replaceExisting = options?.replaceExisting === true;
                 const confirmWedge = options?.confirmWedge === true;
                 await refuseOtherHostBuild(clientBuildId);
+                if (options?.attachOnly === true) return attach(currentAgentId);
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
