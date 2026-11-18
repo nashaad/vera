@@ -6,6 +6,7 @@ import { browserSlots, CONTAINER_SLOT } from "../browser/slots.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
 import { BROWSER_HISTORY_COMMAND } from "./keys.ts";
+import { canOpenBrowser, openBrowser, registerOpenBrowser } from "./open-browser.ts";
 import { registerPageCommands } from "./page-commands.ts";
 import type { CommandRegistry } from "./registry.ts";
 
@@ -14,6 +15,9 @@ export function PageCommands({ commands }: { readonly commands: CommandRegistry 
     const workbench = useWorkbench();
     const latest = useRef(workbench);
     latest.current = workbench;
+
+    const browserAvailable = window.veraDesktop !== undefined && canOpenBrowser(workbench.layout);
+    useEffect(() => registerOpenBrowser(commands, browserAvailable, () => openBrowser(latest.current)), [commands, browserAvailable]);
 
     useEffect(() => {
         if (window.veraDesktop === undefined) return;
