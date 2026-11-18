@@ -28,8 +28,6 @@ export interface UiState {
     readonly failure?: string;
     readonly checked?: readonly string[];
     readonly notice?: string;
-    // Set by the packaged app when its bundled release failed to install; stays until dismissed.
-    readonly installNotice?: string;
 }
 
 export type UiAction =
@@ -43,8 +41,7 @@ export type UiAction =
     | { readonly type: "notice"; readonly message: string }
     | { readonly type: "lost"; readonly reason: string }
     | { readonly type: "reconnecting" }
-    | { readonly type: "answered" }
-    | { readonly type: "dismiss_install_notice" };
+    | { readonly type: "answered" };
 
 export const INITIAL_STATE: UiState = { phase: "starting" };
 
@@ -64,8 +61,6 @@ export function reduceConnection(state: UiState, action: UiAction): UiState {
             return { phase: "starting", ready: state.ready };
         case "answered":
             return { ...state, question: undefined };
-        case "dismiss_install_notice":
-            return { ...state, installNotice: undefined };
     }
 }
 
@@ -75,13 +70,10 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
             return { ...state, phase: event.phase };
         case "question":
             return { ...state, question: { id: event.id, text: event.text } };
-        case "install_notice":
-            return { ...state, installNotice: event.message };
         case "ready":
             return {
                 phase: "attached",
                 ready: { pid: event.pid, buildId: event.buildId, home: event.home, attachedAt: Date.now() },
-                ...(state.installNotice === undefined ? {} : { installNotice: state.installNotice }),
             };
         case "missing_cli":
             return {
@@ -121,7 +113,7 @@ export type BannerState =
         readonly detail: string;
     }
     | {
-        readonly kind: "failed" | "missing" | "disconnected" | "install_notice";
+        readonly kind: "failed" | "missing" | "disconnected";
         readonly tone: Tone;
         readonly title: string;
         readonly detail: string;
@@ -169,14 +161,6 @@ export function bannerFor(state: UiState): BannerState | undefined {
             detail: state.failure ?? "The host stopped answering.",
         };
     }
-    if (state.phase === "attached" && state.installNotice !== undefined) {
-        return {
-            kind: "install_notice",
-            tone: "warning",
-            title: "Vera could not install its bundled release",
-            detail: state.installNotice,
-        };
-    }
     return undefined;
 }
 
@@ -190,7 +174,6 @@ export function toneOf(state: UiState): Tone {
         case "attached":
             return "success";
         case "starting":
-        case "installing":
         case "waiting":
             return "info";
         case "disconnected":
@@ -203,7 +186,6 @@ export function toneOf(state: UiState): Tone {
 
 const PHASE_LABELS: Record<UiPhase, string> = {
     starting: "Starting",
-    installing: "Installing Vera…",
     waiting: "Waiting",
     attached: "Attached",
     disconnected: "Disconnected",

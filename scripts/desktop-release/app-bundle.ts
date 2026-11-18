@@ -1,11 +1,6 @@
-import { copyFileSync, cpSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-    BUNDLED_RELEASE_DIRECTORY,
-    BUNDLED_RELEASE_MANIFEST,
-    BUNDLED_RELEASE_TARBALL,
-} from "../../clients/desktop/src/release-install.ts";
 import { writeAppIcon } from "./app-icon.ts";
 import { run } from "./run.ts";
 
@@ -21,9 +16,6 @@ export interface AppBundleOptions {
     readonly electronApp: string;
     // The output of clients/desktop/build.ts.
     readonly appBuild: string;
-    // A release tarball with its `.sha256` beside it, and the manifest text it holds.
-    readonly releaseTarball: string;
-    readonly releaseManifest: string;
     // An SVG of the Vera mark, turned into the app icon.
     readonly iconSource: string;
     readonly version: string;
@@ -65,12 +57,6 @@ export async function assembleApp(options: AppBundleOptions): Promise<void> {
         type: "module",
         main: "dist/main.js",
     }, null, 4)}\n`);
-
-    const release = join(resources, BUNDLED_RELEASE_DIRECTORY);
-    mkdirSync(release, { recursive: true });
-    copyFileSync(options.releaseTarball, join(release, BUNDLED_RELEASE_TARBALL));
-    copyFileSync(`${options.releaseTarball}.sha256`, join(release, `${BUNDLED_RELEASE_TARBALL}.sha256`));
-    writeFileSync(join(release, BUNDLED_RELEASE_MANIFEST), options.releaseManifest);
 }
 
 export function signAdHoc(app: string): void {

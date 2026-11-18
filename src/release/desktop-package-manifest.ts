@@ -11,7 +11,12 @@ export interface DesktopPackageManifest {
     readonly host_build_id: string;
     // Path of the file the shell loads, relative to the package root.
     readonly entry: string;
+    // The shell API the package needs. A shell that carries a lower one refuses the package.
+    readonly shell_api: number;
 }
+
+// What a manifest without `shell_api` needs.
+export const DEFAULT_DESKTOP_SHELL_API = 1;
 
 function fail(field: string, detail: string): never {
     throw new Error(`Desktop package manifest ${field}: ${detail}`);
@@ -43,6 +48,7 @@ export function serializeDesktopPackageManifest(manifest: DesktopPackageManifest
         desktop_version: manifest.desktop_version,
         host_build_id: manifest.host_build_id,
         entry: manifest.entry,
+        shell_api: manifest.shell_api,
     }, null, 2)}\n`;
 }
 
@@ -76,10 +82,15 @@ export function parseDesktopPackageManifest(text: string): DesktopPackageManifes
     if (!isSafeEntry(entry)) {
         fail("entry", `'${entry}' must be a plain relative path inside the package`);
     }
+    const shellApi = record.shell_api === undefined ? DEFAULT_DESKTOP_SHELL_API : record.shell_api;
+    if (typeof shellApi !== "number" || !Number.isInteger(shellApi) || shellApi < 1) {
+        fail("shell_api", "must be a positive integer");
+    }
     return {
         layout_version: DESKTOP_PACKAGE_LAYOUT_VERSION,
         desktop_version: desktopVersion,
         host_build_id: hostBuildId,
         entry,
+        shell_api: shellApi,
     };
 }

@@ -41,9 +41,7 @@ full-width title bar and no status bar.
   startup check has a question. A lost connection offers Reconnect. A host that
   did not start and a missing install offer Try again and Run doctor, which opens
   the health check described under Sheets. The banner shows the reason; long
-  reasons scroll inside it. A bundled release that could not be installed, when
-  a working `vera` command was already there, shows a warning banner with the
-  reason and a Dismiss button instead.
+  reasons scroll inside it.
 - While Browser tools are on, a notice at the bottom of the window says Vera can
   open, read and act on pages in the Browser and offers Turn off. The notice
   stays in every view until the tools are turned off.
@@ -1193,33 +1191,54 @@ The command is found in this order:
 
 1. `VERA_DESKTOP_DEV_CLI`, used by `bun run dev:desktop` so a checkout runs its
    own CLI. `VERA_DESKTOP_BUN` names the Bun executable, defaulting to `bun`.
+   `VERA_DESKTOP_LAUNCHER` is the matching variable for the app shell: it names
+   the `vera` launcher the shell follows instead of `~/.local/bin/vera`, for
+   development and tests only.
 2. The installed launcher at `~/.local/bin/vera`.
 3. Nothing. The banner says `Vera is not installed`, names the path it checked,
-   and offers Reconnect.
+   and offers Try again and Run doctor.
 
-The app installed from the disk image carries a Vera release, and before it
-looks for the command it installs that release as the `vera` command when the
-command is missing, does not run, or runs an older release. The release goes
-under `~/.local/share/vera/` and the launcher at `~/.local/bin/vera`, the same
-place the release installer uses, and the install does not stop a running host:
-a host that is already running keeps its own build until it is restarted. While
-the install runs, the connection state at the bottom of the sidebar reads
-`Installing Vera…`, and it reads Starting again once the host boots. When the
-command already runs that release or a newer one, nothing is installed.
-
-If the install fails and a working `vera` command was already there, the app
-starts with that command and shows the banner `Vera could not install its
-bundled release` with the reason and a Dismiss button. The banner stays until
-it is dismissed or the connection is restarted. If it fails and no working
-command exists, the banner says `Vera did not start` with the reason and offers
-Try again and Run doctor. In both cases the command you had is left as it was.
-Running the app from a checkout with `bun run dev:desktop` installs nothing.
-See [Install from the disk image](installation.md#install-from-the-disk-image).
+The desktop app requires an installed `vera` command and does not install or
+update it on launch. Install Vera as described in [Installation and
+upgrades](installation.md), then choose Try again if the app reports it missing.
+A checkout run uses its own CLI.
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including
 the saved theme, lives under `machine/desktop` in that same home, beside the saved
 layout.
+
+## The app shell and the desktop package
+
+`Vera.app` is a small shell that rarely changes. It finds the installed `vera`
+command, follows it to the release the install's `current` link names, and opens
+the desktop package installed for that host build, the newest one when several
+are installed. The package holds the window, its preload and the task workers
+and sits under `~/.local/share/vera/desktop/<host build id>/<desktop version>/`.
+While the app runs it records that it uses the package, so a cleanup does not
+remove it.
+
+A package names the shell API it needs in `desktop-package.json` as
+`shell_api`, and a package without one needs API 1. This shell offers API 1 and
+refuses a package that needs a higher one.
+
+When there is no usable package for the current host build, the shell opens one
+plain window instead of the app, and the window says one of these:
+
+- `Vera is not installed. Run the Vera installer, then open the desktop app again.`
+  when no `vera` command or no current release is found.
+- `The Vera desktop app for build <id> is not installed. Run the Vera installer again to add it.`
+  when no package matches the current host build.
+- `The Vera desktop app for build <id> needs a newer app shell. Run the Vera installer again to update it.`
+  when the newest package needs a higher shell API.
+- `The Vera desktop app for build <id> could not start (<reason>). Run the Vera installer again.`
+  when the package was found but failed to load.
+
+A release carries `vera-desktop-darwin-<arch>.tar.gz` for the package and
+`vera-desktop-shell-darwin-<arch>.tar.gz` for the shell, each with a `.sha256`
+file. From a checkout, `bun run desktop:release --release <host tarball>` builds
+both for the machine's architecture into `dist/desktop-release`, and `--out`
+picks another folder. The shell is signed ad hoc and is not notarized.
 
 ## Boot questions
 
@@ -1686,15 +1705,6 @@ the runner stops any host a script left behind.
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
-
-`bun run desktop:dmg` builds the macOS disk image for this machine's chip. It
-builds the app, packs a release from the checkout, puts both in a copy of
-Electron renamed Vera, signs the app ad hoc and writes
-`Vera-<platform>-<arch>.dmg` to `dist/desktop-dmg`. `--release <file>` uses an
-existing release file instead of packing one, and `--out <dir>` picks the
-folder. The app's icon is the Vera mark from `docs/site/public/favicon.svg`,
-drawn onto an `.icns` file during the build. It runs on macOS only and does not
-install or open anything.
 
 `bun run desktop:tour` builds the app and walks it in a visible window against a
 throwaway home and a scripted provider. It saves one screenshot per step and a

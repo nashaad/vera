@@ -1,46 +1,13 @@
 ---
 title: "Installation and upgrades"
-description: "Install Vera from the desktop app's disk image, a release download or a checkout."
+description: "Install Vera from a release download or a checkout."
 ---
 
 # Installation and upgrades
 
-Install Vera from the desktop app's disk image, from a release download, which
-needs nothing else installed, or from its source checkout using Bun.
-
-## Install from the disk image
-
-On macOS, the desktop app comes as a disk image named for its platform, such as
-`Vera-darwin-arm64.dmg`. The app carries a complete Vera release inside it, so
-nothing else needs to be installed first.
-
-1. Open the disk image and drag Vera onto the Applications folder beside it.
-2. The app is not notarized yet, so macOS refuses a plain double click the
-   first time. Control-click Vera in Applications, choose Open, and confirm
-   Open in the dialog. Later launches open normally.
-3. On first launch the app installs its release as the `vera` command, then
-   attaches to the host as usual. The terminal UI, the CLI and the host are
-   part of that release, so `vera` works in any new terminal once
-   `~/.local/bin` is on PATH (see [Add the launcher to PATH](#add-the-launcher-to-path)).
-
-The install goes where the release installer puts it: the release under
-`~/.local/share/vera/` and the launcher at `~/.local/bin/vera`. Opening the app
-installs nothing when the `vera` command already runs the app's release or a
-newer one. It installs the app's release when the command is missing, does not
-run, or runs an older release, and the release it replaces stays as the
-rollback, as in [`vera rollback`](installed-command.md). The install does not
-stop a host that is already running, and that host keeps its own build until it
-is restarted.
-
-While the install runs, which takes a few seconds the first time, the
-connection state at the bottom of the sidebar reads `Installing Vera…`.
-
-If the install fails and a `vera` command already works, the app attaches with
-that command and shows a banner saying the app's release could not be
-installed, with the reason and a Dismiss button. If no working command exists,
-the app shows `Vera did not start` with the reason and a Try again button. A
-`vera` command you had before is left as it was. See
-[Desktop app](desktop.md#finding-the-host).
+Install Vera from a release download, which needs nothing else installed, or
+from its source checkout using Bun. The desktop app requires an installed
+`vera` command and does not install it on launch.
 
 ## Install a release
 

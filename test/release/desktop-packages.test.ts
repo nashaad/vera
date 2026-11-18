@@ -59,6 +59,7 @@ function manifestText(hostBuildId: string, desktopVersion: string, entry = "main
         desktop_version: desktopVersion,
         host_build_id: hostBuildId,
         entry,
+        shell_api: 1,
     });
 }
 
@@ -123,7 +124,7 @@ test("desktop packages live under share/vera/desktop/<host build id>/<version>",
 });
 
 test("the package manifest refuses anything malformed", () => {
-    const good = { layout_version: 1, desktop_version: "0.3.0", host_build_id: "vera-a", entry: "dist/main.js" };
+    const good = { layout_version: 1, desktop_version: "0.3.0", host_build_id: "vera-a", entry: "dist/main.js", shell_api: 2 };
     expect(parseDesktopPackageManifest(JSON.stringify(good))).toEqual(good);
     const refused: readonly [string, Record<string, unknown>][] = [
         ["layout_version", { ...good, layout_version: 2 }],
@@ -137,12 +138,31 @@ test("the package manifest refuses anything malformed", () => {
         ["entry", { ...good, entry: "a/../main.js" }],
         ["entry", { ...good, entry: "a\\main.js" }],
         ["entry", { ...good, entry: undefined }],
+        ["shell_api", { ...good, shell_api: 0 }],
+        ["shell_api", { ...good, shell_api: -1 }],
+        ["shell_api", { ...good, shell_api: 1.5 }],
+        ["shell_api", { ...good, shell_api: "1" }],
+        ["shell_api", { ...good, shell_api: null }],
     ];
     for (const [field, value] of refused) {
         expect(() => parseDesktopPackageManifest(JSON.stringify(value))).toThrow(field);
     }
     expect(() => parseDesktopPackageManifest("{ not json")).toThrow("not JSON");
     expect(() => parseDesktopPackageManifest("[]")).toThrow("root");
+});
+
+test("a manifest without shell_api needs shell API 1, and the lookup reports what a package needs", async () => {
+    const { shell_api: _omitted, ...withoutShellApi } = { layout_version: 1, desktop_version: "0.3.0", host_build_id: "vera-a", entry: "main.js", shell_api: 1 };
+    expect(parseDesktopPackageManifest(JSON.stringify(withoutShellApi)).shell_api).toBe(1);
+    expect(JSON.parse(serializeDesktopPackageManifest({ ...withoutShellApi, shell_api: 3 })).shell_api).toBe(3);
+    await withPrefix((prefix) => {
+        placePackage(prefix, HOST, "0.1.0");
+        const directory = placePackage(prefix, HOST, "0.2.0");
+        writeFileSync(join(directory, DESKTOP_PACKAGE_MANIFEST_NAME), JSON.stringify({ ...withoutShellApi, host_build_id: HOST, desktop_version: "0.2.0" }));
+        expect(findDesktopPackage(HOST, prefix)?.shellApi).toBe(1);
+        writeFileSync(join(directory, DESKTOP_PACKAGE_MANIFEST_NAME), JSON.stringify({ ...withoutShellApi, host_build_id: HOST, desktop_version: "0.2.0", shell_api: 4 }));
+        expect(findDesktopPackage(HOST, prefix)?.shellApi).toBe(4);
+    });
 });
 
 test("@core a desktop package installs from a tarball with the right hash and installing it again changes nothing", async () => {
@@ -451,5 +471,27 @@ test("release garbage collection also cleans desktop packages", async () => {
 
         expect(versionsOf(prefix, "vera-cur")).toEqual(["0.2.0"]);
         expect(existsSync(join(desktopPackagesDirectory(prefix), "vera-gone"))).toBe(false);
+    });
+});
+
+test("desktop cleanup runs when release process inspection fails", async () => {
+    await withPrefix((prefix) => {
+        mkdirSync(releaseDirectory("vera-cur", prefix), { recursive: true });
+        activate(prefix, "vera-cur");
+        placePackage(prefix, "vera-cur", "0.1.0");
+        placePackage(prefix, "vera-cur", "0.2.0");
+        placePackage(prefix, "vera-other", "0.1.0");
+        const reasons: string[] = [];
+
+        const removed = gcReleases(prefix, {
+            listProcessExecutables: () => { throw new Error("process inspection failed"); },
+            onHeld: (reason) => reasons.push(reason),
+        });
+
+        expect(removed).toEqual([]);
+        expect(existsSync(releaseDirectory("vera-cur", prefix))).toBe(true);
+        expect(versionsOf(prefix, "vera-cur")).toEqual(["0.2.0"]);
+        expect(existsSync(join(desktopPackagesDirectory(prefix), "vera-other"))).toBe(false);
+        expect(reasons.some((reason) => reason.includes("process inspection failed"))).toBe(true);
     });
 });

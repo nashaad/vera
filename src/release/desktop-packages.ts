@@ -33,6 +33,7 @@ export interface DesktopPackage {
     readonly desktopVersion: string;
     readonly directory: string;
     readonly entryPath: string;
+    readonly shellApi: number;
 }
 
 export interface DesktopPackageIdentity {
@@ -100,6 +101,7 @@ export function readDesktopPackage(
         desktopVersion: manifest.desktop_version,
         directory,
         entryPath,
+        shellApi: manifest.shell_api,
     };
 }
 

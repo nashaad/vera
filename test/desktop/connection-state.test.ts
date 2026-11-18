@@ -4,7 +4,6 @@ import type { DesktopEvent } from "../../clients/ui/src/protocol/bridge.ts";
 import {
     INITIAL_STATE,
     bannerFor,
-    phaseLabel,
     reduceConnection,
     toneOf,
     type UiAction,
@@ -103,54 +102,4 @@ test("@core a new ready event replaces the old connection's facts", () => {
     );
     expect(state.ready?.pid).toBe(43);
     expect(state.sessions).toBeUndefined();
-});
-
-test("@core an install shows Installing Vera in the connecting place, with no banner", () => {
-    const state = run(event({ type: "phase", phase: "installing" }));
-    expect(state.phase).toBe("installing");
-    expect(phaseLabel(state)).toBe("Installing Vera…");
-    expect(toneOf(state)).toBe("info");
-    expect(bannerFor(state)).toBeUndefined();
-    expect(phaseLabel(reduceConnection(state, event({ type: "phase", phase: "starting" })))).toBe("Starting");
-});
-
-test("@core a notice about a failed install shows once attached and stays until dismissed", () => {
-    const notice = "The bundled archive does not match its checksum. Vera is using the release you already had.";
-    const waiting = run(
-        event({ type: "phase", phase: "installing" }),
-        event({ type: "install_notice", message: notice }),
-        event({ type: "phase", phase: "starting" }),
-    );
-    expect(bannerFor(waiting)).toBeUndefined();
-
-    const attached = reduceConnection(waiting, event(READY));
-    expect(attached.phase).toBe("attached");
-    expect(bannerFor(attached)).toEqual({
-        kind: "install_notice",
-        tone: "warning",
-        title: "Vera could not install its bundled release",
-        detail: notice,
-    });
-    const polled = run(
-        event({ type: "install_notice", message: notice }),
-        event(READY),
-        { type: "identity", identity: { pid: 42, protocol_version: 7 } },
-        { type: "sessions", count: 1, rows: [] },
-    );
-    expect(bannerFor(polled)).toMatchObject({ kind: "install_notice" });
-
-    const dismissed = reduceConnection(attached, { type: "dismiss_install_notice" });
-    expect(bannerFor(dismissed)).toBeUndefined();
-    expect(dismissed.phase).toBe("attached");
-});
-
-test("the notice gives way to a failure, a lost host and a new connection attempt", () => {
-    const noticed = run(event({ type: "install_notice", message: "x" }), event(READY));
-    const failed = reduceConnection(noticed, event({ type: "failed", message: "boom" }));
-    expect(bannerFor(failed)).toMatchObject({ kind: "failed" });
-    expect(failed.installNotice).toBeUndefined();
-    expect(reduceConnection(noticed, { type: "lost", reason: "gone" }).installNotice).toBeUndefined();
-    expect(reduceConnection(noticed, { type: "reconnecting" }).installNotice).toBeUndefined();
-    const asked = reduceConnection(noticed, event({ type: "question", id: "q1", text: "Restart?" }));
-    expect(bannerFor(asked)).toMatchObject({ kind: "question" });
 });
