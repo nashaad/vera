@@ -87,6 +87,17 @@ failed download, checksum, or unpack leaves the previous release untouched.
 Activation follows the same rules as
 [Activate a new release](#activate-a-new-release).
 
+On macOS, when the desktop app was installed with Vera, `vera update` keeps the
+app and the host matched. It downloads the release's
+`vera-desktop-darwin-<arch>.tar.gz` and its checksum, verifies them, and installs
+the desktop package for the new host build before `current` moves. A checksum
+failure activates nothing. If the release has no desktop package, or its package
+was built for another host build, `vera update` still downloads and unpacks the
+host release but leaves `current` where it is and prints `Vera <version> is
+downloaded. It turns on once the desktop app for it is released; run 'vera
+update' again then.` Run `vera update` again after that release to activate it. A CLI-only install, and any install on Linux,
+updates without a desktop package.
+
 Run `vera update` from an installed release. A checkout or development
 instance is refused and pointed at `bun run install:local`, and the command
 always uses the install prefix of the running release.
@@ -117,6 +128,13 @@ release active, so the next install or rollback runs normally. It keeps the
 journal when another build's host holds the host lock, when a host it
 launched cannot be stopped, or when no release is linked as current. If the
 active release is not the one you want, run `vera rollback` again.
+
+When the desktop app was installed with Vera, `vera rollback` refuses to switch
+to a release whose host build has no installed desktop package. It prints
+`vera rollback: Vera can't roll back to build <build>: the desktop app for that
+build is not installed. Nothing was changed.` and changes nothing. Cleanup keeps the desktop package of the current
+release, of the rollback release, and of a downloaded release that is not yet
+active.
 
 ## Run checkout code
 

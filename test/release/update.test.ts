@@ -20,8 +20,14 @@ import { defaultHostLockPath } from "../../src/host/lockfile.ts";
 import { runCli } from "../../clients/cli/main.ts";
 import { activateRelease } from "../../src/release/activate.ts";
 import {
+    DESKTOP_PACKAGE_MANIFEST_NAME,
+    serializeDesktopPackageManifest,
+} from "../../src/release/desktop-package-manifest.ts";
+import { findDesktopPackage } from "../../src/release/desktop-packages.ts";
+import {
     currentReleaseBuildId,
     currentSymlinkPath,
+    desktopInstallRecordPath,
     RELEASE_ANNEX_NAME,
     RELEASE_CLI_NAME,
     RELEASE_HOST_NAME,
@@ -830,4 +836,254 @@ test("the CLI routes update flags to runUpdate", async () => {
     expect(await runCli(["update", "--nope"], dependencies)).toBe(1);
     expect(await runCli(["update", "--prefix", "/tmp/p"], dependencies)).toBe(1);
     expect(output.join("")).toContain("vera update: unknown flag: --nope");
+});
+
+const DESKTOP_ASSET = "vera-desktop-darwin-arm64.tar.gz";
+const NEW_VERSION = "0.1.0-alpha.3";
+
+function desktopAssetUrl(version: string, asset = DESKTOP_ASSET): string {
+    return `https://github.com/nashaad/vera/releases/download/v${version}/${asset}`;
+}
+
+function desktopTarball(work: string, hostBuildId: string, desktopVersion: string): string {
+    const source = mkdtempSync(join(work, "desktop-src-"));
+    writeFileSync(
+        join(source, DESKTOP_PACKAGE_MANIFEST_NAME),
+        serializeDesktopPackageManifest({
+            layout_version: 1,
+            desktop_version: desktopVersion,
+            host_build_id: hostBuildId,
+            entry: "main.js",
+        }),
+    );
+    writeFileSync(join(source, "main.js"), "// entry\n");
+    const tarball = join(work, `desktop-${hostBuildId}-${desktopVersion}.tar.gz`);
+    const tar = Bun.spawnSync(["tar", "-czf", tarball, "-C", source, "."]);
+    expect(tar.exitCode, tar.stderr.toString()).toBe(0);
+    return tarball;
+}
+
+function desktopRoutes(version: string, tarball: string, checksum?: string): Record<string, FakeRoute> {
+    const url = desktopAssetUrl(version);
+    const sum = checksum ?? createHash("sha256").update(readFileSync(tarball)).digest("hex");
+    return {
+        [url]: { body: new Uint8Array(readFileSync(tarball)) },
+        [`${url}.sha256`]: { body: `${sum}  ${DESKTOP_ASSET}\n` },
+    };
+}
+
+function recordDesktopInstall(prefix: string): void {
+    mkdirSync(join(prefix, "share", "vera", "desktop"), { recursive: true });
+    writeFileSync(
+        desktopInstallRecordPath(prefix),
+        `${JSON.stringify({ layout_version: 1, app_path: "/Applications/Vera.app" })}\n`,
+    );
+}
+
+interface DesktopUpdateRun {
+    readonly root: string;
+    readonly prefix: string;
+    readonly oldRoot: string;
+    readonly tarball: string;
+    readonly feed: () => Record<string, FakeRoute>;
+}
+
+// A prefix on vera-old with a desktop app recorded, and a feed for 0.1.0-alpha.3 whose host release is vera-new.
+async function withDesktopUpdate(
+    run: (setup: DesktopUpdateRun) => Promise<void>,
+    options: { readonly recorded?: boolean } = {},
+): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), "vera-update-desktop-"));
+    try {
+        const { prefix, oldRoot } = prefixWithOldRelease(root);
+        if (options.recorded !== false) recordDesktopInstall(prefix);
+        const newRoot = join(root, "new-release");
+        writeVerifiableRelease(newRoot, "vera-new", NEW_VERSION);
+        const tarball = tarballFor(root, newRoot, "vera-new");
+        await run({
+            root,
+            prefix,
+            oldRoot,
+            tarball,
+            feed: () => ({
+                [API]: { body: releaseJson({ version: NEW_VERSION }) },
+                ...routeFor(NEW_VERSION, tarball),
+            }),
+        });
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+}
+
+async function updateWith(
+    setup: DesktopUpdateRun,
+    routes: Record<string, FakeRoute>,
+    extra: { readonly calls?: string[]; readonly installed?: string[] } = {},
+): Promise<{ readonly exit: number; readonly output: string }> {
+    const output: string[] = [];
+    const exit = await withTempEnvironment(join(setup.root, "home"), () => runUpdate({
+        prefix: setup.prefix,
+        running: { root: setup.oldRoot, prefix: setup.prefix, version: "0.1.0-alpha.1", buildId: "vera-old" },
+        platform: "darwin",
+        arch: "arm64",
+        releasesApi: API,
+        fetch: fakeFetch(routes, extra.calls ?? []),
+        output: (text) => output.push(text),
+        install: (options) => {
+            extra.installed?.push(options.prefix ?? "");
+            return installRelease({ ...options, readLiveHost: async () => undefined });
+        },
+    }));
+    return { exit, output: output.join("") };
+}
+
+test("@core update installs the desktop package for the new host before current moves", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const desktop = desktopTarball(setup.root, "vera-new", NEW_VERSION);
+        const calls: string[] = [];
+        let packageWhenCurrentMoved: string | undefined;
+        const output: string[] = [];
+        const exit = await withTempEnvironment(join(setup.root, "home"), () => runUpdate({
+            prefix: setup.prefix,
+            running: { root: setup.oldRoot, prefix: setup.prefix, version: "0.1.0-alpha.1", buildId: "vera-old" },
+            platform: "darwin", arch: "arm64", releasesApi: API,
+            fetch: fakeFetch({ ...setup.feed(), ...desktopRoutes(NEW_VERSION, desktop) }, calls),
+            output: (text) => output.push(text),
+            install: (options) => {
+                packageWhenCurrentMoved = findDesktopPackage("vera-new", setup.prefix)?.desktopVersion;
+                expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+                return installRelease({ ...options, readLiveHost: async () => undefined });
+            },
+        }));
+        expect(exit).toBe(0);
+        expect(output.join("")).toContain("Vera 0.1.0-alpha.3 is installed.");
+        expect(packageWhenCurrentMoved).toBe(NEW_VERSION);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-new");
+        expect(readlinkSync(rollbackSymlinkPath(setup.prefix))).toBe(join("releases", "vera-old"));
+        expect(calls).toContain(desktopAssetUrl(NEW_VERSION));
+        expect(calls).toContain(`${desktopAssetUrl(NEW_VERSION)}.sha256`);
+        expect(readdirSync(releasesDirectory(setup.prefix)).sort()).toEqual(["vera-new", "vera-old"]);
+    });
+});
+
+test("@core a release with no desktop asset is downloaded and held, and a later update activates it", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const installed: string[] = [];
+        const held = await updateWith(setup, setup.feed(), { installed });
+        expect(held.exit).toBe(0);
+        expect(held.output).toContain(
+            "Vera 0.1.0-alpha.3 is downloaded. It turns on once the desktop app for it is released; run 'vera update' again then.\n",
+        );
+        expect(installed).toEqual([]);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+        expect(existsSync(rollbackSymlinkPath(setup.prefix))).toBe(false);
+        expect(readdirSync(releasesDirectory(setup.prefix)).sort()).toEqual(["vera-new", "vera-old"]);
+        expect(findDesktopPackage("vera-new", setup.prefix)).toBeUndefined();
+        expect(readdirSync(releasesDirectory(setup.prefix)).filter((name) => name.startsWith("."))).toEqual([]);
+
+        const desktop = desktopTarball(setup.root, "vera-new", NEW_VERSION);
+        const later = await updateWith(setup, { ...setup.feed(), ...desktopRoutes(NEW_VERSION, desktop) }, { installed });
+        expect(later.exit).toBe(0);
+        expect(later.output).toContain("Vera 0.1.0-alpha.3 is installed.");
+        expect(installed).toHaveLength(1);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-new");
+        expect(findDesktopPackage("vera-new", setup.prefix)?.desktopVersion).toBe(NEW_VERSION);
+    });
+});
+
+test("a desktop package for another host build holds the update", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const wrong = desktopTarball(setup.root, "vera-other", NEW_VERSION);
+        const installed: string[] = [];
+        const result = await updateWith(setup, { ...setup.feed(), ...desktopRoutes(NEW_VERSION, wrong) }, { installed });
+        expect(result.exit).toBe(0);
+        expect(result.output).toContain("is downloaded. It turns on once the desktop app for it is released");
+        expect(installed).toEqual([]);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+        expect(findDesktopPackage("vera-new", setup.prefix)).toBeUndefined();
+        expect(findDesktopPackage("vera-other", setup.prefix)).toBeUndefined();
+        expect(existsSync(releaseDirectory("vera-new", setup.prefix))).toBe(true);
+    });
+});
+
+test("a package already installed for the new host build matches a release whose asset is absent", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const desktop = desktopTarball(setup.root, "vera-new", NEW_VERSION);
+        const first = await updateWith(setup, { ...setup.feed(), ...desktopRoutes(NEW_VERSION, desktop) }, {});
+        expect(first.exit).toBe(0);
+        // Back on the old release, as a rollback leaves it, with the new package still in the store.
+        const home = join(setup.root, "home");
+        await withTempEnvironment(home, async () => {
+            activateRelease(setup.oldRoot, setup.prefix);
+        });
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+        const second = await updateWith(setup, setup.feed(), {});
+        expect(second.exit).toBe(0);
+        expect(second.output).toContain("Vera 0.1.0-alpha.3 is installed.");
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-new");
+    });
+});
+
+test("@core a desktop package whose checksum does not match activates nothing", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const desktop = desktopTarball(setup.root, "vera-new", NEW_VERSION);
+        const installed: string[] = [];
+        const bad = desktopRoutes(NEW_VERSION, desktop, "0".repeat(64));
+        await expect(updateWith(setup, { ...setup.feed(), ...bad }, { installed }))
+            .rejects.toThrow(`Checksum mismatch for ${DESKTOP_ASSET}.`);
+        expect(installed).toEqual([]);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+        expect(existsSync(rollbackSymlinkPath(setup.prefix))).toBe(false);
+        expect(readdirSync(releasesDirectory(setup.prefix))).toEqual(["vera-old"]);
+        expect(findDesktopPackage("vera-new", setup.prefix)).toBeUndefined();
+        expect(existsSync(join(setup.prefix, "share", "vera", "desktop", "vera-new"))).toBe(false);
+    });
+});
+
+test("a desktop checksum file that cannot be fetched is an error, not a hold", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const url = desktopAssetUrl(NEW_VERSION);
+        const feed = { ...setup.feed(), [`${url}.sha256`]: { status: 500, body: "server error" } };
+        await expect(updateWith(setup, feed, {})).rejects.toThrow(/HTTP 500/);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-old");
+        expect(readdirSync(releasesDirectory(setup.prefix))).toEqual(["vera-old"]);
+    });
+});
+
+test("a CLI-only install never asks for the desktop asset", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const calls: string[] = [];
+        const result = await updateWith(setup, setup.feed(), { calls });
+        expect(result.exit).toBe(0);
+        expect(result.output).toContain("Vera 0.1.0-alpha.3 is installed.");
+        expect(calls.some((url) => url.includes("vera-desktop-"))).toBe(false);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-new");
+    }, { recorded: false });
+});
+
+test("a non-macOS install is treated as CLI-only even with a desktop record", async () => {
+    await withDesktopUpdate(async (setup) => {
+        const linuxAsset = "vera-linux-arm64.tar.gz";
+        const base = `https://github.com/nashaad/vera/releases/download/v${NEW_VERSION}/${linuxAsset}`;
+        const calls: string[] = [];
+        const output: string[] = [];
+        const exit = await withTempEnvironment(join(setup.root, "home"), () => runUpdate({
+            prefix: setup.prefix,
+            running: { root: setup.oldRoot, prefix: setup.prefix, version: "0.1.0-alpha.1", buildId: "vera-old" },
+            platform: "linux", arch: "arm64", releasesApi: API,
+            fetch: fakeFetch({
+                [API]: { body: releaseJson({ version: NEW_VERSION }) },
+                [base]: { body: new Uint8Array(readFileSync(setup.tarball)) },
+                [`${base}.sha256`]: {
+                    body: `${createHash("sha256").update(readFileSync(setup.tarball)).digest("hex")}  ${linuxAsset}\n`,
+                },
+            }, calls),
+            verify: () => undefined,
+            output: (text) => output.push(text),
+            install: (options) => installRelease({ ...options, readLiveHost: async () => undefined }),
+        }));
+        expect(exit).toBe(0);
+        expect(calls.some((url) => url.includes("vera-desktop-"))).toBe(false);
+        expect(currentReleaseBuildId(setup.prefix)).toBe("vera-new");
+    });
 });

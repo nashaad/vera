@@ -6,6 +6,7 @@ import {
     releaseDirectory,
     rollbackReleaseBuildId,
 } from "./layout.ts";
+import { desktopInstallRecorded, findDesktopPackage } from "./desktop-packages.ts";
 import type { ReleaseManifest } from "./manifest.ts";
 import { compareVersions, isReleaseVersion } from "./version.ts";
 import { defaultReadLiveHost, handOffUpdate, type HandOffOutcome } from "./handoff.ts";
@@ -134,6 +135,12 @@ function resolveRollbackTarget(prefix: string): {
     if (!existsSync(releaseRoot)) {
         throw new RollbackUnavailableError(
             `Rollback pin ${pin} is not retained at ${releaseRoot}.`,
+        );
+    }
+    if (desktopInstallRecorded(prefix) && findDesktopPackage(pin, prefix) === undefined) {
+        throw new RollbackUnavailableError(
+            `Vera can't roll back to build ${pin}: the desktop app for that build is not installed.`
+            + " Nothing was changed.",
         );
     }
     return { releaseRoot, manifest: readStampedRelease(releaseRoot) };
