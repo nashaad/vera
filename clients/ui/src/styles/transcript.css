@@ -310,6 +310,7 @@
 }
 
 .run-head .t {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -321,13 +322,19 @@
 }
 
 .failed-tag {
+    display: inline-flex;
     flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 0.75);
+    align-items: baseline;
     margin-left: calc(var(--vera-space) * 1.5);
-    padding: 0 calc(var(--vera-space) * 1.25);
-    color: var(--vera-danger);
+    color: var(--vera-text-muted);
     font-size: calc(var(--vera-font-size) * 11 / 13);
-    border: thin solid var(--vera-danger);
-    border-radius: var(--vera-radius-sm);
+    white-space: nowrap;
+}
+
+.failed-tag::before {
+    color: var(--vera-danger);
+    content: "•";
 }
 
 .call-list {
@@ -370,10 +377,6 @@
 .call-line .arg.cmd {
     font-family: var(--vera-font-code);
     font-size: calc(var(--vera-font-size) * 12.5 / 13);
-}
-
-.call-row[data-failed="true"] .call-line .arg {
-    color: var(--vera-danger);
 }
 
 .call-out,
