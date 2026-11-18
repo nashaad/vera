@@ -173,7 +173,9 @@ already running, and prints the result.
 The check looks at the home folder, the active release, the host lock, Vera
 processes left without a working host, and recent host start failures. When
 something fails, Vera repairs it in this order and stops at the first step that
-starts a host:
+starts a host. If verified same-build session processes are waiting after a host
+crash, Vera first starts a host to adopt them. If adoption cannot complete,
+the check continues with these steps:
 
 1. Back up the runtime records under `runtime/backups/`, stop this home's
    leftover Vera processes, and clear stale sockets and the host lock. These are

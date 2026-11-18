@@ -42,6 +42,7 @@ export interface BootDependencies {
     // Cheap test for a published, live host; when true the full inspection is skipped.
     hostPublished?(): Promise<boolean>;
     inspect(): Promise<BootInspection>;
+    adopt?(): Promise<HostLockRecord | undefined>;
     // Backs up records, stops this home's leftover processes and clears stale runtime files.
     recover(): Promise<RecoveryResult>;
     start(mode: HostMode): Promise<HostLockRecord>;
@@ -134,6 +135,23 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
     }
 
     if (!healthy && needsRepair(inspection)) {
+        if (deps.adopt !== undefined && inspection.releaseProblem === undefined && !inspection.bootLoop) {
+            try {
+                const adopted = await deps.adopt();
+                if (adopted !== undefined) {
+                    if (deps.full === true) {
+                        checks.push({ label: "Session processes", status: "fixed", detail: "Adopted by the new host" });
+                        checks.push({ label: "Host", status: "ok", detail: `PID ${adopted.pid}${adopted.build_id === undefined ? "" : `, build ${adopted.build_id}`}` });
+                        deps.render(checks);
+                    }
+                    return adopted;
+                }
+            } catch (error) {
+                if (deps.full === true) {
+                    checks.push({ label: "Session processes", status: "warn", detail: errorText(error) });
+                }
+            }
+        }
         await recoverInto(deps, checks);
     } else if (healthy) {
         await recoverInto(deps, checks);
