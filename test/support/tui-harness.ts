@@ -168,7 +168,7 @@ export async function startTuiTestSession(
             if (value !== undefined) process.env[name] = value;
         }
         if (previousVeraHome === undefined) {
-            delete process.env[VERA_HOME_ENV];
+            process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         } else {
             process.env[VERA_HOME_ENV] = previousVeraHome;
         }

@@ -35,7 +35,7 @@ afterAll(() => {
     for (const handle of handles) {
         handle.kill();
     }
-    if (previousVeraHome === undefined) delete process.env.VERA_HOME;
+    if (previousVeraHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     else process.env.VERA_HOME = previousVeraHome;
     rmSync(liveHome, { recursive: true, force: true });
     for (const directory of directories) {

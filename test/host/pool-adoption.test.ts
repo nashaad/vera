@@ -885,7 +885,7 @@ socketAndLoopbackTest("a stop refused during adoption never takes effect later",
             if (alive(pid)) signalStarted(started, pid, "SIGKILL");
             await waitFor(() => !alive(pid), `process ${pid} exit`);
         }
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         stub.stop(true);
         await stderr;

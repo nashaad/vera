@@ -83,7 +83,7 @@ test("an assignment written after the host started needs no restart", async () =
         }]);
     } finally {
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;
@@ -139,7 +139,7 @@ test("the classifier menu and Defaults write the same classifier", async () => {
         expect(host.registry.readReviewer()).toBeUndefined();
     } finally {
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;
@@ -194,7 +194,7 @@ test("a setting changed on disk reaches the registry with no restart", async () 
         expect(options.modelFallback).toBeDefined();
     } finally {
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
@@ -305,7 +305,7 @@ test("a running session's next compact uses the assignment written now", async (
             .toBeGreaterThan(0);
     } finally {
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;

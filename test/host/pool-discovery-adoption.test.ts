@@ -101,7 +101,7 @@ socketTest("ordinary discovery answers while the host supervises a silent worker
         const next = JSON.parse(await readFile(join(home, "ready.json"), "utf8")) as PoolInfo;
         if (next.annexPid !== undefined) remember(next.annexPid);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (replacement !== undefined) {
             const names = await readdir(join(home, "runtime", "workers")).catch(() => []);

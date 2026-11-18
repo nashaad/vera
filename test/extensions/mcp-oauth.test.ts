@@ -94,7 +94,7 @@ test("registry skips a logged-out oauth server but offers /mcp-login, then loads
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = veraHome;
     cleanups.push(() => {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     });
     const extensions = [{

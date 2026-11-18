@@ -279,7 +279,7 @@ test("a rollback over a host lockfile whose pid is dead starts no host", async (
         expect(existsSync(lockPath)).toBe(false);
         expect(await readUpgradeJournal(prefix)).toBeUndefined();
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(prefix, { recursive: true, force: true });
         rmSync(home, { recursive: true, force: true });

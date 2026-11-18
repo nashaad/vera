@@ -97,7 +97,7 @@ async function budgetWorker(script?: readonly AssistantMessage[]): Promise<Budge
         extensions,
         registry,
         detach: () => {
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             if (previousExtensions === undefined) delete process.env.VERA_WORKER_EXTENSIONS;
             else process.env.VERA_WORKER_EXTENSIONS = previousExtensions;
@@ -374,7 +374,7 @@ test("control: the same middleware asks on the host path", async () => {
     } finally {
         await registry.close();
         await extensions.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }

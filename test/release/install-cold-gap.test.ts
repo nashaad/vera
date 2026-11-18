@@ -48,7 +48,7 @@ test("a host started between cold stop and activation is stopped after activatio
     } finally {
         await stopHostProcess(fixture.home).catch(() => {});
         fixture.cleanup();
-        if (oldHome === undefined) delete process.env.VERA_HOME;
+        if (oldHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = oldHome;
     }
 }, 120_000);
@@ -83,7 +83,7 @@ test("a host started after an empty host read is stopped after cold activation",
     } finally {
         await stopHostProcess(fixture.home).catch(() => {});
         fixture.cleanup();
-        if (oldHome === undefined) delete process.env.VERA_HOME;
+        if (oldHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = oldHome;
     }
 }, 120_000);
@@ -116,7 +116,7 @@ test("reconciliation waits for the boot lock and leaves a matching host alone", 
         expect(stops).toBe(0);
     } finally {
         await claim.release();
-        if (oldHome === undefined) delete process.env.VERA_HOME;
+        if (oldHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = oldHome;
         rmSync(root, { recursive: true, force: true });
     }

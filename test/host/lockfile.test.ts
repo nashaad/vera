@@ -168,7 +168,7 @@ test("the daily socket is the home runtime socket, including a long home", () =>
         expect(defaultHostSocketPath()).toBe(join(home, "runtime", "host.sock"));
         expect(defaultHostLockPath()).toBe(join(home, "runtime", "host.json"));
     } finally {
-        if (previousHome === undefined) delete process.env[VERA_HOME_ENV];
+        if (previousHome === undefined) process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         else process.env[VERA_HOME_ENV] = previousHome;
     }
 });

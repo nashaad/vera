@@ -125,7 +125,7 @@ socketAndLoopbackTest(
         } finally {
             await host.close();
             server.stop(true);
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }
@@ -238,7 +238,7 @@ socketAndLoopbackTest(
         } finally {
             await host.close();
             server.stop(true);
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
             else process.env.OPENROUTER_API_KEY = previousKey;
@@ -319,7 +319,7 @@ socketAndLoopbackTest(
             await new Promise<void>((resolve, reject) => {
                 server.close((error) => error === undefined ? resolve() : reject(error));
             });
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }
@@ -427,7 +427,7 @@ socketAndLoopbackTest(
             await host.close();
             oldServer.stop(true);
             newServer.stop(true);
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }
@@ -518,7 +518,7 @@ socketAndLoopbackTest(
             await host.close();
             oldServer.stop(true);
             newServer.stop(true);
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }
@@ -600,7 +600,7 @@ socketAndLoopbackTest(
         } finally {
             release.resolve();
             await host.close(); server.stop(true);
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }
@@ -684,7 +684,7 @@ socketTest(
             expect(after?.refreshableProviders).toContain("openai-codex");
         } finally {
             await host.close();
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(root, { recursive: true, force: true });
         }

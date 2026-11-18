@@ -277,7 +277,7 @@ socketTest(
         } finally {
             await host?.close();
             if (previousHome === undefined) {
-                delete process.env.VERA_HOME;
+                process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             } else {
                 process.env.VERA_HOME = previousHome;
             }

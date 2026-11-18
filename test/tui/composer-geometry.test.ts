@@ -186,7 +186,7 @@ describe("composer geometry", () => {
         try {
             booted = await bootTui("default", "/workspace");
         } finally {
-            if (oldHome === undefined) delete process.env.VERA_HOME;
+            if (oldHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = oldHome;
         }
         if (booted === undefined) throw new Error("TUI did not boot");

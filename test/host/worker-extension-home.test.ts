@@ -86,7 +86,7 @@ test("a worker extension writes under the host's explicit home", async () => {
     } finally {
         handle.kill();
         await handle.outcome.catch(() => undefined);
-        if (previousHome === undefined) delete process.env[VERA_HOME_ENV];
+        if (previousHome === undefined) process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         else process.env[VERA_HOME_ENV] = previousHome;
         await rm(root, { recursive: true, force: true });
     }

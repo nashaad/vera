@@ -21,7 +21,7 @@ function isolatedHome(): string {
 
 afterEach(() => {
     if (originalHome === undefined) {
-        delete process.env.VERA_HOME;
+        process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     } else {
         process.env.VERA_HOME = originalHome;
     }

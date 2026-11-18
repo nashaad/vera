@@ -215,7 +215,7 @@ socketTest("an override saved through one worker is reloaded by another with the
         for (const client of clients) client.close();
         try { await host?.close(); }
         finally {
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             try {
                 for (const pid of [...pids, ...(annexPid === undefined ? [] : [annexPid])]) expect(() => process.kill(pid, 0)).toThrow();

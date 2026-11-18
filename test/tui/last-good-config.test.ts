@@ -57,7 +57,7 @@ test("each distinct load error is logged once", () => {
         readLastGoodConfig(rt);
         expect(events).toHaveLength(3);
     } finally {
-        if (previous === undefined) delete process.env[VERA_HOME_ENV];
+        if (previous === undefined) process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         else process.env[VERA_HOME_ENV] = previous;
     }
 });

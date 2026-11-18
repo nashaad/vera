@@ -24,7 +24,7 @@ async function withLockRecord(
         }));
         await body();
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
         await rm(home, { recursive: true, force: true });
     }

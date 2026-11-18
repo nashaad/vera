@@ -75,7 +75,7 @@ socketAndLoopbackTest("host stop does not report success while a pool is startin
         host ??= await starting.catch(() => undefined);
         await host?.close();
         if (workerPid !== undefined) expect(processIsAlive(workerPid)).toBe(false);
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         probe.mockRestore();
         stub.stop(true);
@@ -164,7 +164,7 @@ socketTest("plain host stop refuses while startup holds the claim", async () => 
     } finally {
         release.resolve();
         await (await starting).close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(home, { recursive: true, force: true });
     }
@@ -195,7 +195,7 @@ test("a pooled host with a custom socket refuses while its startup claim is held
         });
     } finally {
         await claim.release();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(home, { recursive: true, force: true });
     }
@@ -240,7 +240,7 @@ test("a dangling home alias and its target share the startup claim for both stop
             code: 0, output: "No resident Vera host is recorded.\n", error: "",
         });
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
