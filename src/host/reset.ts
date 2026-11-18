@@ -29,7 +29,6 @@ export interface ResetSystem extends ResetProcessSystem {
 
 export interface ResetOptions {
     readonly home?: string;
-    readonly defaultHome?: string;
     readonly assumeYes: boolean;
     readonly requester?: HostRequester;
 }
@@ -76,7 +75,7 @@ const PROOF_LABEL: Record<ResetCandidate["proof"], string> = {
 
 export async function runHostReset(options: ResetOptions, dependencies: ResetDependencies): Promise<number> {
     const { system, output, errorOutput } = dependencies;
-    const discovery = await discoverResetProcesses(system, { home: options.home, defaultHome: options.defaultHome });
+    const discovery = await discoverResetProcesses(system, { home: options.home });
     const stoppable = discovery.candidates.filter((candidate) => candidate.role !== "client");
     if (stoppable.length === 0 && discovery.candidates.length === 0 && discovery.records.length === 0
         && discovery.lock.state === "absent" && discovery.unproven.length === 0 && !hasStaleRuntimeFiles(discovery)) {
