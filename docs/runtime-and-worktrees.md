@@ -226,7 +226,8 @@ counts as this home's when its command line has a Vera role and one of these
 holds:
 
 - its launch environment sets `VERA_HOME` to this home;
-- its launch environment has no `VERA_HOME` and this home is the default home;
+- its launch environment has no `VERA_HOME` (or it is blank), and its own
+  `HOME` makes this home the default;
 - it answers on this home's host socket;
 - it holds a socket in this home's runtime directory.
 
